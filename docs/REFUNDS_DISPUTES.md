@@ -511,6 +511,36 @@ and is shown a notice, and the organiser can refund those orders one at a time
 (`night-cancellation-passes` on the limitations page). One change notice per
 touched order is shown on its order page; nothing is emailed.
 
+Corrections of 2026-10-07, each with a case in
+`apps/api/tests/event-full-control-integration.test.js` (XR-1 to XR-3) that
+fails without it:
+
+- **The order's other nights are kept.** A night's refund of an order's lines
+  is never turned into a refund of everything (`promoteToWhole: false`), even
+  when it comes to all the order has left — which it does whenever the order's
+  other tickets are free, since a free ticket carries no share of the fee.
+  Before, that refund withdrew the same order's free tickets for nights still
+  on, every-night passes included. Settlement now marks an order REFUNDED only
+  once its money is all back **and** none of its tickets still admits (VALID or
+  TRANSFER_PENDING): the door refuses every ticket of an order that is not
+  PAID, so an order whose kept tickets stand stays PAID with nothing left to
+  refund, like a free order.
+- **A sum refunded earlier does not block the night.** A refund given as a sum
+  (the amount form) gives back face value without withdrawing the tickets it
+  does not pay for in full, so a night's tickets can cost more face value than
+  the order has left. Their refund asks for what is left instead
+  (`capFaceToLeft`): the tickets are withdrawn and each line's amount is scaled
+  down, because that sum already paid part of them back. Before, the request
+  was refused with a 409 that named no order, and the night could not be
+  cancelled at all. The preview works the amount out the same way.
+- **The order is read again under its lock.** The night's orders are read
+  before each order's row lock is taken; a refund of the same order that
+  settled in between changed its lines. The refund is now worked out from the
+  order as it stands under the lock, and lines worth nothing are decided before
+  asking. Any refusal of the request itself fails the whole cancellation,
+  where before it was taken for "nothing owed" and left a withdrawn ticket
+  without its refund.
+
 ### The driver sends them after the commit
 
 `apps/api/src/lib/event-refunds.js` runs after the transaction has committed,

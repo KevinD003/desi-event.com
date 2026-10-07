@@ -3,8 +3,17 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
+// The real list, unless a case says otherwise: every SessionForm fills its
+// time-zone select with every zone the runtime knows once it mounts.
+vi.mock('../lib/time-zones.js', async (importOriginal) => {
+  const actual = await importOriginal()
+
+  return { ...actual, allTimeZones: vi.fn(actual.allTimeZones) }
+})
 
 const { apiFetch } = await import('../lib/api-fetch.js')
+const { allTimeZones } = await import('../lib/time-zones.js')
+const realTimeZones = (await vi.importActual('../lib/time-zones.js')).allTimeZones
 const { EventSessionsEditor } = await import('./event-sessions-editor.jsx')
 
 const event = {
@@ -75,6 +84,7 @@ const writeCall = () =>
 
 beforeEach(() => {
   apiFetch.mockReset()
+  allTimeZones.mockImplementation(realTimeZones)
 })
 
 describe('removing a session', () => {
@@ -140,6 +150,13 @@ describe('editing a session', () => {
   })
 
   it('asks why and for a tick before moving a night on a public event', async () => {
+    // Two forms are open here, the night's and the new one's, and each would
+    // list every zone the runtime knows — some 420 each, drawn again on every
+    // change — which made this one of the slowest cases in the suite (over 5 s
+    // once, under load) for a list it never reads. Its zone is New York either
+    // way; the full list has a case of its own under 'adding a session'.
+    allTimeZones.mockImplementation(() => ['America/New_York', 'UTC'])
+
     const user = userEvent.setup()
 
     respond(answer(200, { data: session(), meta: { revision: 7 } }))
@@ -167,7 +184,10 @@ describe('editing a session', () => {
     expect(screen.getAllByText('Tick the box to confirm the change.')).not.toHaveLength(0)
     expect(writeCall()).toBeUndefined()
 
-    await user.type(screen.getByLabelText(/^Why the night is moving/), 'The hall double-booked us.')
+    // Entered at once: what is asserted is that a reason is asked for and
+    // sent, not how it is typed, and 26 keystrokes were 26 renders of both forms.
+    await user.click(screen.getByLabelText(/^Why the night is moving/))
+    await user.paste('The hall double-booked us.')
     await user.click(screen.getByRole('checkbox', { name: /I understand this changes/ }))
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
@@ -575,5 +595,42 @@ describe('writing as the Desi-Event team, whose second factor lapses every 10 mi
       await screen.findByText(/Open this event for editing as the Desi-Event team/),
     ).toBeInTheDocument()
     expect(onSittingEnded).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a night whose listing gave no end time', () => {
+  const LABEL = 'Not listed by Sulekha (estimate for scheduling)'
+
+  it('labels the stored end as an estimate in the list and in the edit form', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[session({ endTimeListed: false })]}
+        revision={6}
+      />,
+    )
+
+    expect(
+      screen.getByText(`End time: ${LABEL}. The event page shows only the start.`),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Edit session 1' }))
+
+    expect(
+      screen.getAllByText(
+        `${LABEL}. The event page shows only the start until the night's real end time is set here.`,
+      ),
+    ).not.toHaveLength(0)
+  })
+
+  it('says nothing of the kind for a night whose end was listed or set', async () => {
+    const user = userEvent.setup()
+
+    render(<EventSessionsEditor event={event} sessions={[session()]} revision={6} />)
+    await user.click(screen.getByRole('button', { name: 'Edit session 1' }))
+
+    expect(screen.queryByText(new RegExp(LABEL.replace(/[()]/gu, '\\$&'), 'u'))).toBeNull()
   })
 })

@@ -11,6 +11,7 @@ import {
   DELIVERY_FAILED_SENTENCE,
   DELIVERY_MODES,
   RECIPIENT_DAILY_LIMIT_SENTENCE,
+  RECIPIENT_LOCK_CLASS,
   addressCandidates,
   assertRecipientDailyCap,
   deliverCode,
@@ -255,18 +256,23 @@ describe('assertRecipientDailyCap', () => {
   const hoursAgo = (hours) => ({ createdAt: new Date(NOW.getTime() - hours * 3_600_000) })
 
   /**
-   * A database double answering with the rows a day holds. A row names no
-   * address unless the test gives one; it is then `a@example.com`.
+   * A transaction-client double answering with the rows a day holds. A row
+   * names no address unless the test gives one; it is then `a@example.com`.
+   * Like Prisma's transaction client it has no `$disconnect`.
    *
    * @param {object[]} invitations Team invitations sent by email.
    * @param {object[]} transfers Ticket transfers.
-   * @returns {object} The double, recording the queries.
+   * @returns {object} The double, recording the statements and queries in order.
    */
   function database(invitations, transfers) {
     const calls = []
 
     return {
       calls,
+      $executeRaw: async (strings, ...values) => {
+        calls.push(['$executeRaw', Array.from(strings).join('?'), values])
+        return 1
+      },
       invitation: {
         findMany: async (query) => {
           calls.push(['invitation', query])
@@ -306,6 +312,18 @@ describe('assertRecipientDailyCap', () => {
     })
   })
 
+  it('never asks a sender to wait more than a day, even for codes written after it started', async () => {
+    // A request that waited on the address lock counts what the request before
+    // it wrote, stamped after this one's `now`.
+    const error = await assertRecipientDailyCap(
+      database([{ createdAt: new Date(NOW.getTime() + 2_000) }], [hoursAgo(-1), hoursAgo(-2)]),
+      { email: 'a@example.com', now: NOW },
+    ).catch((caught) => caught)
+
+    expect(error).toMatchObject({ statusCode: 429, code: 'RECIPIENT_DAILY_LIMIT' })
+    expect(error.retryAfterSeconds).toBe(24 * 3600)
+  })
+
   it('asks only for the last day, emailed team invitations, and any case of the address', async () => {
     const db = database([], [])
 
@@ -314,6 +332,11 @@ describe('assertRecipientDailyCap', () => {
     const since = new Date(NOW.getTime() - 24 * 3_600_000)
 
     expect(db.calls).toEqual([
+      [
+        '$executeRaw',
+        'SELECT pg_advisory_xact_lock(?::int4, hashtext(?))',
+        [RECIPIENT_LOCK_CLASS, 'a@example.com'],
+      ],
       [
         'invitation',
         {
@@ -336,6 +359,29 @@ describe('assertRecipientDailyCap', () => {
         },
       ],
     ])
+  })
+
+  it('locks the address, lower-cased, before it counts anything', async () => {
+    const db = database([], [])
+
+    await assertRecipientDailyCap(db, { email: 'Meera@Example.COM', now: NOW })
+
+    // The lock first, so a request arriving at the same moment counts only
+    // after this one's row has committed or rolled back.
+    expect(db.calls.map(([kind]) => kind)).toEqual(['$executeRaw', 'invitation', 'ticketTransfer'])
+    expect(db.calls[0][1]).toMatch(/^SELECT pg_advisory_xact_lock\(/u)
+    // One key for every spelling of the address.
+    expect(db.calls[0][2]).toEqual([RECIPIENT_LOCK_CLASS, 'meera@example.com'])
+  })
+
+  it('refuses to run outside a transaction, where its lock would end before the row is written', async () => {
+    const db = database([], [])
+    const client = { ...db, $disconnect: async () => {} }
+
+    await expect(
+      assertRecipientDailyCap(client, { email: 'a@example.com', now: NOW }),
+    ).rejects.toThrow(TypeError)
+    expect(db.calls).toEqual([])
   })
 
   it('counts the address itself in any case, and never a look-alike the query also found', async () => {

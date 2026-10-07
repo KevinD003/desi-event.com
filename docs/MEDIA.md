@@ -32,6 +32,7 @@ Everything that can refuse an upload without looking at it runs in an
 | The event is a draft or has changes requested         | 409 `NOT_EDITABLE`         |
 | The gallery has room (at most 8)                      | 409 `GALLERY_FULL`         |
 | The organisation is under its 1 GiB storage quota     | 409 `MEDIA_QUOTA_EXCEEDED` |
+| With deleted events' pictures, under 2 GiB in all     | 409 `MEDIA_QUOTA_EXCEEDED` |
 
 The tests prove the order by counting the bytes a refused request had read
 from its stream: zero, for an anonymous caller, a caller without the
@@ -94,6 +95,7 @@ picture)").
 | Description                   | 1–300 characters, not a file name           | 400                        |
 | Gallery                       | 8 pictures                                  | 409 `GALLERY_FULL`         |
 | Storage per organisation      | 1 GiB, counted from the stored sizes        | 409 `MEDIA_QUOTA_EXCEEDED` |
+| Including deleted events      | 2 GiB in all                                | 409 `MEDIA_QUOTA_EXCEEDED` |
 
 The dimensions are read from the file's own header (the JPEG frame, `IHDR`,
 the WebP header), and no pixel data is ever decompressed on the server, so a
@@ -294,8 +296,22 @@ team can still open them), though a copy
 already in somebody's browser can stay there for up to a day, the time it was
 served with. The rows and bytes are kept so a restore brings the event back
 whole, and they do not count toward the organisation's storage quota while it
-is deleted. Nothing purges them; whether a purge window is wanted is an open
-question for review.
+is deleted. Nothing purges them.
+
+So that deleting full events and uploading again cannot grow storage without
+end, everything an organisation holds — its live pictures and its deleted
+events' together — has a ceiling of its own: the quota again on top of it
+(`DELETED_EVENT_ALLOWANCE_BYTES`), 2 GiB in all (since 2026-10-07). An upload
+past it is refused with `MEDIA_QUOTA_EXCEEDED` and a sentence saying why, and
+`details.deletedEventBytes`: "Your organisation’s deleted events still hold
+their pictures, kept so the Desi-Event team can restore them, and together
+with your other pictures they fill the 2 GB your organisation may store in
+all. To make room, remove pictures from past events, or ask the Desi-Event
+team to restore a deleted event and then remove its pictures." A restored
+event's pictures can be removed in whatever status it comes back in.
+`apps/api/tests/event-media-integration.test.js` drives the loop through the
+routes. A purge of long-deleted events' pictures would need its own window and
+its own limitation entry, and is not built.
 
 ## Imported pictures — 2026-10-06
 

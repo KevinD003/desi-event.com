@@ -96,7 +96,8 @@ export function registerWebsiteRedirectRoutes(app, { prisma, websiteVisitLimit =
    * Take a place under the per-event ceiling, if one is left this minute.
    *
    * Synchronous from the read to the write, so visits that arrive together
-   * cannot all take the last place.
+   * cannot all take the last place. The place is held while the visit is
+   * being counted, and kept only if it is: see {@link giveBackCountingPlace}.
    *
    * @param {string} eventId The event.
    * @param {number} nowMs The current instant.
@@ -117,6 +118,27 @@ export function registerWebsiteRedirectRoutes(app, { prisma, websiteVisitLimit =
     countedThisMinute.set(eventId, taken + 1)
 
     return true
+  }
+
+  /**
+   * Give back a place taken for a visit that was not counted after all.
+   *
+   * The ceiling is on visits counted, not visits tried: a repeat, a refusal by
+   * the event-wide ceiling or a failure records nothing, so it must not use up
+   * a place a new visitor could have had this minute.
+   *
+   * @param {string} eventId The event.
+   * @param {number} nowMs The instant the place was taken at.
+   * @returns {void} Nothing.
+   */
+  function giveBackCountingPlace(eventId, nowMs) {
+    // A later minute has already cleared the count this place came from.
+    if (Math.floor(nowMs / MINUTE_MS) !== countingMinute) return
+
+    const taken = countedThisMinute.get(eventId) ?? 0
+
+    if (taken <= 1) countedThisMinute.delete(eventId)
+    else countedThisMinute.set(eventId, taken - 1)
   }
 
   defineRoute(app, 'traffic.websiteVisit', {
@@ -177,6 +199,9 @@ export function registerWebsiteRedirectRoutes(app, { prisma, websiteVisitLimit =
               'website visit not counted',
             )
           }
+
+          // Only a visit that was counted keeps its place.
+          if (outcome !== 'RECORDED') giveBackCountingPlace(event.id, now.getTime())
         }
       }
 

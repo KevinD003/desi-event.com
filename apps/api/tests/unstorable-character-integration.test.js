@@ -16,6 +16,20 @@
  *   2. Should a NUL reach PostgreSQL by some other road, the error handler
  *      answers 22P05 exactly as it answers 22021: 400, and what to change.
  *
+ * A lone UTF-16 surrogate — `\ud800` in a JSON body, half of a pair — is the
+ * same story for every JSON column: `JSON.parse` accepts it, no schema refused
+ * it, and `jsonb` answers 22P02 ("invalid input syntax for type json", Prisma
+ * P2007). Free-text reasons go into audit metadata, outbox payloads and the
+ * import file, so the commands that write them answered 500. The validator
+ * refuses one now as it refuses a NUL, and the error handler answers the
+ * database's refusal as 400 should one arrive by another road.
+ *
+ * Numbers and dates PostgreSQL cannot hold go the same way. A revision past
+ * 2147483647 is compared with an `integer` column and Prisma refuses the
+ * query (P2020); a query date in year 0000 is no day in PostgreSQL's calendar
+ * (22008). The request schemas bound both, naming the field, and the error
+ * handler answers either refusal as 400 should one arrive by another road.
+ *
  * Runs against `TEST_DATABASE_URL`. With `REQUIRE_DATABASE` set it fails rather
  * than skips.
  *
@@ -29,6 +43,7 @@ import { afterAll, beforeAll, expect, it } from 'vitest'
 
 import { buildApp } from '../src/app.js'
 import {
+  OUT_OF_RANGE_MESSAGE,
   UNSTORABLE_CHARACTER_MESSAGE,
   databaseErrorCode,
   normaliseError,
@@ -243,7 +258,9 @@ beforeAll(async () => {
     env: testEnv(),
     docs: false,
     processEnv: {},
-    rateLimit: { global: { max: 10_000, timeWindow: '1 minute' } },
+    rateLimit: { global: { max: 10_000, timeWindow: '1 minute' }, eventImport: { max: 1000 } },
+    // No listing in this suite has a picture; nothing is fetched.
+    fetchImportImage: async () => ({ ok: false, code: 'NETWORK_UNAVAILABLE' }),
   })
   await app.ready()
 
@@ -425,6 +442,625 @@ when()('a NUL in a request, against PostgreSQL', () => {
         statusCode: 400,
         code: 'VALIDATION_ERROR',
         message: UNSTORABLE_CHARACTER_MESSAGE,
+        expected: true,
+      })
+    }
+  })
+})
+
+/** Half of a pair, alone: what `JSON.parse` makes of a `\ud800` escape. */
+const LONE_HIGH = '\ud800'
+
+/** The other half, alone. */
+const LONE_LOW = '\udc00'
+
+/**
+ * An import file of one listing, as the importer reads it.
+ *
+ * @param {string} title The listing's title.
+ * @returns {object} The dataset.
+ */
+function importFile(title) {
+  sequence += 1
+
+  const sourceId = `${String(Date.now()).slice(-8)}${String(sequence % 100).padStart(2, '0')}`
+  const sourceUrl = `https://events.sulekha.com/garba_event-in_irving-tx_${sourceId}`
+
+  return {
+    format: 'desi-event-import/1',
+    source: 'SULEKHA',
+    sourceName: 'Sulekha',
+    sourceSite: 'https://events.sulekha.com/',
+    collectedFrom: '2026-09-29T21:25:00Z',
+    collectedTo: '2026-09-30T00:51:08Z',
+    curatedOn: '2026-09-30',
+    imageHosts: ['usimg.sulekha.io'],
+    events: [
+      {
+        sourceId,
+        sourceUrl,
+        scrapedAt: '2026-09-29T21:25:00Z',
+        title,
+        category: 'GARBA_DANDIYA',
+        sourceCategory: 'GARBA_DANDIYA',
+        summary: 'An evening of garba and dandiya with a live band.',
+        description: 'Dance the night away.',
+        startsAt: new Date(Date.now() + 12 * 86_400_000).toISOString(),
+        endsAt: null,
+        timeZone: 'America/Chicago',
+        venue: {
+          name: `Irving Hall ${RUN}`,
+          addressLine1: '500 W Las Colinas Blvd',
+          city: 'Irving',
+          region: 'TX',
+          postalCode: '75039',
+          country: 'US',
+        },
+        performers: [],
+        presentedBy: 'DFW Garba Collective',
+        languages: ['Gujarati'],
+        prices: [],
+        priceText: null,
+        ageRestriction: null,
+        dressCode: null,
+        parking: null,
+        faq: [],
+        images: [],
+        ticketUrl: sourceUrl,
+        importNotes: [],
+      },
+    ],
+  }
+}
+
+/**
+ * Assert a response is the refusal of a character PostgreSQL cannot store,
+ * naming the field, and that the character is not echoed back.
+ *
+ * @param {object} response The injected response.
+ * @param {string} path The field's path, as the issue list spells it.
+ * @returns {void}
+ */
+function expectLoneSurrogateRefusal(response, path) {
+  expectNulRefusal(response, path)
+  expect(response.body).not.toMatch(/\\ud[89a-f][0-9a-f]{2}/iu)
+}
+
+/**
+ * The audit rows about one event, of one action.
+ *
+ * @param {string} entityId The event.
+ * @param {string} action The action.
+ * @returns {Promise<number>} How many.
+ */
+function audits(entityId, action) {
+  return prisma.auditLog.count({ where: { entityId, action } })
+}
+
+when()('a lone surrogate in a request, against PostgreSQL', () => {
+  let administrator
+
+  beforeAll(async () => {
+    const admin = await user('lone-admin', 'ADMIN')
+
+    administrator = { user: admin, headers: await sessionFor(admin) }
+  })
+
+  it('refuses one in an import file before a run is written, and takes the pair', async () => {
+    const runsBefore = await prisma.eventImportRun.count({
+      where: { createdById: administrator.user.id },
+    })
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/v1/platform/imports',
+      headers: administrator.headers,
+      payload: { fileName: 'listings.json', dataset: importFile(`Garba ${LONE_HIGH} night`) },
+    })
+
+    expectLoneSurrogateRefusal(refused, 'dataset.events[0].title')
+    expect(
+      await prisma.eventImportRun.count({ where: { createdById: administrator.user.id } }),
+    ).toBe(runsBefore)
+
+    // An emoji is a well-formed pair, and is read as one.
+    const paired = await app.inject({
+      method: 'POST',
+      url: '/v1/platform/imports',
+      headers: administrator.headers,
+      payload: { fileName: 'listings.json', dataset: importFile(`Garba 💃 night ${RUN}`) },
+    })
+
+    expect(paired.statusCode, paired.body).toBe(201)
+  })
+
+  it('refuses one in a website link decision, and changes nothing', async () => {
+    const { event } = await eventIn('lone-website', 'PUBLISHED')
+
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { websiteUrl: 'https://example.org/', websiteDecisionPending: true },
+    })
+
+    const before = await prisma.event.findUnique({ where: { id: event.id } })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/moderation/events/${event.id}/website-redirect`,
+      headers: administrator.headers,
+      payload: {
+        enabled: true,
+        reason: `Looks good ${LONE_HIGH} here`,
+        websiteUrl: 'https://example.org/',
+      },
+    })
+
+    expectLoneSurrogateRefusal(response, 'reason')
+
+    const after = await prisma.event.findUnique({ where: { id: event.id } })
+
+    expect(after.revision).toBe(before.revision)
+    expect(after.websiteRedirectEnabled).toBe(false)
+    expect(after.websiteRedirectReason).toBeNull()
+    expect(await audits(event.id, 'event.website_redirect_changed')).toBe(0)
+  })
+
+  it('refuses one in the reason for opening an event for editing, and opens no sitting', async () => {
+    const { event } = await eventIn('lone-sitting', 'PUBLISHED')
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/events/${event.id}/edit`,
+      headers: administrator.headers,
+      payload: { reason: `Fixing a typo ${LONE_LOW} in the title` },
+    })
+
+    expectLoneSurrogateRefusal(response, 'reason')
+    expect(await prisma.eventPlatformEdit.count({ where: { eventId: event.id } })).toBe(0)
+  })
+
+  it('refuses one in a deletion reason, and the event stays; the pair is taken', async () => {
+    const { event } = await eventIn('lone-delete', 'DRAFT')
+    const body = (reason) => ({
+      revision: event.revision,
+      reason,
+      confirmSlug: event.slug,
+      expectedOutcome: 'REMOVE',
+    })
+    const refused = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/delete`,
+      headers: world.headers,
+      payload: body(`Duplicate listing \ud83d made by mistake`),
+    })
+
+    expectLoneSurrogateRefusal(refused, 'reason')
+
+    const kept = await prisma.event.findUnique({ where: { id: event.id } })
+
+    expect(kept).toMatchObject({ status: 'DRAFT', revision: event.revision, deletedAt: null })
+    expect(await audits(event.id, 'event.deleted')).toBe(0)
+
+    const deleted = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/delete`,
+      headers: world.headers,
+      payload: body('Duplicate listing 😀 made by mistake'),
+    })
+
+    expect(deleted.statusCode, deleted.body).toBe(200)
+    expect((await prisma.event.findUnique({ where: { id: event.id } })).deletionReason).toBe(
+      'Duplicate listing 😀 made by mistake',
+    )
+  })
+
+  it('refuses one in a restore reason, and the event stays deleted', async () => {
+    const { event } = await eventIn('lone-restore', 'DRAFT')
+    const deleted = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/delete`,
+      headers: world.headers,
+      payload: {
+        revision: event.revision,
+        reason: 'Posted twice by mistake.',
+        confirmSlug: event.slug,
+        expectedOutcome: 'REMOVE',
+      },
+    })
+
+    expect(deleted.statusCode, deleted.body).toBe(200)
+
+    const gone = await prisma.event.findUnique({ where: { id: event.id } })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/events/${event.id}/restore`,
+      headers: administrator.headers,
+      payload: { revision: gone.revision, reason: `Deleted by mistake ${LONE_HIGH} restore it` },
+    })
+
+    expectLoneSurrogateRefusal(response, 'reason')
+
+    const after = await prisma.event.findUnique({ where: { id: event.id } })
+
+    expect(after).toMatchObject({ status: 'DELETED', revision: gone.revision })
+    expect(await audits(event.id, 'event.restored')).toBe(0)
+  })
+
+  it('refuses one in a cancelled night’s reason, and the night stays on sale', async () => {
+    const { event } = await eventIn('lone-night', 'ON_SALE')
+    const second = await prisma.eventSession.create({
+      data: {
+        id: id('session-lone-night-2'),
+        eventId: event.id,
+        startsAt: new Date(event.startsAt.getTime() + 86_400_000),
+        endsAt: new Date(event.endsAt.getTime() + 86_400_000),
+        timezone: 'America/Chicago',
+        capacity: 100,
+      },
+    })
+    const outboxBefore = await prisma.notificationOutbox.count({
+      where: {
+        template: 'event.session_cancelled',
+        payload: { path: ['eventId'], equals: event.id },
+      },
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/sessions/${second.id}/cancel`,
+      headers: world.headers,
+      payload: {
+        revision: event.revision,
+        reason: `The band could not travel ${LONE_LOW} that night.`,
+        confirm: true,
+        expectedOrders: 0,
+      },
+    })
+
+    expectLoneSurrogateRefusal(response, 'reason')
+
+    const night = await prisma.eventSession.findUnique({ where: { id: second.id } })
+
+    expect(night.cancelledAt).toBeNull()
+    expect(night.cancellationReason).toBeNull()
+    expect((await prisma.event.findUnique({ where: { id: event.id } })).revision).toBe(
+      event.revision,
+    )
+    expect(
+      await prisma.notificationOutbox.count({
+        where: {
+          template: 'event.session_cancelled',
+          payload: { path: ['eventId'], equals: event.id },
+        },
+      }),
+    ).toBe(outboxBefore)
+  })
+
+  it('refuses one in the reason for moving an imported event, and it stays imported', async () => {
+    const previewed = await app.inject({
+      method: 'POST',
+      url: '/v1/platform/imports',
+      headers: administrator.headers,
+      payload: { fileName: 'listings.json', dataset: importFile(`Garba to move ${RUN}`) },
+    })
+
+    expect(previewed.statusCode, previewed.body).toBe(201)
+
+    const run = previewed.json().data
+    const applied = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/imports/${run.id}/apply`,
+      headers: administrator.headers,
+      payload: { planDigest: run.planDigest },
+    })
+
+    expect(applied.statusCode, applied.body).toBe(200)
+
+    const item = await prisma.eventImportItem.findFirst({
+      where: { lastRunId: run.id },
+      include: { event: true },
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/imports/events/${item.event.id}/reassign`,
+      headers: administrator.headers,
+      payload: {
+        organizationId: world.organization.id,
+        reason: `They run this event ${LONE_HIGH} themselves.`,
+        revision: item.event.revision,
+      },
+    })
+
+    expectLoneSurrogateRefusal(response, 'reason')
+
+    const after = await prisma.eventImportItem.findUnique({
+      where: { id: item.id },
+      include: { event: true },
+    })
+
+    expect(after.reassignedAt).toBeNull()
+    expect(after.event.organizationId).toBe(item.event.organizationId)
+    expect(after.event.revision).toBe(item.event.revision)
+  })
+
+  it('answers 400 for one that reaches a JSON column by another road (22P02, P2007)', async () => {
+    const refused = await prisma.auditLog
+      .create({
+        data: {
+          action: 'test.lone_surrogate',
+          entityType: 'User',
+          entityId: world.owner.id,
+          actorId: world.owner.id,
+          metadata: { reason: `Half a pair ${LONE_HIGH}` },
+        },
+      })
+      .then(
+        () => null,
+        (error) => error,
+      )
+
+    expect(refused).not.toBeNull()
+    expect(refused.code).toBe('P2007')
+
+    for (const exposeInternals of [true, false]) {
+      expect(normaliseError(refused, { exposeInternals })).toEqual({
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: UNSTORABLE_CHARACTER_MESSAGE,
+        expected: true,
+      })
+    }
+
+    // 22P02 is any malformed literal: an integer the database cannot read is
+    // still a fault, and still hidden in production.
+    const malformed = await prisma.$queryRawUnsafe(`SELECT 'not a number'::int`).then(
+      () => null,
+      (error) => error,
+    )
+
+    expect(malformed).not.toBeNull()
+    expect(normaliseError(malformed, { exposeInternals: false })).toMatchObject({
+      statusCode: 500,
+      code: 'INTERNAL_SERVER_ERROR',
+    })
+  })
+})
+
+/** One past the largest value an `integer` column holds. */
+const PAST_INT_MAX = 2_147_483_648
+
+/**
+ * Assert a response is a 400 naming one field, as the request schemas answer.
+ *
+ * @param {object} response The injected response.
+ * @param {string} path The field's path, as the issue list spells it.
+ * @returns {void}
+ */
+function expectFieldRefusal(response, path) {
+  expect(response.statusCode, response.body).toBe(400)
+
+  const { error } = response.json()
+
+  expect(error.code).toBe('VALIDATION_ERROR')
+  expect(error.issues.map((issue) => issue.path)).toContain(path)
+}
+
+when()('a revision past an integer column, against PostgreSQL', () => {
+  let administrator
+
+  beforeAll(async () => {
+    const admin = await user('range-admin', 'ADMIN')
+
+    administrator = { user: admin, headers: await sessionFor(admin) }
+  })
+
+  it('refuses one in a deletion and leaves the event as it was', async () => {
+    const { event } = await eventIn('range-delete', 'DRAFT')
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/delete`,
+      headers: world.headers,
+      payload: {
+        revision: PAST_INT_MAX,
+        reason: 'Testing a revision past the column.',
+        confirmSlug: event.slug,
+        expectedOutcome: 'REMOVE',
+      },
+    })
+
+    expectFieldRefusal(response, 'revision')
+    expect(await prisma.event.findUnique({ where: { id: event.id } })).toMatchObject({
+      status: 'DRAFT',
+      revision: event.revision,
+    })
+  })
+
+  it('refuses one in a restore and the event stays deleted', async () => {
+    const { event } = await eventIn('range-restore', 'DRAFT')
+    const deleted = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/delete`,
+      headers: world.headers,
+      payload: {
+        revision: event.revision,
+        reason: 'Posted twice by mistake.',
+        confirmSlug: event.slug,
+        expectedOutcome: 'REMOVE',
+      },
+    })
+
+    expect(deleted.statusCode, deleted.body).toBe(200)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/events/${event.id}/restore`,
+      headers: administrator.headers,
+      payload: { revision: PAST_INT_MAX + 1, reason: 'Restore with a huge revision.' },
+    })
+
+    expectFieldRefusal(response, 'revision')
+    expect((await prisma.event.findUnique({ where: { id: event.id } })).status).toBe('DELETED')
+  })
+
+  it('refuses one in a night’s cancellation and the night stays on sale', async () => {
+    const { event } = await eventIn('range-night', 'ON_SALE')
+    const second = await prisma.eventSession.create({
+      data: {
+        id: id('session-range-night-2'),
+        eventId: event.id,
+        startsAt: new Date(event.startsAt.getTime() + 86_400_000),
+        endsAt: new Date(event.endsAt.getTime() + 86_400_000),
+        timezone: 'America/Chicago',
+        capacity: 100,
+      },
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/sessions/${second.id}/cancel`,
+      headers: world.headers,
+      payload: {
+        revision: PAST_INT_MAX,
+        reason: 'Cancel with a huge revision.',
+        confirm: true,
+        expectedOrders: 0,
+      },
+    })
+
+    expectFieldRefusal(response, 'revision')
+    expect(
+      (await prisma.eventSession.findUnique({ where: { id: second.id } })).cancelledAt,
+    ).toBeNull()
+  })
+
+  it('refuses one in an organiser’s edit, and in moving an imported event', async () => {
+    const { event } = await eventIn('range-edit', 'DRAFT')
+    const edited = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${event.id}`,
+      headers: world.headers,
+      payload: { revision: PAST_INT_MAX + 1, title: 'Owner edit with a huge revision' },
+    })
+
+    expectFieldRefusal(edited, 'revision')
+    expect((await prisma.event.findUnique({ where: { id: event.id } })).title).toBe(event.title)
+
+    const moved = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/imports/events/${event.id}/reassign`,
+      headers: administrator.headers,
+      payload: {
+        organizationId: world.organization.id,
+        reason: 'Moving with a huge revision.',
+        revision: PAST_INT_MAX,
+      },
+    })
+
+    expectFieldRefusal(moved, 'revision')
+  })
+
+  it('answers 400 for one that reaches PostgreSQL by another road (P2020)', async () => {
+    const refused = await prisma.event
+      .updateMany({ where: { revision: PAST_INT_MAX }, data: { title: 'Never written' } })
+      .then(
+        () => null,
+        (error) => error,
+      )
+
+    expect(refused).not.toBeNull()
+    expect(refused.code).toBe('P2020')
+
+    for (const exposeInternals of [true, false]) {
+      expect(normaliseError(refused, { exposeInternals })).toEqual({
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: OUT_OF_RANGE_MESSAGE,
+        expected: true,
+      })
+    }
+  })
+})
+
+when()('a query date in year 0000, against PostgreSQL', () => {
+  let platform
+
+  beforeAll(async () => {
+    const superAdmin = await user('range-super', 'SUPER_ADMIN')
+
+    platform = await sessionFor(superAdmin)
+  })
+
+  it('refuses one on the platform’s visits list, naming the field', async () => {
+    for (const [query, field] of [
+      ['from=0000-01-01T00:00:00Z', 'from'],
+      ['to=0000-01-01T00:00:00Z', 'to'],
+      ['to=0000-01-02T00:00:00Z', 'to'],
+      // Midnight on 1 January of year 1 ends on a day in year 0.
+      ['to=0001-01-01T00:00:00Z', 'to'],
+      ['from=0000-06-01T00:00:00Z&scope=all', 'from'],
+    ]) {
+      expectFieldRefusal(
+        await app.inject({ method: 'GET', url: `/v1/traffic/events?${query}`, headers: platform }),
+        field,
+      )
+    }
+
+    const fine = await app.inject({
+      method: 'GET',
+      url: '/v1/traffic/events?from=1970-01-01T00:00:00Z',
+      headers: platform,
+    })
+
+    expect(fine.statusCode, fine.body).toBe(200)
+  })
+
+  it('refuses one on an organisation’s analytics, its export and its finance summary', async () => {
+    const organizationId = world.organization.id
+
+    for (const [url, field] of [
+      [`/v1/analytics/summary?organizationId=${organizationId}&from=0000-06-01T00:00:00Z`, 'from'],
+      [`/v1/analytics/summary?organizationId=${organizationId}&to=0000-01-01T00:00:00Z`, 'to'],
+      [
+        `/v1/analytics/export.csv?organizationId=${organizationId}&from=0000-06-01T00:00:00Z`,
+        'from',
+      ],
+      [`/v1/finance/summary?organizationId=${organizationId}&from=0000-01-01T00:00:00Z`, 'from'],
+    ]) {
+      expectFieldRefusal(await app.inject({ method: 'GET', url, headers: world.headers }), field)
+    }
+
+    // The owner reads the same views from 1970 on.
+    const fine = await app.inject({
+      method: 'GET',
+      url: `/v1/analytics/summary?organizationId=${organizationId}&from=1970-01-01T00:00:00Z`,
+      headers: world.headers,
+    })
+
+    expect(fine.statusCode, fine.body).toBe(200)
+  })
+
+  it('refuses one on the public event list', async () => {
+    expectFieldRefusal(
+      await app.inject({ method: 'GET', url: '/v1/events?startsAfter=0000-01-01T00:00:00Z' }),
+      'startsAfter',
+    )
+    expectFieldRefusal(
+      await app.inject({ method: 'GET', url: '/v1/events?startsBefore=0000-01-01' }),
+      'startsBefore',
+    )
+  })
+
+  it('answers 400 for one that reaches PostgreSQL by another road (22008)', async () => {
+    const refused = await prisma.refund
+      .count({ where: { createdAt: { gte: new Date('0000-06-01T00:00:00Z') } } })
+      .then(
+        () => null,
+        (error) => error,
+      )
+
+    expect(refused).not.toBeNull()
+    expect(databaseErrorCode(refused)).toBe('22008')
+
+    for (const exposeInternals of [true, false]) {
+      expect(normaliseError(refused, { exposeInternals })).toEqual({
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: OUT_OF_RANGE_MESSAGE,
         expected: true,
       })
     }

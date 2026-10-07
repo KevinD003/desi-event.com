@@ -545,17 +545,18 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
       }
 
       const now = new Date()
-
-      // In EMAIL mode, one address is sent at most three codes a day, so this
-      // form cannot be used to fill a stranger's inbox.
-      if (mode === DELIVERY_MODES.EMAIL) await assertRecipientDailyCap(prisma, { email, now })
-
       const { secret, hash } = issueToken()
 
       let invitation
 
       try {
         invitation = await prisma.$transaction(async (tx) => {
+          // In EMAIL mode, one address is sent at most three codes a day, so
+          // this form cannot be used to fill a stranger's inbox. Counted here,
+          // under a lock on the address, so codes sent to it at the same
+          // moment take turns rather than all reading a count below three.
+          if (mode === DELIVERY_MODES.EMAIL) await assertRecipientDailyCap(tx, { email, now })
+
           // Supersede rather than accumulate: two live codes to the same address
           // is two ways in, and revoking one would leave the other working. The
           // database holds the same rule (`Invitation_one_pending_per_address`),
@@ -659,17 +660,18 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
       assertMayGrant(request.actor, organization.id, current.role)
 
       const now = new Date()
-
-      if (mode === DELIVERY_MODES.EMAIL) {
-        await assertRecipientDailyCap(prisma, { email: current.email, now })
-      }
-
       const { secret, hash } = issueToken()
 
       let invitation
 
       try {
         invitation = await prisma.$transaction(async (tx) => {
+          // The recipient cap, as for a first invitation: in the transaction
+          // that writes the new code, under the address lock.
+          if (mode === DELIVERY_MODES.EMAIL) {
+            await assertRecipientDailyCap(tx, { email: current.email, now })
+          }
+
           // The old code dies in the same transaction the new one is born in,
           // and only if the invitation is still outstanding at that moment:
           // an acceptance or a withdrawal that got there first wins.

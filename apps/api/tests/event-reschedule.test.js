@@ -478,6 +478,54 @@ describe('a postponed event comes back with a new date', () => {
   })
 })
 
+describe('a night whose listing gave no end time', () => {
+  // An imported night stores `startsAt + 3 h` as its end and is flagged
+  // `endTimeListed = false`; no public page shows that estimate (SPEC2-XI §0
+  // rule 9). Moving the whole night keeps it an estimate; an end set apart
+  // from the start is the organiser's, and the public page shows it.
+
+  it('stays an estimate when the night moves whole', async () => {
+    const { app, session, body, reschedule } = await postponedHarness()
+    const length = 3 * 60 * 60 * 1000
+
+    session.endsAt = new Date(session.startsAt.getTime() + length)
+    session.endTimeListed = false
+
+    const startsAt = minutesFromNow(60 * 24 * 90)
+    const endsAt = new Date(startsAt.getTime() + length)
+    const response = await reschedule(
+      body({
+        sessions: [
+          { id: session.id, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() },
+        ],
+      }),
+    )
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(session.endsAt.getTime()).toBe(endsAt.getTime())
+    expect(session.endTimeListed).toBe(false)
+
+    await app.close()
+  })
+
+  it('becomes the listed end when the organiser sets a different one', async () => {
+    const { app, session, body, reschedule, startsAt, endsAt } = await postponedHarness()
+
+    session.endsAt = new Date(session.startsAt.getTime() + 3 * 60 * 60 * 1000)
+    session.endTimeListed = false
+
+    // The harness's night runs five hours, not the estimate's three.
+    const response = await reschedule(body())
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(session.startsAt.getTime()).toBe(startsAt.getTime())
+    expect(session.endsAt.getTime()).toBe(endsAt.getTime())
+    expect(session.endTimeListed).toBe(true)
+
+    await app.close()
+  })
+})
+
 describe('a rejected event is reworked as a draft', () => {
   it('moves REJECTED to DRAFT and records the move', async () => {
     const { app, prisma, ids } = await createTestApp()

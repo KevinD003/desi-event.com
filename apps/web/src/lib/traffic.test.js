@@ -7,6 +7,7 @@ import {
   PERIODS,
   REFUNDED_ORDERS_NOTE,
   VISIT_COUNTING_NOTES,
+  dayNamer,
   formatCount,
   formatDay,
   formatShare,
@@ -14,6 +15,7 @@ import {
   periodFor,
   periodFrom,
   excludesEvent,
+  spansYears,
   trafficExclusion,
   trafficStatusLabel,
   websiteLinkLine,
@@ -81,6 +83,23 @@ describe('formatting', () => {
     expect(formatShare(1, 3)).toBe('33.3%')
     expect(formatShare(0, 0)).toBe('—')
     expect(formatDay('2026-10-01')).toBe('Oct 1')
+    expect(formatDay('2026-10-01', { withYear: true })).toBe('Oct 1, 2026')
+  })
+
+  // A series runs to 366 days, so its two ends can share a month and a day:
+  // named without the year, they read the same.
+  it('names the year of every day of a series that runs into a second year, and of no other', () => {
+    const crossing = [{ day: '2026-10-07' }, { day: '2027-10-07' }]
+    const within = [{ day: '2026-01-01' }, { day: '2026-12-31' }]
+
+    expect(spansYears(crossing)).toBe(true)
+    expect(spansYears(within)).toBe(false)
+    expect(spansYears([])).toBe(false)
+    expect(crossing.map((day) => dayNamer(crossing)(day.day))).toEqual([
+      'Oct 7, 2026',
+      'Oct 7, 2027',
+    ])
+    expect(within.map((day) => dayNamer(within)(day.day))).toEqual(['Jan 1', 'Dec 31'])
   })
 })
 

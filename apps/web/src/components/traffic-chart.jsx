@@ -27,7 +27,7 @@
  */
 
 import { DEFAULT_SIZE, chartDescription, chartModel, isEmptySeries } from '../lib/traffic-chart.js'
-import { formatCount, formatDay } from '../lib/traffic.js'
+import { dayNamer, formatCount } from '../lib/traffic.js'
 
 /**
  * @typedef {object} TrafficChartProps
@@ -71,6 +71,9 @@ export function TrafficChart({ id, caption, days }) {
   }
 
   const model = chartModel(days)
+  // Tooltips name days as the axis and the description do: with the year once
+  // the series runs into a second one.
+  const nameDay = dayNamer(days)
   const titleId = `${id}-title`
   const descId = `${id}-desc`
   const captionId = `${id}-caption`
@@ -135,14 +138,14 @@ export function TrafficChart({ id, caption, days }) {
               height={model.baseline - top}
               fill="transparent"
             >
-              <title>{`${formatDay(point.day)}: ${formatCount(days[index].views)} page views, ${formatCount(point.visitors)} visitors`}</title>
+              <title>{`${nameDay(point.day)}: ${formatCount(days[index].views)} page views, ${formatCount(point.visitors)} visitors`}</title>
             </rect>
           ))}
 
           {model.bars.map((bar) =>
             bar.path ? (
               <path key={`bar-${bar.day}`} d={bar.path} className="fill-chart-views">
-                <title>{`${formatDay(bar.day)}: ${formatCount(bar.views)} page views`}</title>
+                <title>{`${nameDay(bar.day)}: ${formatCount(bar.views)} page views`}</title>
               </path>
             ) : null,
           )}
@@ -165,7 +168,7 @@ export function TrafficChart({ id, caption, days }) {
               strokeWidth={2}
               className="fill-chart-visitors stroke-surface-raised"
             >
-              <title>{`${formatDay(point.day)}: ${formatCount(point.visitors)} visitors`}</title>
+              <title>{`${nameDay(point.day)}: ${formatCount(point.visitors)} visitors`}</title>
             </circle>
           ))}
 

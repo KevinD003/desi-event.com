@@ -23,6 +23,7 @@ import {
   authorChange,
   changedFields,
   contentOnlyMessage,
+  endTimeListedAfter,
   sessionProblems,
 } from '../lib/event-authoring.js'
 import { authorityAuditMetadata, byPlatform, lifecycleAuthority } from '../lib/event-authority.js'
@@ -1233,8 +1234,17 @@ export function registerEventRoutes(app, { prisma, env }) {
                 : {}),
             }
             const fields = changedFields(existing, data)
+            // A night whose end the importer estimated keeps the estimate when it
+            // moves whole; an end set apart from its start is the organiser's.
+            const listed =
+              existing.endTimeListed === false && endTimeListedAfter(existing, data)
+                ? { endTimeListed: true }
+                : {}
 
-            await tx.eventSession.update({ where: { id: existing.id }, data })
+            await tx.eventSession.update({
+              where: { id: existing.id },
+              data: { ...data, ...listed },
+            })
 
             if (fields.length > 0) {
               moved.push({

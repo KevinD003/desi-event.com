@@ -1,0 +1,38 @@
+diff --git a/dist/server/lib/router-utils/setup-dev-bundler.js b/dist/server/lib/router-utils/setup-dev-bundler.js
+index d6bb38198e5af7499c6cbf6cb32ec3c26fff23cc..8e3be8c7dc411b2b758622a5c817f72c51eaeacd 100644
+--- a/dist/server/lib/router-utils/setup-dev-bundler.js
++++ b/dist/server/lib/router-utils/setup-dev-bundler.js
+@@ -300,7 +300,23 @@ async function startWatcher(opts) {
+         const routeTypesFilePath = _path.default.join(distDir, 'types', 'routes.d.ts');
+         const validatorFilePath = _path.default.join(distDir, 'types', 'validator.ts');
+         let initialWatchTime = performance.now() + performance.timeOrigin;
+-        wp.on('aggregated', async ()=>{
++        // desi-event patch: one rebuild of the route table at a time.
++        //
++        // Each 'aggregated' event used to start this rebuild at once, without
++        // waiting for the one before it. On start the watcher reports the tree
++        // in several bursts, so several rebuilds ran together, each from the
++        // files known when it began, and each replaced appPathRoutes and
++        // fsChecker.dynamicRoutes when it finished. An early rebuild that saw
++        // part of the tree could finish last, and its partial table then
++        // stood until some watched file changed: whole sets of routes,
++        // including the API proxy, answered Next's own 404. Queued, every
++        // rebuild starts after the previous one has published, and the last
++        // one reads the whole tree. See apps/web/e2e/support/dev-routes.mjs.
++        let previousRouteRebuild = Promise.resolve();
++        wp.on('aggregated', ()=>{
++            previousRouteRebuild = previousRouteRebuild.then(rebuildRoutes, rebuildRoutes);
++        });
++        async function rebuildRoutes() {
+             var _serverFields_middleware, _serverFields_middleware1;
+             let writeEnvDefinitions = false;
+             let typescriptStatusFromLastAggregation = enabledTypeScript;
+@@ -860,7 +876,7 @@ async function startWatcher(opts) {
+                     _log.warn('Failed to reload dynamic routes:', e);
+                 }
+             }
+-        });
++        }
+         wp.watch({
+             directories: [
+                 dir

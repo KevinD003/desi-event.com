@@ -19,6 +19,8 @@
 import { defineConfig, devices } from '@playwright/test'
 
 import { preinstalledChromium } from './e2e/support/chromium.js'
+import { API_SERVER_COMMAND, E2E_DATABASE_URL } from './e2e/support/e2e-database.mjs'
+import { nextDevServer, withDevRoutes } from './e2e/support/next-dev.mjs'
 
 /** Ports distinct from every other suite's, so nothing collides. */
 const apiPort = Number(process.env.ORGANIZER_E2E_API_PORT ?? 4310)
@@ -27,13 +29,11 @@ const webPort = Number(process.env.ORGANIZER_E2E_WEB_PORT ?? 3310)
 const baseURL = `http://127.0.0.1:${webPort}`
 const executablePath = preinstalledChromium()
 
-/** The database these journeys write to. Disposable by construction. */
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  'postgresql://desi:desi@127.0.0.1:5432/desi_event_test?schema=public'
-
 export default defineConfig({
   testDir: './e2e',
+  // Proves `next dev` routes its pages and the API proxy before any test
+  // (`e2e/support/next-dev.mjs`).
+  globalSetup: withDevRoutes(),
   timeout: 60_000,
   expect: { timeout: 10_000 },
   // Serial: the journeys share seeded rows, and two of them are about
@@ -62,7 +62,8 @@ export default defineConfig({
 
   webServer: [
     {
-      command: 'node src/server.js',
+      // Migrates the browser suites' database first, creating it when it is missing.
+      command: API_SERVER_COMMAND,
       cwd: new URL('../api', import.meta.url).pathname,
       url: `http://127.0.0.1:${apiPort}/health`,
       reuseExistingServer: false,
@@ -74,7 +75,8 @@ export default defineConfig({
         LOG_LEVEL: 'error',
         API_PORT: String(apiPort),
         API_HOST: '127.0.0.1',
-        DATABASE_URL: databaseUrl,
+        // The browser suites' own database, never the unit suites' (`e2e-database.mjs`).
+        DATABASE_URL: E2E_DATABASE_URL,
         REDIS_URL: process.env.REDIS_URL ?? 'redis://127.0.0.1:6379',
         // Long enough for the schema, and obviously not a real secret.
         JWT_SECRET: 'e2e-only-secret-that-is-long-enough-32-chars',
@@ -88,14 +90,8 @@ export default defineConfig({
         SECURE_COOKIES: 'false',
       },
     },
-    {
-      command: `npx next dev --port ${webPort}`,
-      url: baseURL,
-      reuseExistingServer: false,
-      timeout: 180_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: { NEXT_PUBLIC_API_URL: `http://127.0.0.1:${apiPort}` },
-    },
+    // Through the one helper that proves its routes before any test runs
+    // (e2e/support/next-dev.mjs); `pnpm ci:check` refuses any other way.
+    nextDevServer({ port: webPort, env: { NEXT_PUBLIC_API_URL: `http://127.0.0.1:${apiPort}` } }),
   ],
 })

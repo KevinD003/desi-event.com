@@ -28,6 +28,7 @@
  */
 
 import { addressCandidates, isSameAddress } from './delivery.js'
+import { subjectBelongsElsewhere } from './privacy-redaction.js'
 
 /**
  * The hold decision vocabulary, mirroring the `PrivacyHoldDecision` enum.
@@ -58,6 +59,7 @@ export const OPEN_PROCESS_CODES = Object.freeze({
   RECONCILIATION_OPEN: 'RECONCILIATION_OPEN',
   ADMISSION_UNSPENT: 'ADMISSION_UNSPENT',
   NOTIFICATION_UNDELIVERED: 'NOTIFICATION_UNDELIVERED',
+  ORGANIZER_INVITATION_PENDING: 'ORGANIZER_INVITATION_PENDING',
 })
 
 /** Refund states where money is still moving or a decision is still owed. */
@@ -252,6 +254,29 @@ export async function findOpenProcess(
     )
   ) {
     return OPEN_PROCESS_CODES.NOTIFICATION_UNDELIVERED
+  }
+
+  // An invitation from the Desi-Event team to start an organisation, still
+  // waiting, sent to the subject's address. Accepting it compares the signed-in
+  // account's address with the invitation's (`routes/organizer-invitations.js`),
+  // so once the account's address is replaced nobody can accept it — the
+  // stranding a ticket invitation is refused over. It matters only when the
+  // account itself would be redacted: while another organisation holds
+  // something about the subject the address stays, and so does the invitation.
+  // The caller hears the same 409 as for every open process; which one is
+  // recorded in the privacy audit trail only.
+  if (subjectEmail) {
+    const waiting = await prisma.organizerInvitation.findMany({
+      where: { status: 'PENDING', expiresAt: { gt: now }, email: addressCandidates(subjectEmail) },
+      select: { email: true },
+    })
+
+    if (
+      waiting.some((row) => isSameAddress(row.email, subjectEmail)) &&
+      !(await subjectBelongsElsewhere(prisma, { organizationId, subjectUserId }))
+    ) {
+      return OPEN_PROCESS_CODES.ORGANIZER_INVITATION_PENDING
+    }
   }
 
   return null

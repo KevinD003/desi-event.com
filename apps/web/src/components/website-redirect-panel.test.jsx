@@ -12,7 +12,7 @@ vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }))
 
 const { apiFetch } = await import('../lib/api-fetch.js')
-const { CANNOT_DECIDE, CHECKED_LABEL, WebsiteRedirectPanel } =
+const { CANNOT_DECIDE, CHECKED_LABEL, DELETED_EVENT_FROZEN, WebsiteRedirectPanel } =
   await import('./website-redirect-panel.jsx')
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -109,6 +109,48 @@ describe('the website link panel', () => {
     expect(screen.queryByRole('button')).toBeNull()
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(screen.queryByLabelText(/Reason/u)).toBeNull()
+  })
+
+  it('keeps a deleted event’s switch as it is, and offers even an administrator no controls', () => {
+    for (const state of [ON, WAITING]) {
+      const { unmount } = panel({ state, pagePublic: false, deleted: true })
+
+      expect(screen.getByText(state.enabled ? 'On' : 'Off')).toBeInTheDocument()
+      expect(screen.getByText(DELETED_EVENT_FROZEN)).toBeInTheDocument()
+      expect(screen.queryByText(CANNOT_DECIDE)).toBeNull()
+      expect(screen.queryByRole('button')).toBeNull()
+      expect(screen.queryByRole('checkbox')).toBeNull()
+      expect(screen.queryByLabelText(/Reason/u)).toBeNull()
+      expect(apiFetch).not.toHaveBeenCalled()
+
+      unmount()
+    }
+
+    // A reader who may not decide is told the same: nobody may.
+    panel({ state: ON, pagePublic: false, deleted: true, canDecide: false })
+
+    expect(screen.getByText(DELETED_EVENT_FROZEN)).toBeInTheDocument()
+    expect(screen.queryByText(CANNOT_DECIDE)).toBeNull()
+  })
+
+  it('offers the controls again once the event is restored', () => {
+    const { rerender } = panel({ state: ON, pagePublic: false, deleted: true })
+
+    expect(screen.queryByRole('button')).toBeNull()
+
+    rerender(
+      <WebsiteRedirectPanel
+        eventId="evtwebsitelink01"
+        websiteUrl={A}
+        state={ON}
+        pagePublic
+        canDecide
+        deleted={false}
+      />,
+    )
+
+    expect(screen.queryByText(DELETED_EVENT_FROZEN)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Turn the link off' })).toBeEnabled()
   })
 
   it('says when there is no address, and offers nothing to turn on', () => {

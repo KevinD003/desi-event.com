@@ -47,6 +47,7 @@ import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { httpError, notFound } from './errors.js'
 import { maySeeDrafts } from './event-insiders.js'
 import { likeLiteral } from './like-pattern.js'
+import { isTransactionClient } from './transaction-client.js'
 
 /** The relation the deciding administrator's name is read through. */
 export const WEBSITE_REDIRECT_INCLUDE = Object.freeze({
@@ -454,23 +455,10 @@ export function decideWebsiteRedirect(db, params) {
     : db.$transaction((tx) => decideInTransaction(tx, params))
 }
 
-/**
- * Whether a Prisma client is an interactive transaction's.
- *
- * Not by `$transaction`: since Prisma 7 a transaction client has one too (it
- * opens a savepoint). A transaction client has no connection of its own to
- * manage, so it lacks `$disconnect`; a full client always has it.
- *
- * @param {object} db A Prisma client or transaction client.
- * @returns {boolean} True for a transaction client.
- */
-export function isTransactionClient(db) {
-  return typeof db.$disconnect !== 'function'
-}
-
-// Kept exported from here for the callers and tests that already import it;
-// the one definition lives in `like-pattern.js`, beside the other searches'.
-export { likeLiteral }
+// Kept exported from here for the callers and tests that already import them;
+// the one definition of each lives in its own module (`transaction-client.js`,
+// and `like-pattern.js` beside the other searches').
+export { isTransactionClient, likeLiteral }
 
 /**
  * The Prisma `where` for one filter of the administrators' list.

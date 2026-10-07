@@ -625,14 +625,17 @@ export default async function ReviewEventPage({ params }) {
             </p>
           </section>
 
-          {/* Every status: the website link is switched at any time, apart
-              from the review. Only administrators get the controls. */}
+          {/* Every status but deleted: the website link is switched at any
+              time, apart from the review, and only administrators get the
+              controls. A deleted event's switch is kept as it is for a
+              restore and the API refuses a decision, so nobody gets them. */}
           <WebsiteRedirectPanel
             eventId={event.id}
             websiteUrl={event.websiteUrl ?? null}
             state={event.websiteRedirect ?? null}
             pagePublic={PUBLICLY_VISIBLE_STATUSES.has(event.status)}
             canDecide={sessionCan(session, 'website_redirect:manage')}
+            deleted={event.status === 'DELETED'}
           />
         </aside>
       </div>

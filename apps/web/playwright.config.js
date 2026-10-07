@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 import { preinstalledChromium } from './e2e/support/chromium.js'
+import { nextDevServer, withDevRoutes } from './e2e/support/next-dev.mjs'
 
 /**
  * Port the suite starts the application on.
@@ -17,6 +18,9 @@ const executablePath = preinstalledChromium()
 
 export default defineConfig({
   testDir: './e2e',
+  // Proves `next dev` routes its pages and the API proxy before any test
+  // (`e2e/support/next-dev.mjs`).
+  globalSetup: withDevRoutes(),
   testMatch: '**/*.spec.js',
   // Several suites belong to other configs and must not run here.
   //
@@ -76,12 +80,8 @@ export default defineConfig({
   // The API is intentionally not started: these tests exercise the site in the
   // state a visitor gets when the listings service is down, which is the state
   // the fallback catalogue exists for.
-  webServer: {
-    command: `npx next dev --port ${port}`,
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  },
+  //
+  // `next dev`, through the one helper that proves its routes before any test
+  // runs (e2e/support/next-dev.mjs); `pnpm ci:check` refuses any other way.
+  webServer: nextDevServer({ port, reuseExistingServer: !process.env.CI }),
 })

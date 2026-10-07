@@ -793,6 +793,17 @@ withdrawn by the migration, and CHECK
 `invitation_pending_role_is_owner_grantable` keeps new ones to roles an owner
 may grant.
 
+The privacy process reaches this table. Erasing a person replaces `email` with
+a placeholder derived from the invitation's id and nulls `note` on their
+settled invitations (accepted, withdrawn, expired), keeping the status, the
+stamps, the organisation's name, description and website and every link: the
+one their organisation was created from always, any other only when their
+account itself is erased. A waiting invitation to them refuses the erasure
+while their account would be erased (open process
+`ORGANIZER_INVITATION_PENDING`), because acceptance matches on the address; an
+erased expired invitation is not reissued (409 `NOT_OUTSTANDING`). See
+[PRIVACY_AND_RETENTION.md](PRIVACY_AND_RETENTION.md#organiser-invitations--2026-10-07).
+
 ### The review gate
 
 Trigger `desi_event_status_requires_review` (`BEFORE UPDATE OF "status"`):
@@ -882,11 +893,14 @@ untouched on a re-seed.
   status, and who applied it, within its hour.
 - **`EventImportItem`** — one imported listing, unique by `(source, sourceId)`
   and by event: the listed prices and price text, the curator's notes, the
-  listing and ticket addresses, who imported and who approved it, the run that
-  last wrote it, and a reassignment (from, to, by whom).
+  listing and ticket addresses, who imported it (the administrator whose
+  import last sent it for review) and who approved it, the run that last wrote
+  it, and a reassignment (from, to, by whom).
 - **`EventImportImage`** — one picture to copy (unique by item and address):
   its role, status, failure reason and the `MediaAsset` it became.
 - **`EventSession.endTimeListed`** — false when the listing gave no end time
-  and the stored end is the start plus three hours, which is never shown.
+  and the stored end is the start plus three hours, which is never shown. It
+  turns true once an editor sets the end apart from that estimate (a session
+  edit or a reschedule); moving the whole night keeps it an estimate.
 
 Only `lib/event-import.js` writes the three import tables (a source scan).

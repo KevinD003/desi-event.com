@@ -19,6 +19,7 @@ import { useFocusAfterRender } from './focus-after-render.jsx'
 import { TimeZoneSelect } from './time-zone-select.jsx'
 import { Alert, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { SESSION_MATERIAL_FIELDS } from '../lib/event-status.js'
+import { ESTIMATED_END_LABEL } from '../lib/imports.js'
 import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
 /**
@@ -188,6 +189,8 @@ export function sessionFormProblems(
  * @property {Function} onSubmit Called with the body; for an edit, only what changed plus any confirmation.
  * @property {Function} [onCancel] Called when the person backs out of an edit.
  * @property {string} idPrefix Distinguishes this form's field ids from another's.
+ * @property {boolean} [endEstimated] Whether the end it starts from is an imported
+ *   night's planning estimate, which its listing did not give and no public page shows.
  */
 
 /**
@@ -207,6 +210,7 @@ export function SessionForm({
   onSubmit,
   onCancel = null,
   idPrefix,
+  endEstimated = false,
 }) {
   const [values, setValues] = useState(initial)
   const [shown, setShown] = useState([])
@@ -355,7 +359,15 @@ export function SessionForm({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {instant('startsAt', 'Starts', { required: true })}
-        {instant('endsAt', 'Ends', { required: true })}
+        {instant('endsAt', 'Ends', {
+          required: true,
+          // The estimate is labelled for what it is while it is still the end.
+          ...(endEstimated && same(initial.endsAt, values.endsAt)
+            ? {
+                description: `${ESTIMATED_END_LABEL}. The event page shows only the start until the night's real end time is set here.`,
+              }
+            : {}),
+        })}
         {instant('doorsOpenAt', 'Doors open')}
 
         <FormField

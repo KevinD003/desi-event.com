@@ -64,7 +64,13 @@ addresses were kept.
    imported events and their pictures **of a platform-held organisation
    only**: `assertIndependentReviewer` returns
    `{ exemption: 'PLATFORM_HELD_IMPORT' }`, and the approval records who
-   imported and who approved. Approval still needs `moderation:review`, an
+   imported and who approved. For an event it covers only the importer of
+   record approving their own submission: every import that sends an event
+   for review names its administrator as the importer
+   (`EventImportItem.importedById`), so a second administrator who re-imports
+   a changed listing is recorded as its importer, and an account that only
+   withdrew the import and sent it back by hand is refused `SELF_REVIEW` like
+   any submitter. Approval still needs `moderation:review`, an
    EVENT_PUBLISH step-up and the revision the administrator saw; every stored
    picture bumps the revision, so a picture the administrator did not see
    cannot ride along. The approve route accepts only imported events of that
@@ -74,7 +80,9 @@ addresses were kept.
    409 `IMPORTED_EVENT_NO_EDITOR`. Corrections are made after publication in an
    editing session (ADR 0014).
 5. **Prices without ticket types.** Sulekha's listed prices are stored on the
-   import record and shown as Sulekha listed them on the collection date, with
+   import record and shown as Sulekha listed them on the collection date
+   (without a sales date or a call to hurry that a price's name carries, such
+   as "(Ends on 10/9)" or "(Final Call)": source notes are never public), with
    a "Buy tickets on Sulekha" button that goes through the website switch and
    its counted redirect (ADR 0012), switched on by the approving administrator
    with a fixed reason. No `TicketType` is created: that would invent

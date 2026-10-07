@@ -786,6 +786,16 @@ describe('the event detail page and the organiser’s own content', () => {
 describe('an event over several nights', () => {
   beforeEach(() => {
     loadEventBySlug.mockReset()
+    // The nights fall on fixed days, because their dates are what the
+    // schedule prints; whether one still sells is read from the clock. So the
+    // page is read at a fixed moment before them all. With the real clock the
+    // seat link went on 1 November 2026 at 17:30 UTC, when night 1 ended.
+    // Only `Date` is replaced.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-07T12:00:00.000Z') })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   /**

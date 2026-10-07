@@ -25,6 +25,7 @@ import {
   cuidSchema,
   isoDateTimeSchema,
   paginationQuerySchema,
+  revisionPreconditionSchema,
   timezoneSchema,
 } from './primitives.js'
 
@@ -271,7 +272,7 @@ export const eventImportApplyRequestSchema = z
 export const eventImportApproveRequestSchema = z
   .object({
     items: z
-      .array(z.object({ eventId: cuidSchema, revision: z.int().min(0) }).strict())
+      .array(z.object({ eventId: cuidSchema, revision: revisionPreconditionSchema }).strict())
       .min(1)
       .max(IMPORT_LIMITS.approveItems)
       .refine(
@@ -286,7 +287,7 @@ export const eventImportReassignRequestSchema = z
   .object({
     organizationId: cuidSchema,
     reason: controlReasonSchema,
-    revision: z.int().min(0),
+    revision: revisionPreconditionSchema,
   })
   .strict()
 

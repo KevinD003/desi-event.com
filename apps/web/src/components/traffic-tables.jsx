@@ -24,8 +24,8 @@ import Link from 'next/link'
 import { TABLE_SUMMARY } from '../lib/traffic-chart.js'
 import {
   ORDERS_PAID_ON_DAYS_LABEL,
+  dayNamer,
   formatCount,
-  formatDay,
   formatShare,
   trafficStatusLabel,
 } from '../lib/traffic.js'
@@ -157,6 +157,9 @@ export function CardPlacements({ placements }) {
  */
 export function TrafficByDay({ days, open }) {
   const caption = 'Visits per day (UTC)'
+  // With the year once the period runs into a second one, so no two rows are
+  // headed by the same day.
+  const nameDay = dayNamer(days)
 
   return (
     <details open={open} className="mt-4">
@@ -195,7 +198,7 @@ export function TrafficByDay({ days, open }) {
             {days.map((day) => (
               <tr key={day.day}>
                 <th scope="row" className={ROW_TH}>
-                  <time dateTime={day.day}>{formatDay(day.day)}</time>
+                  <time dateTime={day.day}>{nameDay(day.day)}</time>
                 </th>
                 <td className={NUM}>{formatCount(day.views)}</td>
                 <td className={NUM}>{formatCount(day.visitors)}</td>

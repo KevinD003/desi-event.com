@@ -252,11 +252,16 @@ describe('the home page', () => {
   })
 
   it('shows the sample notice when, and only when, the catalogue fell back', async () => {
-    await draw({ usedFallback: true })
+    // One event a draw: the notice is about where the page came from, and the
+    // whole catalogue's poster art, drawn twice, made this the slowest case in
+    // the suite.
+    const events = sampleEventSummaries().slice(0, 1)
+
+    await draw({ events, usedFallback: true })
     expect(screen.getByText('Showing our sample programme')).toBeInTheDocument()
 
     cleanup()
-    await draw({ usedFallback: false })
+    await draw({ events, usedFallback: false })
     expect(screen.queryByText('Showing our sample programme')).toBeNull()
   })
 

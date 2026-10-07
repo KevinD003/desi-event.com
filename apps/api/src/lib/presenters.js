@@ -322,6 +322,45 @@ export const EVENT_SUMMARY_SELECT = Object.freeze({
 })
 
 /**
+ * Words that say when a listed price stops being sold, or how scarce it is: a
+ * date ("10/9", "Oct 9"), an end ("Ends", "until", "closes", "expires") or
+ * urgency ("Final Call", "Last chance", "Sold out", "Few left", "Hurry").
+ * Source notes of this kind are never shown publicly (SPEC2-XI §5.I-E), even
+ * when the listing put them into a price's name.
+ */
+const SALES_NOTE_IN_PRICE_NAME = new RegExp(
+  [
+    String.raw`\b(?:ends|ending|end\s+(?:on|by|at)|until|till|closes?|closing|expires?|expiring|deadline)\b`,
+    String.raw`\b(?:final|last)\s+(?:call|chance|days?|hours?|few)\b`,
+    String.raw`\b(?:sold\s+out|selling\s+fast|almost\s+(?:full|gone|sold\s+out)|few\s+left|\d+\s+left|limited\s+(?:time|availability|seats|tickets)|hurry)\b`,
+    String.raw`\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b`,
+    String.raw`\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+\d{1,2}\b`,
+  ].join('|'),
+  'iu',
+)
+
+/**
+ * A listed price's name as the public page may print it: without a bracketed
+ * part, or a trailing part after a dash, that speaks of a sales date or of
+ * scarcity ("Early Bird (Ends on 10/9)" reads "Early Bird"; "GA – Ghost Hour
+ * Pass Admission (Final Call)" reads "GA – Ghost Hour Pass Admission"). What
+ * describes the ticket itself stays: "Friday (Tier 1)", "VIP – Gold Tables
+ * (B1–B10)", "GA - Spooky Pass (Early Bird)".
+ *
+ * @param {string} name The name as listed.
+ * @returns {string} The name to show; "Ticket" when nothing else is left.
+ */
+export function publicPriceName(name) {
+  const shown = String(name)
+    .replace(/\s*[([][^()[\]]*[)\]]/gu, (part) => (SALES_NOTE_IN_PRICE_NAME.test(part) ? '' : part))
+    .replace(/\s+[-–—]\s+[^-–—]+$/u, (part) => (SALES_NOTE_IN_PRICE_NAME.test(part) ? '' : part))
+    .replace(/\s+/gu, ' ')
+    .trim()
+
+  return shown.length > 0 ? shown : 'Ticket'
+}
+
+/**
  * Where an imported event is listed, and what the listing said, for an event
  * still held by the Desi-Event team's platform-held organisation (SPEC2-XI
  * §5.I-E); null for every other event, and once it has been moved to an
@@ -329,7 +368,8 @@ export const EVENT_SUMMARY_SELECT = Object.freeze({
  *
  * Only what the source listed: who presents it, the day it was read (UTC) and
  * each price's name and amount, in the listing's order. A price's note
- * (availability, "sold out", sales dates) is never carried. `ticketsOnSource`
+ * (availability, "sold out", sales dates) is never carried, nor such words
+ * inside its name ({@link publicPriceName}). `ticketsOnSource`
  * says the website link is on, public, and goes to the listing's own site, so
  * the page may label it "Buy tickets on Sulekha".
  *
@@ -358,7 +398,7 @@ export function importedFromView(event) {
     )
     .slice(0, 20)
     .map((price) => ({
-      name: price.name.trim().slice(0, 100),
+      name: publicPriceName(price.name).slice(0, 100),
       priceCents: price.priceCents,
       currency: price.currency,
     }))

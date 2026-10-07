@@ -169,6 +169,18 @@ export const signedCentsSchema = z.int().min(-MAX_CENTS).max(MAX_CENTS)
 /** Basis points: 1 bp = 0.01%, so 10000 bps is 100%. */
 export const bpsSchema = z.int().min(0).max(10_000)
 
+/** The largest value a PostgreSQL `integer` (int4) column holds. */
+export const POSTGRES_INT_MAX = 2_147_483_647
+
+/**
+ * A revision the caller read, sent back as a compare-and-set precondition.
+ *
+ * Bounded by the `integer` column it is compared with. A larger number is no
+ * revision any row has, and PostgreSQL will not even compare one with that
+ * column: Prisma refuses the query (P2020), which reached the caller as a 500.
+ */
+export const revisionPreconditionSchema = z.int().min(0).max(POSTGRES_INT_MAX)
+
 /** A strict ISO-8601 datetime string carrying `Z` or an explicit offset. */
 export const isoDateTimeSchema = z.iso.datetime({ offset: true })
 
@@ -178,8 +190,25 @@ export const isoDateTimeSchema = z.iso.datetime({ offset: true })
  */
 export const timestampSchema = z.preprocess(toIsoString, isoDateTimeSchema)
 
-/** Alias kept for query parameters, where the date-only form is common. */
-export const queryDateTimeSchema = timestampSchema
+/** The earliest instant a query's date filter may name: the Unix epoch. */
+export const QUERY_DATE_EARLIEST = '1970-01-01T00:00:00.000Z'
+
+/**
+ * A date filter in a query string, where the date-only form is common: a
+ * timestamp, from 1 January 1970 on.
+ *
+ * Every one is compared with a `timestamp` column or turned into a UTC day for
+ * a `date` one. A strict ISO timestamp can still name year 0000, which
+ * PostgreSQL's calendar does not have (22008), and a `to` at midnight on
+ * 1 January of year 1 ends on a day in year 0: both used to answer 500 from
+ * the database. Nothing this site stores is older than the Unix epoch, so no
+ * window usefully starts earlier, and every day computed from one is a day
+ * PostgreSQL holds.
+ */
+export const queryDateTimeSchema = timestampSchema.refine(
+  (value) => Date.parse(value) >= Date.parse(QUERY_DATE_EARLIEST),
+  'Use a date in 1970 or later.',
+)
 
 /** An IANA time zone identifier the runtime actually knows about. */
 export const timezoneSchema = z.preprocess(

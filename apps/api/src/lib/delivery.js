@@ -28,12 +28,15 @@
  *     otherwise leave a live invitation whose code nobody holds.
  *   - **One address is sent at most three codes a day**
  *     ({@link assertRecipientDailyCap}), so the team invitation and ticket
- *     transfer forms cannot be used to fill a stranger's inbox.
+ *     transfer forms cannot be used to fill a stranger's inbox. It is decided
+ *     inside the transaction that writes the code's row, under a lock on the
+ *     address, so requests arriving together are counted one after another.
  *
  * @module @desi-event/api/lib/delivery
  */
 
 import { exposedServerError, httpError } from './errors.js'
+import { isTransactionClient } from './transaction-client.js'
 
 /**
  * The delivery modes, mirroring the Prisma `InvitationDelivery` enum.
@@ -266,6 +269,31 @@ export const RECIPIENT_DAILY_LIMIT_SENTENCE =
   'This address has already been sent three codes from Desi-Event today. Try again tomorrow.'
 
 /**
+ * The advisory-lock class the recipient cap locks addresses in: `RCAP` in
+ * ASCII. PostgreSQL keeps two-key advisory locks apart from single-key ones,
+ * and the class keeps them apart from any other two-key lock.
+ */
+export const RECIPIENT_LOCK_CLASS = 0x52434150
+
+/**
+ * Hold one address until the transaction ends.
+ *
+ * A transaction-scoped advisory lock on the lower-cased address (the same
+ * comparison {@link isSameAddress} makes), so every issuing transaction for
+ * that address waits for the one before it to commit or roll back. The key is
+ * a 32-bit hash: two addresses that collide only queue behind each other.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {string} email The address.
+ * @returns {Promise<void>} Resolves once the lock is held.
+ */
+async function lockRecipient(tx, email) {
+  // `$executeRaw`, not `$queryRaw`: the lock function returns `void`, which
+  // Prisma cannot read back as a column.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RECIPIENT_LOCK_CLASS}::int4, hashtext(${email.toLowerCase()}))`
+}
+
+/**
  * Refuse to email a fourth code to an address within a day.
  *
  * Counted from the database, not a limiter, so it holds across processes and
@@ -273,30 +301,46 @@ export const RECIPIENT_DAILY_LIMIT_SENTENCE =
  * the address in the last twenty-four hours, whoever sent them. The caller
  * runs this in `EMAIL` mode only; `MANUAL` emails nobody.
  *
- * The 429 carries `Retry-After`: the seconds until enough of those codes are
- * a day old for one more to go.
+ * It runs inside the transaction that then writes the code's row, and first
+ * locks the address ({@link lockRecipient}). Counted outside it, requests
+ * arriving together would each read fewer than three and each send one; with
+ * the lock, the next request's count waits for the last one's row to commit.
+ * Given anything but a transaction client it refuses to run, because the lock
+ * would be released before the row was written.
  *
- * @param {object} prisma The Prisma client.
+ * The 429 carries `Retry-After`: the seconds until enough of those codes are
+ * a day old for one more to go. Thrown inside the transaction, it rolls the
+ * transaction back with nothing written.
+ *
+ * @param {object} tx The Prisma transaction client of the issuing transaction.
  * @param {object} options Inputs.
  * @param {string} options.email The recipient's address.
  * @param {Date} [options.now] The current time.
  * @returns {Promise<void>} Resolves when another code may go.
  * @throws {Error} 429 `RECIPIENT_DAILY_LIMIT` when it may not.
+ * @throws {TypeError} When `tx` is not a transaction client.
  */
-export async function assertRecipientDailyCap(prisma, { email, now = new Date() }) {
+export async function assertRecipientDailyCap(tx, { email, now = new Date() }) {
+  if (!isTransactionClient(tx)) {
+    throw new TypeError(
+      'assertRecipientDailyCap must run inside the transaction that writes the code, so the address lock is held until that row commits.',
+    )
+  }
+
+  await lockRecipient(tx, email)
+
   const since = new Date(now.getTime() - RECIPIENT_CAP_WINDOW_MS)
   const address = addressCandidates(email)
 
-  const [invitations, transfers] = await Promise.all([
-    prisma.invitation.findMany({
-      where: { email: address, deliveryMode: DELIVERY_MODES.EMAIL, createdAt: { gte: since } },
-      select: { createdAt: true, email: true },
-    }),
-    prisma.ticketTransfer.findMany({
-      where: { toEmail: address, createdAt: { gte: since } },
-      select: { createdAt: true, toEmail: true },
-    }),
-  ])
+  // One after the other: a transaction client runs one statement at a time.
+  const invitations = await tx.invitation.findMany({
+    where: { email: address, deliveryMode: DELIVERY_MODES.EMAIL, createdAt: { gte: since } },
+    select: { createdAt: true, email: true },
+  })
+  const transfers = await tx.ticketTransfer.findMany({
+    where: { toEmail: address, createdAt: { gte: since } },
+    select: { createdAt: true, toEmail: true },
+  })
 
   // Only codes sent to this very address count: a look-alike the filter also
   // found (`jxdoe` for `j_doe`) is somebody else's inbox.
@@ -310,11 +354,13 @@ export async function assertRecipientDailyCap(prisma, { email, now = new Date() 
   if (sent.length < RECIPIENT_DAILY_CAP) return
 
   // The code whose first birthday brings the count back under the cap: the
-  // oldest, when there are exactly three.
+  // oldest, when there are exactly three. Never more than a day: a request
+  // that waited on the lock can count a row written after its own `now`, and
+  // no code takes longer than a day to stop counting.
   const freesUp = sent[sent.length - RECIPIENT_DAILY_CAP]
-  const retryAfterSeconds = Math.max(
-    1,
-    Math.ceil((freesUp + RECIPIENT_CAP_WINDOW_MS - now.getTime()) / 1000),
+  const retryAfterSeconds = Math.min(
+    RECIPIENT_CAP_WINDOW_MS / 1000,
+    Math.max(1, Math.ceil((freesUp + RECIPIENT_CAP_WINDOW_MS - now.getTime()) / 1000)),
   )
 
   throw Object.assign(httpError(429, 'RECIPIENT_DAILY_LIMIT', RECIPIENT_DAILY_LIMIT_SENTENCE), {

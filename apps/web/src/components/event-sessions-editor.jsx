@@ -34,6 +34,7 @@ import { STEP_UP_DECLINED_SENTENCE, useStepUpRetry } from './step-up-retry.jsx'
 import { Alert, Badge, Button, Card, CardBody } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { refundSummarySentence } from '../lib/event-control.js'
+import { ESTIMATED_END_LABEL, endIsEstimate } from '../lib/imports.js'
 import { refusalSentence } from '../lib/refusal.js'
 import { toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
@@ -405,6 +406,11 @@ export function EventSessionsEditor({
                             {zoneAbbreviation(session.timezone, new Date(session.startsAt))})
                           </span>
                         </p>
+                        {endIsEstimate(session) ? (
+                          <p className="mt-1 text-sm text-ink-muted">
+                            End time: {ESTIMATED_END_LABEL}. The event page shows only the start.
+                          </p>
+                        ) : null}
                         {session.capacity ? (
                           <p className="mt-1 text-sm text-ink-muted">
                             Capacity {session.capacity.toLocaleString('en-US')}
@@ -518,6 +524,7 @@ export function EventSessionsEditor({
                           kind="edit"
                           idPrefix={`session-${session.id}`}
                           initial={toSessionForm(session)}
+                          endEstimated={endIsEstimate(session)}
                           mode={mode}
                           mapVersions={mapVersions}
                           usage={session.usage ?? null}
@@ -550,6 +557,9 @@ export function EventSessionsEditor({
             kind="create"
             idPrefix="session"
             initial={toSessionForm(event)}
+            // A new night starts from the event's times, whose end is the
+            // import's estimate while a night's end is one.
+            endEstimated={sessions.some(endIsEstimate)}
             mode={mode}
             mapVersions={mapVersions}
             busy={busy}

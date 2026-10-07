@@ -18,7 +18,7 @@
 
 import { z } from 'zod'
 
-import { cuidSchema, timestampSchema } from './primitives.js'
+import { cuidSchema, revisionPreconditionSchema, timestampSchema } from './primitives.js'
 
 /**
  * A key: an author's handle on one entity, for the length of one request.
@@ -88,7 +88,7 @@ export const layoutZoneSchema = z.object({
  * would otherwise be last-write-wins with no way for the loser to find out.
  */
 export const putLayoutRequestSchema = z.object({
-  revision: z.int().min(0),
+  revision: revisionPreconditionSchema,
   zones: z.array(layoutZoneSchema).max(200).default([]),
   sections: z.array(layoutSectionSchema).min(1).max(200),
 })

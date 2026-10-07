@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   SERIES_LIMIT_DAYS,
   TRAFFIC_STALE_AFTER_MS,
+  paidFilter,
   percent1,
   publicListStatuses,
   trafficWindow,
@@ -90,6 +91,33 @@ describe('zeroFilledSeries', () => {
     expect(
       zeroFilledSeries([], { firstDay: '2026-10-05', lastDay: '2026-10-01', zero }).byDay,
     ).toEqual([])
+  })
+})
+
+describe('paidFilter', () => {
+  const window = { firstDay: null, lastDay: '2026-10-01' }
+
+  it('counts orders paid from the first counted day when no start was asked for', () => {
+    // Every recorded day: an order paid before visits were counted has no
+    // visitor to be divided by, so it is not on these days.
+    expect(paidFilter(window, '2026-09-29')).toEqual({
+      gte: new Date('2026-09-29T00:00:00.000Z'),
+      lt: new Date('2026-10-02T00:00:00.000Z'),
+    })
+  })
+
+  it('counts only the last day, the one day the series draws, with nothing counted', () => {
+    expect(paidFilter(window, null)).toEqual({
+      gte: new Date('2026-10-01T00:00:00.000Z'),
+      lt: new Date('2026-10-02T00:00:00.000Z'),
+    })
+  })
+
+  it('starts on the asked day when there is one, whatever was counted', () => {
+    expect(paidFilter({ firstDay: '2026-09-01', lastDay: '2026-10-01' }, '2026-09-29')).toEqual({
+      gte: new Date('2026-09-01T00:00:00.000Z'),
+      lt: new Date('2026-10-02T00:00:00.000Z'),
+    })
   })
 })
 

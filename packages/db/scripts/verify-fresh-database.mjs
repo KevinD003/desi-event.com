@@ -1289,9 +1289,11 @@ async function main() {
         // spending one hold, a retry after a timed-out capture, a settlement
         // refused after the capture, and a seat hold racing its night's removal.
         'tests/checkout-hold-race-integration.test.js',
-        // A NUL in a request: refused before any write on the paths that put
-        // free text into JSON columns, audit rows and outbox payloads, and
-        // PostgreSQL's own refusal of it in jsonb (22P05) answered as a 400.
+        // A NUL or a lone surrogate in a request: refused before any write on
+        // the paths that put free text into JSON columns, audit rows and
+        // outbox payloads, and PostgreSQL's own refusals (22P05, 22P02)
+        // answered as a 400; and a revision past an integer column or a query
+        // date in year 0000, refused by name, with 22003/22008 a 400 too.
         'tests/unstorable-character-integration.test.js',
         // Invite-only organisers and the review gate: the one-waiting-invitation
         // index, the posting-role CHECK and the gate's 23514 answered as a 4xx;

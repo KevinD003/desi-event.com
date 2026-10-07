@@ -6,8 +6,8 @@
  * Without `--apply` it plans the file and prints the plan; nothing but the run
  * is written. With `--apply` it applies the plan and copies the pictures, with
  * no time limit. The account named by `--as` must hold `event:import` (a
- * platform administrator or super administrator); every audit row records it
- * and `via: 'cli'`.
+ * platform administrator or super administrator) and must not be suspended;
+ * every audit row records it and `via: 'cli'`.
  *
  * It never approves or publishes: that needs a person with a second factor in
  * the web. And it never updates a posted event: `updateFromSource` is always
@@ -88,7 +88,7 @@ export function parseImportArgs(argv) {
  * @param {Date} [options.now] The moment.
  * @param {Function} [options.apply] The apply function; `applyImport` (tests watch what it is sent).
  * @returns {Promise<object>} What was done: the run's view, and the apply's results.
- * @throws {Error} For an unknown account, one without `event:import`, or a file that cannot be imported.
+ * @throws {Error} For an unknown or suspended account, one without `event:import`, or a file that cannot be imported.
  */
 export async function runImportCommand(options) {
   const {
@@ -105,6 +105,10 @@ export async function runImportCommand(options) {
   const user = await prisma.user.findUnique({ where: { email } })
 
   if (!user) throw new Error(`No account is registered as ${email}.`)
+
+  // The web refuses a suspended account on every request (`plugins/auth.js`);
+  // so does this, before anything is planned in its name.
+  if (user.suspendedAt) throw new Error('This account is suspended.')
 
   const memberships = await prisma.membership.findMany({ where: { userId: user.id } })
   const actor = toActor(user, memberships)

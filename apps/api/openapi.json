@@ -7704,7 +7704,7 @@
       "post": {
         "operationId": "organizerInvitations.reissue",
         "summary": "Issue a new code for an organiser invitation",
-        "description": "For a code that was lost, never handed over, or ran out. The waiting (or expired) invitation is withdrawn and a new one for the same address, organisation name, description, website and note is issued in one transaction, with a new code and a new fourteen-day expiry, so the old code stops working at the moment the new one exists. The new code is returned exactly as `organizerInvitations.create` returns one, or emailed in `EMAIL` mode with the same withdrawal and 503 `DELIVERY_FAILED` when the mail server refuses it. An invitation that was accepted or withdrawn answers 409 `NOT_OUTSTANDING`. The address is checked again as at creation: the caller’s own address is refused (403 `SELF_INVITATION`), and so is one that has since become a Desi-Event staff account (422 `STAFF_ACCOUNT`). Shares the creation limit, and needs a second factor within the SECURITY_ROLE window.\n\nRequires the `organizer:invite` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "For a code that was lost, never handed over, or ran out. The waiting (or expired) invitation is withdrawn and a new one for the same address, organisation name, description, website and note is issued in one transaction, with a new code and a new fourteen-day expiry, so the old code stops working at the moment the new one exists. The new code is returned exactly as `organizerInvitations.create` returns one, or emailed in `EMAIL` mode with the same withdrawal and 503 `DELIVERY_FAILED` when the mail server refuses it. An invitation that was accepted or withdrawn, or whose address was erased at the person’s request, answers 409 `NOT_OUTSTANDING`. The address is checked again as at creation: the caller’s own address is refused (403 `SELF_INVITATION`), and so is one that has since become a Desi-Event staff account (422 `STAFF_ACCOUNT`). Shares the creation limit, and needs a second factor within the SECURITY_ROLE window.\n\nRequires the `organizer:invite` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "platform"
         ],
@@ -15373,7 +15373,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "zones": {
                     "default": [],
@@ -22990,7 +22990,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "confirmMaterialChange": {
                     "type": "boolean"
@@ -36891,7 +36891,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "startsAt": {
                     "type": "string",
@@ -38793,7 +38793,7 @@
                         "revision": {
                           "type": "integer",
                           "minimum": 0,
-                          "maximum": 9007199254740991
+                          "maximum": 2147483647
                         },
                         "outcome": {
                           "anyOf": [
@@ -40829,7 +40829,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "reason": {
                     "type": "string",
@@ -41046,7 +41046,7 @@
                         "revision": {
                           "type": "integer",
                           "minimum": 0,
-                          "maximum": 9007199254740991
+                          "maximum": 2147483647
                         },
                         "permitted": {
                           "type": "boolean"
@@ -41373,6 +41373,10 @@
                             },
                             "removable": {
                               "type": "boolean"
+                            },
+                            "endTimeListed": {
+                              "default": true,
+                              "type": "boolean"
                             }
                           },
                           "required": [
@@ -41391,7 +41395,8 @@
                             "sortOrder",
                             "priceZones",
                             "usage",
-                            "removable"
+                            "removable",
+                            "endTimeListed"
                           ],
                           "additionalProperties": false
                         },
@@ -41550,7 +41555,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "reason": {
                     "type": "string",
@@ -44260,7 +44265,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "reason": {
                     "type": "string",
@@ -47343,7 +47348,7 @@
                         "revision": {
                           "type": "integer",
                           "minimum": 0,
-                          "maximum": 9007199254740991
+                          "maximum": 2147483647
                         }
                       },
                       "required": [
@@ -49187,7 +49192,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   }
                 },
                 "required": [
@@ -66982,6 +66987,10 @@
                           },
                           "removable": {
                             "type": "boolean"
+                          },
+                          "endTimeListed": {
+                            "default": true,
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -67000,7 +67009,8 @@
                           "sortOrder",
                           "priceZones",
                           "usage",
-                          "removable"
+                          "removable",
+                          "endTimeListed"
                         ],
                         "additionalProperties": false
                       }
@@ -67220,6 +67230,10 @@
                         },
                         "removable": {
                           "type": "boolean"
+                        },
+                        "endTimeListed": {
+                          "default": true,
+                          "type": "boolean"
                         }
                       },
                       "required": [
@@ -67238,7 +67252,8 @@
                         "sortOrder",
                         "priceZones",
                         "usage",
-                        "removable"
+                        "removable",
+                        "endTimeListed"
                       ],
                       "additionalProperties": false
                     },
@@ -67347,7 +67362,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "startsAt": {
                     "type": "string",
@@ -67934,7 +67949,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "name": {
                     "type": "string",
@@ -68212,6 +68227,10 @@
                         },
                         "removable": {
                           "type": "boolean"
+                        },
+                        "endTimeListed": {
+                          "default": true,
+                          "type": "boolean"
                         }
                       },
                       "required": [
@@ -68230,7 +68249,8 @@
                         "sortOrder",
                         "priceZones",
                         "usage",
-                        "removable"
+                        "removable",
+                        "endTimeListed"
                       ],
                       "additionalProperties": false
                     },
@@ -68349,7 +68369,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "startsAt": {
                     "type": "string",
@@ -68850,7 +68870,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "name": {
                     "type": "string",
@@ -70305,7 +70325,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "altText": {
                     "type": "string",
@@ -70830,7 +70850,7 @@
                   "revision": {
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": 9007199254740991
+                    "maximum": 2147483647
                   },
                   "galleryIds": {
                     "minItems": 1,

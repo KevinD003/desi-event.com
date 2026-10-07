@@ -42,12 +42,11 @@ import { httpError } from './errors.js'
 import { lockTicketTypes } from './inventory.js'
 import {
   REFUND_BLOCKING_DISPUTE_STATES,
-  allocateNamedLines,
   orderParts,
   partsLeft,
   partsSpokenFor,
   pendingLines,
-  refundPartsFor,
+  quoteNamedLines,
   refundableCents,
   requestRefund,
 } from './refunds.js'
@@ -102,6 +101,11 @@ export const NIGHT_OUTCOMES = Object.freeze([
 
 /** Ticket states a night's cancellation withdraws. */
 const WITHDRAWABLE = Object.freeze(['VALID', 'TRANSFER_PENDING'])
+
+/** An order's lines as a night's cancellation reads them: tier, tickets and seats. */
+const ORDER_LINES = Object.freeze({
+  items: { include: { ticketType: true, tickets: { include: { eventSeat: true } } } },
+})
 
 /**
  * Whether an order line is for this night: its ticket type names the night, or
@@ -175,10 +179,7 @@ function nightLines(order, nightId, pendingByLine = new Map()) {
 export async function loadNightFacts(db, event, session, now) {
   const orders = await db.order.findMany({
     where: { eventId: event.id, status: { in: ['PENDING', 'PAID'] } },
-    include: {
-      items: { include: { ticketType: true, tickets: { include: { eventSeat: true } } } },
-      payments: { include: { disputes: true } },
-    },
+    include: { ...ORDER_LINES, payments: { include: { disputes: true } } },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   })
 
@@ -352,6 +353,45 @@ async function countPlans(db, facts, nightId) {
 }
 
 /**
+ * The refund of an order's tickets for the night: which lines, and what they
+ * come to with their share of the fee and the tax. Worked out by
+ * `quoteNamedLines`, the working `requestRefund` reserves, with the face value
+ * brought down to what the order has left (`capFaceToLeft`): a sum refunded
+ * earlier without tickets already paid part of them back, and the night's
+ * cancellation refunds the rest rather than refusing them.
+ *
+ * Lines worth nothing — free tickets, or tickets a promo code or earlier
+ * refunds left nothing on — come to 0. Every other refusal is thrown.
+ *
+ * @param {object} db A Prisma client or transaction client.
+ * @param {object} order The order, with its lines as {@link ORDER_LINES} reads them.
+ * @param {string} nightId The night.
+ * @returns {Promise<{lines: Array<{orderItemId: string, quantity: number}>, amountCents: number}>} The lines, and cents; 0 when there is nothing to refund.
+ */
+async function nightRefundQuote(db, order, nightId) {
+  const pending = await pendingLines(db, order.id)
+  const lines = nightLines(order, nightId, pending.quantities)
+
+  if (lines.length === 0) return { lines, amountCents: 0 }
+
+  const parts = orderParts(order)
+  const left = partsLeft(parts, await partsSpokenFor(db, order))
+  const quoted = quoteNamedLines({
+    items: order.items ?? [],
+    lines,
+    pending,
+    discountCents: order.discountCents ?? 0,
+    parts,
+    left,
+    capFaceToLeft: true,
+  })
+
+  if (quoted.named.amountCents <= 0) return { lines, amountCents: 0 }
+
+  return { lines, amountCents: Math.min(refundableCents(order), quoted.amountCents) }
+}
+
+/**
  * What a lines refund of the night's lines would come to, fee and tax share
  * included: worked out as `requestRefund` works it out, without reserving.
  *
@@ -361,31 +401,9 @@ async function countPlans(db, facts, nightId) {
  * @returns {Promise<number>} Cents; 0 when the lines are worth nothing.
  */
 async function linesAmount(db, order, nightId) {
-  const pending = await pendingLines(db, order.id)
-  const lines = nightLines(order, nightId, pending.quantities)
+  const { amountCents } = await nightRefundQuote(db, order, nightId)
 
-  if (lines.length === 0) return 0
-
-  const parts = orderParts(order)
-  const left = partsLeft(parts, await partsSpokenFor(db, order))
-
-  let named
-
-  try {
-    named = allocateNamedLines({
-      items: order.items,
-      lines,
-      pendingByLine: pending.quantities,
-      discountCents: order.discountCents ?? 0,
-    })
-  } catch (error) {
-    if (error?.statusCode === 422) return 0
-    throw error
-  }
-
-  const split = refundPartsFor({ parts, left, form: 'lines', lineFaceCents: named.amountCents })
-
-  return Math.min(refundableCents(order), split.faceValueCents + split.feeCents + split.taxCents)
+  return amountCents
 }
 
 /**
@@ -776,11 +794,12 @@ async function openDisputeTask(tx, { order, event, night }) {
 }
 
 /**
- * Ask for one order's refund for the night, under its row lock.
+ * Ask for one order's refund for the night, under its row lock, from the order
+ * as it stands under that lock.
  *
  * @param {object} tx A Prisma transaction client.
  * @param {object} options Options.
- * @param {object} options.order The order, locked.
+ * @param {object} options.order The order as the night's facts read it; only its id is relied on.
  * @param {object} options.payment Its succeeded payment.
  * @param {'WHOLE'|'LINES'} options.plan Whether the whole order is refunded, or only its lines for the night.
  * @param {string} options.nightId The night cancelled.
@@ -803,28 +822,47 @@ async function askRefund(tx, { order, payment, plan, nightId, reason, actorId, r
     now,
   }
 
+  // The order's lock first, then the order as it stands under it. The plan
+  // was read before this lock: a refund of this order that settled since then
+  // moved its counters and its lines, and asking from the old copy would name
+  // a ticket that has gone, or an amount that is no longer there.
+  await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${order.id} FOR UPDATE`
+
+  // Asked for already: a retry, answered as `requestRefund` answers one.
+  const asked = await tx.refund.findUnique({
+    where: { idempotencyKey: common.idempotencyKey },
+    select: { id: true },
+  })
+
+  if (asked) return false
+
+  const current = await tx.order.findUnique({ where: { id: order.id }, include: ORDER_LINES })
+
+  if (!current || refundableCents(current) <= 0) return null
+
   if (plan === 'WHOLE') {
     const { created } = await requestRefund(tx, { ...common, whole: true })
 
     return created
   }
 
-  // The order's lock first, so the lines and what other refunds hold on them
-  // are read as the refund will see them.
-  await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${order.id} FOR UPDATE`
+  // Lines worth nothing (free, or left nothing by a promo code or by earlier
+  // refunds) are withdrawn and not refunded. That is decided here, before
+  // asking: any refusal of the request itself is a fault, and is thrown, so a
+  // withdrawn ticket is never left without its refund and called nothing owed.
+  const { lines, amountCents } = await nightRefundQuote(tx, current, nightId)
 
-  const pending = await pendingLines(tx, order.id)
-  const lines = nightLines(order, nightId, pending.quantities)
+  if (lines.length === 0 || amountCents <= 0) return null
 
-  if (lines.length === 0) return null
+  // Only the night's lines, for no more face value than the order has left,
+  // and never promoted to a refund of everything: the order's tickets for its
+  // other nights, free ones and every-night passes included, are kept.
+  const { created } = await requestRefund(tx, {
+    ...common,
+    lines,
+    capFaceToLeft: true,
+    promoteToWhole: false,
+  })
 
-  try {
-    const { created } = await requestRefund(tx, { ...common, lines })
-
-    return created
-  } catch (error) {
-    // Lines a promo code left worth nothing: withdrawn, nothing to refund.
-    if (error?.statusCode === 422) return null
-    throw error
-  }
+  return created
 }

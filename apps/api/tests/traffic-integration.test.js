@@ -379,6 +379,115 @@ when()('visits against real PostgreSQL', () => {
     expect(longAgo.data.lastDay).toBe('2001-01-01')
   })
 
+  // SPEC2 N-17 and N-22: with no `from` the window is every recorded day, and
+  // the conversion is orders paid on those days over visitors on those days.
+  // Orders paid before the first counted day were once counted anyway, so an
+  // organisation that sold before visits were counted read over 100%.
+  it('counts no order paid before the first counted day when no start was asked for', async () => {
+    const now = new Date()
+    const today = utcDay(now)
+    const yesterday = utcDay(new Date(now.getTime() - 86_400_000))
+    const tag = `pw${randomUUID().slice(0, 8)}`
+    const org = await prisma.organization.create({
+      data: {
+        name: `Paid window ${tag}`,
+        slug: `paid-window-${tag}`,
+        contactEmail: `${tag}@example.com`,
+      },
+    })
+    const counted = (await event(org.id, `counted-${tag}`, 'ON_SALE', 30)).id
+    const uncounted = (await event(org.id, `uncounted-${tag}`, 'ON_SALE', 31)).id
+    const orders = [
+      // Before anything was counted for this organisation.
+      ...[1, 2, 3].map(() => ({
+        eventId: counted,
+        paidAt: new Date(now.getTime() - 60 * 86_400_000),
+      })),
+      { eventId: counted, paidAt: new Date('2000-01-01T12:00:00.000Z') },
+      // On the first counted day.
+      { eventId: counted, paidAt: new Date(`${yesterday}T12:00:00.000Z`) },
+      // An event nothing was ever counted for: one order long ago, one now.
+      { eventId: uncounted, paidAt: new Date(now.getTime() - 60 * 86_400_000) },
+      { eventId: uncounted, paidAt: now },
+    ]
+
+    try {
+      for (const order of orders) await paidOrder(order.eventId, order.paidAt)
+
+      // One visitor yesterday and one today: the first counted day is yesterday.
+      for (const day of [yesterday, today]) {
+        await prisma.trafficDaily.create({
+          data: {
+            eventId: counted,
+            day: rollupDayDate(day),
+            views: 1,
+            visitors: 1,
+            viewsDirect: 1,
+            computedAt: now,
+          },
+        })
+      }
+
+      const open = await trafficSummary(prisma, { organizationId: org.id, now })
+      const byDayPaid = open.byDay.reduce((sum, day) => sum + day.ordersPaid, 0)
+      const byEventPaid = open.byEvent.reduce((sum, row) => sum + row.ordersPaid, 0)
+
+      expect(open.firstDay).toBe(yesterday)
+      expect(open.byDay.map((day) => day.day)).toEqual([yesterday, today])
+      expect(open.seriesTruncated).toBe(false)
+      // Yesterday's order and today's; none of the four paid before counting began.
+      expect(open.conversion).toEqual({
+        visitors: 2,
+        ticketClickVisitors: 0,
+        ordersPaid: 2,
+        visitorToOrderPercent: 100,
+      })
+      expect(byDayPaid).toBe(open.conversion.ordersPaid)
+      expect(byEventPaid).toBe(open.conversion.ordersPaid)
+      expect(open.byEvent.find((row) => row.eventId === counted).ordersPaid).toBe(1)
+      expect(open.byEvent.find((row) => row.eventId === uncounted).ordersPaid).toBe(1)
+
+      // An asked start is kept as asked, so every order on its days is counted.
+      const asked = await trafficSummary(prisma, {
+        organizationId: org.id,
+        from: new Date('2000-01-01T00:00:00.000Z'),
+        now,
+      })
+
+      expect(asked.conversion.ordersPaid).toBe(orders.length)
+
+      // An event with nothing counted: its window is the one day drawn, today,
+      // and the order paid sixty days ago is not on it.
+      const none = await trafficSummary(prisma, {
+        organizationId: org.id,
+        eventId: uncounted,
+        now,
+      })
+
+      expect(none.firstDay).toBeNull()
+      expect(none.byDay).toEqual([expect.objectContaining({ day: today, ordersPaid: 1 })])
+      expect(none.conversion).toMatchObject({ ordersPaid: 1, visitorToOrderPercent: null })
+
+      // The platform's list starts where its first counted day is, which this
+      // suite does not own: every order paid on or after it, and none before.
+      const { data } = await platformTraffic(prisma, { organizationId: org.id, scope: 'all', now })
+      const since = (eventId) =>
+        orders.filter((order) => order.eventId === eventId && utcDay(order.paidAt) >= data.firstDay)
+          .length
+
+      expect(data.firstDay > '2000-01-01').toBe(true)
+      expect(data.firstDay <= yesterday).toBe(true)
+
+      for (const eventId of [counted, uncounted]) {
+        expect(data.events.find((row) => row.eventId === eventId).ordersPaid).toBe(since(eventId))
+      }
+    } finally {
+      await prisma.order.deleteMany({ where: { eventId: { in: [counted, uncounted] } } })
+      await prisma.event.deleteMany({ where: { organizationId: org.id } })
+      await prisma.organization.delete({ where: { id: org.id } })
+    }
+  })
+
   // Prisma sends `contains` as `LIKE '%' || $1 || '%'` and escapes nothing, so
   // before the search was escaped a `_` matched any one character and `%` any
   // run: `Snake_town` also found `SnakeXtown`, and `%` found everything.

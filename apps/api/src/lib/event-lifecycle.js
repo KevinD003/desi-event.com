@@ -595,7 +595,9 @@ export async function transitionEvent(prisma, options) {
 
     // The administrator who imported a platform-held event approving it
     // (SPEC2-XI O5): recorded on the moderation action and in the audit, with
-    // who imported and who approved.
+    // who imported and who approved. The exemption holds only when the
+    // importer of record sent this version for review themselves, so the
+    // record's importer is the submission it waived.
     if (exemption) {
       const item = await prisma.eventImportItem.findUnique({
         where: { eventId: event.id },

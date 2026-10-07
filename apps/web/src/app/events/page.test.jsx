@@ -165,11 +165,16 @@ describe('the listing', () => {
   })
 
   it('shows the sample notice only when the catalogue fell back', async () => {
-    await draw({ usedFallback: true })
+    // One card a draw: the notice is about where the page came from, not what
+    // is on it, and twelve cards of poster art (some 5,200 nodes a draw, drawn
+    // twice) made this a five-second case under load.
+    const events = sampleEventSummaries().slice(0, 1)
+
+    await draw({ events, usedFallback: true })
     expect(screen.getByText('Showing our sample programme')).toBeInTheDocument()
 
     cleanup()
-    await draw()
+    await draw({ events })
     expect(screen.queryByText('Showing our sample programme')).toBeNull()
   })
 

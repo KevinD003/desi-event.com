@@ -103,6 +103,13 @@ Every Playwright spec must be collected by exactly one CI browser job, and
   spec that needs servers of its own instead gets its own Playwright config, a
   matrix leg in `.github/workflows/ci.yml` and a required context in
   `docs/BRANCH_PROTECTION.md`.
+- **A new Playwright config** that runs the development server builds that
+  entry with `nextDevServer()` and lists `withDevRoutes()` first in its
+  `globalSetup` (`apps/web/e2e/support/next-dev.mjs`), so its routes are
+  proved before any test; `pnpm ci:check` refuses one that starts `next dev`
+  any other way. One that starts the API serves it from `E2E_DATABASE_URL`
+  with `API_SERVER_COMMAND` (`e2e-database.mjs`), never from the unit suites'
+  `TEST_DATABASE_URL`.
 - **An accessibility case** goes in `accessibility-sweep.spec.js`, the only
   file the sweep job collects.
 - **No `test.skip`, `test.fixme`, `test.fail` or `.only`**, in a spec or in a

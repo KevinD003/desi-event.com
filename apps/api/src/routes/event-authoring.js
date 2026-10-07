@@ -41,6 +41,7 @@ import {
   bindReservedSeatsAudited,
   changedFields,
   defaultTierCurrency,
+  endTimeListedAfter,
   loadForAuthoring,
   loadZonesByVersion,
   lockSessionRow,
@@ -131,6 +132,9 @@ export function toSession(session, zonesByVersion, usage = UNUSED_SESSION) {
       : [],
     usage: { sold: usage.sold, held: usage.held },
     removable: sessionRemovable(usage),
+    // False for an imported night whose listing gave no end: the editor labels
+    // `endsAt` as a planning estimate, which no public page shows.
+    endTimeListed: session.endTimeListed !== false,
   }
 }
 
@@ -470,7 +474,14 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
           updated = await tx.eventSession.update({
             where: { id: existing.id },
-            data: toSessionPatch(patch),
+            data: {
+              ...toSessionPatch(patch),
+              // An end the editor set is no longer the importer's estimate,
+              // and the public page shows it from now on (SPEC2-XI §0 rule 9).
+              ...(existing.endTimeListed === false && endTimeListedAfter(existing, patch)
+                ? { endTimeListed: true }
+                : {}),
+            },
           })
 
           // The night never stands without the seats of the map it now has.

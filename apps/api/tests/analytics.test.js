@@ -463,6 +463,27 @@ describe('GET /v1/analytics/summary', () => {
     expect(view.funnel.missing[0]).toMatch(/robots/i)
   })
 
+  // With no `from` (the "Everything" period, /analytics's default) holds and
+  // orders go back to the first sale, while visitors exist only from the day
+  // counting began, so "Visitors" can read fewer than "Orders paid". The funnel
+  // says so rather than leaving the two to be read as one measurement.
+  it('says the funnel’s visitors start when counting began, and its holds and orders may not', async () => {
+    const { app, ids } = await worldWithSales()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/analytics/summary?organizationId=${ids.organization.id}&currency=INR`,
+      headers: await asUser(app, OWNER),
+    })
+
+    const days = response.json().data.funnel.missing.find((note) => /whole UTC days/u.test(note))
+
+    expect(days).toMatch(/only from the day this site began counting visits/u)
+    expect(days).toMatch(
+      /holds and orders are counted from the exact start of the window, even when that is earlier/u,
+    )
+  })
+
   it('carries no buyer, no card and no provider identifier', async () => {
     const { app, ids } = await worldWithSales()
 

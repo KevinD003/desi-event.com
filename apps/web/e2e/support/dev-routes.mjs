@@ -1,37 +1,67 @@
 /**
- * Making sure `next dev` routes the pages and the API proxy before a run
+ * Proving that `next dev` routes the pages and the API proxy before a run
  * relies on them.
  *
- * ## What goes wrong
+ * ## The fault, in Next 16.3.8
  *
- * `next dev` builds its table of routes from its file watcher. On start the
- * watcher reports the tree in several bursts, and each burst starts the same
- * asynchronous rebuild (`setup-dev-bundler.js`, the `aggregated` handler)
- * without waiting for the one before it: each reads the files the watcher
- * knows at that moment, and each, when it finishes, replaces the dynamic
- * routes and the app paths with what it read. Measured with a probe on this
- * repository, the rebuilds overlap on every start and sometimes finish out of
- * order. The likely cause of what follows is an early one, which read the
- * tree before the watcher had all of it, finishing last: routes it never saw
- * stay missing until the next file change, and nothing changes a file during
- * a run. What was seen: the detail suite's global setup met a 404 from Next's
- * own not-found page (no compile, no call to the API) on its first request to
- * a route, in four of ten starts on 7 October 2026 — three times on
- * `/api/v1/auth/login`, the catch-all proxy, and once on `/sign-in`. It was
- * not reproduced outside a full run.
+ * `next dev` builds its table of routes from a file watcher
+ * (`next/dist/server/lib/router-utils/setup-dev-bundler.js`). The watcher
+ * starts from time zero with a five-millisecond quiet period, so on start it
+ * reports `src/app` in several bursts, and each burst ran the same
+ * asynchronous rebuild (the `aggregated` handler) at once, with nothing making
+ * it wait for the one before. Each rebuild read the files the watcher knew when
+ * it began and, when it finished, replaced the server's app paths and dynamic
+ * routes with what it had read. The last to finish won. When an early rebuild,
+ * which had seen part of the tree, finished after a later one, its partial
+ * table stood until some watched file changed — and nothing changes a file
+ * during a run.
  *
- * ## What this does
+ * This was proved, not guessed. A read-only probe logging every rebuild and
+ * every write of the table, over 24 starts under CPU and disk load, ended with
+ * a stale table six times (Stage E review, area REL): once a table of 20 routes
+ * written after one of 73, leaving 53 routes — the proxy among them — answering
+ * Next's HTML 404 until the server was stopped; three times a table of 70, the
+ * proxy and `/sign-in` still routed but `/events/[slug]/seats/[sessionId]` and
+ * `/organizer/venues/[id]/edit` and `/maps` not. The first is the answer the
+ * detail suite met in four of ten starts on 7 October 2026 (Next's HTML 404 for
+ * `/api/v1/auth/login`, once for `/sign-in`); the second would have passed the
+ * check this module made then, which asked for those two routes alone. Any
+ * suite on the development server could meet either, on any route.
  *
- * Asks for a page and for the proxy, and tells Next's 404 (an HTML page) apart
- * from any answer the API gives (JSON, 401 for nobody signed in). When Next
- * does not know a route, it touches the proxy's route file — its time, never
- * its contents — so the watcher reports one change and one rebuild runs on
- * its own, from the whole tree; then it asks again. A server that still does
- * not know the routes after three tries fails the run here, saying so, rather
- * than as a sign-in that "could not sign in".
+ * ## The fix
  *
- * It changes nothing a test asserts and nothing in the product: the routes it
- * asks for are the ones the run is about to use.
+ * At the root, in Next: `patches/next@16.3.8.patch`, applied by pnpm on every
+ * install, queues the rebuilds, so each starts after the one before has
+ * published and the last reads the whole tree. `next build` and `next start`
+ * never load the file. pnpm refuses the install when the patch no longer
+ * applies or its version is no longer the one installed, so an upgrade of Next
+ * cannot drop it silently; `src/lib/next-dev-route-rebuilds.test.js` checks the
+ * installed file carries it.
+ *
+ * Proved the same way, with the timing made adversarial rather than loaded:
+ * the watcher's directory reads and each publication of a table delayed at
+ * random. Without the patch, rebuilds overlapped in every one of 8 starts and 5
+ * ended stale (60, 72, 65, 65 and 72 of 73 routes; once the proxy answered
+ * 404). With it, 12 of 12 ended with all 73, no rebuild began before the one
+ * before had published, and no table was smaller than the one it replaced.
+ *
+ * ## What this module does
+ *
+ * Proves it on the server a suite is about to use, before any test or seed
+ * does: a page, the proxy (a catch-all), and a page two dynamic segments deep
+ * in a signed-in area — the three kinds of route the stale tables lost. Each is
+ * told apart from Next's 404 (an HTML page): the proxy answers with the API's
+ * JSON (a 401 for nobody signed in, or the proxy's own 503 when a suite leaves
+ * the API down), and the organiser page redirects a visitor who is not signed
+ * in. When Next does not know one, this touches the proxy's route file — its
+ * time, never its contents — so the watcher reports a change and one more
+ * rebuild runs, from the whole tree; then it asks again. A server that still
+ * does not route them after three rebuilds fails the run here, saying which,
+ * rather than as a sign-in that "could not sign in".
+ *
+ * `dev-routes-setup.mjs` runs it first in every config that starts `next dev`,
+ * through `next-dev.mjs`, and `pnpm ci:check` refuses a config that does not.
+ * It changes nothing a test asserts and nothing in the product.
  *
  * @module e2e/support/dev-routes
  */
@@ -41,13 +71,20 @@ import path from 'node:path'
 
 /**
  * The proxy's route file: touched, never written, to make the watcher report a
- * change. Found from the working directory, as the detail setup finds its own
- * state directory: Playwright runs from `apps/web`.
+ * change. Found from the working directory: Playwright runs from `apps/web`.
  */
 const PROXY_ROUTE = path.join(process.cwd(), 'src', 'app', 'api', 'v1', '[...path]', 'route.js')
 
-/** What is asked for: a page, and the proxy (which the API answers 401 when nobody is signed in). */
-const PROBES = Object.freeze(['/sign-in', '/api/v1/auth/me'])
+/**
+ * What is asked for: a page; the proxy, a catch-all route; and a page under two
+ * dynamic segments in the organiser area, which redirects a visitor who is not
+ * signed in whatever the API says. No answer of a routed one is Next's HTML 404.
+ */
+export const PROBES = Object.freeze([
+  '/sign-in',
+  '/api/v1/auth/me',
+  '/organizer/venues/route-check/maps',
+])
 
 /** How many times the table is rebuilt before giving up. */
 const ATTEMPTS = 3

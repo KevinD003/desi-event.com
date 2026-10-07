@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 
 import { TicketTiers, availabilityLabel, salesWindowText, tierAllIn } from './ticket-tiers.jsx'
@@ -241,6 +241,19 @@ describe('a tier’s own sales window', () => {
 
 describe('seated tiers and nights', () => {
   const NOW = new Date('2026-10-01T12:00:00.000Z')
+
+  // `TicketTiers` asks whether the night still sells with the real clock, as
+  // the page does. Its cases are read at NOW, like the direct calls here:
+  // with the real clock, the seat link they look for went on 11 October 2026
+  // at 18:30 UTC, when the fixture's night ended. Only `Date` is replaced.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'], now: NOW })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   const night = {
     id: 'cksessionseated000000001',
     label: 'Night 1',

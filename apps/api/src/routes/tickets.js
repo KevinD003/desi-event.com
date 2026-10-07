@@ -485,16 +485,18 @@ export function registerTicketRoutes(
 
       assertHolds(request.actor, ticket)
 
-      // In EMAIL mode, one address is sent at most three codes a day.
-      if (mode === DELIVERY_MODES.EMAIL) {
-        await assertRecipientDailyCap(prisma, { email: toEmail, now })
-      }
-
       const { token, tokenHash } = mintTransferToken()
       const expiresAt = new Date(now.getTime() + TRANSFER_TTL_HOURS * 3_600_000)
 
-      const outcome = await prisma.$transaction((tx) =>
-        startTransfer(tx, {
+      const outcome = await prisma.$transaction(async (tx) => {
+        // In EMAIL mode, one address is sent at most three codes a day. Counted
+        // in the transaction that writes the offer, under a lock on the
+        // address, so offers sent to it at the same moment take turns.
+        if (mode === DELIVERY_MODES.EMAIL) {
+          await assertRecipientDailyCap(tx, { email: toEmail, now })
+        }
+
+        return startTransfer(tx, {
           ticket,
           toEmail,
           fromUserId: request.actor.id,
@@ -503,8 +505,8 @@ export function registerTicketRoutes(
           requestId: request.id,
           delivery: mode,
           now,
-        }),
-      )
+        })
+      })
 
       if (!outcome.started) {
         throw conflict('Somebody else moved that ticket on. Read it again.', {

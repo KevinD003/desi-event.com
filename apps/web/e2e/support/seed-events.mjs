@@ -16,10 +16,13 @@
 import { createPrismaClient } from '@desi-event/db'
 import { hashPassword, seal, totp } from '@desi-event/auth'
 
-/** The connection these journeys use. Disposable by construction. */
-export const CONNECTION =
-  process.env.TEST_DATABASE_URL ??
-  'postgresql://desi:desi@127.0.0.1:5432/desi_event_test?schema=public'
+import { E2E_DATABASE_URL } from './e2e-database.mjs'
+
+/**
+ * The connection these journeys use: the browser suites' own database, never
+ * the unit suites' (`e2e-database.mjs`). Disposable by construction.
+ */
+export const CONNECTION = E2E_DATABASE_URL
 
 /** The password every seeded account uses. Test-only, and it says so. */
 export const PASSWORD = 'e2e-test-password-not-a-real-secret'

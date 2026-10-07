@@ -10,7 +10,9 @@
  *
  * Visits are counted in whole UTC days. A window's `from` is the day it falls
  * on; its `to` is exclusive, so a `to` at midnight ends the day before, and it
- * is capped at today. Absent `from` means every recorded day. The per-day
+ * is capped at today. Absent `from` means every recorded day: the window starts
+ * on the first day anything was counted for the events read, and with nothing
+ * counted it is its last day alone, the one day the series draws. The per-day
  * series is capped at the latest 366 days; the totals always cover the whole
  * window.
  *
@@ -18,8 +20,11 @@
  *
  * "Orders paid" here are orders whose `paidAt` falls in the window's UTC days
  * and which are still paid: an order refunded later is not counted as paid.
- * This is a different measurement from the funnel's "Orders paid" (created in
- * the window, now paid), and the two are labelled apart.
+ * With no `from`, that is from the first counted day, never earlier: an order
+ * paid before visits were counted had no visitor to be set against, and
+ * counting it would raise the conversion with every sale made before counting
+ * began. This is a different measurement from the funnel's "Orders paid"
+ * (created in the window, now paid), and the two are labelled apart.
  *
  * ## Deleted events
  *
@@ -126,12 +131,18 @@ function dayFilter({ firstDay, lastDay }) {
 /**
  * The Prisma filter for orders paid on a window's days.
  *
- * @param {{firstDay: string|null, lastDay: string}} window The days.
+ * Always bounded below. With no `from`, the window starts on the first day
+ * anything was counted (`firstCounted`), so the orders and the visitors they
+ * are divided by cover the same days; with nothing counted, it is the last day
+ * alone, the one day the series draws.
+ *
+ * @param {{firstDay: string|null, lastDay: string}} window The days asked for.
+ * @param {string|null} firstCounted The first day counted in the window, if any.
  * @returns {object} A `paidAt` filter.
  */
-function paidFilter({ firstDay, lastDay }) {
+export function paidFilter({ firstDay, lastDay }, firstCounted) {
   return {
-    ...(firstDay ? { gte: dayDate(firstDay) } : {}),
+    gte: dayDate(firstDay ?? firstCounted ?? lastDay),
     lt: new Date(dayDate(lastDay).getTime() + DAY_MS),
   }
 }
@@ -308,18 +319,12 @@ export async function trafficSummary(
   const scope = { organizationId, ...(eventId ? { id: eventId } : {}) }
   const dailyWhere = { event: scope, day: dayFilter(window) }
 
-  const [perDay, paid, listed, fresh, includesDemonstration, narrowed] = await Promise.all([
+  const [perDay, listed, fresh, includesDemonstration, narrowed] = await Promise.all([
     prisma.trafficDaily.groupBy({
       by: ['day'],
       where: dailyWhere,
       _sum: SUM_ALL,
       orderBy: { day: 'asc' },
-    }),
-    // Two columns, grouped here by day and by event: a database day bucket
-    // would need raw SQL, and these rows are the organisation's own.
-    prisma.order.findMany({
-      where: { event: scope, status: 'PAID', paidAt: paidFilter(window) },
-      select: { eventId: true, paidAt: true },
     }),
     eventId
       ? []
@@ -339,6 +344,42 @@ export async function trafficSummary(
       : null,
   ])
 
+  const totals = sumsOf({})
+  const dayRows = perDay.map((group) => {
+    const sums = sumsOf(group._sum)
+
+    for (const field of TRAFFIC_SUM_FIELDS) totals[field] += sums[field]
+
+    return { day: utcDay(group.day), ...sums }
+  })
+
+  // The groups come oldest first, so with no `from` the first is where every
+  // recorded day starts — and where the paid orders start too.
+  const firstDay = window.firstDay ?? dayRows[0]?.day ?? null
+
+  const series = zeroFilledSeries(dayRows, {
+    firstDay,
+    lastDay: window.lastDay,
+    zero: () => sumsOf({}),
+  })
+
+  const [perEvent, paid] = await Promise.all([
+    listed.length === 0
+      ? []
+      : prisma.trafficDaily.groupBy({
+          by: ['eventId'],
+          where: { eventId: { in: listed.map((event) => event.id) }, day: dayFilter(window) },
+          _sum: SUM_ALL,
+        }),
+    // Two columns, grouped here by day and by event: a database day bucket
+    // would need raw SQL, and these rows are the organisation's own.
+    prisma.order.findMany({
+      where: { event: scope, status: 'PAID', paidAt: paidFilter(window, firstDay) },
+      select: { eventId: true, paidAt: true },
+    }),
+  ])
+  const sumsByEvent = new Map(perEvent.map((group) => [group.eventId, sumsOf(group._sum)]))
+
   const paidByDay = new Map()
   const paidByEvent = new Map()
 
@@ -351,35 +392,11 @@ export async function trafficSummary(
     paidByEvent.set(order.eventId, (paidByEvent.get(order.eventId) ?? 0) + 1)
   }
 
-  const totals = sumsOf({})
-  const dayRows = perDay.map((group) => {
-    const sums = sumsOf(group._sum)
-
-    for (const field of TRAFFIC_SUM_FIELDS) totals[field] += sums[field]
-
-    return { day: utcDay(group.day), ...sums }
-  })
-
-  const series = zeroFilledSeries(dayRows, {
-    firstDay: window.firstDay,
-    lastDay: window.lastDay,
-    zero: () => sumsOf({}),
-  })
-
-  const perEvent =
-    listed.length === 0
-      ? []
-      : await prisma.trafficDaily.groupBy({
-          by: ['eventId'],
-          where: { eventId: { in: listed.map((event) => event.id) }, day: dayFilter(window) },
-          _sum: SUM_ALL,
-        })
-  const sumsByEvent = new Map(perEvent.map((group) => [group.eventId, sumsOf(group._sum)]))
   const ordersPaid = paid.length
 
   return {
     timeZone: 'UTC',
-    firstDay: window.firstDay ?? dayRows[0]?.day ?? null,
+    firstDay,
     lastDay: window.lastDay,
     updatedAt: fresh.updatedAt,
     stale: fresh.stale,
@@ -532,7 +549,8 @@ export async function platformTraffic(
     freshness(prisma, now),
     // With no `from` the window starts at the platform's first counted day,
     // the same rows the top list is ranked over, as `trafficSummary` does for
-    // one organisation. One row by the day index.
+    // one organisation, and the paid orders start there too. One row by the
+    // day index.
     window.firstDay
       ? null
       : prisma.trafficDaily.findFirst({
@@ -541,6 +559,8 @@ export async function platformTraffic(
           select: { day: true },
         }),
   ])
+
+  const firstDay = window.firstDay ?? (earliest ? utcDay(earliest.day) : null)
 
   // A group of only clicks sorts after every viewed event; it is not "most viewed".
   const topIds = topGroups
@@ -565,7 +585,7 @@ export async function platformTraffic(
       ? []
       : prisma.order.groupBy({
           by: ['eventId'],
-          where: { eventId: { in: everyId }, status: 'PAID', paidAt: paidFilter(window) },
+          where: { eventId: { in: everyId }, status: 'PAID', paidAt: paidFilter(window, firstDay) },
           _count: { _all: true },
         }),
     everyId.length === 0
@@ -589,7 +609,7 @@ export async function platformTraffic(
   return {
     data: {
       timeZone: 'UTC',
-      firstDay: window.firstDay ?? (earliest ? utcDay(earliest.day) : null),
+      firstDay,
       lastDay: window.lastDay,
       updatedAt: fresh.updatedAt,
       stale: fresh.stale,

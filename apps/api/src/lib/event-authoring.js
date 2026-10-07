@@ -859,6 +859,34 @@ export function changedFields(existing, patch) {
 }
 
 /**
+ * Whether a night's end is one somebody set, after a change to its times.
+ *
+ * A night imported from a listing that gave no end stores `startsAt + 3 h`,
+ * because the column is NOT NULL, and is flagged `endTimeListed = false`: no
+ * public page, card or JSON-LD shows that estimate (SPEC2-XI §0 rule 9). Once
+ * an editor sets the end to something other than the estimate carried along
+ * with the start, the end is theirs and the public page shows it. A night that
+ * only moved — its start and end shifted together and its length kept, as
+ * rescheduling every night together does — still ends at the estimate, and
+ * moving only the start leaves the old estimate as the end, so neither counts.
+ * An end that was listed stays listed.
+ *
+ * @param {{startsAt: Date|string, endsAt: Date|string, endTimeListed?: boolean}} existing The stored night.
+ * @param {{startsAt?: Date|string, endsAt?: Date|string}} next Its times after the
+ *   change; an absent one keeps the stored value.
+ * @returns {boolean} The `endTimeListed` to store.
+ */
+export function endTimeListedAfter(existing, next) {
+  if (existing.endTimeListed !== false) return true
+  if (next.endsAt === undefined || unchanged(existing.endsAt, next.endsAt)) return false
+
+  const instant = (value) => new Date(value).getTime()
+  const length = instant(existing.endsAt) - instant(existing.startsAt)
+
+  return instant(next.endsAt) - instant(next.startsAt ?? existing.startsAt) !== length
+}
+
+/**
  * Why a change to a ticket type would take something away from a buyer.
  *
  * A conflict, not an incoherence: the change is well formed, but the tier's

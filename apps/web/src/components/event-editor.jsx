@@ -114,6 +114,7 @@ import {
   editMode,
   statusReading,
 } from '../lib/event-status.js'
+import { ESTIMATED_END_LABEL, endIsEstimate } from '../lib/imports.js'
 import { normaliseWebsiteUrl, websiteUrlProblem } from '../lib/website.js'
 import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
@@ -1241,6 +1242,7 @@ export function EventEditor({
               materialNote={materialNoteFor(mode, status)}
               onChangeMaterial={changeMaterial}
               venues={venues}
+              endEstimated={sessionList.some(endIsEstimate)}
             />
           ) : null}
           {/*
@@ -1406,6 +1408,8 @@ export function EventEditor({
  * @property {Function|null} [onChangeMaterial] Opens the material change panel's own form, on a public event.
  * @property {Record<string, string>} [errors] Problems by field id.
  * @property {object[]} [venues] Venues to choose from.
+ * @property {boolean} [endEstimated] Whether the end is an imported night's planning
+ *   estimate, which its listing did not give and no public page shows.
  */
 
 /**
@@ -1569,6 +1573,7 @@ function ScheduleStep({
   materialNote = null,
   onChangeMaterial = null,
   venues,
+  endEstimated = false,
 }) {
   const zone = values.timezone
   // Read at the times themselves: New York is EDT in October and EST in
@@ -1626,7 +1631,11 @@ function ScheduleStep({
         label={`Ends${endAbbreviation ? ` (${endAbbreviation})` : ''}`}
         id="event-endsAt"
         required
-        description={`Local time at the venue — ${zone}.`}
+        description={
+          endEstimated
+            ? `${ESTIMATED_END_LABEL}. Local time at the venue — ${zone}. The event page shows only the start.`
+            : `Local time at the venue — ${zone}.`
+        }
       >
         <Input
           type="datetime-local"

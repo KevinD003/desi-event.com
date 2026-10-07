@@ -151,6 +151,26 @@ describe('TrafficByDay', () => {
     expect(container.querySelector('details').open).toBe(false)
     expect(container.querySelector('summary').textContent).toBe(TABLE_SUMMARY)
   })
+
+  // A period of up to 366 days can begin and end on the same month and day:
+  // without the year, two rows were headed "Oct 7".
+  it('heads every row with its year once the period runs into a second year', () => {
+    const end = Date.parse('2027-10-07T00:00:00.000Z')
+    const year = Array.from({ length: 366 }, (_unused, i) => ({
+      ...days[0],
+      day: new Date(end - (365 - i) * 86_400_000).toISOString().slice(0, 10),
+    }))
+
+    render(<TrafficByDay days={year} open={false} />)
+
+    const headers = screen
+      .getAllByRole('rowheader', { hidden: true })
+      .map((cell) => cell.textContent)
+
+    expect(headers[0]).toBe('Oct 7, 2026')
+    expect(headers.at(-1)).toBe('Oct 7, 2027')
+    expect(new Set(headers).size).toBe(year.length)
+  })
 })
 
 describe('EventsTraffic', () => {

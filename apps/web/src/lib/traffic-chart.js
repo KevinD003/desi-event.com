@@ -11,7 +11,7 @@
  * @module lib/traffic-chart
  */
 
-import { formatCount, formatDay } from './traffic.js'
+import { dayNamer, formatCount } from './traffic.js'
 
 /** The chart's caption and accessible title. */
 export const CHART_CAPTION = 'Page views and visitors per day (UTC)'
@@ -130,9 +130,10 @@ export function chartModel(days, { width, height, padding } = {}) {
   }))
 
   const labelled = n === 0 ? [] : n >= 5 ? [0, Math.floor((n - 1) / 2), n - 1] : [0, n - 1]
+  const nameDay = dayNamer(days)
   const xLabels = [...new Set(labelled)].map((index) => ({
     x: points[index].cx,
-    label: formatDay(days[index].day),
+    label: nameDay(days[index].day),
   }))
 
   return { bars, line, points, ticks, xLabels, max, baseline: round(baseline) }
@@ -157,8 +158,11 @@ export function isEmptySeries(days) {
 export function chartDescription(days) {
   if (days.length === 0) return 'No days to show.'
 
-  const first = formatDay(days[0].day)
-  const last = formatDay(days.at(-1).day)
+  // With the year when the series runs into a second one, or a 366-day
+  // series would run "from Oct 7 to Oct 7".
+  const nameDay = dayNamer(days)
+  const first = nameDay(days[0].day)
+  const last = nameDay(days.at(-1).day)
   const span = days.length === 1 ? `on ${first}` : `from ${first} to ${last}`
   const totalViews = days.reduce((sum, day) => sum + day.views, 0)
   const totalVisitors = days.reduce((sum, day) => sum + day.visitors, 0)
@@ -171,7 +175,7 @@ export function chartDescription(days) {
 
   return [
     `Daily page views and visitors ${span} (UTC).`,
-    `${formatCount(totalViews)} page views in all, the most on ${formatDay(peak.day)} (${formatCount(peak.views)}).`,
+    `${formatCount(totalViews)} page views in all, the most on ${nameDay(peak.day)} (${formatCount(peak.views)}).`,
     `${formatCount(totalVisitors)} visitors in all.`,
     'Every day is listed in the table below the chart.',
   ].join(' ')

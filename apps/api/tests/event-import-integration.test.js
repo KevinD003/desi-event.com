@@ -533,6 +533,132 @@ when()('approving and publishing', () => {
   })
 })
 
+when()('who imported it, when the import exemption is recorded (SPEC2-XI O5)', () => {
+  /**
+   * Preview and apply a file as a given administrator.
+   *
+   * @param {object} headers The administrator's headers.
+   * @param {object} file The dataset.
+   * @returns {Promise<object>} The run, as the preview answered it.
+   */
+  async function importAs(headers, file) {
+    const previewed = await app.inject({
+      method: 'POST',
+      url: '/v1/platform/imports',
+      headers,
+      payload: { fileName: 'listings.json', dataset: file },
+    })
+
+    expect(previewed.statusCode, previewed.body).toBe(201)
+
+    const run = previewed.json().data
+    const applied = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/imports/${run.id}/apply`,
+      headers,
+      payload: { planDigest: run.planDigest },
+    })
+
+    expect(applied.statusCode, applied.body).toBe(200)
+
+    return run
+  }
+
+  it('names the administrator who sent this version for review, not the one who first imported it', async () => {
+    const id = sourceId()
+    const first = world.administrator.user
+
+    await importAs(world.administrator.headers, dataset([listing(id)]))
+
+    const second = await person('import-admin-second', 'ADMIN')
+    const secondHeaders = await sessionFor(second)
+    const run = await importAs(
+      secondHeaders,
+      dataset([listing(id, { description: 'Dance the night away, now with a live dhol.' })]),
+    )
+
+    expect(run.rows.map((row) => row.action)).toEqual(['UPDATE_DRAFT'])
+
+    const event = await eventFor(id)
+    const item = await prisma.eventImportItem.findUnique({ where: { eventId: event.id } })
+
+    // The second administrator withdrew it, updated it and sent it back.
+    expect(item.importedById).toBe(second.id)
+
+    const approved = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/imports/${run.id}/approve`,
+      headers: secondHeaders,
+      payload: { items: [{ eventId: event.id, revision: event.revision }] },
+    })
+
+    expect(approved.statusCode, approved.body).toBe(200)
+    expect(approved.json().data.results[0]).toMatchObject({ outcome: 'PUBLISHED' })
+
+    const decision = await prisma.eventModerationAction.findFirst({
+      where: { eventId: event.id, toStatus: 'APPROVED' },
+    })
+
+    expect(decision.reason).toContain(`imported by ${second.id}, approved by ${second.id}`)
+    expect(decision.reason).not.toContain(first.id)
+
+    const audit = await prisma.auditLog.findFirst({
+      where: { entityId: event.id, action: 'event.approved' },
+    })
+
+    expect(audit.metadata).toMatchObject({
+      exemption: 'PLATFORM_HELD_IMPORT',
+      importedById: second.id,
+      approvedById: second.id,
+    })
+  })
+
+  it('does not exempt an account that only sent an import back for review', async () => {
+    const id = sourceId()
+
+    await importAs(world.administrator.headers, dataset([listing(id)]))
+
+    const event = await eventFor(id)
+    const superHeaders = world.superAdministrator.headers
+
+    // A super administrator may withdraw and resubmit any event, this one too;
+    // that makes them its submitter, not its importer.
+    const withdrawn = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/withdraw-review`,
+      headers: superHeaders,
+    })
+
+    expect(withdrawn.statusCode, withdrawn.body).toBe(200)
+
+    const resubmitted = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/submit-review`,
+      headers: superHeaders,
+      payload: {},
+    })
+
+    expect(resubmitted.statusCode, resubmitted.body).toBe(200)
+
+    const current = await prisma.event.findUnique({ where: { id: event.id } })
+    const decided = await app.inject({
+      method: 'POST',
+      url: `/v1/moderation/events/${event.id}/decision`,
+      headers: superHeaders,
+      payload: { decision: 'approve', revision: current.revision },
+    })
+
+    expect(decided.statusCode, decided.body).toBe(403)
+    expect(decided.json().error.code).toBe('SELF_REVIEW')
+    expect((await prisma.event.findUnique({ where: { id: event.id } })).status).toBe(
+      'REVIEW_PENDING',
+    )
+    expect(
+      (await prisma.eventImportItem.findUnique({ where: { eventId: event.id } })).importedById,
+    ).toBe(world.administrator.user.id)
+  })
+})
+
 when()('moving an imported event to an organiser', () => {
   it('moves the venue when nothing else uses it, and copies it when something does', async () => {
     const lone = sourceId()
@@ -602,6 +728,93 @@ when()('moving an imported event to an organiser', () => {
 
     expect(page.json().data.importedFrom).toBeNull()
     expect(page.json().data.websiteLink).toBeNull()
+  })
+})
+
+when()('a night whose listing gave no end time', () => {
+  it('keeps the estimate hidden while the night only moves, and shows an end its organiser sets', async () => {
+    const id = sourceId()
+    const run = await importFile(dataset([listing(id)]))
+    const imported = await eventFor(id)
+
+    await approve(run.id, [imported.id])
+
+    const owner = await person('import-new-owner', 'ORGANIZER')
+
+    await prisma.membership.create({
+      data: { userId: owner.id, organizationId: world.target.id, role: 'OWNER' },
+    })
+
+    const ownerHeaders = await sessionFor(owner)
+    const published = await prisma.event.findUnique({ where: { id: imported.id } })
+    const moved = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/imports/events/${imported.id}/reassign`,
+      headers: world.administrator.headers,
+      payload: {
+        organizationId: world.target.id,
+        reason: 'They run this event themselves.',
+        revision: published.revision,
+      },
+    })
+
+    expect(moved.statusCode, moved.body).toBe(200)
+
+    const night = await prisma.eventSession.findFirst({ where: { eventId: imported.id } })
+    const hour = 3_600_000
+
+    expect(night.endTimeListed).toBe(false)
+
+    /**
+     * Change the night as its new owner, confirming the change for ticket holders.
+     *
+     * @param {object} patch The session fields.
+     * @returns {Promise<object>} The response.
+     */
+    const change = async (patch) => {
+      const { revision } = await prisma.event.findUnique({ where: { id: imported.id } })
+
+      return app.inject({
+        method: 'PATCH',
+        url: `/v1/events/${imported.id}/sessions/${night.id}`,
+        headers: ownerHeaders,
+        payload: {
+          revision,
+          capacity: 400,
+          confirmMaterialChange: true,
+          changeReason: 'The hall moved the night by an hour.',
+          ...patch,
+        },
+      })
+    }
+    const publicNight = async () =>
+      (await app.inject({ method: 'GET', url: `/v1/events/${published.slug}` })).json().data
+        .sessions[0]
+
+    // The whole night an hour later: still the estimate, carried along.
+    const later = await change({
+      startsAt: new Date(night.startsAt.getTime() + hour).toISOString(),
+      endsAt: new Date(night.endsAt.getTime() + hour).toISOString(),
+    })
+
+    expect(later.statusCode, later.body).toBe(200)
+    // The editor's own copy says so too, so it can label the estimate.
+    expect(later.json().data.endTimeListed).toBe(false)
+    expect(await publicNight()).toMatchObject({ endTimeListed: false })
+
+    // The organiser says when it really ends: that end is shown from now on.
+    const realEnd = new Date(night.startsAt.getTime() + 6 * hour).toISOString()
+    const ended = await change({
+      endsAt: realEnd,
+      changeReason: 'The organiser confirmed the night ends at one in the morning.',
+    })
+
+    expect(ended.statusCode, ended.body).toBe(200)
+    expect(ended.json().data.endTimeListed).toBe(true)
+    expect(await publicNight()).toMatchObject({ endsAt: realEnd, endTimeListed: true })
+    expect((await prisma.eventSession.findUnique({ where: { id: night.id } })).endTimeListed).toBe(
+      true,
+    )
   })
 })
 

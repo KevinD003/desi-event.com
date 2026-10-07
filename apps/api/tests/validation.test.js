@@ -43,12 +43,32 @@ describe('findUnstorableCharacter', () => {
     expect(findUnstorableCharacter({ metadata: { 'bad\u0000key': 'value' } })).toEqual(['metadata'])
   })
 
+  // `JSON.parse` turns a `\ud800` escape into half of a pair; a `jsonb` column
+  // refuses it (22P02) and a text column keeps U+FFFD instead.
+  it('finds a lone surrogate, high or low, in a value or a key', () => {
+    expect(findUnstorableCharacter({ reason: 'Looks good \ud800 here' })).toEqual(['reason'])
+    expect(findUnstorableCharacter({ reason: 'Fixing \udc00 a typo' })).toEqual(['reason'])
+    expect(findUnstorableCharacter({ reason: 'ends with half \ud83d' })).toEqual(['reason'])
+    expect(findUnstorableCharacter({ reason: '\ude00 starts with the other half' })).toEqual([
+      'reason',
+    ])
+    expect(
+      findUnstorableCharacter({
+        dataset: { events: [{ title: 'Fine' }, { title: 'Garba \ud800' }] },
+      }),
+    ).toEqual(['dataset', 'events', 1, 'title'])
+    expect(findUnstorableCharacter({ metadata: { 'key\udfff': 'value' } })).toEqual(['metadata'])
+    // A low half before a high half is two halves, not a pair.
+    expect(findUnstorableCharacter({ reason: '\ude00\ud83d' })).toEqual(['reason'])
+  })
+
   it('passes everything PostgreSQL can store, including other control characters', () => {
     expect(
       findUnstorableCharacter({
         text: 'Line one\nLine two\ttabbed\r\n',
         bell: '\u0007',
         emoji: 'Garba 💃',
+        escapedPair: 'Garba \ud83d\udc83',
         when: new Date(),
         count: 3,
         flag: true,
@@ -96,6 +116,21 @@ describe('zodValidatorCompiler', () => {
       code: 'VALIDATION_ERROR',
       message: 'Invalid request body',
       issues: [{ path: 'notes[1]', code: 'custom', message: UNSTORABLE_CHARACTER_MESSAGE }],
+    })
+  })
+
+  it('refuses a lone surrogate the schema accepted, naming the field', () => {
+    const validate = zodValidatorCompiler({ schema, httpPart: 'body' })
+    const { error, value } = validate({ name: 'Diya \ud800', notes: ['fine'] })
+
+    expect(value).toBeUndefined()
+    expect(error).toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      issues: [{ path: 'name', code: 'custom', message: UNSTORABLE_CHARACTER_MESSAGE }],
+    })
+    expect(validate({ name: 'Diya 💃', notes: [] })).toEqual({
+      value: { name: 'Diya 💃', notes: [] },
     })
   })
 
@@ -155,6 +190,16 @@ describe('the validator on a running app', () => {
       ],
       [{ url: '/things/ok?note=a%00b', payload: { content: {} } }, 'note'],
       [{ url: '/things/o%00k', payload: { content: {} } }, 'slug'],
+      // A lone surrogate arrives only in JSON, as an escape; sent as raw text
+      // so nothing on the way re-encodes it.
+      [
+        {
+          url: '/things/ok',
+          headers: { 'content-type': 'application/json' },
+          payload: '{"content":{"reason":"half \\ud800 a pair"}}',
+        },
+        'content.reason',
+      ],
     ]
 
     for (const [request, path] of cases) {
@@ -166,6 +211,7 @@ describe('the validator on a running app', () => {
         issues: [{ path, message: UNSTORABLE_CHARACTER_MESSAGE }],
       })
       expect(response.body).not.toContain('\\u0000')
+      expect(response.body).not.toContain('\\ud800')
     }
 
     expect(reached.count).toBe(0)

@@ -32,3 +32,27 @@ overrides:
   'ip-address@<10.7.1': '^10.7.1'
   'brace-expansion@<1.1.21': '^1.1.21'
   'brace-expansion@>=4.0.0 <5.0.12': '^5.0.12'
+  # Added 2026-10-07, for advisories published after the lockfile was last
+  # resolved; each patched release is inside the range its consumer asks for.
+  #   sharp: librsvg (GHSA-wq5f-xc86-pv6w), through next, which asks ^0.35.4.
+  #   fastify: HTTP/2 trailer denial of service (GHSA-4mh8-r7rc-xpvc); the API
+  #   asks ^5.12.4.
+  #   source-map-js (GHSA-68fv-2mgg-jv7q), through @vitest/coverage-v8 >
+  #   magicast; development only.
+  'sharp@<0.35.5': '^0.35.5'
+  'fastify@<5.12.5': '^5.12.5'
+  'source-map-js@>=1.0.0 <1.2.2': '^1.2.2'
+
+# One local change to Next.js, kept as a patch so it is reviewed like code and
+# fails the install loudly when Next is upgraded: pnpm refuses a patch that no
+# longer applies, and one whose version is no longer installed.
+#   next@16.3.8: `next dev` rebuilt its table of routes once per burst of file
+#   events, with nothing making one rebuild wait for the one before. The last
+#   to finish replaced the table, and on start an early one, which had seen
+#   only part of `src/app`, sometimes finished last — whole sets of routes,
+#   the API proxy among them, then answered Next's own 404 until a file
+#   changed. The patch queues the rebuilds. Development server only: `next
+#   build` and `next start` never load the file. Root cause and proof:
+#   apps/web/e2e/support/dev-routes.mjs.
+patchedDependencies:
+  next@16.3.8: patches/next@16.3.8.patch

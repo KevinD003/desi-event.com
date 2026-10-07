@@ -5,10 +5,12 @@
  * team.
  *
  * Whether the event's public page shows "Visit the organiser's website", in
- * any state of the event and at any time. Only platform administrators turn it
- * on or off; the page says whether this reader may (`canDecide`, decided on
- * the server from the session), and the API refuses everybody else all the
- * same. A decision names the address on this screen, so an address the
+ * any state of the event but deleted, at any time. Only platform administrators
+ * turn it on or off; the page says whether this reader may (`canDecide`,
+ * decided on the server from the session), and the API refuses everybody else
+ * all the same. A deleted event's switch is kept as it is (the API answers
+ * `NOT_EDITABLE`), so the panel shows it and offers nobody controls
+ * (`deleted`). A decision names the address on this screen, so an address the
  * organiser changed since cannot be turned on unseen: the API answers
  * `WEBSITE_CHANGED` and nothing is written.
  *
@@ -33,6 +35,10 @@ import { administratorSummary, formatDecisionInstant } from '../lib/website-redi
 
 /** What a reader who may not decide is told, in place of the controls. */
 export const CANNOT_DECIDE = 'Only a platform administrator can turn the website link on or off.'
+
+/** What everybody is told about a deleted event, in place of the controls. */
+export const DELETED_EVENT_FROZEN =
+  'This event was deleted, so its website link cannot be turned on or off. The switch is kept as it is, and a restored event has it back as it was.'
 
 /** The box an administrator ticks before turning a link on. */
 export const CHECKED_LABEL = 'I have opened this address and it is the organiser’s own site.'
@@ -67,6 +73,8 @@ function AddressLink({ href }) {
  * @property {object|null} state The switch, as the API's `websiteRedirect`.
  * @property {boolean} pagePublic Whether the event's page is public now.
  * @property {boolean} canDecide Whether this reader may turn the link on or off.
+ * @property {boolean} [deleted] Whether the event is deleted: its switch is
+ *   then kept as it is, and nobody may turn it on or off.
  */
 
 /**
@@ -75,7 +83,14 @@ function AddressLink({ href }) {
  * @param {WebsiteRedirectPanelProps} props Component props.
  * @returns {JSX.Element} The panel.
  */
-export function WebsiteRedirectPanel({ eventId, websiteUrl, state, pagePublic, canDecide }) {
+export function WebsiteRedirectPanel({
+  eventId,
+  websiteUrl,
+  state,
+  pagePublic,
+  canDecide,
+  deleted = false,
+}) {
   const router = useRouter()
   const ids = useId()
   const [current, setCurrent] = useState(state ?? null)
@@ -206,8 +221,8 @@ export function WebsiteRedirectPanel({ eventId, websiteUrl, state, pagePublic, c
       </h2>
       <p className="mt-1 text-sm text-ink-muted">
         Whether this event’s public page shows “Visit the organiser’s website”. Only platform
-        administrators turn it on or off, in any state of the event. Visitors go through a
-        Desi-Event address that counts the visit and then sends them to the address the link was
+        administrators turn it on or off, in any state of the event but deleted. Visitors go through
+        a Desi-Event address that counts the visit and then sends them to the address the link was
         turned on for.
       </p>
 
@@ -272,7 +287,9 @@ export function WebsiteRedirectPanel({ eventId, websiteUrl, state, pagePublic, c
         </p>
       ) : null}
 
-      {!canDecide ? (
+      {deleted ? (
+        <p className="mt-3 text-sm text-ink-muted">{DELETED_EVENT_FROZEN}</p>
+      ) : !canDecide ? (
         <p className="mt-3 text-sm text-ink-muted">{CANNOT_DECIDE}</p>
       ) : (
         <div className="mt-4 space-y-3">

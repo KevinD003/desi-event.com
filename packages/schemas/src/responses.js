@@ -954,6 +954,13 @@ export const eventSessionSchema = z.object({
   usage: z.object({ sold: z.number().int(), held: z.number().int() }),
   /** Whether nothing depends on it yet, so it can be removed. */
   removable: z.boolean(),
+  /**
+   * False for an imported night whose listing gave no end time: `endsAt` is
+   * then a planning estimate (start plus three hours) that no public page
+   * shows, and the editor labels it "Not listed by Sulekha (estimate for
+   * scheduling)". It turns true once an editor sets the end apart from it.
+   */
+  endTimeListed: z.boolean().default(true),
 })
 
 /** A session, with the event's new revision so the editor can keep editing. */

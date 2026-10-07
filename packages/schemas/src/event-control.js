@@ -25,7 +25,12 @@ import {
   platformEditEndSchema,
 } from './enums.js'
 import { DELETION_OUTCOMES } from './lifecycle.js'
-import { cuidSchema, slugSchema, timestampSchema } from './primitives.js'
+import {
+  cuidSchema,
+  revisionPreconditionSchema,
+  slugSchema,
+  timestampSchema,
+} from './primitives.js'
 
 /** How long a platform edit sitting lasts, in minutes (the database allows two hours). */
 export const PLATFORM_EDIT_MINUTES = 60
@@ -87,8 +92,11 @@ export const controlReasonSchema = z.preprocess(
     ),
 )
 
-/** A revision the caller read, for the compare-and-set every write here makes. */
-const revisionSchema = z.int().min(0)
+/**
+ * A revision the caller read, for the compare-and-set every write here makes,
+ * no larger than the `integer` column it is compared with.
+ */
+const revisionSchema = revisionPreconditionSchema
 
 /** A count in a preview or a summary. */
 const countSchema = z.int().min(0)

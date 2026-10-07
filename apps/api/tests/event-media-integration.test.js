@@ -23,7 +23,12 @@ import { MEDIA_LIMITS } from '@desi-event/schemas/media'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 
 import { buildApp } from '../src/app.js'
-import { assertQuota } from '../src/lib/event-media.js'
+import {
+  DELETED_EVENT_ALLOWANCE_BYTES,
+  MEDIA_HELD_FOR_DELETED_SENTENCE,
+  MEDIA_QUOTA_SENTENCE,
+  assertQuota,
+} from '../src/lib/event-media.js'
 import { createPostgresMediaStorage } from '../src/lib/media-storage.js'
 import { startSession } from '../src/lib/sessions.js'
 import { testEnv } from './helpers/app.js'
@@ -491,5 +496,148 @@ when()('the organisation quota', () => {
       code: 'MEDIA_QUOTA_EXCEEDED',
     })
     await expect(assertQuota(prisma, gone.organization.id, adding)).resolves.toBeUndefined()
+  })
+
+  // Nothing purges a deleted event's pictures, so without a second bound an
+  // organiser holding `event:delete_unsold` could fill the quota, delete the
+  // unsold events and upload again, without end. Everything an organisation
+  // holds, deleted events included, may come to the quota plus one more.
+  it('bounds what deleted events’ pictures hold, so deleting and uploading again cannot grow storage without end', async () => {
+    const TEN_MIB = MEDIA_LIMITS.maxBytes
+    const { organization, event: fresh } = await eventIn(`quota-loop-${randomUUID().slice(0, 8)}`)
+    const headers = await memberSession(organization, 'OWNER')
+    let drafts = 0
+
+    /** A draft of the organisation, its cover and full gallery each a full 10 MiB. */
+    const fullDraft = async () => {
+      drafts += 1
+
+      const startsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      const slug = `quota-loop-${drafts}-${RUN}`.toLowerCase()
+      const event = await prisma.event.create({
+        data: {
+          organizationId: organization.id,
+          title: `Quota loop ${drafts} ${RUN}`,
+          slug,
+          summary: 'A summary long enough to be plausible.',
+          description: 'A description long enough to be plausible prose.',
+          category: 'MUSIC_CONCERT',
+          status: 'DRAFT',
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + 3 * 60 * 60 * 1000),
+          timezone: 'America/Chicago',
+          isOnline: true,
+          onlineUrl: 'https://stream.example.test/live',
+        },
+      })
+
+      await prisma.mediaAsset.create({
+        data: asset(event, { kind: 'EVENT_COVER', position: null, byteSize: TEN_MIB }),
+      })
+
+      for (let position = 0; position < MEDIA_LIMITS.galleryMax; position += 1) {
+        await prisma.mediaAsset.create({ data: asset(event, { position, byteSize: TEN_MIB }) })
+      }
+
+      return event
+    }
+    const upload = async () => {
+      const { revision } = await prisma.event.findUnique({ where: { id: fresh.id } })
+
+      return app.inject({
+        method: 'POST',
+        url: `/v1/events/${fresh.id}/media?kind=EVENT_GALLERY&altText=The%20band%20at%20soundcheck&revision=${revision}`,
+        headers: { ...headers, 'content-type': 'image/png' },
+        payload: solidPng(400, 400),
+      })
+    }
+    const held = async (status) => {
+      const { _sum: sum } = await prisma.mediaAsset.aggregate({
+        where: { event: { organizationId: organization.id, status } },
+        _sum: { byteSize: true },
+      })
+
+      return sum.byteSize ?? 0
+    }
+
+    // Twelve full drafts: past the quota, so an upload is refused.
+    const first = []
+
+    for (let n = 0; n < 12; n += 1) first.push(await fullDraft())
+
+    const full = await upload()
+
+    expect(full.statusCode).toBe(409)
+    expect(full.json().error).toMatchObject({
+      code: 'MEDIA_QUOTA_EXCEEDED',
+      message: MEDIA_QUOTA_SENTENCE,
+    })
+
+    // Deleted through the route, their pictures leave the quota (SPEC2-XI
+    // decision 10), and an upload is taken again.
+    for (const event of first) {
+      const row = await prisma.event.findUnique({ where: { id: event.id } })
+      const deleted = await app.inject({
+        method: 'POST',
+        url: `/v1/events/${event.id}/delete`,
+        headers,
+        payload: {
+          revision: row.revision,
+          reason: 'Clearing out drafts we will not run.',
+          confirmSlug: row.slug,
+          expectedOutcome: 'REMOVE',
+        },
+      })
+
+      expect(deleted.statusCode, deleted.body).toBe(200)
+    }
+
+    const kept = await held('DELETED')
+
+    expect(kept).toBeGreaterThan(MEDIA_LIMITS.organizationQuotaBytes)
+    expect((await upload()).statusCode).toBe(201)
+
+    // Eleven more full drafts: still under the quota on their own, but with
+    // what the deleted events hold, past the bound on everything.
+    for (let n = 0; n < 11; n += 1) await fullDraft()
+
+    const live = await held({ not: 'DELETED' })
+
+    expect(live).toBeLessThan(MEDIA_LIMITS.organizationQuotaBytes)
+    expect(live + kept).toBeGreaterThan(
+      MEDIA_LIMITS.organizationQuotaBytes + DELETED_EVENT_ALLOWANCE_BYTES,
+    )
+
+    const bounded = await upload()
+
+    expect(bounded.statusCode).toBe(409)
+    expect(bounded.json().error).toMatchObject({
+      code: 'MEDIA_QUOTA_EXCEEDED',
+      message: MEDIA_HELD_FOR_DELETED_SENTENCE,
+    })
+    expect(await held({ not: 'DELETED' })).toBe(live)
+
+    // The remedy the refusal names: removing pictures from the organisation's
+    // own events makes room again.
+    const extra = await prisma.mediaAsset.findMany({
+      where: { event: { organizationId: organization.id, status: 'DRAFT' }, byteSize: TEN_MIB },
+      take: 3,
+    })
+
+    for (const picture of extra) {
+      const { revision } = await prisma.event.findUnique({ where: { id: picture.eventId } })
+      const removed = await app.inject({
+        method: 'DELETE',
+        url: `/v1/events/${picture.eventId}/media/${picture.id}?revision=${revision}`,
+        headers,
+      })
+
+      expect(removed.statusCode, removed.body).toBe(200)
+    }
+
+    expect((await upload()).statusCode).toBe(201)
+    expect((await held({ not: 'DELETED' })) + (await held('DELETED'))).toBeLessThanOrEqual(
+      MEDIA_LIMITS.organizationQuotaBytes + DELETED_EVENT_ALLOWANCE_BYTES,
+    )
   })
 })

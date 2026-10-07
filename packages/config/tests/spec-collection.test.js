@@ -803,6 +803,10 @@ describe('ci:check, on which browser job runs which spec', () => {
     const files = [
       'package.json',
       'e2e/support/chromium.js',
+      'e2e/support/next-dev.mjs',
+      'e2e/support/e2e-database.mjs',
+      'e2e/support/dev-routes-setup.mjs',
+      'e2e/support/dev-routes.mjs',
       ...readdirSync(webRoot).filter((name) => /^playwright(\..+)?\.config\.js$/u.test(name)),
       ...readdirSync(path.join(webRoot, 'e2e'))
         .filter((name) => name.endsWith('.spec.js'))
@@ -845,6 +849,9 @@ describe('ci:check, on which browser job runs which spec', () => {
     expect(code).toBe(0)
     expect(output).toContain(
       `${specsOnDisk} browser specs are each collected by exactly one of 7 CI browser jobs`,
+    )
+    expect(output).toContain(
+      '6 configs start next dev, each through e2e/support/next-dev.mjs with its routes proved before any test.',
     )
   })
 
@@ -964,6 +971,56 @@ describe('ci:check, on which browser job runs which spec', () => {
 
     expect(code).toBe(1)
     expect(output).toContain('the approved ruleset does not require "Browser — refusals"')
+  })
+
+  it('refuses a config that starts next dev by hand, without proving its routes', () => {
+    const helper =
+      '    nextDevServer({ port: webPort, env: { NEXT_PUBLIC_API_URL: `http://127.0.0.1:${apiPort}` } }),\n'
+    const byHand = [
+      '    {',
+      '      command: `npx next dev --port ${webPort}`,',
+      '      url: baseURL,',
+      '      reuseExistingServer: false,',
+      '      timeout: 180_000,',
+      '      env: { NEXT_PUBLIC_API_URL: `http://127.0.0.1:${apiPort}` },',
+      '    },',
+      '',
+    ].join('\n')
+    const { code, output } = check({
+      web: {
+        'playwright.sweep.config.js': (text) => {
+          expect(text).toContain(helper)
+          expect(text).toContain('  globalSetup: withDevRoutes(),\n')
+
+          return text.replace(helper, byHand).replace('  globalSetup: withDevRoutes(),\n', '')
+        },
+      },
+    })
+
+    expect(code).toBe(1)
+    expect(output).toContain(
+      'apps/web/playwright.sweep.config.js: starts `npx next dev --port 3430` by hand — build the entry with nextDevServer()',
+    )
+    expect(output).toContain(
+      'apps/web/playwright.sweep.config.js: starts next dev without e2e/support/dev-routes-setup.mjs in its globalSetup',
+    )
+  })
+
+  it('refuses a next dev config that proves its routes only after its own setup', () => {
+    const { code, output } = check({
+      web: {
+        'playwright.detail.config.js': (text) =>
+          text.replace(
+            "globalSetup: withDevRoutes('./e2e/support/detail-global-setup.mjs'),",
+            "globalSetup: ['./e2e/support/detail-global-setup.mjs', './e2e/support/dev-routes-setup.mjs'],",
+          ),
+      },
+    })
+
+    expect(code).toBe(1)
+    expect(output).toContain(
+      'apps/web/playwright.detail.config.js: runs e2e/support/dev-routes-setup.mjs after another global setup',
+    )
   })
 
   it('refuses a testMatch it cannot read as a glob', () => {

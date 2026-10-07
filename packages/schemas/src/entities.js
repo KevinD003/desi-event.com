@@ -364,7 +364,8 @@ export const publicEventSessionSchema = sessionSummarySchema.extend({
   /**
    * False when the night's listing gave no end time (an imported event):
    * `endsAt` is then a planning estimate, start plus three hours, which the
-   * database needs and no page shows. True for every night an organiser set.
+   * database needs and no page shows. True for every night an organiser set,
+   * and once an editor sets an imported night's end apart from the estimate.
    */
   endTimeListed: z.boolean().default(true),
 })

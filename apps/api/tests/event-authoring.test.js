@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { endTimeListedAfter } from '../src/lib/event-authoring.js'
 import { bearer, createTestApp, holdHeaders, signIn } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
@@ -810,5 +811,42 @@ describe('a night’s label', () => {
     expect(prisma._store.eventSession).toHaveLength(before)
 
     await app.close()
+  })
+})
+
+describe('an end time the listing did not give', () => {
+  const hour = 3_600_000
+  const startsAt = new Date('2026-10-19T00:00:00.000Z')
+  const estimate = {
+    startsAt,
+    endsAt: new Date(startsAt.getTime() + 3 * hour),
+    endTimeListed: false,
+  }
+  const at = (offset) => new Date(startsAt.getTime() + offset * hour).toISOString()
+
+  it('stays an estimate while the end is not touched, or only rides along with the start', () => {
+    expect(endTimeListedAfter(estimate, {})).toBe(false)
+    expect(endTimeListedAfter(estimate, { capacity: 400 })).toBe(false)
+    expect(endTimeListedAfter(estimate, { endsAt: at(3) })).toBe(false)
+    // Moving only the start leaves the old estimate as the end: still not listed.
+    expect(endTimeListedAfter(estimate, { startsAt: at(1) })).toBe(false)
+    // The whole night a day later keeps its length.
+    expect(endTimeListedAfter(estimate, { startsAt: at(24), endsAt: at(27) })).toBe(false)
+  })
+
+  it('becomes listed once the end is set apart from the start', () => {
+    expect(endTimeListedAfter(estimate, { endsAt: at(5) })).toBe(true)
+    expect(endTimeListedAfter(estimate, { startsAt: at(1), endsAt: at(6) })).toBe(true)
+    expect(endTimeListedAfter(estimate, { endsAt: new Date(startsAt.getTime() + 2 * hour) })).toBe(
+      true,
+    )
+  })
+
+  it('keeps a listed end listed, whatever moves', () => {
+    const listed = { ...estimate, endTimeListed: true }
+
+    expect(endTimeListedAfter(listed, {})).toBe(true)
+    expect(endTimeListedAfter(listed, { startsAt: at(24), endsAt: at(27) })).toBe(true)
+    expect(endTimeListedAfter({ startsAt, endsAt: estimate.endsAt }, {})).toBe(true)
   })
 })

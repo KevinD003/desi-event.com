@@ -10,6 +10,7 @@ import {
   DATABASE_REFUSALS,
   POSTING_ROLE_SENTENCE,
   REVIEW_REQUIRED_SENTENCE,
+  OUT_OF_RANGE_MESSAGE,
   UNSTORABLE_CHARACTER_MESSAGE,
   databaseRefusal,
   exposedServerError,
@@ -93,6 +94,55 @@ describe('normaliseError', () => {
     ).toBe('VALIDATION_ERROR')
   })
 
+  it('answers 400, not 500, for a number or a date outside its column', () => {
+    // A revision past an integer column, as Prisma refused it: P2020 over 22003.
+    const integer = Object.assign(
+      new Error('Value out of range for the type: value "2147483648" is out of range'),
+      {
+        name: 'PrismaClientKnownRequestError',
+        code: 'P2020',
+        meta: {
+          modelName: 'Event',
+          driverAdapterError: {
+            name: 'DriverAdapterError',
+            cause: {
+              originalCode: '22003',
+              originalMessage: 'value "2147483648" is out of range for type integer',
+              kind: 'ValueOutOfRange',
+            },
+          },
+        },
+      },
+    )
+    // A date in year 0, as PostgreSQL refused it: P2039 over 22008.
+    const date = Object.assign(new Error('Database error. Code: `22008`.'), {
+      name: 'PrismaClientKnownRequestError',
+      code: 'P2039',
+      meta: {
+        modelName: 'Refund',
+        driverAdapterError: {
+          name: 'DriverAdapterError',
+          cause: {
+            originalCode: '22008',
+            originalMessage: 'date/time field value out of range: "0000-06-01 00:00:00"',
+            kind: 'postgres',
+          },
+        },
+      },
+    })
+
+    for (const error of [integer, date]) {
+      for (const exposeInternals of [true, false]) {
+        expect(normaliseError(error, { exposeInternals })).toEqual({
+          statusCode: 400,
+          code: 'VALIDATION_ERROR',
+          message: OUT_OF_RANGE_MESSAGE,
+          expected: true,
+        })
+      }
+    }
+  })
+
   it('answers 400, not 500, for a character PostgreSQL cannot store', () => {
     // The shape the Prisma driver adapter throws for a NUL in a text value,
     // copied from a real query against PostgreSQL.
@@ -144,6 +194,59 @@ describe('normaliseError', () => {
         expected: true,
       })
     }
+
+    // And a lone surrogate a JSON column refuses: 22P02, "invalid input
+    // syntax for type json", which Prisma reports as P2007. Copied from a real
+    // audit write.
+    const loneSurrogate = Object.assign(
+      new Error('Invalid input value: invalid input syntax for type json'),
+      {
+        name: 'PrismaClientKnownRequestError',
+        code: 'P2007',
+        meta: {
+          modelName: 'AuditLog',
+          driverAdapterError: {
+            name: 'DriverAdapterError',
+            cause: {
+              originalCode: '22P02',
+              originalMessage: 'invalid input syntax for type json',
+              kind: 'InvalidInputValue',
+              message: 'invalid input syntax for type json',
+            },
+          },
+        },
+      },
+    )
+
+    for (const exposeInternals of [true, false]) {
+      expect(normaliseError(loneSurrogate, { exposeInternals })).toEqual({
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: UNSTORABLE_CHARACTER_MESSAGE,
+        expected: true,
+      })
+    }
+
+    // 22P02 is any malformed literal: one that is not about JSON is a fault.
+    const notJson = {
+      ...nul,
+      code: 'P2007',
+      message: 'Invalid input value: invalid input syntax for type integer: "abc"',
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: '22P02',
+            originalMessage: 'invalid input syntax for type integer: "abc"',
+            kind: 'InvalidInputValue',
+          },
+        },
+      },
+    }
+
+    expect(normaliseError(notJson, { exposeInternals: false })).toMatchObject({
+      statusCode: 500,
+      code: 'INTERNAL_SERVER_ERROR',
+    })
 
     // Only those SQLSTATEs: any other database failure under the same Prisma
     // code is still a fault, and still hidden in production.

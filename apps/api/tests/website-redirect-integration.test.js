@@ -8,7 +8,8 @@
  *      "waiting for a decision" in step with the address for every writer and
  *      never moves the switch;
  *   2. the routes on real rows: an organiser's change while the link is on,
- *      an administrator's decision with its audit row, the lookup's count;
+ *      an administrator's decision with its audit row, the lookup's count
+ *      and its per-event ceiling, which repeats do not use up;
  *   3. the decision under real concurrency: an organiser and an administrator
  *      at once never leave the link going to an address nobody approved, and
  *      two administrators at once make one change;
@@ -26,7 +27,7 @@
 import { createHash } from 'node:crypto'
 
 import { createInMemoryProviderRegistry } from '@desi-event/providers'
-import { afterAll, beforeAll, beforeEach, expect, it } from 'vitest'
+import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
 import { buildApp } from '../src/app.js'
 import { startSession } from '../src/lib/sessions.js'
@@ -441,6 +442,72 @@ when()('the website link against real PostgreSQL', () => {
     await prisma.event.delete({ where: { id: event.id } })
 
     expect(await prisma.trafficEvent.count({ where: { eventId: event.id } })).toBe(0)
+  })
+
+  it('spends the per-event ceiling only on visits it counts, never on a repeat', async () => {
+    const event = await eventIn('ON_SALE', { websiteUrl: SITE_A })
+    const turnedOn = await decide(event.id, world.adminHeaders, {
+      enabled: true,
+      reason: 'Checked: their own site.',
+      websiteUrl: SITE_A,
+    })
+
+    expect(turnedOn.statusCode, turnedOn.body).toBe(200)
+
+    // An app of its own, whose ceiling is two counted visits an event a minute.
+    const capped = await buildApp({
+      prisma,
+      providers: createInMemoryProviderRegistry(),
+      env: testEnv(),
+      docs: false,
+      processEnv: {},
+      rateLimit: {
+        global: { max: 10_000, timeWindow: '1 minute' },
+        websiteVisit: { eventMax: 2 },
+      },
+    })
+    const from = (address) =>
+      capped.inject({
+        method: 'POST',
+        url: '/v1/traffic/website-visits',
+        headers: {
+          'user-agent': CHROME,
+          'content-type': 'application/json',
+          'x-desi-client-address': address,
+        },
+        payload: { slug: event.slug, counted: true },
+      })
+    const counted = () =>
+      prisma.trafficEvent.count({ where: { eventId: event.id, kind: 'WEBSITE_REDIRECT' } })
+
+    await capped.ready()
+
+    // One minute throughout, so the ceiling cannot start again between visits.
+    vi.useFakeTimers({ toFake: ['Date'], now: Math.floor(Date.now() / 60_000) * 60_000 + 5_000 })
+
+    try {
+      // One visitor, then the same visitor clicking again and again: the
+      // database's unique day code refuses the repeats.
+      for (let i = 0; i < 4; i += 1) {
+        const response = await from('198.51.100.1')
+
+        expect(response.statusCode, response.body).toBe(200)
+        expect(response.json()).toEqual({ data: { url: SITE_A } })
+      }
+
+      expect(await counted()).toBe(1)
+
+      // A new visitor still finds a place: the repeats took none.
+      expect((await from('198.51.100.2')).statusCode).toBe(200)
+      expect(await counted()).toBe(2)
+
+      // And the ceiling holds once two are counted.
+      expect((await from('198.51.100.3')).statusCode).toBe(200)
+      expect(await counted()).toBe(2)
+    } finally {
+      vi.useRealTimers()
+      await capped.close()
+    }
   })
 
   it('never leaves the link going to an address nobody approved, however an organiser and an administrator race', async () => {

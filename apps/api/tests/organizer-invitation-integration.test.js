@@ -10,6 +10,12 @@
  * organisation, its verification event and its owner's membership are written
  * together with the foreign keys the schema promises.
  *
+ * And what the privacy process does to the table: an invited organiser's
+ * erasure replaces the address on their invitations and drops the note, so the
+ * administrators' list stops naming them; a waiting invitation to the person
+ * refuses the erasure while their account would go; and an expired invitation
+ * that was erased is not sent again.
+ *
  * Runs against `TEST_DATABASE_URL`. With `REQUIRE_DATABASE` set it fails rather
  * than skips.
  *
@@ -22,6 +28,10 @@ import { createInMemoryProviderRegistry } from '@desi-event/providers'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 
 import { buildApp } from '../src/app.js'
+import { PRIVACY_CATEGORIES } from '../src/lib/privacy.js'
+import { HOLD_DECISIONS, OPEN_PROCESS_CODES, evaluateHolds } from '../src/lib/privacy-holds.js'
+import { isRedactedValue } from '../src/lib/privacy-placeholders.js'
+import { CATEGORY_STATUSES, previewScope, redactSubject } from '../src/lib/privacy-redaction.js'
 import { startSession } from '../src/lib/sessions.js'
 import { connectTestDatabase } from './helpers/database.js'
 import { testEnv } from './helpers/app.js'
@@ -467,5 +477,267 @@ describeWhen('accepting an organiser invitation, in the database', () => {
       (await prisma.organizerInvitation.findUnique({ where: { id: invitationId } })).status,
     ).toBe('PENDING')
     expect(await prisma.membership.count({ where: { userId: staff.id } })).toBe(0)
+  })
+})
+
+/**
+ * An organisation the privacy process can name, holding nothing yet.
+ *
+ * @param {string} label Distinguishes it.
+ * @returns {Promise<object>} The row.
+ */
+function bareOrganisation(label) {
+  return prisma.organization.create({
+    data: {
+      id: id(`org-${label}`),
+      name: `Privacy ${label} ${RUN}`,
+      slug: `privacy-${label}-${RUN}`.toLowerCase(),
+      contactEmail: `hello.${label}.${RUN}@${DOMAIN}`,
+    },
+  })
+}
+
+/**
+ * The account identity line of a preview or a redaction.
+ *
+ * @param {Array<object>} categories The scope.
+ * @returns {object} The line.
+ */
+function accountLine(categories) {
+  return categories.find((entry) => entry.category === PRIVACY_CATEGORIES.ACCOUNT_IDENTITY)
+}
+
+describeWhen('erasing an invited organiser, in the database', () => {
+  it('replaces the address and drops the note on the invitation their organisation came from', async () => {
+    const recipient = await user('meera.erased')
+    const name = `Meera Presents ${RUN}`
+    const note = 'Meera, as we discussed on the phone, here is your code.'
+    const issued = (await issue(recipient.email, { organizationName: name, note })).json().data
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/v1/organizer-invitations/accept',
+      headers: (await sessionFor(recipient)).headers,
+      payload: { token: issued.delivery.invitationCode, timezone: 'America/Chicago' },
+    })
+
+    expect(accepted.statusCode, accepted.body).toBe(200)
+
+    const organizationId = accepted.json().data.organization.id
+    const listed = () =>
+      app.inject({
+        method: 'GET',
+        url: `/v1/platform/organizer-invitations?status=ALL&q=${encodeURIComponent(name)}`,
+        headers: administrator.headers,
+      })
+
+    // Before: the administrators' list names the person, as it should.
+    expect((await listed()).body).toContain(recipient.email)
+
+    // The owner is in this organisation only, so the account goes too: the
+    // account, the organisation's contact address (theirs) and the invitation.
+    const preview = accountLine(
+      await previewScope(prisma, { organizationId, subjectUserId: recipient.id }),
+    )
+
+    expect(preview).toEqual({
+      category: PRIVACY_CATEGORIES.ACCOUNT_IDENTITY,
+      rows: 3,
+      status: CATEGORY_STATUSES.REDACTED,
+    })
+
+    const outcome = await prisma.$transaction((tx) =>
+      redactSubject(tx, { organizationId, subjectUserId: recipient.id, now: new Date() }),
+    )
+
+    expect(accountLine(outcome.categories)).toEqual(preview)
+
+    const row = await prisma.organizerInvitation.findUnique({ where: { id: issued.id } })
+
+    expect(isRedactedValue(row.email)).toBe(true)
+    expect(row.email).not.toBe(recipient.email)
+    expect(row.note).toBeNull()
+    // The record of what was invited and what came of it stays.
+    expect(row).toMatchObject({
+      status: 'ACCEPTED',
+      organizationId,
+      acceptedByUserId: recipient.id,
+      organizationName: name,
+      invitedById: administrator.user.id,
+    })
+
+    const after = await listed()
+
+    expect(after.statusCode, after.body).toBe(200)
+    expect(after.json().data.map((entry) => entry.id)).toContain(issued.id)
+    expect(after.body).not.toContain(recipient.email)
+    expect(after.body).not.toContain(note)
+
+    // A second run finds it done and writes nothing.
+    const again = await prisma.$transaction((tx) =>
+      redactSubject(tx, { organizationId, subjectUserId: recipient.id, now: new Date() }),
+    )
+
+    expect(accountLine(again.categories).rows).toBe(0)
+  })
+
+  it('replaces only that organisation’s own invitation while the account is out of scope', async () => {
+    const recipient = await user('kiran.two.orgs')
+    const issued = (
+      await issue(recipient.email, { organizationName: `Kiran Presents ${RUN}` })
+    ).json().data
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/v1/organizer-invitations/accept',
+      headers: (await sessionFor(recipient)).headers,
+      payload: { token: issued.delivery.invitationCode, timezone: 'America/Chicago' },
+    })
+
+    expect(accepted.statusCode, accepted.body).toBe(200)
+
+    const organizationId = accepted.json().data.organization.id
+    // An old invitation to the same person, withdrawn: account-wide, not this
+    // organisation's.
+    const withdrawn = await prisma.organizerInvitation.create({
+      data: {
+        id: id('withdrawn-kiran'),
+        email: recipient.email,
+        organizationName: `Kiran Old ${RUN}`,
+        note: 'An earlier attempt.',
+        tokenHash: sha256(`withdrawn-${RUN}`),
+        invitedById: administrator.user.id,
+        deliveryMode: 'MANUAL',
+        status: 'REVOKED',
+        revokedAt: new Date(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      },
+    })
+    const elsewhere = await bareOrganisation('kiran-elsewhere')
+
+    await prisma.membership.create({
+      data: { userId: recipient.id, organizationId: elsewhere.id, role: 'VIEWER' },
+    })
+
+    const preview = accountLine(
+      await previewScope(prisma, { organizationId, subjectUserId: recipient.id }),
+    )
+
+    // Out of scope: no account row; the contact address and this
+    // organisation's invitation only.
+    expect(preview).toEqual({
+      category: PRIVACY_CATEGORIES.ACCOUNT_IDENTITY,
+      rows: 2,
+      status: CATEGORY_STATUSES.OUT_OF_SCOPE,
+    })
+
+    const outcome = await prisma.$transaction((tx) =>
+      redactSubject(tx, { organizationId, subjectUserId: recipient.id, now: new Date() }),
+    )
+
+    expect(accountLine(outcome.categories)).toEqual(preview)
+    expect(
+      isRedactedValue(
+        (await prisma.organizerInvitation.findUnique({ where: { id: issued.id } })).email,
+      ),
+    ).toBe(true)
+    expect(
+      await prisma.organizerInvitation.findUnique({ where: { id: withdrawn.id } }),
+    ).toMatchObject({ email: recipient.email, note: 'An earlier attempt.' })
+    expect((await prisma.user.findUnique({ where: { id: recipient.id } })).email).toBe(
+      recipient.email,
+    )
+  })
+
+  it('refuses while an organiser invitation to the person waits, only while the account would go', async () => {
+    const subject = await user('waiting.subject')
+    const home = await bareOrganisation('waiting-home')
+    const issued = await issue(subject.email, { organizationName: `Waiting ${RUN}` })
+
+    expect(issued.statusCode, issued.body).toBe(201)
+
+    const decide = () =>
+      evaluateHolds(prisma, {
+        organizationId: home.id,
+        subjectUserId: subject.id,
+        subjectEmail: subject.email,
+        now: new Date(),
+      })
+
+    expect(await decide()).toEqual({
+      decision: HOLD_DECISIONS.OPEN_PROCESS,
+      holdId: null,
+      openProcessCode: OPEN_PROCESS_CODES.ORGANIZER_INVITATION_PENDING,
+    })
+
+    // Another organisation holds the person, so their account — and with it
+    // the address the invitation is matched on — stays: nothing to strand.
+    const elsewhere = await bareOrganisation('waiting-elsewhere')
+    const membership = await prisma.membership.create({
+      data: { userId: subject.id, organizationId: elsewhere.id, role: 'VIEWER' },
+    })
+
+    expect((await decide()).decision).toBe(HOLD_DECISIONS.NONE_ACTIVE)
+
+    await prisma.membership.delete({ where: { id: membership.id } })
+
+    expect((await decide()).openProcessCode).toBe(OPEN_PROCESS_CODES.ORGANIZER_INVITATION_PENDING)
+
+    // Withdrawn, it waits no more.
+    const withdrawn = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/organizer-invitations/${issued.json().data.id}/revoke`,
+      headers: administrator.headers,
+    })
+
+    expect(withdrawn.statusCode, withdrawn.body).toBe(200)
+    expect((await decide()).decision).toBe(HOLD_DECISIONS.NONE_ACTIVE)
+  })
+
+  it('erases an expired invitation, and will not send a new code for it', async () => {
+    const subject = await user('expired.subject')
+    const home = await bareOrganisation('expired-home')
+    const issued = (await issue(subject.email, { organizationName: `Expired ${RUN}` })).json().data
+    const day = 24 * 60 * 60 * 1000
+
+    await prisma.organizerInvitation.update({
+      where: { id: issued.id },
+      data: { createdAt: new Date(Date.now() - 3 * day), expiresAt: new Date(Date.now() - day) },
+    })
+
+    // Past its expiry it waits for nobody, so it refuses nothing.
+    expect(
+      (
+        await evaluateHolds(prisma, {
+          organizationId: home.id,
+          subjectUserId: subject.id,
+          subjectEmail: subject.email,
+          now: new Date(),
+        })
+      ).decision,
+    ).toBe(HOLD_DECISIONS.NONE_ACTIVE)
+
+    await prisma.$transaction((tx) =>
+      redactSubject(tx, { organizationId: home.id, subjectUserId: subject.id, now: new Date() }),
+    )
+
+    const erased = await prisma.organizerInvitation.findUnique({ where: { id: issued.id } })
+
+    expect(isRedactedValue(erased.email)).toBe(true)
+
+    const reissued = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/organizer-invitations/${issued.id}/reissue`,
+      headers: administrator.headers,
+    })
+
+    expect(reissued.statusCode, reissued.body).toBe(409)
+    expect(reissued.json().error).toMatchObject({
+      code: 'NOT_OUTSTANDING',
+      message:
+        "This invitation's address was erased at the person's request, so there is nobody to send a new code to.",
+    })
+    expect(await prisma.organizerInvitation.count({ where: { supersedesId: issued.id } })).toBe(0)
+    expect((await prisma.organizerInvitation.findUnique({ where: { id: issued.id } })).status).toBe(
+      'PENDING',
+    )
   })
 })

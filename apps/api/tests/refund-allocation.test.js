@@ -23,9 +23,12 @@ import {
   allocateAcrossLines,
   allocateNamedLines,
   canTransition,
+  capNamedFace,
   isUnreservedLegacyRefund,
   orderParts,
   partsLeft,
+  priceNamedLines,
+  quoteNamedLines,
   refundPartsFor,
   refundableCents,
   seatPolicyFor,
@@ -604,5 +607,105 @@ describe('isUnreservedLegacyRefund', () => {
     ['one already sent', { ...legacy, status: REFUND_STATES.SUBMITTED }, 0],
   ])('does not count %s', (_name, refund, items) => {
     expect(isUnreservedLegacyRefund(refund, items)).toBe(false)
+  })
+})
+
+describe('capNamedFace', () => {
+  const named = {
+    allocation: [
+      { orderItemId: 'a', amountCents: 3_000, quantity: 1 },
+      { orderItemId: 'b', amountCents: 1_000, quantity: 2 },
+    ],
+    amountCents: 4_000,
+  }
+
+  it('scales each line down to what is left, keeping every ticket', () => {
+    expect(capNamedFace(named, 2_000)).toEqual({
+      allocation: [
+        { orderItemId: 'a', amountCents: 1_500, quantity: 1 },
+        { orderItemId: 'b', amountCents: 500, quantity: 2 },
+      ],
+      amountCents: 2_000,
+    })
+  })
+
+  it('leaves tickets that fit what is left as they are', () => {
+    expect(capNamedFace(named, 4_000)).toBe(named)
+    expect(capNamedFace(named, 9_999)).toBe(named)
+  })
+
+  it('asks for nothing when nothing is left, and never for less than nothing', () => {
+    for (const cap of [0, -5]) {
+      const capped = capNamedFace(named, cap)
+
+      expect(capped.amountCents).toBe(0)
+      expect(capped.allocation.map((line) => [line.amountCents, line.quantity])).toEqual([
+        [0, 1],
+        [0, 2],
+      ])
+    }
+  })
+})
+
+describe('quoteNamedLines after a sum refunded without tickets', () => {
+  // 2 × 50.00 for one night and 1 × 30.00 for another, with a 50 % code: the
+  // order's face value is 65.00, its fee 6.81 and its tax 5.92. A goodwill
+  // sum of 60.00 gave back 50.17 of face value and withdrew one 25.00 ticket,
+  // so the other night's ticket, 15.00 after the discount, costs more face
+  // value than the 14.83 the order has left.
+  const items = [
+    line({
+      id: 'floor',
+      quantity: 2,
+      unitPriceCents: 5_000,
+      subtotalCents: 10_000,
+      refundedQuantity: 1,
+      refundedCents: 2_500,
+    }),
+    line({ id: 'night', quantity: 1, unitPriceCents: 3_000, subtotalCents: 3_000 }),
+  ]
+  const parts = { faceValueCents: 6_500, feeCents: 681, taxCents: 592 }
+  const left = { faceValueCents: 1_483, feeCents: 155, taxCents: 135 }
+  const pending = { quantities: new Map(), cents: new Map() }
+  const ask = (capFaceToLeft) =>
+    quoteNamedLines({
+      items,
+      lines: [{ orderItemId: 'night', quantity: 1 }],
+      pending,
+      discountCents: 6_500,
+      parts,
+      left,
+      capFaceToLeft,
+    })
+
+  it('prices the ticket at what it cost, which is more than the order has left', () => {
+    const quoted = ask(false)
+
+    expect(quoted.priced.amountCents).toBe(1_500)
+    expect(quoted.named.amountCents).toBe(1_500)
+    expect(quoted.named.amountCents).toBeGreaterThan(left.faceValueCents)
+  })
+
+  it('asks for what is left when told to, with the fee and tax that remain', () => {
+    const quoted = ask(true)
+
+    expect(quoted.priced.amountCents).toBe(1_500)
+    expect(quoted.named).toEqual({
+      allocation: [{ orderItemId: 'night', amountCents: 1_483, quantity: 1 }],
+      amountCents: 1_483,
+    })
+    expect(quoted.split).toEqual({ faceValueCents: 1_483, feeCents: 155, taxCents: 135 })
+    expect(quoted.amountCents).toBe(1_773)
+  })
+
+  it('prices free lines at nothing rather than refusing them', () => {
+    const free = [line({ id: 'kids', quantity: 1, unitPriceCents: 0, subtotalCents: 0 })]
+
+    expect(priceNamedLines({ items: free, lines: [{ orderItemId: 'kids', quantity: 1 }] })).toEqual(
+      { allocation: [{ orderItemId: 'kids', amountCents: 0, quantity: 1 }], amountCents: 0 },
+    )
+    expect(() =>
+      allocateNamedLines({ items: free, lines: [{ orderItemId: 'kids', quantity: 1 }] }),
+    ).toThrow(/worth nothing/u)
   })
 })

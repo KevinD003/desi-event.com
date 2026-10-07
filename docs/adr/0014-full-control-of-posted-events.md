@@ -151,5 +151,8 @@ only in a route (R9, now `submitRefund`).
 - **Change notices are recorded, not emailed**, for date, place and terms
   changes, night cancellations, postponements, cancellations and deletions.
 - **Admin names are shown for the website link but not for edits** (ADR 0012).
-- **A deleted event's pictures leave the quota.** Whether they are ever purged
-  is left open for review.
+- **A deleted event's pictures leave the quota.** Nothing purges them, so
+  everything an organisation holds, deleted events' pictures included, has a
+  second ceiling of the quota again, 2 GiB in all (review of 2026-10-07): past
+  it, uploads are refused until pictures are removed or a deleted event is
+  restored and its pictures removed (`docs/MEDIA.md`).

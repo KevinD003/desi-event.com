@@ -10,7 +10,7 @@
  * @module @desi-event/api/tests/website-redirect
  */
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createLogger } from '@desi-event/logger'
 
@@ -976,6 +976,91 @@ describe('POST /v1/traffic/website-visits', () => {
 
     // Two of four counted: the per-event ceiling was two this minute.
     expect(prisma._store.trafficEvent).toHaveLength(2)
+
+    await app.close()
+  })
+
+  it('spends the per-event ceiling only on visits it counts, never on repeats or failures', async () => {
+    const chunks = []
+    const logger = createLogger({
+      name: 'api',
+      level: 'info',
+      destination: { write: (chunk) => chunks.push(String(chunk)) },
+    })
+    const { app, prisma, ids } = await createTestApp({
+      logger,
+      rateLimit: {
+        global: { max: 10_000, timeWindow: '1 minute' },
+        websiteVisit: { eventMax: 3 },
+      },
+    })
+    const event = switchedOn(prisma, ids.publishedEvent.id, SITE_A, ids.platformAdministrator.id)
+    const from = (address, headers = {}) =>
+      visit(
+        app,
+        { slug: event.slug, counted: true },
+        { headers: { 'x-desi-client-address': address, ...headers } },
+      )
+
+    // One minute throughout, so the ceiling cannot start again between visits.
+    vi.useFakeTimers({ toFake: ['Date'], now: Math.floor(Date.now() / 60_000) * 60_000 + 5_000 })
+
+    try {
+      // One visitor, then the same visitor clicking again and again: repeats
+      // the database refuses.
+      for (let i = 0; i < 4; i += 1) {
+        expect((await from('198.51.100.1')).statusCode).toBe(200)
+      }
+
+      // A visit the database could not store.
+      const createMany = prisma.trafficEvent.createMany
+
+      prisma.trafficEvent.createMany = async () => {
+        throw Object.assign(new Error('connection reset'), { code: 'P1017' })
+      }
+
+      try {
+        expect((await from('198.51.100.2')).statusCode).toBe(200)
+      } finally {
+        prisma.trafficEvent.createMany = createMany
+      }
+
+      // A visitor with a privacy signal, whose repeat is folded in memory.
+      for (let i = 0; i < 2; i += 1) {
+        expect((await from('198.51.100.3', { 'sec-gpc': '1' })).statusCode).toBe(200)
+      }
+
+      // Seven tried, two counted: a new visitor still has a place.
+      expect(prisma._store.trafficEvent).toHaveLength(2)
+      expect((await from('198.51.100.4')).statusCode).toBe(200)
+      expect(prisma._store.trafficEvent).toHaveLength(3)
+
+      // And the ceiling still holds once three are counted.
+      expect((await from('198.51.100.5')).statusCode).toBe(200)
+      expect(prisma._store.trafficEvent).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const outcomes = chunks
+      .join('')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line))
+      .filter((line) => line.msg === 'website visit')
+      .map((line) => line.outcome)
+
+    expect(outcomes).toEqual([
+      'RECORDED',
+      'DUPLICATE',
+      'DUPLICATE',
+      'DUPLICATE',
+      'FAILED',
+      'RECORDED',
+      'DUPLICATE',
+      'RECORDED',
+      'CEILING',
+    ])
 
     await app.close()
   })

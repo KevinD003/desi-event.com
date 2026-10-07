@@ -113,3 +113,21 @@ export function importedPricesSentence(importedFrom) {
 export function endTimeListed(event) {
   return !(event?.sessions ?? []).some((session) => session?.endTimeListed === false)
 }
+
+/**
+ * How an editor's or an administrator's screen labels a night's end that its
+ * listing did not give (SPEC2-XI §0 rule 9). The stored end is then a planning
+ * estimate, the start plus three hours, which no public page shows.
+ */
+export const ESTIMATED_END_LABEL = 'Not listed by Sulekha (estimate for scheduling)'
+
+/**
+ * Whether a night's stored end is the importer's estimate rather than a listed
+ * or organiser-set end.
+ *
+ * @param {{endTimeListed?: boolean}|null|undefined} session A night.
+ * @returns {boolean} True only when the API says the end was not listed.
+ */
+export function endIsEstimate(session) {
+  return session?.endTimeListed === false
+}

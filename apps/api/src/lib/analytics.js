@@ -605,7 +605,7 @@ export async function reconciliationExceptions(prisma, { organizationId, now }) 
 export const FUNNEL_NOT_COUNTED = Object.freeze([
   'Robots, people whose browser asks not to be tracked, and the organisation’s own team and Desi-Event staff while signed in are not counted as visitors.',
   'A visitor is counted once a day for each event, so somebody who comes back on another day is counted again, and an order can come from somebody whose visit was not counted.',
-  'Visitors are counted in whole UTC days; holds and orders are counted from the exact start of the window.',
+  'Visitors are counted in whole UTC days, and only from the day this site began counting visits; holds and orders are counted from the exact start of the window, even when that is earlier.',
 ])
 
 /**

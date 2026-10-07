@@ -15,6 +15,10 @@
  *   - organiser invitations, team invitations and ticket transfers each go
  *     out, to the address they are bound to, and the response shows none;
  *   - registering and asking for a password reset send nothing, in any mode;
+ *   - one address is emailed at most three codes a day even when the requests
+ *     arrive together: transfers from several holders, team invitations from
+ *     two organisations and a reissued code all wait on one lock for that
+ *     address and count what the one before them committed;
  *   - when the mail server cannot be reached an organiser invitation, a team
  *     invitation and a ticket transfer are each withdrawn, and the caller is
  *     told 503 `DELIVERY_FAILED`;
@@ -35,10 +39,12 @@ import { SMTPServer } from 'smtp-server'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 
 import { buildApp } from '../src/app.js'
+import { RECIPIENT_LOCK_CLASS } from '../src/lib/delivery.js'
 import { startSession } from '../src/lib/sessions.js'
 import { TICKET_STATES, transferTokenDigest } from '../src/lib/tickets.js'
 import { connectTestDatabase } from './helpers/database.js'
 import { testEnv } from './helpers/app.js'
+import { untilWaiting } from './helpers/row-locks.js'
 
 const { prisma, reachable, when } = await connectTestDatabase('the email delivery suite')
 
@@ -410,6 +416,118 @@ async function ownedTicket(holder) {
   })
 }
 
+/**
+ * A second organisation, with its own owner signed in, so team invitations can
+ * come from two organisations at once.
+ *
+ * @param {string} tag Distinguishes this organisation's rows.
+ * @returns {Promise<{organization: object, headers: object}>} The organisation and its owner's headers.
+ */
+async function anotherOrganisation(tag) {
+  const owner = await user(`owner.${tag}`)
+  const organization = await prisma.organization.create({
+    data: {
+      id: id(`org-${tag}`),
+      name: `Garba ${tag} ${RUN}`,
+      slug: `garba-${tag}-${RUN}`,
+      contactEmail: owner.email,
+    },
+  })
+
+  await prisma.membership.create({
+    data: {
+      id: id(`membership-${tag}`),
+      userId: owner.id,
+      organizationId: organization.id,
+      role: 'OWNER',
+    },
+  })
+
+  return { organization, headers: await headersFor(owner) }
+}
+
+/**
+ * Offer a ticket to an address.
+ *
+ * @param {object} ticket The ticket.
+ * @param {object} headers Its holder's headers.
+ * @param {string} toEmail To whom.
+ * @returns {Promise<object>} The inject result.
+ */
+function offerTicket(ticket, headers, toEmail) {
+  return app.inject({
+    method: 'POST',
+    url: `/v1/tickets/${ticket.id}/transfers`,
+    headers,
+    payload: { toEmail },
+  })
+}
+
+/**
+ * Invite an address to an organisation's team, as a member of staff.
+ *
+ * @param {object} organization The organisation.
+ * @param {object} headers Its owner's headers.
+ * @param {string} email To whom.
+ * @returns {Promise<object>} The inject result.
+ */
+function inviteToTeam(organization, headers, email) {
+  return app.inject({
+    method: 'POST',
+    url: `/v1/organizations/${organization.id}/invitations`,
+    headers,
+    payload: { email, role: 'STAFF' },
+  })
+}
+
+/**
+ * The codes one address has been sent today, as the cap counts them: team
+ * invitations sent by email and ticket transfers.
+ *
+ * @param {string} email The address.
+ * @returns {Promise<number>} How many rows.
+ */
+async function codeRowsFor(email) {
+  const [invitations, transfers] = await Promise.all([
+    prisma.invitation.count({ where: { email, deliveryMode: 'EMAIL' } }),
+    prisma.ticketTransfer.count({ where: { toEmail: email } }),
+  ])
+
+  return invitations + transfers
+}
+
+/**
+ * Tally a set of responses by status.
+ *
+ * @param {object[]} responses Inject results.
+ * @returns {Record<number, number>} How many of each status.
+ */
+function tally(responses) {
+  /** @type {Record<number, number>} */
+  const counts = {}
+
+  for (const response of responses) {
+    counts[response.statusCode] = (counts[response.statusCode] ?? 0) + 1
+  }
+
+  return counts
+}
+
+/**
+ * Every refusal is the recipient cap's, with a day's `retry-after`.
+ *
+ * @param {object[]} responses Inject results.
+ * @returns {void} Nothing.
+ */
+function expectCapRefusals(responses) {
+  for (const response of responses.filter((each) => each.statusCode !== 201)) {
+    expect(response.statusCode, response.body).toBe(429)
+    expect(response.json().error.code).toBe('RECIPIENT_DAILY_LIMIT')
+    expect(Number(response.headers['retry-after'])).toBeGreaterThan(23 * 60 * 60)
+    expect(Number(response.headers['retry-after'])).toBeLessThanOrEqual(24 * 60 * 60)
+  }
+}
+
 const describeWhen = when()
 
 describeWhen('codes emailed through SMTP', () => {
@@ -641,6 +759,167 @@ describeWhen('codes emailed through SMTP', () => {
 
     expect(refused.statusCode).toBe(422)
     expect(refused.json().error.code).toBe('STAFF_ACCOUNT')
+  })
+
+  it('emails one address three codes, not six, when three holders offer it tickets at once', async () => {
+    const email = `crowded.${RUN}@${DOMAIN}`
+    const offers = []
+
+    // Three holders, two tickets each: within every sender's own hourly
+    // budget, so only the recipient cap stands between the address and six
+    // letters.
+    for (let holderIndex = 0; holderIndex < 3; holderIndex += 1) {
+      const holder = await user(`crowd.holder${holderIndex}`, { secondFactor: false })
+      const headers = await headersFor(holder)
+
+      for (let ticketIndex = 0; ticketIndex < 2; ticketIndex += 1) {
+        offers.push({ ticket: await ownedTicket(holder), headers })
+      }
+    }
+
+    const responses = await Promise.all(
+      offers.map(({ ticket, headers }) => offerTicket(ticket, headers, email)),
+    )
+
+    expect(tally(responses)).toEqual({ 201: 3, 429: 3 })
+    expectCapRefusals(responses)
+    expect(mailFor(email)).toHaveLength(3)
+    expect(await codeRowsFor(email)).toBe(3)
+
+    // A refused offer wrote nothing: its ticket is still its holder's.
+    for (const [index, response] of responses.entries()) {
+      if (response.statusCode !== 429) continue
+
+      const { ticket } = offers[index]
+      const after = await prisma.ticket.findUnique({ where: { id: ticket.id } })
+
+      expect(after.status).toBe(TICKET_STATES.VALID)
+      expect(await prisma.ticketTransfer.count({ where: { ticketId: ticket.id } })).toBe(0)
+    }
+  })
+
+  it('counts team invitations from two organisations and transfers arriving together as one address', async () => {
+    const email = `mixed.${RUN}@${DOMAIN}`
+    const second = await anotherOrganisation('mixed')
+    const holders = [
+      await user('mixed.holder0', { secondFactor: false }),
+      await user('mixed.holder1', { secondFactor: false }),
+    ]
+    const holderHeaders = await Promise.all(holders.map((holder) => headersFor(holder)))
+    const tickets = [
+      await ownedTicket(holders[0]),
+      await ownedTicket(holders[0]),
+      await ownedTicket(holders[1]),
+    ]
+
+    const responses = await Promise.all([
+      inviteToTeam(world.organization, world.ownerHeaders, email),
+      inviteToTeam(second.organization, second.headers, email),
+      offerTicket(tickets[0], holderHeaders[0], email),
+      offerTicket(tickets[1], holderHeaders[0], email),
+      offerTicket(tickets[2], holderHeaders[1], email),
+    ])
+
+    expect(tally(responses)).toEqual({ 201: 3, 429: 2 })
+    expectCapRefusals(responses)
+    expect(mailFor(email)).toHaveLength(3)
+    expect(await codeRowsFor(email)).toBe(3)
+  })
+
+  it('makes an invitation, a reissue and a transfer wait for the address, then count what the one before wrote', async () => {
+    const email = `queued.${RUN}@${DOMAIN}`
+    const second = await anotherOrganisation('queued')
+    const holder = await user('queued.holder', { secondFactor: false })
+    const ticket = await ownedTicket(holder)
+    // A code handed over by hand before EMAIL was switched on: not one of the
+    // three, and the invitation a reissue replaces.
+    const handed = await prisma.invitation.create({
+      data: {
+        id: id('handed-invitation'),
+        organizationId: world.organization.id,
+        email,
+        role: 'STAFF',
+        tokenHash: sha256(`handed-${RUN}`),
+        invitedById: world.owner.id,
+        expiresAt: new Date(Date.now() + 86_400_000),
+        deliveryMode: 'MANUAL',
+      },
+    })
+
+    // Another issuing transaction holds the address, the way each request's
+    // own transaction does while it counts and writes.
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    let held
+    const heldPid = new Promise((resolve) => {
+      held = resolve
+    })
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const [{ pid }] = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`
+
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RECIPIENT_LOCK_CLASS}::int4, hashtext(${email}))`
+        held(pid)
+        await gate
+
+        // Three codes this address was emailed, committed as the lock goes.
+        for (let index = 0; index < 3; index += 1) {
+          await tx.invitation.create({
+            data: {
+              id: id(`emailed-invitation-${index}`),
+              organizationId: world.organization.id,
+              email,
+              role: 'STAFF',
+              tokenHash: sha256(`emailed-${RUN}-${index}`),
+              invitedById: world.owner.id,
+              status: 'REVOKED',
+              revokedAt: new Date(),
+              expiresAt: new Date(Date.now() + 86_400_000),
+              deliveryMode: 'EMAIL',
+            },
+          })
+        }
+      },
+      { timeout: 20_000, maxWait: 10_000 },
+    )
+    const holderPid = await heldPid
+
+    const pending = Promise.all([
+      offerTicket(ticket, await headersFor(holder), email),
+      inviteToTeam(second.organization, second.headers, email),
+      app.inject({
+        method: 'POST',
+        url: `/v1/organizations/${world.organization.id}/invitations/${handed.id}/reissue`,
+        headers: world.ownerHeaders,
+      }),
+    ])
+
+    // All three are queued on the address. Counted before taking it, each
+    // would have found nothing and sent a letter.
+    await untilWaiting(prisma, () => [holderPid], 3, 'three issuing requests')
+
+    release()
+    await holding
+
+    const responses = await pending
+
+    expect(tally(responses)).toEqual({ 429: 3 })
+    expectCapRefusals(responses)
+    expect(mailFor(email)).toHaveLength(0)
+
+    // Nothing any of them would have written is there.
+    expect(await prisma.ticketTransfer.count({ where: { ticketId: ticket.id } })).toBe(0)
+    expect((await prisma.ticket.findUnique({ where: { id: ticket.id } })).status).toBe(
+      TICKET_STATES.VALID,
+    )
+    expect(
+      await prisma.invitation.count({ where: { organizationId: second.organization.id } }),
+    ).toBe(0)
+    expect((await prisma.invitation.findUnique({ where: { id: handed.id } })).status).toBe(
+      'PENDING',
+    )
   })
 
   it('withdraws the invitation and answers 503 when the mail server cannot be reached', async () => {

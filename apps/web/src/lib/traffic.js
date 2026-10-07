@@ -64,6 +64,12 @@ const DAY_FORMAT = new Intl.DateTimeFormat('en-US', {
   day: 'numeric',
   timeZone: 'UTC',
 })
+const DAY_YEAR_FORMAT = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+})
 const TIME_FORMAT = new Intl.DateTimeFormat('en-GB', {
   hour: '2-digit',
   minute: '2-digit',
@@ -145,13 +151,42 @@ export function formatShare(part, whole) {
 }
 
 /**
- * A UTC day as a short date: `Oct 1`.
+ * A UTC day as a short date: `Oct 1`, or `Oct 1, 2026` with its year.
  *
  * @param {string} day `YYYY-MM-DD`.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.withYear] Whether to name the year too.
  * @returns {string} The date.
  */
-export function formatDay(day) {
-  return DAY_FORMAT.format(new Date(`${day}T00:00:00.000Z`))
+export function formatDay(day, { withYear = false } = {}) {
+  return (withYear ? DAY_YEAR_FORMAT : DAY_FORMAT).format(new Date(`${day}T00:00:00.000Z`))
+}
+
+/**
+ * Whether a series of days runs into a second calendar year.
+ *
+ * Within one year a month and a day name a day once; across two, `Oct 7` can
+ * be either end of a 366-day series.
+ *
+ * @param {Array<{day: string}>} days One entry per UTC day, oldest first.
+ * @returns {boolean} True when the first and last days fall in different years.
+ */
+export function spansYears(days) {
+  return days.length > 0 && days[0].day.slice(0, 4) !== days.at(-1).day.slice(0, 4)
+}
+
+/**
+ * How to name each day of one series: with the year whenever the series runs
+ * into a second year, so no two days of a chart, its description, its
+ * tooltips or its table read the same.
+ *
+ * @param {Array<{day: string}>} days One entry per UTC day, oldest first.
+ * @returns {function(string): string} Names a `YYYY-MM-DD` day of the series.
+ */
+export function dayNamer(days) {
+  const withYear = spansYears(days)
+
+  return (day) => formatDay(day, { withYear })
 }
 
 /**

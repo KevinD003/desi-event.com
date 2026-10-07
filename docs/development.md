@@ -460,6 +460,23 @@ silently test — whatever you have running on 3000. It deliberately starts **no
 API**: these specs exercise the site in the degraded state the fallback
 catalogue exists for.
 
+The suites that do start an API (`test:e2e:detail`, `:events`, `:organizer`,
+`:refusals`, `:sweep`) write to a database of their own, `E2E_DATABASE_URL`,
+by default `desi_event_e2e` on the local server; they do not read
+`TEST_DATABASE_URL`. Each one's API server migrates it before it serves,
+creating it when it is missing, so there is nothing to set up. They refuse the
+unit suites' databases (`desi_event_test` and private `desi_event_test_…`
+ones): a browser run rolls visits up and purges old ones across the whole
+database, which fails the worker's roll-up suite when the two share one
+(`apps/web/e2e/support/e2e-database.mjs`).
+
+Every suite on the development server starts it through
+`apps/web/e2e/support/next-dev.mjs` and proves its routes before the first
+test, and `pnpm ci:check` refuses one that does not. Next 16.3.8's `next dev`
+could start with part of its route table missing; `patches/next@16.3.8.patch`
+fixes that at the root, and `apps/web/e2e/support/dev-routes.mjs` tells the
+story.
+
 ## Adding a shared package
 
 Say the new package is `@desi-event/notifications`.

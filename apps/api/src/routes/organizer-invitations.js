@@ -59,6 +59,7 @@ import {
   resolveOrganizationSlug,
   toOrganizationProfile,
 } from '../lib/organization-provisioning.js'
+import { isRedactedValue } from '../lib/privacy-placeholders.js'
 import { revokeOtherSessionsOf, secureSessionAfterGain } from '../lib/privilege-change.js'
 import { defineRoute } from '../lib/register.js'
 import { organizerAcceptRateLimit, organizerInviteRateLimit } from '../plugins/rate-limit.js'
@@ -84,6 +85,8 @@ export const ORGANIZER_INVITATION_SENTENCES = Object.freeze({
     'An invitation to that address is already waiting. Issue a new code for it, or withdraw it first.',
   NOT_OUTSTANDING:
     'This invitation has been accepted or withdrawn, so there is no code to replace. Invite them again instead.',
+  ADDRESS_ERASED:
+    "This invitation's address was erased at the person's request, so there is nobody to send a new code to.",
   INVITATION_UNUSABLE:
     'That code cannot be used by this account. It may have expired, been withdrawn or used already, or it was sent to a different email address — sign in with the address the invitation was sent to.',
   WRONG_INVITATION_KIND:
@@ -466,6 +469,15 @@ export function registerOrganizerInvitationRoutes(
 
       if (!['PENDING', 'EXPIRED'].includes(effectiveStatus(current, now))) {
         throw Object.assign(conflict(ORGANIZER_INVITATION_SENTENCES.NOT_OUTSTANDING), {
+          code: 'NOT_OUTSTANDING',
+        })
+      }
+
+      // An expired invitation whose person was erased carries a placeholder
+      // (`lib/privacy-redaction.js`): a new code for it would go to an address
+      // that cannot receive mail and that no account can ever match.
+      if (isRedactedValue(current.email)) {
+        throw Object.assign(conflict(ORGANIZER_INVITATION_SENTENCES.ADDRESS_ERASED), {
           code: 'NOT_OUTSTANDING',
         })
       }

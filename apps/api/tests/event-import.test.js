@@ -27,7 +27,7 @@ vi.mock('@desi-event/permissions', async (importOriginal) => {
   }
 })
 
-import { importedFromView } from '../src/lib/presenters.js'
+import { importedFromView, publicPriceName } from '../src/lib/presenters.js'
 import { normaliseError } from '../src/lib/errors.js'
 import { runImportCommand } from '../scripts/import-events.mjs'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
@@ -1406,6 +1406,53 @@ describe('what the public pages carry (SPEC2-XI I-E)', () => {
     ).toBe(false)
     expect(importedFromView({ ...base, status: 'APPROVED' }).ticketsOnSource).toBe(false)
   })
+
+  it('never prints a sales date or a call to hurry that the listing put into a price name', () => {
+    const event = {
+      status: 'PUBLISHED',
+      websiteRedirectEnabled: true,
+      websiteDecidedUrl: 'https://events.sulekha.com/x_402109',
+      organization: { platformHeldSource: 'SULEKHA' },
+      importItem: {
+        source: 'SULEKHA',
+        sourceUrl: 'https://events.sulekha.com/x_402109',
+        scrapedAt: new Date('2026-09-29T21:25:00Z'),
+        presentedBy: 'DFW Garba Collective',
+        // As the committed file lists 402109 and 401676.
+        prices: [
+          { name: 'Early Bird (Ends on 10/9)', priceCents: 2000, currency: 'USD', note: null },
+          {
+            name: 'GA – Ghost Hour Pass Admission (Final Call)',
+            priceCents: 3500,
+            currency: 'USD',
+            note: null,
+          },
+          { name: 'Friday (Tier 1)', priceCents: 2500, currency: 'USD', note: 'Sold Out' },
+          { name: 'VIP – Gold Tables (B1–B10)', priceCents: 9000, currency: 'USD', note: null },
+          { name: 'GA - Spooky Pass (Early Bird)', priceCents: 1500, currency: 'USD', note: null },
+        ],
+        reassignedAt: null,
+      },
+    }
+    const view = importedFromView(event)
+
+    expect(view.prices.map((price) => price.name)).toEqual([
+      'Early Bird',
+      'GA – Ghost Hour Pass Admission',
+      'Friday (Tier 1)',
+      'VIP – Gold Tables (B1–B10)',
+      'GA - Spooky Pass (Early Bird)',
+    ])
+    expect(JSON.stringify(view)).not.toMatch(/10\/9|Ends on|Final Call|Sold Out/u)
+
+    // Whatever an upload names its prices, the same words are kept out.
+    expect(publicPriceName('Tier 2 [Sold Out]')).toBe('Tier 2')
+    expect(publicPriceName('GA (Until Oct 23)')).toBe('GA')
+    expect(publicPriceName('Couple - last chance')).toBe('Couple')
+    expect(publicPriceName('(Final Call)')).toBe('Ticket')
+    expect(publicPriceName('Kids (Under 5)')).toBe('Kids (Under 5)')
+    expect(publicPriceName('Marathon (5K)')).toBe('Marathon (5K)')
+  })
 })
 
 describe('POST /v1/platform/imports/events/:eventId/reassign', () => {
@@ -1768,5 +1815,31 @@ describe('the command line (SPEC2-XI I-G)', () => {
       runImportCommand({ argv: [file, '--as', 'maya@desi-event.example'], prisma, env: {}, out }),
     ).rejects.toThrow(/may not import events/u)
     await expect(runImportCommand({ argv: [file], prisma, env: {}, out })).rejects.toThrow(/Usage/u)
+  })
+
+  it('refuses a suspended account, as the web does, before planning anything', async () => {
+    const { seed } = await makeWorld()
+    const { createPrismaStub } = await import('./helpers/prisma-stub.js')
+    const prisma = createPrismaStub(seed)
+    const file = path.join(directory, 'suspended.json')
+    const out = { log: () => {}, error: () => {} }
+    const importer = prisma._store.user.find((row) => row.email === ANIL)
+
+    importer.suspendedAt = new Date()
+    await writeFile(file, JSON.stringify(dataset([listing('900701')])))
+
+    const runs = prisma._store.eventImportRun.length
+
+    await expect(
+      runImportCommand({
+        argv: [file, '--as', ANIL, '--apply'],
+        prisma,
+        env: { NODE_ENV: 'test', IMPORT_IMAGE_SOURCE: 'network' },
+        fetchImage: fetchFromMemory,
+        out,
+      }),
+    ).rejects.toThrow('This account is suspended.')
+    expect(prisma._store.eventImportRun).toHaveLength(runs)
+    expect(prisma._store.event.some((row) => row.title === 'Garba Night 900701')).toBe(false)
   })
 })

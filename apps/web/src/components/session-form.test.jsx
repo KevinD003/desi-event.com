@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 import {
+  SessionForm,
   diffSessionBody,
   materialSessionFields,
   sessionFormProblems,
@@ -104,5 +106,46 @@ describe('a night’s label', () => {
     expect(diffSessionBody({ ...night, label: 'Night 1' }, { ...night, label: '' })).toEqual({
       label: null,
     })
+  })
+})
+
+describe('an end time the listing did not give', () => {
+  const ESTIMATE =
+    "Not listed by Sulekha (estimate for scheduling). The event page shows only the start until the night's real end time is set here."
+
+  /**
+   * The edit form for the night.
+   *
+   * @param {boolean} endEstimated Whether the end is the import's estimate.
+   * @returns {void}
+   */
+  const editForm = (endEstimated) =>
+    render(
+      <SessionForm
+        kind="edit"
+        idPrefix="night"
+        initial={night}
+        mode="live"
+        endEstimated={endEstimated}
+        onSubmit={() => {}}
+      />,
+    )
+
+  it('labels the end field as an estimate until the end is changed', () => {
+    editForm(true)
+
+    expect(screen.getByText(ESTIMATE)).toBeInTheDocument()
+
+    const ends = document.getElementById('night-endsAt')
+
+    fireEvent.change(ends, { target: { value: '2027-10-05T01:30' } })
+
+    expect(screen.queryByText(ESTIMATE)).toBeNull()
+  })
+
+  it('does not label an end that was listed or set', () => {
+    editForm(false)
+
+    expect(screen.queryByText(ESTIMATE)).toBeNull()
   })
 })

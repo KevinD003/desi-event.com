@@ -29,12 +29,20 @@
  * collected by none would never have failed at all. The rules, and why each
  * fails closed, are in `./lib/spec-collection.mjs`.
  *
+ * The sixth is how a browser suite starts `next dev`. Next 16.3.8 could start
+ * with a stale table of routes and answer its own 404 for routes that exist —
+ * the API proxy among them — for a whole run; the fault is in Next, so it
+ * reaches every config that runs the development server, and only one of them
+ * had a guard. Every such config must build its server entry with
+ * `apps/web/e2e/support/next-dev.mjs` and prove the routes first among its
+ * global setups. The rule is in `./lib/dev-servers.mjs`.
+ *
  * Run: `pnpm run ci:check`
  *
  * @module scripts/check-ci-invariants
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -49,6 +57,7 @@ import {
   suiteJobNameTemplate,
   testFileExtension,
 } from './lib/spec-collection.mjs'
+import { judgeDevServers } from './lib/dev-servers.mjs'
 import { SUMMARY_PATH } from './verify-tests-fresh.mjs'
 
 /**
@@ -517,6 +526,9 @@ const PLAYWRIGHT_CONFIG = /^playwright(?:\.[\w-]+)?\.config\.(?:js|mjs|cjs)$/u
 /** How many specs and browser jobs the fifth invariant judged, for the summary line. */
 const browserCounts = { specs: 0, suites: 0 }
 
+/** How many configs the sixth invariant found starting `next dev`, for the summary line. */
+let devServerConfigs = 0
+
 /**
  * Read a JSON file, reporting rather than throwing when it cannot be read.
  *
@@ -670,6 +682,55 @@ async function checkEverySpecCollected(ci) {
 }
 
 /**
+ * Check that every config starting `next dev` does so through the shared
+ * helper and proves its routes before anything uses them.
+ *
+ * Every Playwright config in the web package is loaded, run by CI or not: a
+ * config a developer runs by hand meets the same stale table.
+ *
+ * @returns {Promise<void>} Resolves once every problem has been reported.
+ */
+async function checkDevServers() {
+  let configFiles
+
+  try {
+    configFiles = readdirSync(WEB_DIRECTORY)
+      .filter((name) => PLAYWRIGHT_CONFIG.test(name))
+      .sort()
+  } catch (error) {
+    fail(WEB_DIRECTORY, `could not be listed (${error.message}), so no dev server can be checked`)
+
+    return
+  }
+
+  const directory = resolve(WEB_DIRECTORY)
+  const configs = []
+
+  for (const file of configFiles) {
+    try {
+      const loaded = await import(pathToFileURL(join(directory, file)).href)
+
+      configs.push({ file, dir: directory, config: loaded.default })
+    } catch (error) {
+      fail(
+        `${WEB_DIRECTORY}/${file}`,
+        `could not be loaded (${error.message}), so how it starts next dev cannot be checked`,
+      )
+    }
+  }
+
+  const { problems, devConfigs } = judgeDevServers({
+    configs,
+    webDirectory: WEB_DIRECTORY,
+    exists: existsSync,
+  })
+
+  for (const { where, what } of problems) fail(where, what)
+
+  devServerConfigs = devConfigs.length
+}
+
+/**
  * Check that every browser job is a check the approved `main` ruleset requires.
  *
  * @param {{file: string, source: string}} ci The CI workflow.
@@ -731,6 +792,8 @@ if (ciWorkflow) {
   checkRequiredContexts(ciWorkflow)
 }
 
+await checkDevServers()
+
 if (problems.length > 0) {
   console.error('CI invariants failed:\n')
   for (const problem of problems) console.error(`  - ${problem}`)
@@ -744,5 +807,6 @@ console.log(
     `variables reach the suites, reports come only from ${FRESH_REPORT_COMMAND}, and the verify ` +
     `job ends by printing ${SUMMARY_PATH}. ${browserCounts.specs} browser specs are each ` +
     `collected by exactly one of ${browserCounts.suites} CI browser jobs, every one of them a ` +
-    `required check.`,
+    `required check. ${devServerConfigs} configs start next dev, each through ` +
+    `e2e/support/next-dev.mjs with its routes proved before any test.`,
 )

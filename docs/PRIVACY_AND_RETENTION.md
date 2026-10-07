@@ -608,7 +608,10 @@ mapping is stored anywhere.**
 `Order.buyerName`, `Ticket.attendeeName`, `TicketTransfer.toEmail` on settled
 transfers, `WaitlistEntry.email`, `NotificationOutbox.recipient` and its payload
 on settled rows, and `Organization.contactEmail` / `Event.contactEmail` **only
-when the stored address is the subject's own**.
+when the stored address is the subject's own**. Since 2026-10-07 also
+`OrganizerInvitation.email` and `OrganizerInvitation.note` (nulled) on settled
+organiser invitations, counted under `ACCOUNT_IDENTITY` — see
+[Organiser invitations](#organiser-invitations--2026-10-07).
 
 That last narrowing is a deliberate departure from the matrix above. Read
 literally, the matrix would have an attendee's erasure request blank the
@@ -644,7 +647,8 @@ A legal hold or a fraud-investigation hold refuses it until somebody lifts the
 hold. An **open process** refuses it temporarily and lets the operator retry once
 the process settles: a pending ticket invitation, a refund still moving, an open
 dispute, an open reconciliation task, an unspent admission for an event that has
-not finished, or a message still waiting to go out.
+not finished, a message still waiting to go out, or — while the account itself
+would be redacted — an organiser invitation still waiting for the subject.
 
 The pending-invitation case is the sharpest and is worth naming. Accepting a
 ticket invitation is authorised by comparing the signed-in address against the
@@ -747,12 +751,27 @@ be found by.
 Full control of posted events (ADR 0014) and the import (ADR 0015) add reason
 boxes: deleting an event, restoring one, cancelling a night, opening a platform
 editing sitting and moving an imported event to another organisation. Each
-reason is **stored as typed** — on the event's deletion columns, its history
-(`EventModerationAction`), the sitting (`EventPlatformEdit`), the change notice
-shown to ticket holders (`EventChangeNotice`), the import record, and in audit
-metadata — and **the privacy process does not redact it**: redaction replaces
-known personal fields by their placeholders, and it cannot know what somebody
-typed into free text.
+reason is **stored as typed**, wherever it lands:
+
+- the event's deletion columns (`Event.deletionReason`), its history
+  (`EventModerationAction`), the sitting (`EventPlatformEdit`), the change
+  notice shown to ticket holders (`EventChangeNotice`), the import record, and
+  audit metadata;
+- for a deletion that cancels and refunds a live event, `Event.cancellationReason`;
+  for a cancelled night, `EventSession.cancellationReason`;
+- the notice queued for every buyer (`NotificationOutbox.payload.reason` of
+  `event.cancelled` and `event.session_cancelled`), which the message templates
+  print. This build's worker hands messages to an in-memory provider, so these
+  notices are not emailed today (the `Email` limitation); a deployment that
+  wires a real mail provider would put the reason in every buyer's mailbox,
+  beyond anything this site can change afterwards;
+- `Refund.reasonNote` on every refund the deletion or the night's cancellation
+  asks for.
+
+**The privacy process does not redact any of these**: redaction replaces known
+personal fields by their placeholders, and it cannot know what somebody typed
+into free text. On a settled notification it drops only the named personal
+keys of the payload (`PERSONAL_PAYLOAD_KEYS`), and `reason` is not one of them.
 
 So the forms say, under every one of those boxes: "Shown with the event's
 history. Do not include anybody's personal details." The limitations page says
@@ -760,9 +779,42 @@ the same in `deleted-events-kept`. A reason that does name somebody can be
 found only by reading it; there is no tool here that searches or rewrites
 reasons, and an audit row cannot be changed at all (`desi_audit_log_immutable`).
 
-The same holds for the administrator's note on an organiser invitation (never
-public, shown to the recipient with the code) and the reason recorded with a
-website-link decision (shown to the organiser).
+The same holds for the reason recorded with a website-link decision (shown to
+the organiser). The administrator's note on an organiser invitation (never
+public, shown to the recipient with the code) is the one exception: it is
+written to one person, so erasing that person drops it (below).
+
+## Organiser invitations — 2026-10-07
+
+An organiser invitation (`OrganizerInvitation`) holds the address it was sent
+to and the inviting administrator's note to that person, and the Desi-Event
+team's list shows both for every invitation, whatever its status. Once
+accepted it is linked to the organisation it created.
+
+- **Erased with the person.** Erasing somebody replaces the address on their
+  settled invitations — accepted, withdrawn or expired — with a placeholder
+  derived from the invitation's id, and nulls the note. The status, the dates,
+  who invited and accepted, the organisation's name, description and website
+  and the link to the organisation stay: they are the team's record of who was
+  invited to start what, and the organisation's own details. Matched by the
+  account that accepted it or by the address.
+- **The same two scoping rules.** The invitation an organisation was created
+  from is that organisation's record, and is always reached, like its contact
+  address. Any other invitation to the person is account-wide, and is reached
+  only when their account identity is — when no other organisation holds
+  anything about them. The scope preview counts both under `ACCOUNT_IDENTITY`.
+- **A waiting invitation refuses the erasure.** Accepting an invitation
+  compares the signed-in account's address with the invitation's. While one
+  waits for the person and their account would be erased, the erasure is
+  refused as an open process (`ORGANIZER_INVITATION_PENDING`) until it is
+  accepted, withdrawn or expires; the caller hears the same refusal as for any
+  open process. While another organisation keeps the account, nothing is
+  stranded, so it does not refuse.
+- **Not sent again.** An expired invitation whose address was erased cannot be
+  reissued (409 `NOT_OUTSTANDING`): there is nobody to send a code to.
+
+The policy version stamped on requests moved to `2026-10-07.1` with this
+change.
 
 ## Deleted events and their personal data — 2026-10-06
 

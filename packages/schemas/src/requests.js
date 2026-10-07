@@ -27,6 +27,7 @@ import {
   promoCodeStringSchema,
   quantitySchema,
   queryDateTimeSchema,
+  revisionPreconditionSchema,
   richTextSchema,
   slugSchema,
   ticketCodeSchema,
@@ -275,7 +276,7 @@ export const updateEventRequestSchema = eventWritableObject
      * organiser's afternoon quietly overwriting another's. Omitting it is for a
      * script making a single deliberate change.
      */
-    revision: z.int().min(0).optional(),
+    revision: revisionPreconditionSchema.optional(),
     /**
      * "I know this changes what somebody bought."
      *
@@ -1037,7 +1038,7 @@ export const moderationDecisionRequestSchema = z
      * approve, so a version nobody looked at can never be approved; optional
      * for a request for changes or a rejection, which make nothing public.
      */
-    revision: z.int().min(0).max(2147483647).optional(),
+    revision: revisionPreconditionSchema.optional(),
   })
   .superRefine((value, ctx) => {
     if (value.decision === 'approve') {
@@ -1422,7 +1423,7 @@ export const websiteVisitRequestSchema = z
  * current, and a mismatch is reported rather than resolved by whoever saved
  * last. Two tabs open on one event is the ordinary case, not the exotic one.
  */
-const revisionPrecondition = { revision: z.number().int().min(0) }
+const revisionPrecondition = { revision: revisionPreconditionSchema }
 
 /**
  * A night's short name, e.g. "Night 1" or "Ashtami".
@@ -1643,7 +1644,7 @@ export const prepareInventoryRequestSchema = z.object({
  */
 export const rescheduleEventRequestSchema = z
   .object({
-    revision: z.number().int().min(0),
+    revision: revisionPreconditionSchema,
     startsAt: timestampSchema,
     endsAt: timestampSchema,
     sessions: z

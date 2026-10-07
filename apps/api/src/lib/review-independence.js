@@ -22,7 +22,11 @@
  * One exemption (SPEC2-XI O5): an event imported into the platform-held
  * organisation that holds listed events (`Organization.platformHeldSource`),
  * and a picture copied by such an import, may be approved by the
- * administrator who imported it. That organisation has no members (a trigger
+ * administrator who imported it. For an event, only the importer of record
+ * (`EventImportItem.importedById`, which every import submission names)
+ * deciding their own latest submission is exempt: an account that only
+ * withdrew the import and sent it back by hand is its submitter, not its
+ * importer, and is refused as any submitter is. That organisation has no members (a trigger
  * refuses any), so `CONFLICT_OF_INTEREST` cannot arise there, and the import is
  * the Desi-Event team's own work, reviewed on the run page. The exemption is
  * `PLATFORM_HELD_IMPORT`, returned to the caller, which records it with who
@@ -73,9 +77,14 @@ export const PLATFORM_HELD_IMPORT = 'PLATFORM_HELD_IMPORT'
  * @param {string} options.organizationId The organisation whose work is being decided.
  * @param {string|null} options.eventId The event, for an event decision.
  * @param {string|null} options.mediaAssetId The picture, for a picture decision.
+ * @param {string|null} [options.submittedById] For an event decision: who sent it
+ *   for review last. The exemption covers only the importer of record's own submission.
  * @returns {Promise<boolean>} True when the exemption applies.
  */
-export async function isPlatformHeldImport(prisma, { organizationId, eventId, mediaAssetId }) {
+export async function isPlatformHeldImport(
+  prisma,
+  { organizationId, eventId, mediaAssetId, submittedById = null },
+) {
   if (!eventId && !mediaAssetId) return false
 
   const organization = await prisma.organization.findUnique({
@@ -96,10 +105,15 @@ export async function isPlatformHeldImport(prisma, { organizationId, eventId, me
 
   const item = await prisma.eventImportItem.findUnique({
     where: { eventId },
-    select: { id: true, reassignedAt: true },
+    select: { id: true, reassignedAt: true, importedById: true },
   })
 
-  return Boolean(item) && !item.reassignedAt
+  return (
+    Boolean(item) &&
+    !item.reassignedAt &&
+    Boolean(submittedById) &&
+    item.importedById === submittedById
+  )
 }
 
 /**
@@ -130,7 +144,8 @@ export async function reviewIndependence(
 
   // The importer approving their own import is exempt (SPEC2-XI O5); looked
   // up only when a self-review would otherwise be refused.
-  const exempt = () => isPlatformHeldImport(prisma, { organizationId, eventId, mediaAssetId })
+  const exempt = (submittedById = null) =>
+    isPlatformHeldImport(prisma, { organizationId, eventId, mediaAssetId, submittedById })
 
   if (uploadedById && actor?.id && uploadedById === actor.id) {
     if (mediaAssetId && (await exempt())) {
@@ -150,7 +165,7 @@ export async function reviewIndependence(
     })
 
     if (submission?.actorId && submission.actorId === actor?.id) {
-      if (await exempt()) {
+      if (await exempt(submission.actorId)) {
         return { independent: true, code: null, reason: null, exemption: PLATFORM_HELD_IMPORT }
       }
 

@@ -384,6 +384,13 @@ function importNote(run, what = 'Imported from Sulekha') {
  * audit, in the caller's transaction. Only for an import still held by the
  * platform-held organisation.
  *
+ * A move into review also names its administrator as the importer of record
+ * (`EventImportItem.importedById`, `importedAt`): the version a reviewer sees
+ * is theirs, and the import exemption (SPEC2-XI O5) lets only that
+ * administrator approve their own submission. Another administrator who
+ * re-imports a changed listing withdraws the event and sends it back, so they
+ * become its importer, and the approval records them, not the first importer.
+ *
  * @param {object} tx A transaction client.
  * @param {object} options Inputs.
  * @param {string} options.eventId The event.
@@ -399,7 +406,7 @@ export async function importMove(tx, { eventId, to, actor, note, importRunId, vi
   const event = await loadForTransition(tx, eventId)
   const item = await tx.eventImportItem.findUnique({
     where: { eventId },
-    select: { id: true, reassignedAt: true },
+    select: { id: true, reassignedAt: true, importedById: true },
   })
 
   if (!item || item.reassignedAt || !event.organization?.platformHeldSource) {
@@ -449,6 +456,13 @@ export async function importMove(tx, { eventId, to, actor, note, importRunId, vi
       reason: note,
     },
   })
+
+  if (to === 'REVIEW_PENDING' && item.importedById !== actor.id) {
+    await tx.eventImportItem.update({
+      where: { id: item.id },
+      data: { importedById: actor.id, importedAt: new Date() },
+    })
+  }
 
   await recordAudit(tx, {
     action: `event.${to.toLowerCase()}`,

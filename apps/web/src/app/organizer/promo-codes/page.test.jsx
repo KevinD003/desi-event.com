@@ -7,7 +7,7 @@
  */
 
 import { render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn() }),
@@ -152,6 +152,16 @@ describe('who is offered the page', () => {
 describe('the table of codes', () => {
   beforeEach(() => {
     readSession.mockResolvedValue(session([membership(ORG, ['promo:manage'])]))
+    // The rows are read at a fixed moment, inside FIVE's window. Whether a
+    // code is offered Resume reads the clock (`promoHasEnded`), and with the
+    // real one this table stopped offering it on 10 October 2026 at 04:59 UTC,
+    // the end of the window the fixture states. Only `Date` is replaced, so
+    // rendering and its timers run as they do in the browser.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-05T12:00:00.000Z') })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('says what each code takes off, where, when, how often, and its status in words', async () => {

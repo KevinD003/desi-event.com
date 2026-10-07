@@ -124,6 +124,23 @@ describe('chartDescription', () => {
       /^Daily page views and visitors on Oct 1 \(UTC\)\./u,
     )
   })
+
+  // 366 days ending Oct 1, 2026 start on Oct 1, 2025: without the year the
+  // description read "from Oct 1 to Oct 1" and the peak could be either.
+  it('names two different dates for a series that runs into a second year, and its peak with the year', () => {
+    const days = series(366, (i) => ({ views: i === 0 ? 9 : 1, visitors: 1 }))
+    const description = chartDescription(days)
+
+    expect(description).toMatch(
+      /^Daily page views and visitors from Oct 1, 2025 to Oct 1, 2026 \(UTC\)\./u,
+    )
+    expect(description).toContain('the most on Oct 1, 2025 (9)')
+    expect(chartModel(days).xLabels.map((label) => label.label)).toEqual([
+      'Oct 1, 2025',
+      'Apr 1, 2026',
+      'Oct 1, 2026',
+    ])
+  })
 })
 
 describe('the words', () => {

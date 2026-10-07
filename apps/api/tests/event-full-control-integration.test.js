@@ -43,7 +43,16 @@ import { afterAll, beforeAll, expect, it } from 'vitest'
 import { buildApp } from '../src/app.js'
 import { startSession } from '../src/lib/sessions.js'
 import { trafficSummary } from '../src/lib/traffic-report.js'
-import { cancelRefund } from '../src/lib/refunds.js'
+import {
+  SEAT_POLICIES,
+  approveRefund,
+  cancelRefund,
+  markSubmitted,
+  requestRefund,
+  settleRefund,
+  submitRefund,
+} from '../src/lib/refunds.js'
+import { admissionRefusalCode } from '../src/lib/tickets.js'
 import { dispatchDelivery } from '../src/lib/webhook-handlers.js'
 import { testEnv } from './helpers/app.js'
 import { connectTestDatabase } from './helpers/database.js'
@@ -73,7 +82,7 @@ const CLEARED = Object.freeze({
 })
 
 /** The tables a test may hold a row of from outside the app. */
-const LOCKABLE = new Set(['Event', 'TicketType'])
+const LOCKABLE = new Set(['Event', 'TicketType', 'TicketHold'])
 
 const providers = createInMemoryProviderRegistry({ payments: { idPrefix: `pifull${RUN}` } })
 const payments = providers.payments
@@ -1056,6 +1065,92 @@ when()('cancelling and refunding orders that carry a fee, tax and a promo code',
     })
   }
 
+  /**
+   * A second night on a fee event, a day after the first, with a tier of its
+   * own at a price.
+   *
+   * @param {object} fees From {@link feeWorld}.
+   * @param {number} priceCents The tier's price; 0 for a free tier.
+   * @param {string} label Distinguishes the tier's name.
+   * @returns {Promise<{second: object, tier: object}>} The night and its tier.
+   */
+  async function secondNight(fees, priceCents, label) {
+    const later = new Date(fees.session.startsAt.getTime() + 86_400_000)
+    const second = await prisma.eventSession.create({
+      data: {
+        eventId: fees.event.id,
+        startsAt: later,
+        endsAt: new Date(later.getTime() + 4 * 3_600_000),
+        timezone: 'America/Chicago',
+        capacity: 500,
+      },
+    })
+    const tier = await prisma.ticketType.create({
+      data: {
+        eventId: fees.event.id,
+        eventSessionId: second.id,
+        name: `Second night ${label} ${RUN}`,
+        priceCents,
+        currency: 'USD',
+        quantityTotal: 50,
+        maxPerOrder: 10,
+        status: 'ON_SALE',
+      },
+    })
+
+    return { second, tier }
+  }
+
+  /**
+   * The night's cancellation preview, as the organiser reads it.
+   *
+   * @param {object} fees From {@link feeWorld}.
+   * @param {string} sessionId The night.
+   * @returns {Promise<object>} The response.
+   */
+  function nightPreview(fees, sessionId) {
+    return app.inject({
+      method: 'GET',
+      url: `/v1/events/${fees.event.id}/sessions/${sessionId}/cancellation`,
+      headers: fees.headers,
+    })
+  }
+
+  /**
+   * An order's tickets, by line, in the order they were issued.
+   *
+   * @param {string} orderItemId The line.
+   * @returns {Promise<object[]>} The tickets.
+   */
+  function ticketsOf(orderItemId) {
+    return prisma.ticket.findMany({ where: { orderItemId }, orderBy: { createdAt: 'asc' } })
+  }
+
+  /**
+   * Whether the door would admit a ticket now, as it decides: its state, its
+   * order's status, its event and its night.
+   *
+   * @param {string} ticketId The ticket.
+   * @returns {Promise<string|null>} The refusal code, or null when it admits.
+   */
+  async function doorAnswer(ticketId) {
+    const ticket = await prisma.ticket.findUnique({
+      where: { id: ticketId },
+      include: { orderItem: { include: { order: { include: { event: true } } } } },
+    })
+    const tier = await prisma.ticketType.findUnique({
+      where: { id: ticket.orderItem.ticketTypeId },
+      include: { eventSession: true },
+    })
+
+    return admissionRefusalCode(
+      ticket,
+      ticket.orderItem.order,
+      ticket.orderItem.order.event,
+      tier.eventSession ?? null,
+    )
+  }
+
   it('deletes an event on sale as CANCEL_AND_REFUND: cancelled, every order refunded in full, then DELETED', async () => {
     const fees = await feeWorld('refund')
     const sold = [await feeOrder(fees), await feeOrder(fees, { withPromo: false })]
@@ -1365,6 +1460,341 @@ when()('cancelling and refunding orders that carry a fee, tax and a promo code',
 
     // The provider paid back exactly that.
     expect(payments.getStatus(mixed.payment.providerRef).refundedAmountCents).toBe(expectedCents)
+
+    const notice = await prisma.notificationOutbox.findFirst({
+      where: { dedupeKey: `session-cancelled:${second.id}:${order.id}` },
+    })
+
+    expect(notice.payload).toMatchObject({ outcome: 'REFUNDED', refunded: true })
+  })
+
+  it('cancels a night on an order a sum refund already paid back in part, refunding what is left (XR-1)', async () => {
+    const fees = await feeWorld('partial')
+    const { second, tier } = await secondNight(fees, 3_000, 'partial')
+    // Two floor tickets for the first night and one for the second, with the
+    // 50 % promo code, the fee and 8.25 % tax.
+    const mixed = await feeOrder(fees, {
+      lines: [
+        { ticketTypeId: fees.tiers.floor.id, quantity: 2, unitPriceCents: 5_000 },
+        { ticketTypeId: tier.id, quantity: 1, unitPriceCents: 3_000 },
+      ],
+    })
+    const order = mixed.order
+    const nightLine = order.items.find((item) => item.ticketTypeId === tier.id)
+    const firstLine = order.items.find((item) => item.ticketTypeId !== tier.id)
+
+    // Finance gives a sum back as goodwill (the amount form). It pays for one
+    // first-night ticket and part of the rest, and settles.
+    const goodwill = await prisma.$transaction((tx) =>
+      requestRefund(tx, {
+        order,
+        payment: mixed.payment,
+        amountCents: 6_000,
+        reason: 'ORGANIZER_GOODWILL',
+        idempotencyKey: `goodwill-${RUN}`,
+        actorId: null,
+        now: new Date(),
+      }),
+    )
+
+    await prisma.$transaction(async (tx) =>
+      approveRefund(tx, {
+        refund: goodwill.refund,
+        order: await tx.order.findUnique({ where: { id: order.id } }),
+        actorId: null,
+        now: new Date(),
+      }),
+    )
+
+    const sent = await submitRefund(prisma, providers, {
+      refund: await prisma.refund.findUnique({ where: { id: goodwill.refund.id } }),
+      order: await prisma.order.findUnique({ where: { id: order.id } }),
+      payment: mixed.payment,
+      organizationId: fees.organization.id,
+      eventStartsAt: fees.event.startsAt,
+      seatPolicy: SEAT_POLICIES.WITHHOLD,
+      actorId: null,
+      requestId: null,
+    })
+
+    expect(sent.outcome).toBe('SUCCEEDED')
+
+    const settled = await prisma.refund.findUnique({ where: { id: goodwill.refund.id } })
+    const netFace = order.subtotalCents - order.discountCents
+    const faceLeft = netFace - settled.allocation.faceValueCents
+    // The night's ticket costs more face value than the order has left: the
+    // goodwill sum paid part of it back without withdrawing it.
+    const nightFace =
+      nightLine.subtotalCents -
+      Math.round((order.discountCents * nightLine.subtotalCents) / order.subtotalCents)
+
+    expect(nightFace).toBeGreaterThan(faceLeft)
+
+    const left = order.totalCents - 6_000
+    const preview = await nightPreview(fees, second.id)
+
+    expect(preview.statusCode).toBe(200)
+    expect(preview.json().data).toMatchObject({
+      permitted: true,
+      refusal: null,
+      orders: 1,
+      ordersRefunded: 1,
+      ticketsWithdrawn: 1,
+      refundableCents: left,
+    })
+
+    const cancelled = await cancelNight(fees.event.id, second.id, 1, { headers: fees.headers })
+
+    expect(cancelled.statusCode, cancelled.body).toBe(200)
+    expect(cancelled.json().data.refunds).toMatchObject({ owed: 1, settled: 1, amountCents: left })
+
+    const refund = await prisma.refund.findUnique({
+      where: { idempotencyKey: `session-cancelled:${second.id}:${order.id}` },
+      include: { items: true },
+    })
+
+    expect(refund).toMatchObject({ status: 'SUCCEEDED', amountCents: left })
+    // The night's ticket for what is left of its face value, its share of the
+    // fee and the tax, and nothing of the first night.
+    expect(refund.allocation).toMatchObject({ form: 'lines', faceValueCents: faceLeft })
+    expect(refund.items).toEqual([
+      expect.objectContaining({ orderItemId: nightLine.id, quantity: 1, amountCents: faceLeft }),
+    ])
+
+    const after = await prisma.order.findUnique({ where: { id: order.id } })
+
+    // Every cent is back, and the first night's other ticket still admits, so
+    // the order stays PAID: the door refuses every ticket of an order that is not.
+    expect(after).toMatchObject({
+      status: 'PAID',
+      refundedCents: order.totalCents,
+      refundPendingCents: 0,
+    })
+    expect((await ticketsOf(nightLine.id)).map((ticket) => ticket.status)).toEqual(['REFUNDED'])
+
+    const firstNight = await ticketsOf(firstLine.id)
+
+    expect(firstNight.map((ticket) => ticket.status).sort()).toEqual(['REFUNDED', 'VALID'])
+    expect(await doorAnswer(firstNight.find((ticket) => ticket.status === 'VALID').id)).toBeNull()
+    expect(payments.getStatus(mixed.payment.providerRef).refundedAmountCents).toBe(order.totalCents)
+  })
+
+  it('keeps the same order’s free ticket for another night when one night is cancelled (XR-2)', async () => {
+    const fees = await feeWorld('freeother')
+    const { second, tier } = await secondNight(fees, 0, 'free')
+    const mixed = await feeOrder(fees, {
+      withPromo: false,
+      lines: [
+        { ticketTypeId: fees.tiers.floor.id, quantity: 1, unitPriceCents: 5_000 },
+        { ticketTypeId: tier.id, quantity: 1, unitPriceCents: 0 },
+      ],
+    })
+    const order = mixed.order
+    const paidLine = order.items.find((item) => item.ticketTypeId !== tier.id)
+    const freeLine = order.items.find((item) => item.ticketTypeId === tier.id)
+
+    const preview = await nightPreview(fees, fees.session.id)
+
+    // The free ticket carries no fee, so the first night's ticket comes to
+    // everything the order paid.
+    expect(preview.json().data).toMatchObject({
+      orders: 1,
+      ordersRefunded: 1,
+      ticketsWithdrawn: 1,
+      refundableCents: order.totalCents,
+    })
+
+    const cancelled = await cancelNight(fees.event.id, fees.session.id, 1, {
+      headers: fees.headers,
+    })
+
+    expect(cancelled.statusCode, cancelled.body).toBe(200)
+
+    const refund = await prisma.refund.findUnique({
+      where: { idempotencyKey: `session-cancelled:${fees.session.id}:${order.id}` },
+      include: { items: true },
+    })
+
+    // Not promoted to a refund of everything: only the night's line.
+    expect(refund).toMatchObject({ status: 'SUCCEEDED', amountCents: order.totalCents })
+    expect(refund.allocation).toMatchObject({ form: 'lines', whole: false })
+    expect(refund.items).toEqual([
+      expect.objectContaining({ orderItemId: paidLine.id, quantity: 1 }),
+    ])
+
+    const [kept] = await ticketsOf(freeLine.id)
+
+    expect(kept).toMatchObject({ status: 'VALID', revokedReason: null })
+    expect(kept.credentialHash).not.toBeNull()
+    expect(await doorAnswer(kept.id)).toBeNull()
+    expect((await ticketsOf(paidLine.id)).map((ticket) => ticket.status)).toEqual(['REFUNDED'])
+    expect(await prisma.order.findUnique({ where: { id: order.id } })).toMatchObject({
+      status: 'PAID',
+      refundedCents: order.totalCents,
+      refundPendingCents: 0,
+    })
+    expect((await prisma.eventSession.findUnique({ where: { id: second.id } })).status).toBe(
+      'SCHEDULED',
+    )
+  })
+
+  it('keeps the same order’s free every-night pass when one night is cancelled (XR-2, night-cancellation-passes)', async () => {
+    const fees = await feeWorld('freepass')
+    const { second } = await secondNight(fees, 4_000, 'pass')
+    const pass = await prisma.ticketType.create({
+      data: {
+        eventId: fees.event.id,
+        eventSessionId: null,
+        name: `Kids pass ${RUN}`,
+        priceCents: 0,
+        currency: 'USD',
+        quantityTotal: 50,
+        maxPerOrder: 10,
+        status: 'ON_SALE',
+      },
+    })
+    const mixed = await feeOrder(fees, {
+      withPromo: false,
+      lines: [
+        { ticketTypeId: fees.tiers.floor.id, quantity: 1, unitPriceCents: 5_000 },
+        { ticketTypeId: pass.id, quantity: 1, unitPriceCents: 0 },
+      ],
+    })
+    const order = mixed.order
+    const passLine = order.items.find((item) => item.ticketTypeId === pass.id)
+
+    const preview = await nightPreview(fees, fees.session.id)
+
+    expect(preview.json().data).toMatchObject({ orders: 1, ordersRefunded: 1, ticketsWithdrawn: 1 })
+
+    const cancelled = await cancelNight(fees.event.id, fees.session.id, 1, {
+      headers: fees.headers,
+    })
+
+    expect(cancelled.statusCode, cancelled.body).toBe(200)
+
+    const refund = await prisma.refund.findUnique({
+      where: { idempotencyKey: `session-cancelled:${fees.session.id}:${order.id}` },
+      include: { items: true },
+    })
+
+    expect(refund.allocation).toMatchObject({ form: 'lines', whole: false })
+    expect(refund.items.map((item) => item.orderItemId)).not.toContain(passLine.id)
+
+    const [kept] = await ticketsOf(passLine.id)
+
+    expect(kept).toMatchObject({ status: 'VALID', revokedReason: null })
+    expect(await doorAnswer(kept.id)).toBeNull()
+    expect((await prisma.order.findUnique({ where: { id: order.id } })).status).toBe('PAID')
+    expect((await prisma.eventSession.findUnique({ where: { id: second.id } })).status).toBe(
+      'SCHEDULED',
+    )
+  })
+
+  it('refunds the night’s other ticket when a refund of the same line settles mid-cancellation (XR-3)', async () => {
+    const fees = await feeWorld('nightrace')
+    const { second, tier } = await secondNight(fees, 3_000, 'race')
+    const mixed = await feeOrder(fees, {
+      withPromo: false,
+      lines: [
+        { ticketTypeId: fees.tiers.floor.id, quantity: 1, unitPriceCents: 5_000 },
+        { ticketTypeId: tier.id, quantity: 2, unitPriceCents: 3_000 },
+      ],
+    })
+    const order = mixed.order
+    const nightLine = order.items.find((item) => item.ticketTypeId === tier.id)
+
+    // Finance refunds one of the two second-night tickets; it is with the provider.
+    const asked = await prisma.$transaction((tx) =>
+      requestRefund(tx, {
+        order,
+        payment: mixed.payment,
+        lines: [{ orderItemId: nightLine.id, quantity: 1 }],
+        reason: 'CUSTOMER_REQUEST',
+        idempotencyKey: `customer-${RUN}`,
+        now: new Date(),
+      }),
+    )
+
+    await prisma.$transaction((tx) =>
+      approveRefund(tx, { refund: asked.refund, order, actorId: null, now: new Date() }),
+    )
+    await prisma.$transaction(async (tx) =>
+      markSubmitted(tx, {
+        refund: await tx.refund.findUnique({ where: { id: asked.refund.id } }),
+        now: new Date(),
+      }),
+    )
+
+    const submitted = await prisma.refund.findUnique({ where: { id: asked.refund.id } })
+    // Somebody's basket for the night: the cancellation releases it after it
+    // has read the night's orders, so holding it from outside stops the
+    // cancellation between that read and its refunds.
+    const hold = await prisma.ticketHold.create({
+      data: {
+        ticketTypeId: tier.id,
+        quantity: 1,
+        status: 'ACTIVE',
+        expiresAt: new Date(Date.now() + 600_000),
+        userId: world.owner.id,
+      },
+    })
+    const preview = await nightPreview(fees, second.id)
+
+    expect(preview.json().data).toMatchObject({ orders: 1, ordersRefunded: 1 })
+
+    const holdLock = await lockFromOutside('TicketHold', hold.id)
+    const cancelling = cancelNight(fees.event.id, second.id, 1, { headers: fees.headers })
+
+    await untilWaiting(prisma, () => [holdLock.pid], 1, 'the cancellation')
+
+    // The provider answers for finance's refund now, and it settles.
+    const finished = await prisma.$transaction((tx) =>
+      settleRefund(tx, {
+        refund: submitted,
+        order,
+        result: { providerRefundId: `re_race_${RUN}`, rawStatus: 'succeeded' },
+        organizationId: fees.organization.id,
+        seatPolicy: SEAT_POLICIES.WITHHOLD,
+        now: new Date(),
+      }),
+    )
+
+    expect(finished.settled).toBe(true)
+
+    await holdLock.open()
+
+    const cancelled = await cancelling
+
+    expect(cancelled.statusCode, cancelled.body).toBe(200)
+
+    const nightRefunds = await prisma.refund.findMany({
+      where: { idempotencyKey: `session-cancelled:${second.id}:${order.id}` },
+      include: { items: true },
+    })
+
+    // The night's other ticket: asked for, settled, and never left withdrawn
+    // without its money.
+    expect(nightRefunds).toHaveLength(1)
+    expect(nightRefunds[0]).toMatchObject({ status: 'SUCCEEDED' })
+    expect(nightRefunds[0].items).toEqual([
+      expect.objectContaining({ orderItemId: nightLine.id, quantity: 1 }),
+    ])
+    expect((await ticketsOf(nightLine.id)).map((ticket) => ticket.status)).toEqual([
+      'REFUNDED',
+      'REFUNDED',
+    ])
+
+    const after = await prisma.order.findUnique({
+      where: { id: order.id },
+      include: { items: true },
+    })
+
+    expect(after.refundPendingCents).toBe(0)
+    expect(after.items.find((item) => item.id === nightLine.id)).toMatchObject({
+      refundedQuantity: 2,
+      refundedCents: nightLine.subtotalCents,
+    })
 
     const notice = await prisma.notificationOutbox.findFirst({
       where: { dedupeKey: `session-cancelled:${second.id}:${order.id}` },

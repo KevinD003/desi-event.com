@@ -61,8 +61,15 @@ const TAG = `prv${randomUUID().slice(0, 8)}`
 
 const { prisma, when } = await connectTestDatabase('the privacy redaction integration suite')
 
-/** Far enough ahead that an admission counts as unspent. */
-const FUTURE = new Date('2027-06-01T18:00:00Z')
+/**
+ * Far enough ahead that an admission counts as unspent: eight months from the
+ * moment the suite runs. The holds compare an event's end with the real clock
+ * (`privacy-holds.js`, `endsAt > now`), so a fixed instant here turns this
+ * suite red once it has passed: it was `2027-06-01T18:00Z`, and the
+ * unspent-admission case would have failed in CI from 22:00 that day, when the
+ * event it seeds had ended.
+ */
+const FUTURE = new Date(Date.now() + 240 * 24 * 60 * 60 * 1000)
 
 /** Far enough behind that an admission no longer blocks. */
 const PAST_START = new Date('2020-06-01T18:00:00Z')

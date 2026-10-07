@@ -799,9 +799,39 @@ export function allocateAcrossLines({
  * @param {number} [options.discountCents] The order's discount, netted off line by line.
  * @param {Map<string, number>|null} [options.roomByLine] What each line has left to give back; each line's amount is capped by it.
  * @returns {{allocation: Array<{orderItemId: string, amountCents: number, quantity: number}>, amountCents: number}} The allocation and its total.
+ * @throws {Error} 422 for a line that is not on the order, a quantity it cannot cover, or lines worth nothing.
+ */
+export function allocateNamedLines(options) {
+  const named = priceNamedLines(options)
+
+  if (named.amountCents <= 0) {
+    // A line of free tickets. The tickets are still revoked, but that is a
+    // revocation rather than a refund, and routing it through a payment
+    // provider would ask for zero cents back from a real processor.
+    throw unprocessable('Those lines are worth nothing, so there is nothing to refund.', {
+      lines: options.lines,
+    })
+  }
+
+  return named
+}
+
+/**
+ * Price named lines as {@link allocateNamedLines} does, and answer lines worth
+ * nothing with a total of zero rather than a refusal, so a caller that asks
+ * for many orders' lines at once can tell "worth nothing" apart from every
+ * other refusal.
+ *
+ * @param {object} options As {@link allocateNamedLines} takes them.
+ * @param {Array<object>} options.items The order's lines.
+ * @param {Array<{orderItemId: string, quantity: number}>} options.lines What to give back.
+ * @param {Map<string, number>} [options.pendingByLine] Quantities already spoken for by unresolved refunds.
+ * @param {number} [options.discountCents] The order's discount, netted off line by line.
+ * @param {Map<string, number>|null} [options.roomByLine] What each line has left to give back.
+ * @returns {{allocation: Array<{orderItemId: string, amountCents: number, quantity: number}>, amountCents: number}} The allocation and its total, which may be zero.
  * @throws {Error} 422 for a line that is not on the order, or a quantity it cannot cover.
  */
-export function allocateNamedLines({
+export function priceNamedLines({
   items,
   lines,
   pendingByLine = new Map(),
@@ -862,14 +892,85 @@ export function allocateNamedLines({
     allocation.push({ orderItemId, amountCents: lineCents, quantity })
   }
 
-  if (amountCents <= 0) {
-    // A line of free tickets. The tickets are still revoked, but that is a
-    // revocation rather than a refund, and routing it through a payment
-    // provider would ask for zero cents back from a real processor.
-    throw unprocessable('Those lines are worth nothing, so there is nothing to refund.', { lines })
-  }
-
   return { allocation, amountCents }
+}
+
+/**
+ * Named tickets' face value, brought down to what the order has left of it.
+ *
+ * A sum refunded earlier without tickets (the amount form) gave back face
+ * value that `OrderItem.refundedCents` never saw, because that column moves
+ * only with the tickets a refund withdraws. The tickets it left standing then
+ * cost more than the order has left to give back, and `requestRefund` refuses
+ * to name them at their price. A caller that must refund them — a cancelled
+ * night's tickets — asks for what is left instead: each line's amount is
+ * scaled down in proportion (`allocateProportionally`, as checkout spread the
+ * discount), and the ticket quantities stay as they are, because the earlier
+ * sum already paid part of those tickets back.
+ *
+ * @param {{allocation: Array<{orderItemId: string, amountCents: number, quantity: number}>, amountCents: number}} named From {@link priceNamedLines}.
+ * @param {number} capCents The face value the order has left.
+ * @returns {{allocation: Array<{orderItemId: string, amountCents: number, quantity: number}>, amountCents: number}} The same tickets, for no more than `capCents`.
+ */
+export function capNamedFace(named, capCents) {
+  const cap = Math.max(0, capCents)
+
+  if (named.amountCents <= cap) return named
+
+  const shares =
+    cap > 0
+      ? allocateProportionally(
+          cap,
+          named.allocation.map((line) => line.amountCents),
+        )
+      : named.allocation.map(() => 0)
+
+  return {
+    allocation: named.allocation.map((line, index) => ({
+      ...line,
+      amountCents: shares[index] ?? 0,
+    })),
+    amountCents: cap,
+  }
+}
+
+/**
+ * What a refund of named lines comes to: the tickets' face value, net of the
+ * discount and within each line's room, and the fee and tax share that
+ * follows it (R6). The one working that {@link requestRefund} reserves, and
+ * that a preview shows without reserving, so the two cannot disagree.
+ *
+ * @param {object} options Options.
+ * @param {Array<object>} options.items The order's lines, as they stand.
+ * @param {Array<{orderItemId: string, quantity: number}>} options.lines What to give back.
+ * @param {{quantities: Map<string, number>, cents: Map<string, number>}} options.pending What unresolved refunds hold on each line ({@link pendingLines}).
+ * @param {number} options.discountCents The order's discount.
+ * @param {{faceValueCents: number, feeCents: number, taxCents: number}} options.parts The order's parts ({@link orderParts}).
+ * @param {{faceValueCents: number, feeCents: number, taxCents: number}} options.left What is left of each ({@link partsLeft}).
+ * @param {boolean} [options.capFaceToLeft] Bring the face value down to what the order has left ({@link capNamedFace}) instead of letting {@link requestRefund} refuse it.
+ * @returns {{priced: object, named: object, split: {faceValueCents: number, feeCents: number, taxCents: number}, amountCents: number}} The tickets at their price, the tickets as asked for, the split and its sum.
+ * @throws {Error} 422 for a line that is not on the order, or a quantity it cannot cover.
+ */
+export function quoteNamedLines({
+  items,
+  lines,
+  pending,
+  discountCents,
+  parts,
+  left,
+  capFaceToLeft = false,
+}) {
+  const priced = priceNamedLines({
+    items,
+    lines,
+    pendingByLine: pending.quantities,
+    discountCents,
+    roomByLine: roomOnLines(items, discountCents, pending.cents),
+  })
+  const named = capFaceToLeft ? capNamedFace(priced, left.faceValueCents) : priced
+  const split = refundPartsFor({ parts, left, form: FORMS.LINES, lineFaceCents: named.amountCents })
+
+  return { priced, named, split, amountCents: sumParts(split) }
 }
 
 /**
@@ -1100,6 +1201,8 @@ function replayOf(existing, order) {
  * @param {string|null} [params.actorId] Who asked. Null for a system request.
  * @param {string|null} [params.requestId] For the audit trail.
  * @param {string|null} [params.via] What asked, when it was not a person at the refund screen.
+ * @param {boolean} [params.capFaceToLeft] Lines form: ask for no more face value than the order has left, rather than refusing tickets an earlier sum refund already paid back in part ({@link capNamedFace}). A cancelled night's refund asks for this.
+ * @param {boolean} [params.promoteToWhole] Lines form: whether named tickets that come to everything the order has left become the whole form and withdraw every ticket still standing. True by default; a cancelled night's refund passes false, because the order's tickets for its other nights are kept (SPEC2-XI X-N).
  * @param {Date} params.now The instant.
  * @returns {Promise<{refund: object, created: boolean}>} The refund, and whether this call made it.
  * @throws {Error} 409 when the order has less left than was asked for or its payment is disputed; 422 for a bad amount.
@@ -1116,6 +1219,8 @@ export async function requestRefund(tx, params) {
     actorId = null,
     requestId = null,
     via = null,
+    capFaceToLeft = false,
+    promoteToWhole = true,
     now,
   } = params
 
@@ -1162,30 +1267,35 @@ export async function requestRefund(tx, params) {
   const pending = await pendingLines(tx, order.id)
   const remaining = refundableCents(order)
 
-  const named = lines
-    ? allocateNamedLines({
-        items,
-        lines,
-        pendingByLine: pending.quantities,
-        discountCents,
-        roomByLine: roomOnLines(items, discountCents, pending.cents),
-      })
+  const quoted = lines
+    ? quoteNamedLines({ items, lines, pending, discountCents, parts, left, capFaceToLeft })
     : null
+
+  if (quoted && quoted.priced.amountCents <= 0) {
+    // A line of free tickets. The tickets are still revoked, but that is a
+    // revocation rather than a refund, and routing it through a payment
+    // provider would ask for zero cents back from a real processor.
+    throw unprocessable('Those lines are worth nothing, so there is nothing to refund.', { lines })
+  }
+
+  const named = quoted ? quoted.named : null
 
   let form
   let amountCents
   let split = null
 
   if (named) {
-    split = refundPartsFor({ parts, left, form: FORMS.LINES, lineFaceCents: named.amountCents })
-    amountCents = sumParts(split)
+    split = quoted.split
+    amountCents = quoted.amountCents
     // Named tickets whose share of the fee and the tax takes everything the
     // order has left are a whole refund: the free tickets beside them (or a
     // ticket a promo code left worth nothing) had their fee given back with
     // this share, and nothing could ever withdraw them afterwards — a whole
     // or amount refund finds nothing left, and a refund of them by name finds
-    // them worth nothing. So every ticket still standing goes with it.
-    form = amountCents === remaining ? FORMS.WHOLE : FORMS.LINES
+    // them worth nothing. So every ticket still standing goes with it — unless
+    // the caller keeps those tickets on purpose: a cancelled night refunds its
+    // own tickets and nobody's ticket for another night (`promoteToWhole`).
+    form = promoteToWhole && amountCents === remaining ? FORMS.WHOLE : FORMS.LINES
   } else if (whole) {
     form = FORMS.WHOLE
     amountCents = remaining
@@ -1728,6 +1838,27 @@ export async function revokeAndReturn(tx, { refund, seatPolicy, now }) {
 }
 
 /**
+ * How many of an order's tickets still admit: VALID or TRANSFER_PENDING, the
+ * states a refund would withdraw.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {string} orderId The order.
+ * @returns {Promise<number>} The count.
+ */
+async function standingTicketCount(tx, orderId) {
+  const lines = await tx.orderItem.findMany({ where: { orderId }, select: { id: true } })
+
+  if (lines.length === 0) return 0
+
+  return tx.ticket.count({
+    where: {
+      orderItemId: { in: lines.map((line) => line.id) },
+      status: { in: [...REFUNDABLE_TICKET_STATES] },
+    },
+  })
+}
+
+/**
  * The batch a settled refund posts: `refundBatch`, or the same entries with the
  * discount given back to the organiser's side, or without the organiser's line
  * when it gives back nothing of theirs.
@@ -1952,11 +2083,20 @@ export async function settleRefund(tx, params) {
     },
   })
 
-  if (after.refundedCents >= after.totalCents && after.status !== 'REFUNDED') {
-    await tx.order.update({ where: { id: order.id }, data: { status: 'REFUNDED' } })
-  }
-
   const moved = await revokeAndReturn(tx, { refund, seatPolicy: policy, now })
+
+  // Refunded in full, and none of its tickets still admits: the order is
+  // REFUNDED. Every refund that comes to all an order has left withdraws
+  // every ticket standing (the whole form), except a cancelled night's: it
+  // gives back everything while the order's tickets for its other nights —
+  // a free one, an every-night pass, one an earlier sum already paid back in
+  // part — are kept (SPEC2-XI X-N). The door refuses every ticket of an order
+  // that is not PAID, so such an order stays PAID while a ticket of it stands.
+  if (after.refundedCents >= after.totalCents && after.status !== 'REFUNDED') {
+    if ((await standingTicketCount(tx, order.id)) === 0) {
+      await tx.order.update({ where: { id: order.id }, data: { status: 'REFUNDED' } })
+    }
+  }
 
   const split = refund.allocation ?? splitRefund(order, refund.amountCents)
 

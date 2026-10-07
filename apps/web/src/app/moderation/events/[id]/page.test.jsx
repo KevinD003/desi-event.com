@@ -44,7 +44,8 @@ const { readSession } = await import('../../../../lib/session.js')
 const { default: ReviewEventPage } = await import('./page.jsx')
 const { CONFLICT_OF_INTEREST_NOTICE, IMPORTED_EVENT_NO_EDITOR_NOTICE } =
   await import('../../../../lib/review-independence.js')
-const { CANNOT_DECIDE } = await import('../../../../components/website-redirect-panel.jsx')
+const { CANNOT_DECIDE, DELETED_EVENT_FROZEN } =
+  await import('../../../../components/website-redirect-panel.jsx')
 
 /** A platform reviewer who belongs to no organisation. */
 const REVIEWER = {
@@ -506,6 +507,39 @@ describe('the website link on the review page', () => {
         'The link shows on the public page only while the event’s page is public.',
       ),
     ).toBeNull()
+  })
+
+  it('offers nobody the controls on a deleted event, and says its switch is kept', async () => {
+    getEventMedia.mockResolvedValue({ data: [], meta: { revision: 6 } })
+    readSession.mockResolvedValue(ADMINISTRATOR)
+    getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      status: 'DELETED',
+      websiteUrl: 'https://banyan.example/',
+      websiteRedirect: {
+        ...WAITING,
+        enabled: true,
+        pending: false,
+        decidedUrl: 'https://banyan.example/',
+        submittedAt: null,
+        changedAt: '2026-09-30T10:00:00.000Z',
+        reason: 'Checked.',
+        changedByName: 'Anil Administrator',
+      },
+    })
+
+    await renderPage()
+
+    const panel = screen.getByRole('region', { name: 'Website link' })
+
+    // The switch as it was kept: still on, for the address decided.
+    expect(within(panel).getByText('On')).toBeInTheDocument()
+    expect(within(panel).getByText(DELETED_EVENT_FROZEN)).toBeInTheDocument()
+    // Nothing to press: the API answers every decision with NOT_EDITABLE.
+    expect(within(panel).queryByRole('button')).toBeNull()
+    expect(within(panel).queryByRole('checkbox')).toBeNull()
+    expect(within(panel).queryByLabelText(/Reason/u)).toBeNull()
+    expect(within(panel).queryByText(CANNOT_DECIDE)).toBeNull()
   })
 
   it('says "None given" when the organiser gave no address', async () => {

@@ -416,11 +416,31 @@ describe('reviewIndependence', () => {
       await reviewIndependence(
         client(
           { actorId: 'importer' },
-          { platformHeldSource: 'SULEKHA', item: { id: 'item', reassignedAt: null } },
+          {
+            platformHeldSource: 'SULEKHA',
+            item: { id: 'item', reassignedAt: null, importedById: 'importer' },
+          },
         ),
         own,
       ),
     ).toEqual({ independent: true, code: null, reason: null, exemption: 'PLATFORM_HELD_IMPORT' })
+
+    // An import somebody else is the importer of record of, which this account
+    // only withdrew and sent back by hand: its submitter, not its importer.
+    expect(
+      (
+        await reviewIndependence(
+          client(
+            { actorId: 'importer' },
+            {
+              platformHeldSource: 'SULEKHA',
+              item: { id: 'item', reassignedAt: null, importedById: 'another-administrator' },
+            },
+          ),
+          own,
+        )
+      ).code,
+    ).toBe('SELF_REVIEW')
 
     // The same organisation, but no import record: still the submitter's own.
     expect(
@@ -436,7 +456,10 @@ describe('reviewIndependence', () => {
     expect(
       (
         await reviewIndependence(
-          client({ actorId: 'importer' }, { item: { id: 'item', reassignedAt: null } }),
+          client(
+            { actorId: 'importer' },
+            { item: { id: 'item', reassignedAt: null, importedById: 'importer' } },
+          ),
           own,
         )
       ).code,
@@ -448,7 +471,10 @@ describe('reviewIndependence', () => {
         await reviewIndependence(
           client(
             { actorId: 'importer' },
-            { platformHeldSource: 'SULEKHA', item: { id: 'item', reassignedAt: new Date() } },
+            {
+              platformHeldSource: 'SULEKHA',
+              item: { id: 'item', reassignedAt: new Date(), importedById: 'importer' },
+            },
           ),
           own,
         )
@@ -481,7 +507,10 @@ describe('reviewIndependence', () => {
         await reviewIndependence(
           client(
             { actorId: 'importer' },
-            { platformHeldSource: 'SULEKHA', item: { id: 'item', reassignedAt: null } },
+            {
+              platformHeldSource: 'SULEKHA',
+              item: { id: 'item', reassignedAt: null, importedById: 'importer' },
+            },
           ),
           { ...own, actor: { id: 'importer', memberships: [{ organizationId: 'org-held' }] } },
         )

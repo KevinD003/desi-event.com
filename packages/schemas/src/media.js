@@ -25,7 +25,14 @@ import {
   mediaModerationStatusSchema,
 } from './enums.js'
 import { EDITABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from './lifecycle.js'
-import { cuidSchema, paginationQuerySchema, slugSchema, timestampSchema } from './primitives.js'
+import {
+  POSTGRES_INT_MAX,
+  cuidSchema,
+  paginationQuerySchema,
+  revisionPreconditionSchema,
+  slugSchema,
+  timestampSchema,
+} from './primitives.js'
 
 /**
  * What the platform accepts, in one place.
@@ -449,7 +456,7 @@ export const altTextSchema = z.preprocess(
 export const revisionQueryParamSchema = z.preprocess(
   (value) =>
     typeof value === 'string' && /^(0|[1-9]\d{0,9})$/u.test(value) ? Number(value) : value,
-  z.int().min(0).max(2_147_483_647),
+  z.int().min(0).max(POSTGRES_INT_MAX),
 )
 
 /** `POST /v1/events/:id/media` query: what the picture is, what it shows, and the revision read. */
@@ -464,7 +471,7 @@ export const uploadEventMediaQuerySchema = z
 /** `PATCH /v1/events/:id/media/:mediaId`: a new description. */
 export const updateEventMediaRequestSchema = z
   .object({
-    revision: z.int().min(0),
+    revision: revisionPreconditionSchema,
     altText: altTextSchema,
   })
   .strict()
@@ -472,7 +479,7 @@ export const updateEventMediaRequestSchema = z
 /** `PUT /v1/events/:id/media/order`: every gallery picture, in the new order. */
 export const reorderEventMediaRequestSchema = z
   .object({
-    revision: z.int().min(0),
+    revision: revisionPreconditionSchema,
     galleryIds: z
       .array(cuidSchema)
       .min(1)

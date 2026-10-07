@@ -368,6 +368,34 @@ describe('the steps', () => {
     expect(screen.getByRole('heading', { name: 'When and where' })).toBeInTheDocument()
   })
 
+  it('label an imported event’s end, which its listing did not give, as an estimate', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const estimate = /^Not listed by Sulekha \(estimate for scheduling\)\./u
+    const { unmount } = render(
+      <EventEditor
+        event={event}
+        venues={venues}
+        sessions={[{ id: 'snight1', endTimeListed: false }]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /when and where/i }))
+
+    expect(screen.getByText(estimate)).toBeInTheDocument()
+
+    unmount()
+    render(
+      <EventEditor
+        event={event}
+        venues={venues}
+        sessions={[{ id: 'snight1', endTimeListed: true }]}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /when and where/i }))
+
+    expect(screen.queryByText(estimate)).toBeNull()
+  })
+
   it('say which step you are on without relying on colour', () => {
     render(<EventEditor event={event} venues={venues} />)
 

@@ -45,7 +45,6 @@ import path from 'node:path'
 
 import { chromium } from '@playwright/test'
 
-import { settleDevRoutes } from './dev-routes.mjs'
 import { seedDetailWorld, signIn } from './detail-world.mjs'
 
 /** Where the world and the saved sessions are left for the specs. */
@@ -79,10 +78,8 @@ export default async function globalSetup(config) {
   await mkdir(STATE_DIR, { recursive: true })
   await writeFile(WORLD_FILE, JSON.stringify({ ...world, tag }, null, 2))
 
-  // `next dev` sometimes starts without some of its routes (see
-  // `dev-routes.mjs`); found out here, where it is mended, rather than as a
-  // sign-in that could not sign in.
-  await settleDevRoutes(baseURL)
+  // The routes this signs in through were proved before this ran: the
+  // config lists `dev-routes-setup.mjs` first (`next-dev.mjs`).
 
   const browser = await chromium.launch({
     executablePath: config.projects[0].use.launchOptions?.executablePath,

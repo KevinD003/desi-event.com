@@ -160,6 +160,34 @@ describe('TrafficChart', () => {
     expect(targets.every((target) => Number(target.getAttribute('height')) > 0)).toBe(true)
   })
 
+  // Across a year's end the hover targets, the description and the axis name
+  // the year, so the first and last of 366 days are not both "Oct 7".
+  it('names the year in its tooltips, its description and its axis once the days run into a second year', () => {
+    const end = Date.parse('2027-10-07T00:00:00.000Z')
+    const days = Array.from({ length: 366 }, (_unused, i) => ({
+      day: new Date(end - (365 - i) * 86_400_000).toISOString().slice(0, 10),
+      views: 1,
+      visitors: 1,
+    }))
+    const { container } = render(<TrafficChart id="visits" caption={CHART_CAPTION} days={days} />)
+    const targets = [...container.querySelectorAll('rect[data-chart-target]')]
+
+    expect(targets[0].querySelector('title').textContent).toBe(
+      'Oct 7, 2026: 1 page views, 1 visitors',
+    )
+    expect(targets.at(-1).querySelector('title').textContent).toBe(
+      'Oct 7, 2027: 1 page views, 1 visitors',
+    )
+    expect(container.querySelector('#visits-desc').textContent).toMatch(
+      /from Oct 7, 2026 to Oct 7, 2027 \(UTC\)/u,
+    )
+    expect([...container.querySelectorAll('svg > text')].map((text) => text.textContent)).toEqual([
+      'Oct 7, 2026',
+      'Apr 7, 2027',
+      'Oct 7, 2027',
+    ])
+  })
+
   it('scrolls sideways in a named, keyboard-reachable region rather than shrinking', () => {
     render(<TrafficChart id="visits" caption={CHART_CAPTION} days={daysOf([[1, 1]])} />)
 

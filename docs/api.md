@@ -189,7 +189,17 @@ A NUL (U+0000) in any string or key of a validated body, query or path is a
 character in no text or JSON column, so it is refused before the handler
 writes anything, whatever the field's own schema allows. Should one reach the
 database by another road, PostgreSQL's refusal (SQLSTATE 22021 for a text
-column, 22P05 for a JSON one) is answered with the same 400, never a 500.
+column, 22P05 for a JSON one) is answered with the same 400, never a 500. A
+lone UTF-16 surrogate (half of a pair, as a `\ud800` escape in JSON) is
+refused the same way: a JSON column refuses it (22P02, Prisma P2007) and a
+text column would keep U+FFFD in its place.
+
+Numbers and dates are held to what their columns hold. A revision sent as a
+precondition is at most 2147483647 (an `integer` column), and a query's date
+filter (`from`, `to`, `startsAfter`, `startsBefore`) is from 1 January 1970
+on; either outside is a 400 naming the field. Should a value outside its
+column's range reach the database by another road (SQLSTATE 22003, Prisma
+P2020, or 22008 for a date), the answer is the same 400, never a 500.
 
 Domain packages set these themselves — `InventoryError` carries
 `INSUFFICIENT_INVENTORY`, `BELOW_MINIMUM`, `ABOVE_MAXIMUM` and friends with
@@ -437,8 +447,10 @@ was built.)
 organisation, or with `eventId` for one event: page views, visitors (distinct
 per event per UTC day), card clicks by place, ticket and seat clicks, website
 visits, where page views came from as five categories, a per-day series of at
-most 366 days, and paid orders against visitors. It is read from `TrafficDaily`,
-never from raw visits. `traffic.updatedAt` says when the background roll-up last
+most 366 days, and paid orders against visitors. With no `from` the window
+starts on the first day anything was counted, and paid orders are counted from
+that day too, so an order paid before visits were counted is never set against
+visitors. It is read from `TrafficDaily`, never from raw visits. `traffic.updatedAt` says when the background roll-up last
 finished, `traffic.stale` is set when that is over two hours ago, and
 `includesDemonstration` is true when any summed row was written by the
 development seed. Robots, signed-in members of the organisation and Desi-Event
@@ -1146,7 +1158,8 @@ bound to the address, lasts fourteen days, and is shown once in the `MANUAL`
 201 (`data.delivery.invitationCode`, `no-store`) or emailed in `EMAIL` mode
 (ADR 0011), never both; only its SHA-256 digest is stored. Refusals: 403
 `SELF_INVITATION`, 422 `STAFF_ACCOUNT` (and 403 at accept for a staff account,
-the code unspent), 409 `INVITATION_OUTSTANDING`, 409 `NOT_OUTSTANDING`, one 403
+the code unspent), 409 `INVITATION_OUTSTANDING`, 409 `NOT_OUTSTANDING` (also
+for reissuing an expired invitation whose address was erased), one 403
 `INVITATION_UNUSABLE` at accept that names no part of the address, and 503
 `DELIVERY_FAILED` in `EMAIL` mode with the invitation withdrawn.
 

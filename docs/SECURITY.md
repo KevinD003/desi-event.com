@@ -820,7 +820,10 @@ revision reviewed. A reviewer who belongs to the organisation is refused
   off, because an SMTP transcript contains the message.
 - A failed send withdraws what it issued (503 `DELIVERY_FAILED`).
 - At most three codes a day reach one address, and a sender may email at most
-  five ticket transfers an hour.
+  five ticket transfers an hour. The address's codes are counted inside the
+  transaction that writes the new one, under a transaction-scoped advisory lock
+  on the lower-cased address, so requests to one address that arrive together
+  are counted one after another and cannot pass the cap between them.
 - Sender-written text is quoted and marked as the sender's.
 
 ### Visit counting and the traffic trust chain
@@ -950,5 +953,13 @@ with their event by the administrator who reviewed the run.
 
 Reasons typed when deleting, restoring, cancelling a night, opening a platform
 editing sitting or reassigning are stored as typed and are not redacted by the
-privacy process. Every such form says: "Shown with the event's history. Do not
-include anybody's personal details."
+privacy process — on the event and night (`deletionReason`,
+`cancellationReason`), its history, the sitting, the change notice, the import
+record and audit metadata, on every refund a deletion or a night's
+cancellation asks for (`Refund.reasonNote`), and in the notice queued for each
+buyer (`NotificationOutbox.payload.reason`), which the message templates print
+(not emailed by this build's in-memory provider; a real mail provider would
+send it to every buyer). See
+[PRIVACY_AND_RETENTION.md](PRIVACY_AND_RETENTION.md#free-text-reasons--2026-10-06).
+Every such form says: "Shown with the event's history. Do not include
+anybody's personal details."

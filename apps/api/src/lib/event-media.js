@@ -383,7 +383,32 @@ export async function assertGalleryRoom(client, eventId) {
 }
 
 /**
+ * What deleted events' pictures may hold on top of the organisation's quota:
+ * one quota more, so an organisation holds at most twice its quota in all.
+ *
+ * @type {number}
+ */
+export const DELETED_EVENT_ALLOWANCE_BYTES = MEDIA_LIMITS.organizationQuotaBytes
+
+/** The refusal when the organisation's own pictures fill its quota. */
+export const MEDIA_QUOTA_SENTENCE =
+  'Your organisation has used its 1 GB of picture storage. Remove pictures from past events to make room.'
+
+/** The refusal when deleted events' pictures, kept for a restore, fill what is left. */
+export const MEDIA_HELD_FOR_DELETED_SENTENCE =
+  'Your organisation’s deleted events still hold their pictures, kept so the Desi-Event team can restore them, and together with your other pictures they fill the 2 GB your organisation may store in all. To make room, remove pictures from past events, or ask the Desi-Event team to restore a deleted event and then remove its pictures.'
+
+/**
  * Refuse an upload that would take the organisation past its storage quota.
+ *
+ * Two ceilings. The quota counts the pictures of events that are not deleted:
+ * a deleted event's pictures are kept for a restore and cannot be removed
+ * while it is deleted (`MEDIA_REMOVE_STATUSES`), so they do not use up the
+ * room an organisation can free (SPEC2-XI decision 10). They are still bytes
+ * the organisation holds, and nothing purges them, so without a second bound
+ * deleting full events and uploading again would grow storage without end.
+ * Everything the organisation holds, deleted events included, may come to the
+ * quota plus {@link DELETED_EVENT_ALLOWANCE_BYTES}.
  *
  * @param {object} client A Prisma client or transaction.
  * @param {string} organizationId The organisation.
@@ -392,21 +417,27 @@ export async function assertGalleryRoom(client, eventId) {
  * @throws {Error} A 409 `MEDIA_QUOTA_EXCEEDED`.
  */
 export async function assertQuota(client, organizationId, adding) {
-  // A deleted event's pictures are kept for a restore and cannot be removed
-  // while it is deleted (`MEDIA_REMOVE_STATUSES`), so they do not count against
-  // the room the organisation can free.
-  const { _sum: sum } = await client.mediaAsset.aggregate({
+  const more = Math.max(0, adding)
+  const live = await client.mediaAsset.aggregate({
     where: { event: { organizationId, status: { not: 'DELETED' } } },
     _sum: { byteSize: true },
   })
-  const used = sum?.byteSize ?? 0
+  const used = live._sum?.byteSize ?? 0
 
-  if (used + Math.max(0, adding) > MEDIA_LIMITS.organizationQuotaBytes) {
-    throw httpError(
-      409,
-      'MEDIA_QUOTA_EXCEEDED',
-      'Your organisation has used its 1 GB of picture storage. Remove pictures from past events to make room.',
-    )
+  if (used + more > MEDIA_LIMITS.organizationQuotaBytes) {
+    throw httpError(409, 'MEDIA_QUOTA_EXCEEDED', MEDIA_QUOTA_SENTENCE)
+  }
+
+  const deleted = await client.mediaAsset.aggregate({
+    where: { event: { organizationId, status: 'DELETED' } },
+    _sum: { byteSize: true },
+  })
+  const kept = deleted._sum?.byteSize ?? 0
+
+  if (used + kept + more > MEDIA_LIMITS.organizationQuotaBytes + DELETED_EVENT_ALLOWANCE_BYTES) {
+    throw httpError(409, 'MEDIA_QUOTA_EXCEEDED', MEDIA_HELD_FOR_DELETED_SENTENCE, {
+      deletedEventBytes: kept,
+    })
   }
 }
 

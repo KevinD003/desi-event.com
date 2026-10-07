@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  ESTIMATED_END_LABEL,
+  endIsEstimate,
   endTimeListed,
   importedCardPrice,
   importedPricesSentence,
@@ -72,5 +74,18 @@ describe('endTimeListed', () => {
     expect(endTimeListed({ sessions: [{ endTimeListed: true }] })).toBe(true)
     expect(endTimeListed({ sessions: [{}] })).toBe(true)
     expect(endTimeListed({})).toBe(true)
+  })
+})
+
+describe('an end the listing did not give, on an editor’s screen', () => {
+  it('is labelled in SPEC2-XI §0 rule 9’s words', () => {
+    expect(ESTIMATED_END_LABEL).toBe('Not listed by Sulekha (estimate for scheduling)')
+  })
+
+  it('is an estimate only when the API says the end was not listed', () => {
+    expect(endIsEstimate({ endTimeListed: false })).toBe(true)
+    expect(endIsEstimate({ endTimeListed: true })).toBe(false)
+    expect(endIsEstimate({})).toBe(false)
+    expect(endIsEstimate(null)).toBe(false)
   })
 })

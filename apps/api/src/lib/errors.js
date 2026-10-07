@@ -137,6 +137,62 @@ export function isAuthError(error) {
  */
 const UNSTORABLE_CHARACTER_CODES = new Set(['22021', '22P05'])
 
+/**
+ * Whether a database error is a JSON column refusing a string it cannot hold.
+ *
+ * A lone UTF-16 surrogate (U+D800 to U+DFFF without its pair) is the one
+ * string `JSON.parse` accepts and a `jsonb` column refuses: PostgreSQL answers
+ * `22P02` ("invalid input syntax for type json"), which Prisma reports as
+ * `P2007`. `22P02` alone is any malformed literal — an integer, a UUID — so
+ * the JSON message is required as well, and anything else under that code is
+ * still a fault.
+ *
+ * @param {unknown} error The thrown value.
+ * @returns {boolean} True for one.
+ */
+function isUnstorableJson(error) {
+  if (!error || typeof error !== 'object') return false
+
+  const { codes, text } = databaseRefusalParts(error)
+
+  return (
+    (codes.has('22P02') || codes.has('P2007')) &&
+    text.includes('invalid input syntax for type json')
+  )
+}
+
+/**
+ * PostgreSQL's SQLSTATEs, and Prisma's code, for a value outside what its
+ * column or type holds.
+ *
+ * - `22003` `numeric_value_out_of_range`, which Prisma reports as `P2020`: a
+ *   number past an `integer` column's 2147483647, such as a revision sent as
+ *   a precondition and compared with one.
+ * - `22008` `datetime_field_overflow`: a date PostgreSQL's calendar does not
+ *   have, such as one in year 0, compared with a `timestamp` or `date`.
+ *
+ * @type {ReadonlySet<string>}
+ */
+const OUT_OF_RANGE_CODES = new Set(['22003', '22008', 'P2020'])
+
+/** What a caller is told when they sent one. Names the fix, not the database. */
+export const OUT_OF_RANGE_MESSAGE =
+  'A number or date in the request is outside the range that can be stored. Check it and try again.'
+
+/**
+ * Whether a database error is a value outside its column's range.
+ *
+ * @param {unknown} error The thrown value.
+ * @returns {boolean} True for one.
+ */
+function isOutOfRange(error) {
+  if (!error || typeof error !== 'object') return false
+
+  const { codes } = databaseRefusalParts(error)
+
+  return [...codes].some((code) => OUT_OF_RANGE_CODES.has(code))
+}
+
 /** What a caller is told when they sent one. Names the fix, not the database. */
 export const UNSTORABLE_CHARACTER_MESSAGE =
   'The request contains a character that cannot be stored, such as a NUL. Remove it and try again.'
@@ -360,16 +416,29 @@ export function normaliseError(error, options = {}) {
   const { exposeInternals = false } = options
 
   // A character PostgreSQL cannot store — a NUL above all, which every text
-  // and JSON column refuses — is a bad request, not a fault. The request
-  // validator refuses a NUL in every string of a validated request
-  // (`lib/validation.js`), so this is the backstop for one that arrives by
-  // another road: the caller hears 400 and what to change, and the log is not
-  // given a 500.
-  if (UNSTORABLE_CHARACTER_CODES.has(databaseErrorCode(error))) {
+  // and JSON column refuses, and a lone surrogate, which every JSON column
+  // refuses — is a bad request, not a fault. The request validator refuses
+  // both in every string of a validated request (`lib/validation.js`), so
+  // this is the backstop for one that arrives by another road: the caller
+  // hears 400 and what to change, and the log is not given a 500.
+  if (UNSTORABLE_CHARACTER_CODES.has(databaseErrorCode(error)) || isUnstorableJson(error)) {
     return {
       statusCode: 400,
       code: 'VALIDATION_ERROR',
       message: UNSTORABLE_CHARACTER_MESSAGE,
+      expected: true,
+    }
+  }
+
+  // A number or a date outside what its column holds — a revision past an
+  // integer column, a date in year 0 — is a bad request too. The request
+  // schemas bound the ones they know of (a revision, a query's dates), so
+  // this is the backstop for a field that forgets to.
+  if (isOutOfRange(error)) {
+    return {
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: OUT_OF_RANGE_MESSAGE,
       expected: true,
     }
   }
