@@ -272,19 +272,26 @@ export async function createFeeOrder(
 
   let codes = 0
 
-  await prisma.$transaction((tx) =>
-    settleCheckout(tx, {
-      order,
-      payment,
-      result: { outcome: 'SUCCEEDED', intent, rawStatus: 'SUCCEEDED' },
-      now,
-      generateTicketCode: () => {
-        codes += 1
+  // Settlement bumps each tier's `quantitySold` under its row lock, so callers
+  // that build orders ten at a time on the same tiers (case 28 builds 500)
+  // queue behind one another inside this transaction. Under coverage on a busy
+  // runner that wait alone passed Prisma's five-second default. The budget is
+  // the fixture's own; the product's settlement transactions keep theirs.
+  await prisma.$transaction(
+    (tx) =>
+      settleCheckout(tx, {
+        order,
+        payment,
+        result: { outcome: 'SUCCEEDED', intent, rawStatus: 'SUCCEEDED' },
+        now,
+        generateTicketCode: () => {
+          codes += 1
 
-        return `DET-FEE${suffix}${codes}`
-      },
-      credentialSecret,
-    }),
+          return `DET-FEE${suffix}${codes}`
+        },
+        credentialSecret,
+      }),
+    { timeout: 30_000, maxWait: 10_000 },
   )
 
   const paid = await prisma.order.findUnique({ where: { id: order.id }, include: { items: true } })

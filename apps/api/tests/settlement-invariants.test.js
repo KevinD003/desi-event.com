@@ -47,6 +47,8 @@
  * @module @desi-event/api/tests/settlement-invariants
  */
 
+import { createHash } from 'node:crypto'
+
 import { afterAll, afterEach, expect, it } from 'vitest'
 
 import { checkInvariants } from '../../../scripts/load/invariants.js'
@@ -185,8 +187,10 @@ async function ticket(
       eventSeatId,
       // Unique per row, because `Ticket.credentialHash` is unique: two tickets
       // cannot share one credential, which is exactly why case 12 has to hold
-      // two *different* live credentials to be the hazard it is.
-      credentialHash: live ? `${nonce}`.padStart(64, 'a') : null,
+      // two *different* live credentials to be the hazard it is. Derived from
+      // this run's prefix too, so rows another run left in a shared database
+      // cannot collide with it.
+      credentialHash: live ? createHash('sha256').update(`${PREFIX}:${nonce}`).digest('hex') : null,
       credentialVersion: 1,
       credentialIssuedAt: live ? new Date() : null,
     },
