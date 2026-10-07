@@ -161,8 +161,9 @@ is waiting for is Stripe's hosted page to say, not a row here.
 
 ## Email, SMS and storage
 
-In-memory adapters only, and no production adapter is written for any of the
-three. Notifications go through `NotificationOutbox` — claimed under a lease,
+In-memory adapters only for SMS and storage. Email has one real adapter, for one
+job (below). (Corrected 2026-10-06: this said no production adapter was written
+for any of the three.) Notifications go through `NotificationOutbox` — claimed under a lease,
 retried with a recorded time, categorised on failure — so the delivery guarantee
 is **at-least-once with a durable record**, not "we called an API and hoped".
 
@@ -181,8 +182,31 @@ itself, so a worker's claim that lands first wins. See
 > `CLAIMED` row with a live lease, wiping it and letting a second worker send
 > the same message.
 
-Storage is in-memory, so uploaded media does not survive a restart. Stated
-because a demo that loses an image is confusing if you expected otherwise.
+The storage adapter is in-memory, but event pictures do not use it: since ADR
+0009 their bytes live in PostgreSQL (`MediaBlob`) and survive a restart.
+
+### Email: SMTP, for show-once codes only — 2026-10-06
+
+`packages/providers/src/smtp.js` (`createSmtpEmailProvider`, nodemailer) sends
+the three single-use codes — organiser invitations, team invitations and ticket
+transfers — when a deployment sets `DELIVERY_MODE=EMAIL` and `SMTP_HOST` (ADR
+0011). Nothing else in the platform uses it: receipts, address confirmation,
+password resets and change notices are never emailed.
+
+- **Configuration:** `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_SECURE` (implicit TLS,
+  usually 465), `SMTP_REQUIRE_TLS` (true), `SMTP_USER` and `SMTP_PASSWORD`
+  (together or neither), `SMTP_FROM`, and `WEB_ORIGIN` for the join link in the
+  letter. The API refuses to boot on an incoherent set, and in production on a
+  server that is neither implicitly nor STARTTLS-encrypted.
+- **The body never leaves the adapter except to the server:** nodemailer's
+  logger and debug output are off, and a transport error is rebuilt with only
+  the server's status. Timeouts are explicit.
+- **Same refusals as the in-memory email provider**, in the same words, because
+  both validate through `normaliseEmailMessage`.
+- **EXTERNAL VERIFICATION PENDING.** Tested end to end against `smtp-server` on
+  loopback (`packages/providers/src/smtp.test.js`,
+  `apps/api/tests/email-delivery-integration.test.js`); never against a real
+  mail provider. This environment has no mail server and runs `MANUAL`.
 
 ---
 

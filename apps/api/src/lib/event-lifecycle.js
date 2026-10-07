@@ -351,9 +351,13 @@ export async function gateProblems(prisma, event, gates) {
  * Why an event in the organisation that holds imported events cannot be sent
  * back for changes (SPEC2-XI O16): nobody runs it on Desi-Event, so nobody
  * could make them.
+ *
+ * Word for word the web's `IMPORTED_EVENT_NO_EDITOR_NOTICE`
+ * (`apps/web/src/lib/review-independence.js`). The spec's first wording said
+ * "yet", which the honest-copy rule forbids; both now say what is true today.
  */
 export const IMPORTED_EVENT_NO_EDITOR_SENTENCE =
-  'Nobody runs this event on Desi-Event yet, so nobody could make the changes. Approve it and correct it once it is published, reject it, or delete it.'
+  'Nobody runs this event on Desi-Event, so nobody could make changes you ask for. Approve it and correct it once it is published, reject it, or delete it.'
 
 /**
  * Whether an event belongs to an organisation that holds imported events.

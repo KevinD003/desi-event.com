@@ -108,6 +108,22 @@ describe('the three readings of an empty-looking page', () => {
   })
 })
 
+describe('what the page says about deletion', () => {
+  it('says the retention job cannot delete, and names the traffic roll-up as the one timed deletion', async () => {
+    await renderPage({ data: [], pagination: null, notEvaluated: NOT_EVALUATED })
+
+    const lead = screen.getByRole('heading', { level: 1, name: 'Retention rehearsals' })
+      .nextElementSibling.textContent
+
+    expect(lead).toMatch(/the retention job has no way to delete/i)
+    expect(lead).toMatch(
+      /The one deletion on a timer in this system is of raw visit records, which the job that adds visits up removes two days after the day they were made, once added up\./,
+    )
+    // SPEC2 §4.N-H: the old blanket claim is false now that the roll-up deletes.
+    expect(lead).not.toMatch(/there is no deletion path in this system/i)
+  })
+})
+
 describe('what a row shows', () => {
   it('puts the approval status beside every count, not once in the header', async () => {
     // A number lifted out of this table into a ticket has to bring its status

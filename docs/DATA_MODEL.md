@@ -432,8 +432,10 @@ narrower than "this is done":
 > `SKIPPED_DISABLED` row when enforcement is not activated, which is the
 > expected state everywhere today. What remains true is the sentence beside it,
 > and it is the one that matters: **no scheduled retention job deletes
-> anything.** There is no deletion path in this repository, the sweep issues
-> `count` queries and nothing else, and
+> anything.** The retention machinery has no deletion path, the sweep issues
+> `count` queries and nothing else (the one deletion on a timer in the
+> repository is the traffic roll-up's, of raw `TrafficEvent` rows it has
+> already added up — see "Visit counting" — which is not retention), and
 > `retention_sweep_dry_run_changes_nothing` refuses to record a rehearsal that
 > claims otherwise.
 >
@@ -756,3 +758,135 @@ window, one scanned between nights, a one-night ticket scanned in another
 night's window, a refunded pass and a one-night event) and checks each result,
 the audit rows, and that the pass is then let in on its next night and not
 twice on the first.
+
+## Invite-only posting, the website link, visit counting, full control and imports — 2026-10-06
+
+Seven migrations, in order (`PHASE3_MIGRATIONS` in
+`packages/db/scripts/verify-populated-upgrade.mjs` lists them after the earlier
+ones, and the upgrade verifier proves each against a populated database). The
+decisions behind them are ADRs 0010–0015.
+
+| Migration                                              | What it adds                                                                                                             |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `20260930090000_platform_admin_role`                   | `UserRole` value `ADMIN`, alone (an enum value cannot be used in the transaction that adds it)                           |
+| `20260930100000_organiser_invitations_and_review_gate` | `OrganizerInvitation`, `Membership.organizerInvitationId`, the review-gate trigger                                       |
+| `20260930120000_event_website_link`                    | The website link columns on `Event`, its CHECKs and trigger; `socialLinks.website` folded in                             |
+| `20260930130000_event_traffic_analytics`               | `TrafficEvent`, `TrafficDaily`, `TrafficSalt`, `TrafficRollupState` and their enums                                      |
+| `20260930140000_event_deleted_status`                  | `EventStatus` value `DELETED`, alone                                                                                     |
+| `20260930150000_event_full_control`                    | Deletion columns, `EventPlatformEdit`, `EventChangeNotice`, cancelled nights, replacement covers                         |
+| `20260930160000_event_imports`                         | `EventImportRun`, `EventImportItem`, `EventImportImage`, `Organization.platformHeldSource`, `EventSession.endTimeListed` |
+
+### Organiser invitations
+
+`OrganizerInvitation` has one kind: start a new organisation as its OWNER. It
+holds the address (lower case, CHECK), the organisation's name (2–120), the
+administrator-written public description (1–2000) and website (the event
+website's address pattern), a private note (1–1000), the SHA-256 digest of the
+code (`organizer_invitation_token_is_digest`; never the code), who invited,
+`status` (PENDING, ACCEPTED, REVOKED, EXPIRED), `deliveryMode`, `expiresAt`
+(after `createdAt`), acceptance and withdrawal stamps (each required by its
+status), `organizationId` (only once ACCEPTED), and `supersedesId` (unique) for
+a reissue. A partial unique index allows one PENDING invitation per address.
+`Membership.organizerInvitationId` (unique) records which invitation made an
+owner. Team invitations still waiting that offered a posting role were
+withdrawn by the migration, and CHECK
+`invitation_pending_role_is_owner_grantable` keeps new ones to roles an owner
+may grant.
+
+### The review gate
+
+Trigger `desi_event_status_requires_review` (`BEFORE UPDATE OF "status"`):
+APPROVED only from REVIEW_PENDING; a public status only from APPROVED, another
+public status, or a restore to the restore target of the status the event had
+when it was deleted. An INSERT is not covered (only seeds and the e2e helpers
+insert events in a public status; the API creates DRAFTs and the importer
+creates DRAFTs too).
+
+### The website link
+
+`Event.websiteUrl` (the organiser's address, normalised; CHECK
+`event_website_url_shape`), `websiteRedirectEnabled`, `websiteDecidedUrl` (where
+the link goes while it is on), `websiteDecisionPending`, `websiteSubmittedAt`,
+`websiteRedirectChangedAt`, `websiteRedirectChangedById` (FK, SET NULL) and
+`websiteRedirectReason` (1–500). CHECK `event_website_redirect_consistency`
+keeps them coherent; trigger `desi_event_website_change` recomputes "pending"
+on every write of `websiteUrl`, so an organiser's change never moves the
+switch. `socialLinks` may no longer carry `website` (`event_social_links_shape`).
+Partial indexes serve the administrators' worklist (`Event_website_pending_idx`)
+and the "on" list.
+
+### Visit counting
+
+- **`TrafficEvent`** — one raw visit: event, UTC day, kind (`PAGE_VIEW`,
+  `CARD_CLICK`, `TICKET_CLICK`, `SEAT_CLICK`, `WEBSITE_REDIRECT`), placement,
+  source (page views only), a 32-hex visitor code or none (privacy signal), and
+  a 64-hex dedupe key present exactly when the code is (unique). **No address,
+  browser string or account.** Deleted by the roll-up two days after its day.
+- **`TrafficSalt`** — the day's random secret the visitor code is made with (64
+  hex); deleted once the day is over.
+- **`TrafficDaily`** — the totals per event per UTC day: views and visitors,
+  views without a code, the five sources, card clicks by place, ticket and seat
+  clicks and their visitors, website visits and their visitors,
+  `demonstration` (true only for rows the development seed writes) and
+  `computedAt`. CHECKs: nothing negative; sources add up to views; places add up
+  to card clicks; visitors plus uncoded views within views; click and redirect
+  visitors within their clicks. Cascades with its event.
+- **`TrafficRollupState`** — one row (`traffic-rollup`, inserted by the
+  migration): the roll-up's lease and `lastCompletedAt`, which the screens show
+  as "these figures run to".
+
+### Deleted events
+
+`EventStatus` gains `DELETED`. `Event` gains `deletedAt`, `deletedById` (FK,
+SET NULL), `deletionReason` (10–500), `deletionOutcome` (REMOVED,
+CANCELLED_AND_REFUNDED, REMOVED_AFTER_EVENT), `deletionAuthority`
+(ORGANIZATION, PLATFORM), `statusBeforeDeletion` and `deletedSlug` (the slug of
+a never-public event, released). CHECK `event_deletion_consistency` sets them
+all with DELETED and clears them all otherwise, and allows
+CANCELLED_AND_REFUNDED only from CANCELLED. Trigger `desi_event_deletion_moves`
+makes `statusBeforeDeletion` the status the row really had, freezes it while
+DELETED, and lets the row leave DELETED only for
+`desi_event_restore_target(statusBeforeDeletion)`. Partial index
+`Event_deleted_idx` serves the deleted list. Only
+`apps/api/src/lib/event-deletion.js` writes these columns (a source scan); the
+development seed inserts one deleted event and leaves an existing deleted row
+untouched on a re-seed.
+
+### Platform editing, change notices, cancelled nights and replacement covers
+
+- **`EventPlatformEdit`** — one editing sitting: event, administrator, the
+  browser session it answers (FK, SET NULL), reason, `openedAt`, `expiresAt`,
+  and how it ended (`PlatformEditEnd`: CLOSED, SUPERSEDED, EVENT_DELETED,
+  EXPIRED). One open sitting per administrator per event (a partial unique
+  index); CHECK `event_platform_edit_shape`.
+- **`EventChangeNotice`** — what ticket holders are shown on their order page:
+  the kind (`EventChangeKind`: MATERIAL_CHANGE, SESSION_CHANGE, RESCHEDULED,
+  POSTPONED, CANCELLED, SESSION_CANCELLED, DELETED), the reason and whether the
+  Desi-Event team made it. Only `lib/event-change-notices.js` writes it.
+- **`EventSession.cancelledAt`** and **`cancellationReason`** — a cancelled
+  night (CHECK `event_session_cancellation_stamped`); trigger
+  `desi_event_session_cancel_is_final` refuses bringing one back.
+- **`MediaAsset.replacesMediaId`** (unique, FK SET NULL) — a replacement cover
+  waiting for approval names the cover it replaces; CHECK
+  `media_asset_replacement_shape` and trigger `desi_media_replacement_matches`
+  keep it a cover of the same event, and the one-cover index now counts only
+  current covers.
+
+### Imports
+
+- **`Organization.platformHeldSource`** (unique; `SULEKHA`) marks the
+  organisation that holds imported events. Trigger
+  `desi_platform_held_has_no_members` refuses memberships and team invitations
+  into it.
+- **`EventImportRun`** — one upload: who planned it, the plan and its digest,
+  status, and who applied it, within its hour.
+- **`EventImportItem`** — one imported listing, unique by `(source, sourceId)`
+  and by event: the listed prices and price text, the curator's notes, the
+  listing and ticket addresses, who imported and who approved it, the run that
+  last wrote it, and a reassignment (from, to, by whom).
+- **`EventImportImage`** — one picture to copy (unique by item and address):
+  its role, status, failure reason and the `MediaAsset` it became.
+- **`EventSession.endTimeListed`** — false when the listing gave no end time
+  and the stored end is the start plus three hours, which is never shown.
+
+Only `lib/event-import.js` writes the three import tables (a source scan).

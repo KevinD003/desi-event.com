@@ -30,18 +30,18 @@ separately here, on purpose.
 
 _Added 2026-09-29, by the feature-completion work:_
 
-| Surface                                | Route                                                         |
-| -------------------------------------- | ------------------------------------------------------------- |
-| Seat picker and seated checkout        | `/events/[slug]/seats/[sessionId]`                            |
-| Create an organisation                 | `/account/organizations/new`                                  |
-| Join an organisation (invitation code) | `/account/invitations`                                        |
-| The organisation's profile             | `/organizer/organization`                                     |
-| Team, with invite form and codes       | `/organizer/team`                                             |
-| Promo codes                            | `/organizer/promo-codes`                                      |
-| Door check-in, group passes included   | `/organizer/check-in`                                         |
-| Verification queue and one review      | `/moderation/organizations`, `/moderation/organizations/[id]` |
-| Platform accounts and roles            | `/admin/users`                                                |
-| An order, with its group pass          | `/account/orders/[reference]`                                 |
+| Surface                                                                        | Route                                                         |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| Seat picker and seated checkout                                                | `/events/[slug]/seats/[sessionId]`                            |
+| Accept an organiser invitation (was "Create an organisation" until 2026-10-06) | `/account/organizations/new`                                  |
+| Join an organisation (invitation code)                                         | `/account/invitations`                                        |
+| The organisation's profile                                                     | `/organizer/organization`                                     |
+| Team, with invite form and codes                                               | `/organizer/team`                                             |
+| Promo codes                                                                    | `/organizer/promo-codes`                                      |
+| Door check-in, group passes included                                           | `/organizer/check-in`                                         |
+| Verification queue and one review                                              | `/moderation/organizations`, `/moderation/organizations/[id]` |
+| Platform accounts and roles                                                    | `/admin/users`                                                |
+| An order, with its group pass                                                  | `/account/orders/[reference]`                                 |
 
 The editor's Media step (cover and gallery upload, descriptions, order) and
 its two content steps are inside `/organizer/events/[id]`.
@@ -358,11 +358,13 @@ unlocks at once and the next save after a reschedule carries the new revision
 rather than being refused as somebody else's edit. Removing a session re-reads
 the ticket types, because the ones priced for that night go with it.
 
-**Copy says "recorded", never "sent".** This build sends no email. Every place
-that used to say a change or a postponement was sent to ticket holders now says a
-notice is recorded for every current order, and where the organiser would
-otherwise assume people have been told, it adds "This build does not send email,
-so tell ticket holders yourself as well." That covers the material-change panel,
+**Copy says "recorded", never "sent".** Change notices are never emailed, in
+any delivery mode. Every place that used to say a change or a postponement was
+sent to ticket holders now says a notice is recorded for every current order,
+and where the organiser would otherwise assume people have been told, it adds
+"Notices are not emailed, so tell ticket holders yourself as well." (Corrected
+2026-10-06: the sentence used to be "This build does not send email, …", which
+is false where an operator configures SMTP for codes, ADR 0011.) That covers the material-change panel,
 the postpone and cancel reason field ("Recorded with the notice for every current
 order…"), the postpone confirmation, the policies step and the reschedule form.
 
@@ -423,8 +425,10 @@ of these screens had been through the accessibility sweep.
 ## A code shown once — 2026-09-29
 
 A team invitation and a ticket offer each end in a single-use code that the
-person who made it must hand over themselves, because this build sends no email
-(ADR 0008). One component, `one-time-code-panel.jsx`, draws it on both screens:
+person who made it must hand over themselves when the site runs in `MANUAL`
+delivery, as this environment does (ADR 0008; with an SMTP server the code is
+emailed instead and never shown, ADR 0011). An organiser invitation (ADR 0010)
+uses the same panel, with a ready-to-send message beside the code. One component, `one-time-code-panel.jsx`, draws it on both screens:
 
 - **It says what it is and that it will not come back.** A heading, the code in
   a read-only field with its own label, who it is for when the caller may see
@@ -690,3 +694,84 @@ discount, what it applies to, its window in a stated zone, its uses against its
 cap and its status as a word beside a shape. Making a code and resuming one ask
 for a recent second factor when the API does; deleting is confirmed in place and
 offered only for a code nobody has used.
+
+## Invite-only organisers, the website link, analytics, full control and imports — 2026-10-06
+
+The decisions are ADRs 0010–0015; this section lists the surfaces and the copy
+rules they follow.
+
+| Surface                                         | Route                                          |
+| ----------------------------------------------- | ---------------------------------------------- |
+| Organiser invitations: issue, reissue, withdraw | `/admin/organizer-invitations`                 |
+| Accept an organiser invitation (type the code)  | `/account/organizations/new`                   |
+| Every event, for the Desi-Event team            | `/admin/events`, `/admin/events/[id]`          |
+| Importing listed events                         | `/admin/imports`, `/admin/imports/[runId]`     |
+| Website links waiting, on and off               | `/moderation/websites`                         |
+| Pictures waiting on posted events               | `/moderation/pictures`                         |
+| An organisation's visits, money and attendance  | `/analytics` (organisation and event views)    |
+| Every event's visits, for the Desi-Event team   | `/analytics/events`                            |
+| The counted way out to an organiser's website   | `/events/[slug]/website` (a 302, never a page) |
+
+**The code panel carries a letter only for organiser invitations.** In
+`MANUAL` delivery the organiser-invitation code is shown once with a
+ready-to-send message (subject, body with the code on its own line, and the
+join page's address) that the administrator copies into their own email.
+Team-invitation and ticket-transfer codes are shown on their own. In `EMAIL`
+delivery each screen says the code was emailed and shows nothing. No screen
+says the site "sends no email".
+
+**Nobody is offered what the API refuses.** The team page offers each member
+exactly the roles in `roleChoices`; posting roles are explained, not offered
+("Roles that create or publish events … are given by the Desi-Event team").
+The organiser area offers "Accept an organiser invitation" and "Join a team
+with an invitation code" to an account without an organisation.
+
+**The website link says who decided.** The editor's website field shows the
+switch's state under it in the organiser's words (`organiserSummary`), ending
+"Only the Desi-Event team can turn this link on or off." The administrators'
+panel shows the current and the decided address, both opening in a new tab
+with "(opens in a new tab)", and asks for "I have opened this address and it is
+the organiser's own site" before turning it on. The public link says "Opens
+{host}, which Desi-Event does not run. Desi-Event counts the visit without
+recording your address, browser or account."
+
+**Analytics say what they are.** "Demonstration figures" when any summed row
+came from the development seed; "These figures run to {time} UTC on {day}" when
+fresh; an alert when the roll-up has not finished for over two hours; and "No
+visits have been added up on this site" before it has ever run. No sentence
+names how often figures change. The chart has a text alternative ("Visits per
+day, as a table"), and the counting notes say who is not counted.
+
+**Deleting is previewed, confirmed and explained.** The delete dialog reads the
+server's preview and says what will happen — removed, cancelled and refunded,
+or only taken down — from the counts, never guessed. It asks for the event's web
+address typed back (paste allowed; the address is shown in a `<code>`
+element), a reason, and a second factor. For a finished event nobody was
+checked in at, it asks, as a radio group, whether it took place. Restore (the
+Desi-Event team only) says "It comes back paused: the organiser reopens
+sales." for an event that was on sale. Cancelling one night has its own dialog
+with the count of orders it touches.
+
+**Every reason box says where the reason goes**: "Shown with the event's
+history. Do not include anybody's personal details."
+
+**Editing somebody else's event looks different.** A banner headed "Editing as
+the Desi-Event team" names the organisation ("This is {organisation}'s
+event."), the reason and when the sitting ends, with "Confirm it's you" and
+"Stop editing"; when a write needs the second factor again, the editor pauses
+autosave and asks "Confirm it's you to keep editing. The Desi-Event team
+confirms every 10 minutes while editing someone else's event." The organiser
+sees the team's changes as "by the Desi-Event team", with the reason.
+
+**Imported events say where they come from.** The ticket box says the tickets
+are sold on Sulekha, shows the prices as Sulekha listed them on the date they
+were read (or that no price is listed), and offers "Buy tickets on Sulekha"
+through the counted redirect. Cards read "On Sulekha from $x", "Free, on
+Sulekha" or "On Sulekha". The page says "Presented by" the organiser. A listing
+without an end time shows only its start.
+
+Every new surface is built to WCAG 2.2 AA: headings and labelled fields in
+every dialog, an error summary with links, targets at least 44 px, polite live
+regions, and focus returned to the opener. Their component tests check this;
+the browser accessibility sweep cases for these screens belong to the end-to-end
+stage that follows this documentation, and were not run when it was written.

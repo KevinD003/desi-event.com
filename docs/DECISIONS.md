@@ -14,19 +14,28 @@ replaced it; everything under that line stays as written.
 
 ## The architecture decision records
 
-| #                                                          | Decision                                                            | Status                                          |
-| ---------------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------- |
-| [0001](adr/0001-javascript-only-stack.md)                  | JavaScript everywhere, TypeScript nowhere                           | Accepted, 2026-09-14                            |
-| [0002](adr/0002-polyglot-exception-process.md)             | When another language may enter the repository                      | Accepted, 2026-09-14                            |
-| [0003](adr/0003-stripe-connect-charge-model.md)            | Stripe Connect charge model                                         | Accepted for Phase 2 (sandbox only), 2026-09-15 |
-| [0004](adr/0004-plpgsql-in-migrations.md)                  | Procedural SQL inside migrations                                    | Accepted, 2026-09-15                            |
-| [0005](adr/0005-reserved-seat-transfer.md)                 | Reserved-seat transfer stays blocked                                | Superseded by 0006, 2026-09-29                  |
-| [0006](adr/0006-reserved-seat-transfer-live-seat-index.md) | One live ticket per seat: reserved-seat tickets can be handed on    | Accepted, 2026-09-29                            |
-| [0007](adr/0007-platform-door-authority.md)                | A platform super administrator may admit at any event               | Accepted, 2026-09-29                            |
-| [0008](adr/0008-show-once-codes.md)                        | Invitation and transfer codes are shown once to whoever issues them | Accepted, 2026-09-29                            |
-| [0009](adr/0009-media-in-postgres-allow-list-sanitiser.md) | Event pictures: bytes in PostgreSQL, rebuilt from an allow-list     | Accepted, 2026-09-29                            |
+| #                                                                             | Decision                                                                       | Status                                                   |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| [0001](adr/0001-javascript-only-stack.md)                                     | JavaScript everywhere, TypeScript nowhere                                      | Accepted, 2026-09-14                                     |
+| [0002](adr/0002-polyglot-exception-process.md)                                | When another language may enter the repository                                 | Accepted, 2026-09-14                                     |
+| [0003](adr/0003-stripe-connect-charge-model.md)                               | Stripe Connect charge model                                                    | Accepted for Phase 2 (sandbox only), 2026-09-15          |
+| [0004](adr/0004-plpgsql-in-migrations.md)                                     | Procedural SQL inside migrations                                               | Accepted, 2026-09-15                                     |
+| [0005](adr/0005-reserved-seat-transfer.md)                                    | Reserved-seat transfer stays blocked                                           | Superseded by 0006, 2026-09-29                           |
+| [0006](adr/0006-reserved-seat-transfer-live-seat-index.md)                    | One live ticket per seat: reserved-seat tickets can be handed on               | Accepted, 2026-09-29                                     |
+| [0007](adr/0007-platform-door-authority.md)                                   | A platform super administrator may admit at any event                          | Accepted, 2026-09-29                                     |
+| [0008](adr/0008-show-once-codes.md)                                           | Invitation and transfer codes are shown once to whoever issues them            | Accepted, 2026-09-29; `EMAIL` wording superseded by 0011 |
+| [0009](adr/0009-media-in-postgres-allow-list-sanitiser.md)                    | Event pictures: bytes in PostgreSQL, rebuilt from an allow-list                | Accepted, 2026-09-29; superseded in part by 0014         |
+| [0010](adr/0010-invite-only-organisers-platform-administrator-review-gate.md) | Invite-only organisers, the platform administrator and the review gate         | Accepted, 2026-10-06                                     |
+| [0011](adr/0011-smtp-delivery-of-show-once-codes.md)                          | SMTP delivery of show-once codes                                               | Accepted, 2026-10-06                                     |
+| [0012](adr/0012-event-website-link.md)                                        | An event's website link, switched by administrators and counted on the way out | Accepted, 2026-10-06                                     |
+| [0013](adr/0013-first-party-visit-counting.md)                                | First-party visit counting, without cookies or stored addresses                | Accepted, 2026-10-06                                     |
+| [0014](adr/0014-full-control-of-posted-events.md)                             | Full control of posted events                                                  | Accepted, 2026-10-06                                     |
+| [0015](adr/0015-importing-listed-events.md)                                   | Importing listed events                                                        | Accepted, 2026-10-06                                     |
 
-One record is superseded: 0005, by 0006. Nothing is deprecated.
+One record is superseded: 0005, by 0006. Two are superseded in part: 0008's
+`EMAIL` wording by 0011, and 0009's "a published event takes no new picture" by
+0014; each keeps its text and says so on its Status line (0009 also carries a
+marked note beside the superseded consequence). Nothing is deprecated.
 
 ### 0001 — JavaScript everywhere, TypeScript nowhere
 
@@ -110,6 +119,59 @@ decoding pixels, and reviewed by a moderator before it is public. No antivirus
 engine runs, and the record and the limitations page both say so.
 
 ---
+
+### 0010 — Invite-only organisers, the platform administrator and the review gate
+
+Nobody makes themselves an organiser: an ADMIN or SUPER_ADMIN invites an
+address to start a new organisation, created VERIFIED, and only the Desi-Event
+team grants roles that create or publish events; inside an organisation a
+poster may only be moved down. A new platform role, `ADMIN`, holds exactly ten
+capabilities by an allow-list checked at load. A database trigger makes every
+public status follow a review decision, approval names the revision seen, and a
+reviewer may not decide their own organisation's event or one they submitted.
+It also records what a published event may change without another review.
+
+### 0011 — SMTP delivery of show-once codes
+
+`DELIVERY_MODE=EMAIL` with an SMTP server emails organiser-invitation,
+team-invitation and ticket-transfer codes; nothing else is ever emailed. Opt-in,
+TLS required in production, a failed send withdraws what it issued, codes never
+in a link, per-recipient and per-sender caps. Proven only against a local test
+mail server.
+
+### 0012 — The event website link
+
+Only administrators turn an event's website link on or off, with a reason the
+organiser sees with their name. An organiser's address change waits for a
+decision and never moves the switch. The redirect is a web-tier 302 to the
+decided address of a public event, counted from fetch metadata.
+
+### 0013 — First-party visit counting
+
+Page views, card clicks, ticket presses and website visits are counted by the
+site's own beacons, with no cookie and no stored address, browser or account: a
+visitor code made with a secret deleted when the day ends. A worker job rolls
+raw rows into daily totals and deletes them two days later — data minimisation,
+not retention, which still cannot delete.
+
+### 0014 — Full control of posted events
+
+Organisers, ADMINs and SUPER_ADMINs can edit, update and delete posted events.
+Edits are not reviewed again; new pictures on a posted event wait for somebody
+other than their uploader. Administrators edit another organisation's event in
+a time-limited sitting bound to one browser session. Deleting is a status,
+`DELETED`, with an outcome decided from what was sold — removed, cancelled and
+refunded, or only taken down — and only the platform restores. Nine refund
+defects were fixed first.
+
+### 0015 — Importing listed events
+
+The 45 Texas listings collected from Sulekha.com are imported by an
+administrator into a member-less "Sulekha Events" organisation, reviewed and
+approved by that administrator (the one exception to reviewer independence),
+shown with Sulekha's prices and a "Buy tickets on Sulekha" link, never sold
+here, and copied with their pictures by one locked-down fetcher. The owner's
+statement that they own Sulekha.com is recorded there as their statement.
 
 ## Decisions that live in code, not in an ADR
 
@@ -262,3 +324,39 @@ an identifier nobody has ever had.
 | Seats are sold under the reserved tier that prices their zone                                                                | A tier chosen by the buyer, or stamped on each seat by hand                              | The partial unique index `TicketType_reserved_session_zone_key` allows one reserved tier per zone per night, so "which tier sells this seat" has one answer; a companion seat is sold under its own zone's tier.                                                                                                                                                                                                                 |
 | A hidden tier answers 404 to anybody without `ticketType:manage`                                                             | Trusting that its id is not known                                                        | An id in a link, a log or a screenshot is known. The organiser's team can still book it, which is what hidden tiers are for.                                                                                                                                                                                                                                                                                                     |
 | The joining link is for ticket holders only                                                                                  | Publishing it on the event page                                                          | It was in every anonymous `events.get` response and in the page's structured data. A holder receives it only while a ticket they hold admits, by the door's own rule.                                                                                                                                                                                                                                                            |
+
+## Decisions taken for invite-only posting, analytics, full control and the import — 2026-10-06
+
+Each was taken for the owner and each can be reversed; the reasons are in ADRs
+0010–0015, and `docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md` ("Decisions taken
+for you") states them in plain words.
+
+- An organiser invitation always starts a **new** organisation; adding a poster
+  to an existing one is a super administrator's grant.
+- Owners move posting members only to lesser roles; promotions go through the
+  Desi-Event team.
+- Invited organisations start Verified, with the description and website the
+  administrator wrote.
+- Reviewers may not decide events of their own organisation or ones they
+  submitted; "may not review organisers you invited" is off. Moderators can
+  approve events too.
+- Team invitations already waiting that offered posting roles were withdrawn by
+  the upgrade.
+- Organisers see the administrator's name for the website link, but "a
+  Desi-Event administrator" for edits made in an editing sitting.
+- Analytics adds a fifth source, "Desi-Event pages"; browsers asking not to be
+  tracked count as page views; organiser-page card clicks are not counted.
+- New pictures on live events wait for approval by somebody other than the
+  uploader.
+- Administrators may delete events with sales, which refunds every order in
+  full; restoring an on-sale event brings it back paused; a deleted event's web
+  address stays retired if it was ever public; administrators edit an
+  organisation's events only once published; a venue cannot change while a
+  night uses a seating map.
+- Imported events belong to a member-less "Sulekha Events" organisation, are
+  shown with Sulekha's prices without ticket types, have their pictures approved
+  with the event, are approved or rejected rather than sent back, and may be
+  moved to an organiser's organisation without asking it first (which switches
+  the Sulekha link off).
+- The new platform role is called `ADMIN` ("Platform administrator"), separate
+  from an organisation's "Administrator".

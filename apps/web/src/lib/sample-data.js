@@ -44,9 +44,6 @@ import { fromLocalInputValue, toLocalInputValue } from './zoned-time.js'
 /** Instant the relative dates below are measured from, fixed for the process. */
 const BASE_TIME = Date.now()
 
-/** Milliseconds in a day. */
-const DAY_MS = 86_400_000
-
 /** Milliseconds in an hour. */
 const HOUR_MS = 3_600_000
 
@@ -81,12 +78,23 @@ function pad(value) {
 /**
  * The calendar date, in a zone, a whole number of days from process start.
  *
+ * Calendar days, not 24-hour steps: the date in the zone when the process
+ * started, then `days` days added to that date. Adding `days` × 24 hours to the
+ * instant instead lands an hour short of, or past, midnight whenever the clocks
+ * change in between — a process started at 00:40 in New York put two nights of
+ * the nine-night pass on the same date once the clocks went back.
+ *
  * @param {number} days Offset in days; may be negative for a past event.
  * @param {string} timeZone IANA zone the date is read in.
  * @returns {string} A `YYYY-MM-DD` date.
  */
 function localDate(days, timeZone) {
-  return toLocalInputValue(new Date(BASE_TIME + days * DAY_MS), timeZone).slice(0, 10)
+  const [year, month, day] = toLocalInputValue(new Date(BASE_TIME), timeZone)
+    .slice(0, 10)
+    .split('-')
+    .map(Number)
+
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
 }
 
 /**

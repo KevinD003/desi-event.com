@@ -235,9 +235,12 @@ export const CAPABILITIES = deepFreeze({
   /**
    * Read what a retention rehearsal found.
    *
-   * Read-only, and it grants nothing else: there is no deletion path anywhere
-   * in this repository for it to unlock, and the rows it reaches carry class
-   * names, cut-offs and counts rather than anybody's data.
+   * Read-only, and it grants nothing else: the retention rehearsal has no
+   * deletion path for it to unlock, and the rows it reaches carry class names,
+   * cut-offs and counts rather than anybody's data. (The one deletion on a
+   * timer in this repository is the traffic roll-up's, of raw visit rows it
+   * has already added up — `@desi-event/db/traffic-rollup` — and no capability
+   * reaches it.)
    *
    * Its own capability rather than `platform:admin`, for the reason that one
    * already gives elsewhere in this table — an authority folded into the key to

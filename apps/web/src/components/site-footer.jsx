@@ -4,8 +4,9 @@
  * The brand and what the site is for, four short columns of ways back into
  * the catalogue, the cities it lists nights in, and the small print. The
  * small print says two things on every page, because both are true on every
- * page: payments here are simulated, and every event, organiser and price is
- * fictional.
+ * page: payments here are simulated, and events, organisers and prices are
+ * fictional — except events copied from Sulekha.com listings, which name the
+ * organiser who presents them and show Sulekha's prices (ADR 0015).
  *
  * @module components/site-footer
  */
@@ -192,7 +193,8 @@ export function SiteFooter() {
           {/* ink-inverse-muted is 11.6:1 on the night band; a grey that
               merely looked quiet once sat at 3.74:1, below AA at this size. */}
           <p className="text-sm text-ink-inverse-muted">
-            A demonstration project. Every event, organiser and price on this site is fictional.
+            A demonstration project. Events, organisers and prices on this site are fictional,
+            except events copied from Sulekha.com listings.
           </p>
         </div>
       </div>

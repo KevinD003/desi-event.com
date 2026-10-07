@@ -1,5 +1,5 @@
 import { INDEXABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EVENT_CATEGORIES } from './catalog.js'
 import { eventAvailability } from './event-availability.js'
@@ -628,5 +628,62 @@ describe('the organiser’s website in the sample catalogue', () => {
     }
 
     expect(findSampleEvent(SAMPLE_EVENTS[0].slug).websiteLink).toBeNull()
+  })
+})
+
+describe('the catalogue built at any hour, across a change of the clocks', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+  })
+
+  /**
+   * The calendar date of an instant in a zone, as `YYYY-MM-DD`.
+   *
+   * @param {string|number} instant A timestamp.
+   * @param {string} timeZone An IANA zone.
+   * @returns {string} The date there.
+   */
+  function dateIn(instant, timeZone) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date(instant))
+  }
+
+  /**
+   * A `YYYY-MM-DD` date some whole calendar days after another.
+   *
+   * @param {string} date The first date.
+   * @param {number} days How many days later.
+   * @returns {string} The later date.
+   */
+  function daysAfter(date, days) {
+    const [year, month, day] = date.split('-').map(Number)
+
+    return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
+  }
+
+  // The nine nights start eighteen days after the process does. Started just
+  // after midnight in New York, 25 days before the clocks go back (1 November
+  // 2026), counting days as 24 hours put the eighth and ninth nights on the same
+  // date; started just before midnight, 17 days before they go forward (14
+  // March 2027), it put the first night a day late.
+  it.each([
+    ['00:40 in New York, before the clocks go back', '2026-10-07T04:40:00.000Z'],
+    ['23:30 in New York, before the clocks go forward', '2027-02-25T04:30:00.000Z'],
+  ])('keeps the nine nights on nine consecutive dates when started at %s', async (_, startedAt) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(startedAt))
+    vi.resetModules()
+
+    const { findSampleEvent: findFresh } = await import('./sample-data.js')
+    const pass = findFresh('mirrorwork-nine-nights-pass')
+    const today = dateIn(startedAt, pass.timezone)
+
+    expect(pass.sessions.map((night) => dateIn(night.startsAt, pass.timezone))).toEqual(
+      Array.from({ length: 9 }, (_, index) => daysAfter(today, 18 + index)),
+    )
+
+    for (const night of pass.sessions) {
+      expect(localClock(night.startsAt, pass.timezone)).toEqual({ hour: 19, minute: 30 })
+    }
   })
 })

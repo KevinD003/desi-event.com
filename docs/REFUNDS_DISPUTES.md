@@ -471,3 +471,64 @@ checkout's own settlement) posts no `ORDER_PAID` batch, and its refund debits
 the organiser as usual; and `availableBalance` holds a pending refund's whole
 amount — fee and tax included — against the organiser, including a refund of
 money taken on a closed order, until it settles.
+
+## Deleting events and cancelling nights — 2026-10-06
+
+Full control of posted events (ADR 0014) adds two ways an event's refunds are
+asked for, beside cancelling the whole event. All three go through the same
+service, `apps/api/src/lib/refunds.js`, with the repairs of 2026-09-30 above
+in force: every refund is reserved under the order's CHECKs when it is asked
+for, a retry reserves again, and a whole-remainder refund returns exactly what
+is left of each part — face value net of the discount, booking fee and tax.
+
+### Deleting an event that sold tickets
+
+When the deletion preview's outcome is **CANCEL_AND_REFUND** (paid orders, and
+the event has not taken place, or was postponed or cancelled), the deletion's
+one transaction cancels the event first — through the same `cancellationWork`
+as `events.cancel`, with its notices — reserves a whole-remainder refund for
+every paid order whose payment is not disputed, withdraws every ticket, and
+only then marks the event DELETED. A REMOVE outcome (nobody holds a paid
+order) refunds nothing; a REMOVE_AFTER_EVENT outcome (it has taken place)
+leaves orders and tickets as they are and refunds nobody.
+
+Who may: organisation administrators and owners (`event:delete` and
+`event:cancel`), or the Desi-Event team (`event:platform_delete`: ADMIN and
+SUPER_ADMIN) for any event. No caller chooses an amount, an order or a
+recipient: these refunds are always whole-order.
+
+### Cancelling one night
+
+`events.cancelSession` cancels one night of a multi-night event, in one
+transaction that locks the event, then the night's ticket types, then the
+night: the night becomes CANCELLED (final), its tiers close, its holds are
+released, its unpaid orders are cancelled, its tickets are withdrawn, and each
+paid order touching it gets a reserved refund — the whole order when every line
+is for that night, otherwise its lines for that night with their share of fee
+and tax. Nothing is refunded for zero-value lines, for a disputed payment, or
+for a ticket valid for every night: its holder keeps it for the other nights
+and is shown a notice, and the organiser can refund those orders one at a time
+(`night-cancellation-passes` on the limitations page). One change notice per
+touched order is shown on its order page; nothing is emailed.
+
+### The driver sends them after the commit
+
+`apps/api/src/lib/event-refunds.js` runs after the transaction has committed,
+never inside one with a provider call. It leaves a payment whose dispute is
+open to the finance team (counted `disputed`), repairs a refund written before
+refunds reserved anything, approves REQUESTED (and approves DECLINED or FAILED
+again, which reserves again or answers `REFUND_BALANCE_GONE`), then sends and
+settles each through `submitRefund`, with the seats withheld — a cancelled
+event's or night's seats never go back on sale.
+
+It sends the never-tried first, then the oldest, **in batches by payment
+mode**: 500 a request with simulated payments, where a settlement is only a
+write, and 25 with a real provider, so one request never makes hundreds of
+provider calls. The rest wait for **`events.finishRefunds`** ("Finish refunds"
+on the event, EVENT_CANCEL step-up, audited `event.refunds_driven`), or for the
+organisation's finance team at the refund screens. A deletion or night
+cancellation whose transaction committed stays done even if the pass after it
+fails; the answer says what the pass did.
+
+In this build payments are simulated (`PAYMENT_MODE=MOCK`): no money moves.
+The limitations page states the batch as `event-refunds-batch`.

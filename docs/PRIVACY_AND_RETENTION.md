@@ -114,10 +114,13 @@ ONLY`", is no longer the whole story: the privacy surface is now nine
 > **"Not implemented: retention execution. Nothing anywhere creates a
 > `RetentionSweep` row" is no longer true.** The worker writes one row per
 > evaluated class. What the bullet was protecting is intact and is worth
-> restating in the narrower form: **nothing is scheduled and nothing deletes.**
-> There is no deletion path anywhere in this repository, the API holds no queue
-> client so no browser can start a sweep, no repeatable job exists and a test
-> asserts the scheduler never mentions the job.
+> restating in the narrower form: **no retention sweep is scheduled and the
+> retention job deletes nothing.** The retention machinery has no deletion
+> path, the API holds no queue client so no browser can start a sweep, no
+> repeatable retention job exists and a test asserts the scheduler never
+> mentions it. (Updated by SPEC2: the one deletion on a timer in this
+> repository is the traffic roll-up's, of raw visit rows it has already added
+> up — see "Visit counting" below. It is not a retention sweep.)
 >
 > The three bullets that did **not** change are the three that matter most: the
 > durations remain `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`, historic
@@ -169,10 +172,11 @@ safely; they are not that work.
 >
 > **What is still not implemented, and must not be read as done:**
 >
-> - **Retention execution.** Nothing deletes. There is no deletion path in the
->   repository, `RETENTION_ENFORCEMENT_ACTIVATED` defaults to false, and
+> - **Retention execution.** The retention job deletes nothing. It has no
+>   deletion path, `RETENTION_ENFORCEMENT_ACTIVATED` defaults to false, and
 >   `retention_sweep_dry_run_changes_nothing` refuses a `DRY_RUN` row claiming a
->   non-zero `affectedCount` whatever any code believes.
+>   non-zero `affectedCount` whatever any code believes. The only deletion on a
+>   timer is the traffic roll-up's, of raw visit rows (see "Visit counting").
 > - **Export deletion.** An artefact can be invalidated. Nothing deletes one,
 >   because nothing stores one: every export is streamed and no bytes are kept.
 > - **Approved durations.** Still `BLOCKED — REQUIRES OWNER DECISION`. No
@@ -343,10 +347,12 @@ right:
 
 1. `retention_sweep_dry_run_changes_nothing` — a CHECK constraint refusing any
    `DRY_RUN` row that claims a non-zero `affectedCount`.
-2. No deletion path exists in `apps/worker/src/retention/classes.js`, in
-   `apps/worker/src/processors/sweep-retention.js`, or anywhere else. The unit
-   tests prove it with a Prisma stub whose `delete`, `deleteMany`, `update`,
-   `updateMany` and both raw-SQL escapes throw.
+2. No deletion path exists in `apps/worker/src/retention/classes.js` or in
+   `apps/worker/src/processors/sweep-retention.js`. The unit tests prove it
+   with a Prisma stub whose `delete`, `deleteMany`, `update`, `updateMany` and
+   both raw-SQL escapes throw. The one deletion on a timer elsewhere in the
+   repository is the traffic roll-up's (`packages/db/src/traffic-rollup.js`),
+   of raw visit rows it has already added up; it is not a retention class.
 3. `RETENTION_ENFORCEMENT_ACTIVATED` defaults to false, and defaults to false
    again in `createProcessors`, so a caller who forgets it gets the refusing
    worker rather than the counting one.
@@ -693,3 +699,86 @@ it as `onlineJoinUrl` on their wallet, their ticket and their order, and only
 while a ticket they hold admits — the same decision the door makes. Links that
 were published before this change were public for as long as they were; an
 organiser who used one should rotate it.
+
+## Visit counting — 2026-10-06
+
+First-party visit counting (ADR 0013) records visits to event pages without
+recording who made them.
+
+- **What a raw visit row holds** (`TrafficEvent`): the event, the UTC day, what
+  happened (a page view, an event-card click, a ticket or seat press, a visit
+  through the website link), where, for a page view the category of the
+  referring site (from its host name, never a URL), and a visitor code. **No
+  address, no browser string, no account.** A request that arrives without an
+  address is not stored at all.
+- **The visitor code** is an HMAC of the connection and browser under a random
+  secret for that day (`TrafficSalt`). The secret is deleted from the live
+  database when the day ends, after which the code cannot be recomputed from an
+  address. **Backups taken during the day keep that secret for as long as the
+  backups are kept**, so a restored backup could link that day's codes to
+  addresses again. Browsers sending Global Privacy Control or Do Not Track get
+  no code at all and are counted as page views only.
+- **Who is not counted:** robots and automated tools, the organisation's own
+  members and Desi-Event staff while signed in.
+- **Deleted on a timer, by the roll-up — not by retention.** The worker's
+  traffic roll-up adds raw rows into daily totals (`TrafficDaily`) and deletes
+  each raw row two days after its day, and each day's secret once the day is
+  over. This is the one deletion on a timer in the repository. It is data
+  minimisation decided in ADR 0013, not a retention decision: the retention
+  sweep still cannot delete anything (§5 and `RETENTION_RUNBOOK.md`), and
+  `traffic_event` was deliberately not made a retention class.
+- **What is kept:** the daily totals, which are counts per event per day and
+  identify nobody. They cascade with their event.
+- **Who sees them:** an organisation's members holding `report:view` see their
+  own events' totals; the Desi-Event team's platform list (`analytics:view_all`)
+  shows counts for every event. Nobody sees a visitor code.
+- **Website visits** through an event's switched link are recorded as a
+  `TrafficEvent` of kind `WEBSITE_REDIRECT`, with no address, browser string or
+  account, and follow the same rules.
+- **Demonstration rows.** The development seed writes fourteen days of totals
+  marked `demonstration` for two events; they are not counted visits, and every
+  screen that sums one says so.
+
+Privacy redaction does not touch these rows: they hold nothing a subject could
+be found by.
+
+## Free-text reasons — 2026-10-06
+
+Full control of posted events (ADR 0014) and the import (ADR 0015) add reason
+boxes: deleting an event, restoring one, cancelling a night, opening a platform
+editing sitting and moving an imported event to another organisation. Each
+reason is **stored as typed** — on the event's deletion columns, its history
+(`EventModerationAction`), the sitting (`EventPlatformEdit`), the change notice
+shown to ticket holders (`EventChangeNotice`), the import record, and in audit
+metadata — and **the privacy process does not redact it**: redaction replaces
+known personal fields by their placeholders, and it cannot know what somebody
+typed into free text.
+
+So the forms say, under every one of those boxes: "Shown with the event's
+history. Do not include anybody's personal details." The limitations page says
+the same in `deleted-events-kept`. A reason that does name somebody can be
+found only by reading it; there is no tool here that searches or rewrites
+reasons, and an audit row cannot be changed at all (`desi_audit_log_immutable`).
+
+The same holds for the administrator's note on an organiser invitation (never
+public, shown to the recipient with the code) and the reason recorded with a
+website-link decision (shown to the organiser).
+
+## Deleted events and their personal data — 2026-10-06
+
+Deleting an event is not erasure. A deleted event keeps its record, orders,
+tickets, refunds, history and pictures so the Desi-Event team can restore it
+and so money stays accounted for; nothing on the site erases one. Removing a
+person's data from it goes through the privacy process as for any event:
+redaction writes `Event` and order columns other than `status`, which no
+deletion trigger blocks. A deleted event's pictures stop being served at once,
+though a copy already in somebody's browser cache can stay there for up to a
+day.
+
+## Imported events — 2026-10-06
+
+The Sulekha dataset (ADR 0015) was collected and committed credential-free:
+its validator refuses email addresses and phone numbers anywhere in it, and no
+phone number or email address was kept from the listings. It names organisers
+as their listings did ("Presented by"), which is public business information,
+not an account. Nobody belongs to the organisation that holds imported events.

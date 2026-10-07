@@ -139,10 +139,17 @@ const RECORDED_LIMITATIONS = Object.freeze([
   ['Ticket passes on real phones', 'EXTERNAL DEVICE VERIFICATION PENDING'],
   ['Door scanning in Safari and Firefox', 'EXTERNAL DEVICE VERIFICATION PENDING'],
   ['Virus scanning of uploaded pictures', 'NOT IMPLEMENTED'],
-  ['Adding pictures to a published event', 'NOT IMPLEMENTED'],
-  ['Email', 'NOT IMPLEMENTED'],
+  ['Asking to become an organiser', 'NOT IMPLEMENTED'],
+  ['Reviewing changes to a published event', 'NOT IMPLEMENTED'],
+  ['Refunding part of an every-night ticket', 'NOT IMPLEMENTED'],
+  ['Refunding a large cancelled event in the background', 'NOT IMPLEMENTED'],
+  ['Erasing a deleted event', 'NOT IMPLEMENTED'],
+  ['Keeping imported events up to date', 'NOT IMPLEMENTED'],
+  ['Checking the organiser’s website itself', 'NOT IMPLEMENTED'],
+  ['Email', 'EXTERNAL VERIFICATION PENDING'],
   ['Text messages', 'NOT IMPLEMENTED'],
-  ['Automatic deletion after a set time', 'DISABLED'],
+  ['Automatic deletion of personal records after a set time', 'DISABLED'],
+  ['Counting the same visitor across days, and exact visitor numbers', 'NOT IMPLEMENTED'],
 ])
 
 /** Where the offer in the transfers case is addressed. Fictional, on a `.test` domain. */

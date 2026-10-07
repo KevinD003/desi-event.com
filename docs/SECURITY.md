@@ -495,14 +495,17 @@ whoever issued it, **once** (ADR 0008):
   must turn screenshots, traces and video off (`e2e-code-hygiene.test.js`).
 
 Naming `DELIVERY_MODE=EMAIL` with no provider **refuses to boot**, rather than
-minting codes nobody can receive.
+minting codes nobody can receive. (Updated 2026-10-06, ADR 0011: `EMAIL` with an
+SMTP server now sends the code instead of returning it, and an organiser
+invitation is a third code of the same kind; see "SMTP" below.)
 
 The recipient must be signed in at the invited address, and every code is
 single-use, expires (14 days for a team invitation, 72 hours for a ticket
 offer) and can be withdrawn.
 
-**The stated limit.** This build sends no email, so registering an address is
-not proof of owning it. Somebody who obtains a code and registers the invited
+**The stated limit.** No address is ever confirmed by email (and in `MANUAL`
+mode nothing is emailed at all), so registering an address is not proof of
+owning it. Somebody who obtains a code and registers the invited
 address before its owner does can use it. The issuer is told to pass the code
 on privately; every acceptance is audited; an owner can remove a member who
 should not be there. A deployment with a delivery provider (`EMAIL`) removes
@@ -768,3 +771,184 @@ It is recorded here rather than fixed because payment mode is a protected area
 under this phase's authorisation. The repair would be to re-apply the gate to
 the override rather than replace the result with it, correct or delete the
 comment, and add the missing invariant to `payment-kill-switch.test.js`.
+
+---
+
+## Invite-only organisers, the website link and visit counting — 2026-10-06
+
+Recorded from SPEC2 §9. The decisions are ADRs 0010–0013.
+
+### Organiser invitations
+
+- The code exists only in the `MANUAL` 201 body, in the administrator's page
+  state until "handed over", in the recipient's password field, or in the SMTP
+  message. It is never in a URL, a log, an audit row or an outbox row. Only its
+  digest is stored.
+- **Email ownership is not verified.** Whoever registers the invited address
+  first and obtains the code can accept it. Mitigations: the code is
+  single-use, bound to the address, expires after fourteen days, can be
+  withdrawn, and every acceptance is audited with its inviter; the issuing
+  screen tells the administrator to hand it over privately.
+- Staff accounts cannot be invited or accept (422 / 403 `STAFF_ACCOUNT`).
+- `organizer:invite`, `website_redirect:manage` and `analytics:view_all` are
+  forbidden literals in browser bundles, like `platform:admin`; client
+  components receive booleans (`browser-bundle.js`, `scan-browser-bundle.mjs`).
+
+### Alias accounts
+
+An ADMIN can invite a second address of their own, run an organisation from it,
+and approve its events from the first account; reviewer independence cannot see
+through this. Every acceptance is audited with its inviter, so a super
+administrator can list the organisations created from each administrator's
+invitations (the invitations list, status ACCEPTED, and the audit log).
+
+### The review gate
+
+`desi_event_status_requires_review` refuses any move into a public status that
+did not come through APPROVED (or a platform restore). Approval names the
+revision reviewed. A reviewer who belongs to the organisation is refused
+`CONFLICT_OF_INTEREST`, the submitter `SELF_REVIEW`. Three source scans in
+`apps/api/tests/security-regression.test.js` pin every path to "public" in
+`apps/*/src`.
+
+### SMTP
+
+- TLS is required in production (`SMTP_SECURE` or `SMTP_REQUIRE_TLS`, refused at
+  boot otherwise); certificate checks stay on.
+- Credentials are redacted by the logger (`SMTP_PASSWORD`, `smtpPassword`,
+  nodemailer's `auth.pass`), and nodemailer's own logger and debug output are
+  off, because an SMTP transcript contains the message.
+- A failed send withdraws what it issued (503 `DELIVERY_FAILED`).
+- At most three codes a day reach one address, and a sender may email at most
+  five ticket transfers an hour.
+- Sender-written text is quoted and marked as the sender's.
+
+### Visit counting and the traffic trust chain
+
+- The API believes `x-desi-client-address` only from
+  `TRAFFIC_TRUSTED_FORWARDERS` (loopback by default). **The API port must not be
+  publicly reachable** where loopback is trusted, or anybody could send the
+  header.
+- With `TRAFFIC_TRUSTED_PROXY_HOPS=0` behind a proxy, every visitor looks like
+  the proxy, and a visitor talking to the web server directly can choose the
+  address the code is made from. Dedupe and the per-visitor, per-event and
+  per-process caps bound the effect, and the copy says the figures are a guide.
+  The web server logs a warning in production when the hops are 0.
+- No address, browser string or account is stored; the day's secret is deleted
+  when the day ends. Only `lib/traffic.js` and `@desi-event/db/traffic-rollup`
+  read or write raw visit rows (a source scan).
+
+### Outbound links and the website redirect
+
+- No open redirect: the destination is only ever the decided address of a
+  publicly visible event, re-validated when decided, when read and before the 302.
+- The same 404 for every refusal; 302 with `no-store, private`; prefetch and
+  prerender answered 503 without a lookup; `HEAD` 405.
+- Only `lib/website-redirect.js` writes the switch (a source scan). An INSERT
+  could create an ON row; only seeds do, and the importer goes through
+  `decideWebsiteRedirect`.
+- Every decision is audited with the administrator, the reason and the address
+  seen, under a MODERATION step-up.
+
+---
+
+## Full control of posted events and the Sulekha import — 2026-10-06
+
+Recorded from SPEC2-XI §10. The decisions are ADRs 0014 and 0015.
+
+### Money
+
+- Every refund that deletion, night cancellation or event cancellation causes
+  goes through `requestRefund`'s reservation, under the order CHECK and
+  `desi_refund_within_order_total`. A retry reserves again.
+- A disputed payment is never refunded here (409 `PAYMENT_DISPUTED`; left to
+  finance).
+- Provider calls happen outside transactions.
+- A whole-remainder refund returns exactly what is left of each part (face
+  value, fee, tax).
+- No caller chooses an amount, an order or a recipient: an administrator's
+  deletion refunds are whole-order.
+- **A late payment is never lost.** A success on a closed order opens a
+  reconciliation task (`payment.succeeded_after_close`).
+
+### Platform editing
+
+- A reason, an MFA step-up, a sitting of at most 60 minutes bound to one browser
+  session, and a fresh second factor every ten minutes of writes.
+- The re-check reads the sitting `FOR SHARE` inside every write, and every write
+  is audited with the sitting and the reason.
+- Membership is read first: `ALL_CAPABILITIES` never silently edits another
+  organisation's event.
+- **Stated limit:** a non-member SUPER_ADMIN keeps the lifecycle moves
+  (publish, sales, postpone, cancel, reschedule) without a sitting. Each is
+  audited and shown as "by the Desi-Event team".
+- `event:platform_edit`, `event:platform_delete` and `event:import` are
+  forbidden literals in browser bundles.
+
+### Deletion
+
+- The typed web address is checked on the server; the outcome is pinned by the
+  request; the revision is compared; an EVENT_CANCEL step-up is required.
+- Refused while a payment is in flight, including a success not yet applied.
+- The lock order is Event, tiers, sessions, so deletion cannot deadlock with
+  checkout or authoring.
+- Tickets are withdrawn in the same transaction, and the door refuses DELETED
+  events and CANCELLED nights.
+- Restore is platform-only, lands on-sale events paused, and is guarded by one
+  SQL function (`desi_event_restore_target`) used by two triggers.
+
+### Pictures
+
+An unreviewed image is never public, and the uploader never approves their own
+(403 `SELF_REVIEW`). The one exception is imported pictures, approved together
+with their event by the administrator who reviewed the run.
+
+### Import SSRF
+
+- One code-level host allow-list (`usimg.sulekha.io`); https on 443 only.
+- Every resolved address must be public (IPv6: global unicast only, minus the
+  tunnelling and documentation ranges), and the connection is pinned to the
+  validated address; the pinned lookup answers Node 22's `all: true` form too.
+- Its own `https.Agent`, never the global one, so no proxy setting reroutes it;
+  certificate checks stay on. The importing machine needs direct HTTPS egress
+  to the one host.
+- Every redirect hop is validated and pinned afresh; at most two; none leaves
+  the list; a 10 second timeout; a 10 MiB cap; identity encoding only; a type
+  check, then the upload sanitiser.
+- Only `lib/import-images.js` may make outbound requests from `apps/api/src`
+  (a source scan).
+- The fixtures source (`IMPORT_IMAGE_SOURCE=fixtures`) is refused in production,
+  and its file name cannot leave its directory.
+- `sourceUrl` and `ticketUrl` in an uploaded file must be on
+  `events.sulekha.com`, checked at run time.
+
+### Review independence for imports
+
+- The exemption covers only imported events and pictures of an organisation
+  with `platformHeldSource`. That organisation can have no members (a trigger)
+  and no team invitations.
+- Approval still needs `moderation:review`, an EVENT_PUBLISH step-up and the
+  revision the administrator saw; every stored picture bumps the revision, so a
+  picture the administrator did not see cannot ride along.
+- The approve route accepts only imported events of that run in a platform-held
+  organisation, so it can never publish an organiser's own event.
+- A platform-held event cannot get ticket types or open sales
+  (`SOLD_ON_SOURCE`), so no money is taken for an organisation with no payout
+  account.
+- Who imported and who approved are both stored and audited. Reassignment ends
+  the exemption.
+
+### Imported data
+
+- Stored credential-free: the dataset validator refuses email and phone
+  patterns.
+- Public pages never carry Sulekha picture addresses.
+- The outbound Sulekha link goes only through the website switch and its
+  tracked redirect.
+
+### Free text
+
+Reasons typed when deleting, restoring, cancelling a night, opening a platform
+editing sitting or reassigning are stored as typed and are not redacted by the
+privacy process. Every such form says: "Shown with the event's history. Do not
+include anybody's personal details."

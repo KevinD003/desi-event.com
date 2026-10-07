@@ -18,6 +18,19 @@
  * guarantees the counters we write are derived from the orders we write rather
  * than hand-maintained alongside them.
  *
+ * Three things are left exactly as a re-seed finds them, because rewriting them
+ * would be wrong rather than merely redundant:
+ *
+ *   - **A deleted event** (`status = 'DELETED'`), seeded or deleted by a
+ *     developer since, is left untouched with everything under it (SPEC2-XI
+ *     O17). Its row cannot be moved anywhere but back to its restore target
+ *     (`desi_event_deletion_moves`), and only the platform restores.
+ *   - **The waiting organiser invitation** and **the waiting picture** are
+ *     created once. A re-seed does not reissue the invitation's code or put a
+ *     picture somebody has since approved or rejected back in the queue.
+ *   - **Visit totals the roll-up has written** (`demonstration = false`) are
+ *     never overwritten with demonstration figures.
+ *
  * Usage:
  *   DATABASE_URL=postgresql://… node scripts/seed.mjs
  *
@@ -27,11 +40,13 @@
 import { createHash } from 'node:crypto'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import path from 'node:path'
+import { crc32, deflateSync } from 'node:zlib'
 
 import { config as loadDotenv } from 'dotenv'
-import { hashPasswordSync } from '@desi-event/auth'
+import { hashPasswordSync, issueToken } from '@desi-event/auth'
 
 import { createPrismaClient } from '../src/index.js'
+import { ROLLUP_STATE_ID } from '../src/traffic-rollup.js'
 
 /**
  * A deterministic guest-ownership digest for a seeded hold.
@@ -310,6 +325,131 @@ export function computeSeedOrderTotals({ lines, promo = null, taxBps }) {
   const totalCents = discountedCents + feesCents + taxCents
 
   return { quantity, subtotalCents, discountCents, feesCents, taxCents, totalCents }
+}
+
+/**
+ * One PNG chunk: its length, type, data and the checksum over type and data.
+ *
+ * @param {string} type The four-letter chunk type.
+ * @param {Buffer} data The chunk's data.
+ * @returns {Buffer} The chunk.
+ */
+function pngChunk(type, data) {
+  const length = Buffer.alloc(4)
+  const typed = Buffer.concat([Buffer.from(type, 'latin1'), data])
+  const checksum = Buffer.alloc(4)
+
+  length.writeUInt32BE(data.length)
+  checksum.writeUInt32BE(crc32(typed) >>> 0)
+
+  return Buffer.concat([length, typed, checksum])
+}
+
+/**
+ * A PNG of one colour: eight-bit RGB, no interlacing, and nothing but its
+ * header, its pixels and its end — no text, time or location chunk.
+ *
+ * The seeded picture is written straight into the store, as the upload
+ * pipeline would leave it after rebuilding a picture from its pixels. Building
+ * it here, byte by byte, keeps a binary file out of the repository and makes
+ * what it holds plain from its description.
+ *
+ * @param {number} width Pixels across.
+ * @param {number} height Pixels down.
+ * @param {Array<number>} rgb The colour, as red, green and blue from 0 to 255.
+ * @returns {Buffer} The file.
+ */
+export function solidSeedPng(width, height, rgb) {
+  const header = Buffer.alloc(13)
+
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header[8] = 8 // bit depth
+  header[9] = 2 // colour type: RGB
+  header[10] = 0 // compression
+  header[11] = 0 // filter
+  header[12] = 0 // no interlace
+
+  // Each row is a filter byte (0, none) and then its pixels.
+  const row = Buffer.alloc(1 + width * 3)
+
+  for (let x = 0; x < width; x += 1) row.set(rgb, 1 + x * 3)
+
+  const pixels = Buffer.concat(Array.from({ length: height }, () => row))
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(pixels)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+/**
+ * A stable storage key in the shape the media store issues (`pg/` and a
+ * UUID), derived from a readable seed key so every run names the same bytes.
+ *
+ * @param {string} key Stable human-readable key.
+ * @returns {string} `pg/xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx`.
+ */
+export function seedStorageKey(key) {
+  const hex = createHash('sha256').update(key).digest('hex')
+
+  return `pg/${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+/**
+ * The visit totals one demonstration day shows for one event.
+ *
+ * Arithmetic only, so the figures are the same on every run for the same day
+ * and event, and they keep every rule the database checks on `TrafficDaily`:
+ * page views split exactly into their five sources, card clicks into their
+ * three places, visitors and views without a code within the views, and the
+ * visitor counts within the clicks and visits they were made from. Interest
+ * rises towards the event, with a small swell every few days.
+ *
+ * @param {object} options Options.
+ * @param {number} options.index How many days into the fortnight, 0 to 13.
+ * @param {number} options.eventIndex Which of the demonstration events, from 0.
+ * @param {boolean} options.seated Whether the event sells seats from a plan.
+ * @param {boolean} options.websiteOn Whether its website link is switched on.
+ * @returns {object} The count columns of one `TrafficDaily` row.
+ */
+export function demonstrationTrafficDay({ index, eventIndex, seated, websiteOn }) {
+  const views = 40 + eventIndex * 25 + index * 6 + ((index * 7 + eventIndex * 3) % 11)
+  const anonymousViews = Math.floor(views / 12)
+  const visitors = Math.floor(((views - anonymousViews) * 62) / 100)
+  const viewsInternal = Math.floor((views * 40) / 100)
+  const viewsSearch = Math.floor((views * 20) / 100)
+  const viewsSocial = Math.floor((views * 15) / 100)
+  const viewsOther = Math.floor((views * 5) / 100)
+  const viewsDirect = views - viewsInternal - viewsSearch - viewsSocial - viewsOther
+  const cardClicksHome = Math.floor((views * 12) / 100)
+  const cardClicksListing = Math.floor((views * 20) / 100)
+  const cardClicksSearch = Math.floor((views * 8) / 100)
+  const ticketClicks = Math.floor((visitors * 30) / 100)
+  const seatClicks = seated ? Math.floor((visitors * 10) / 100) : 0
+  const websiteRedirects = websiteOn ? Math.max(1, Math.floor((visitors * 5) / 100)) : 0
+
+  return {
+    views,
+    visitors,
+    anonymousViews,
+    viewsDirect,
+    viewsInternal,
+    viewsSearch,
+    viewsSocial,
+    viewsOther,
+    cardClicks: cardClicksHome + cardClicksListing + cardClicksSearch,
+    cardClicksHome,
+    cardClicksListing,
+    cardClicksSearch,
+    ticketClicks,
+    seatClicks,
+    ticketClickVisitors: Math.floor(((ticketClicks + seatClicks) * 80) / 100),
+    websiteRedirects,
+    websiteRedirectVisitors: websiteOn ? Math.max(1, Math.floor((websiteRedirects * 90) / 100)) : 0,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2132,6 +2272,60 @@ const EVENTS = [
       },
     ],
   },
+  // Deleted from on sale by the platform administrator, with nothing sold, so
+  // the outcome was REMOVED (SPEC2-XI §4.9): the deleted-events list, the
+  // organiser's "Deleted" row and a restore have something to show. It is
+  // kept rather than erased, and its web address stays retired because it was
+  // public. A re-seed leaves the row exactly as it finds it (O17).
+  {
+    key: 'deleted-showcase',
+    id: seedId('seed-event-mirrorwork-sharad-purnima-showcase'),
+    slug: 'mirrorwork-sharad-purnima-showcase',
+    orgKey: 'mirrorwork',
+    venueKey: 'lamplight',
+    title: 'Sharad Purnima Garba Showcase',
+    summary:
+      'A full-moon showcase of garba circles from three New Jersey dance schools, at Lamplight Expo Hall.',
+    description: [
+      'Three New Jersey dance schools bring their best circles to the Lamplight Expo Hall floor for one full-moon evening, with an open circle for everyone after the last showcase.',
+      'Listed by Mirrorwork Events and taken down by the Desi-Event team before anybody bought a ticket.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'DELETED',
+    deletion: {
+      statusBefore: 'ON_SALE',
+      outcome: 'REMOVED',
+      authority: 'PLATFORM',
+      byKey: 'platformAdmin',
+      days: -2,
+      hour: 16,
+      reason:
+        'Listed twice by mistake: the same showcase is already on the site as the Navratri Night One programme.',
+    },
+    days: 25,
+    localStart: [19, 30],
+    durationHours: 4,
+    timezone: EASTERN,
+    languages: ['Gujarati', 'English'],
+    isOnline: false,
+    publishedDays: -6,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'showcase-general',
+        name: 'General Admission',
+        description: 'Entry for the showcase and the open circle after it.',
+        priceCents: 2500,
+        quantityTotal: 400,
+        minPerOrder: 1,
+        maxPerOrder: 6,
+        salesStartDays: -6,
+        salesEndDays: 25,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+    ],
+  },
 ]
 
 /**
@@ -2479,9 +2673,109 @@ const WAITLIST = [
   { eventKey: 'garba-for-good', userKey: null, email: 'nikhil.joshi@mail.example', quantity: 3 },
 ]
 
+/** How long an organiser invitation's code works, as the API issues it. */
+const ORGANIZER_INVITATION_LIFETIME_MS = 14 * DAY_MS
+
+/**
+ * One organiser invitation waiting to be accepted, issued by the platform
+ * administrator (SPEC2 §8 Stage C), so the invitations list has a row to
+ * reissue, withdraw or watch expire.
+ *
+ * Its code is made at seed time and thrown away at once: only the digest is
+ * stored, as for every code, and nobody ever sees the code. To use the
+ * invitation, sign in as `platform-admin@desi-event.example` and choose
+ * "Issue a new code" on it at `/admin/organizer-invitations`. That gives a
+ * usable code, shown once, and withdraws this one.
+ */
+const ORGANIZER_INVITATIONS = [
+  {
+    key: 'kathiawar',
+    email: 'new-organiser@desi-event.example',
+    organizationName: 'Kathiawar Folk Nights',
+    organizationDescription:
+      'Dayro evenings, Kathiawadi folk songs and garba to live dhol, in central New Jersey.',
+    organizationWebsiteUrl: 'https://kathiawar-folk-nights.example/',
+    note: 'As agreed on the phone: this code lets you set up Kathiawar Folk Nights on Desi-Event.',
+    invitedByKey: 'platformAdmin',
+    issuedDays: -1,
+    issuedHour: 15,
+  },
+]
+
+/**
+ * One picture waiting for review on a live event of the first demonstration
+ * organisation, uploaded by its owner (SPEC2-XI §4.9): the picture queue at
+ * `/moderation/pictures` has something in it, and the owner's Media step
+ * shows a picture waiting. The owner cannot approve it themselves; the
+ * moderator or a platform administrator can.
+ */
+const WAITING_PICTURES = [
+  {
+    key: 'beginner-workshop-circle',
+    eventKey: 'beginner-workshop',
+    uploadedByKey: 'nisha',
+    kind: 'EVENT_GALLERY',
+    position: 0,
+    altText: 'A plain saffron card, standing in for a photograph of the practice circle.',
+    width: 1200,
+    height: 800,
+    rgb: [214, 120, 43],
+    uploadedDays: -1,
+    uploadedHour: 11,
+  },
+]
+
+/**
+ * Events given fourteen days of demonstration visit totals (SPEC2 §8 Stage C),
+ * so the analytics screens have figures to draw before anybody has visited.
+ * Every row is marked `demonstration`, and the screens say so.
+ */
+const TRAFFIC_DEMONSTRATION_EVENT_KEYS = Object.freeze(['night-one', 'live-band'])
+
+/** How many whole UTC days of demonstration totals, ending yesterday. */
+const TRAFFIC_DEMONSTRATION_DAYS = 14
+
 // ---------------------------------------------------------------------------
 // Dataset assembly
 // ---------------------------------------------------------------------------
+
+/**
+ * The deletion columns of a seeded deleted event, with the person who deleted
+ * it named by email, as `deleteEvent` (`apps/api/src/lib/event-deletion.js`)
+ * would have written them.
+ *
+ * @param {object} event The event, from `EVENTS`.
+ * @param {Map<string, object>} userByKey Seeded users by key.
+ * @param {Date} anchor The day the seed is anchored to.
+ * @returns {object} The deletion record.
+ * @throws {Error} If the record names an unknown user, or one the database
+ *   would refuse.
+ */
+function resolveDeletion(event, userByKey, anchor) {
+  const { deletion } = event
+  const deletedBy = userByKey.get(deletion.byKey)
+
+  if (!deletedBy) throw new Error(`Unknown user key "${deletion.byKey}" deleting "${event.key}"`)
+  if (event.status !== 'DELETED') {
+    throw new Error(`Event "${event.key}" has a deletion record but is ${event.status}`)
+  }
+  // `event_deletion_consistency`: only a cancelled event can have been
+  // deleted with its refunds.
+  if (deletion.outcome === 'CANCELLED_AND_REFUNDED' && deletion.statusBefore !== 'CANCELLED') {
+    throw new Error(
+      `Event "${event.key}" cannot be CANCELLED_AND_REFUNDED from ${deletion.statusBefore}`,
+    )
+  }
+
+  return {
+    statusBeforeDeletion: deletion.statusBefore,
+    deletionOutcome: deletion.outcome,
+    deletionAuthority: deletion.authority,
+    deletionReason: deletion.reason,
+    deletedByEmail: deletedBy.email,
+    deletedAt: offset(anchor, deletion.days, deletion.hour),
+  }
+}
 
 /**
  * @typedef {object} SeedData
@@ -2495,6 +2789,11 @@ const WAITLIST = [
  * @property {object[]} orders Orders with totals, items, tickets, payments, holds.
  * @property {object[]} waitlist Waitlist entries.
  * @property {object[]} auditLogs Audit trail rows for the organiser actions above.
+ * @property {object[]} moderationActions Status moves recorded against events (the deletion).
+ * @property {object[]} organizerInvitations Organiser invitations waiting to be accepted.
+ * @property {object[]} pictures Pictures waiting for review, with their bytes.
+ * @property {object[]} trafficDaily Demonstration visit totals, one row per event and UTC day.
+ * @property {{lastCompletedAt: Date}} trafficRollup When the visit totals were last brought up to date.
  */
 
 /**
@@ -2642,6 +2941,10 @@ export function buildSeedData(now = new Date()) {
             submittedAt: event.website.on ? null : offset(anchor, -3, 12),
           }
         : null,
+      // The deletion record, as `deleteEvent` writes it, for a deleted event;
+      // null for every other. The columns go in with the row on a first seed
+      // and are never rewritten (O17).
+      deletion: event.deletion ? resolveDeletion(event, userByKey, anchor) : null,
     }
   })
   const eventByKey = new Map(events.map((event) => [event.key, event]))
@@ -3039,6 +3342,105 @@ export function buildSeedData(now = new Date()) {
     }
   })
 
+  // The deletion's entry in the event's history, as `deleteEvent` writes it.
+  const moderationActions = events
+    .filter((event) => event.deletion)
+    .map((event) => ({
+      id: seedId(`seed-moderation-${event.key}-deleted`),
+      eventId: event.id,
+      actorEmail: event.deletion.deletedByEmail,
+      fromStatus: event.deletion.statusBeforeDeletion,
+      toStatus: 'DELETED',
+      reason: event.deletion.deletionReason,
+      createdAt: event.deletion.deletedAt,
+    }))
+
+  const organizerInvitations = ORGANIZER_INVITATIONS.map((invitation) => {
+    const invitedBy = userByKey.get(invitation.invitedByKey)
+    if (!invitedBy) {
+      throw new Error(`Unknown user key "${invitation.invitedByKey}" inviting "${invitation.key}"`)
+    }
+    const createdAt = offset(anchor, invitation.issuedDays, invitation.issuedHour)
+
+    return {
+      key: invitation.key,
+      id: seedId(`seed-organizer-invitation-${invitation.key}`),
+      email: invitation.email.toLowerCase(),
+      organizationName: invitation.organizationName,
+      organizationDescription: invitation.organizationDescription,
+      organizationWebsiteUrl: invitation.organizationWebsiteUrl,
+      note: invitation.note,
+      invitedByEmail: invitedBy.email,
+      // Handed over by whoever issued it, as a code shown once: this
+      // environment sends no email.
+      deliveryMode: 'MANUAL',
+      createdAt,
+      expiresAt: new Date(createdAt.getTime() + ORGANIZER_INVITATION_LIFETIME_MS),
+    }
+  })
+
+  const pictures = WAITING_PICTURES.map((picture) => {
+    const event = eventByKey.get(picture.eventKey)
+    if (!event)
+      throw new Error(`Unknown event key "${picture.eventKey}" on picture "${picture.key}"`)
+    const uploadedBy = userByKey.get(picture.uploadedByKey)
+    if (!uploadedBy) {
+      throw new Error(`Unknown user key "${picture.uploadedByKey}" uploading "${picture.key}"`)
+    }
+    const bytes = solidSeedPng(picture.width, picture.height, picture.rgb)
+    const uploadedAt = offset(anchor, picture.uploadedDays, picture.uploadedHour)
+
+    return {
+      key: picture.key,
+      id: seedId(`seed-picture-${picture.key}`),
+      eventId: event.id,
+      kind: picture.kind,
+      position: picture.position,
+      altText: picture.altText,
+      storageKey: seedStorageKey(`seed-picture-${picture.key}`),
+      contentType: 'image/png',
+      width: picture.width,
+      height: picture.height,
+      bytes,
+      byteSize: bytes.length,
+      checksum: createHash('sha256').update(bytes).digest('hex'),
+      uploadedByEmail: uploadedBy.email,
+      // Rebuilt and checked as the upload pipeline leaves a picture, and not
+      // yet decided: nobody has looked at it.
+      sanitisedAt: uploadedAt,
+      scanStatus: 'CLEAN',
+      moderationStatus: 'PENDING',
+      createdAt: uploadedAt,
+    }
+  })
+
+  // Fourteen whole UTC days of visit totals, ending yesterday, for two public
+  // events of the first demonstration organisation. Each is marked as a
+  // demonstration, which the analytics screens announce.
+  const trafficDaily = TRAFFIC_DEMONSTRATION_EVENT_KEYS.flatMap((key, eventIndex) => {
+    const event = eventByKey.get(key)
+    if (!event) throw new Error(`Unknown event key "${key}" for demonstration visits`)
+    const source = EVENTS.find((entry) => entry.key === key)
+
+    return Array.from({ length: TRAFFIC_DEMONSTRATION_DAYS }, (_, index) => {
+      const back = TRAFFIC_DEMONSTRATION_DAYS - index
+
+      return {
+        eventId: event.id,
+        day: offset(anchor, -back),
+        ...demonstrationTrafficDay({
+          index,
+          eventIndex,
+          seated: Boolean(source.seatMap),
+          websiteOn: Boolean(event.website?.on),
+        }),
+        demonstration: true,
+        // As the roll-up stamps a day: just after it ended.
+        computedAt: offset(anchor, -back + 1, 0, 5),
+      }
+    })
+  })
+
   const auditLogs = [
     {
       id: seedId('seed-audit-publish-night-one'),
@@ -3078,6 +3480,36 @@ export function buildSeedData(now = new Date()) {
         eventByKey.get('warm-up').startsAt.getTime() + CHECK_IN_AFTER_START_MINUTES * MINUTE_MS,
       ),
     },
+    // What issuing the waiting invitation records: how the code went out, and
+    // nothing that identifies the person or opens the invitation.
+    ...organizerInvitations.map((invitation) => ({
+      id: seedId(`seed-audit-organizer-invitation-${invitation.key}-issued`),
+      actorEmail: invitation.invitedByEmail,
+      action: 'organizer_invitation.issued',
+      entityType: 'OrganizerInvitation',
+      entityId: invitation.id,
+      metadata: { role: 'OWNER', deliveryMode: invitation.deliveryMode },
+      createdAt: invitation.createdAt,
+    })),
+    // The deletion, with its reason and outcome, as `deleteEvent` audits it.
+    ...events
+      .filter((event) => event.deletion)
+      .map((event) => ({
+        id: seedId(`seed-audit-${event.key}-deleted`),
+        actorEmail: event.deletion.deletedByEmail,
+        action: 'event.deleted',
+        entityType: 'Event',
+        entityId: event.id,
+        metadata: {
+          from: event.deletion.statusBeforeDeletion,
+          outcome: 'REMOVE',
+          authority: event.deletion.deletionAuthority,
+          reason: event.deletion.deletionReason,
+          counts: { paidOrders: 0, ordersCancelled: 0, holdsReleased: 0, ticketsWithdrawn: 0 },
+          slugReleased: false,
+        },
+        createdAt: event.deletion.deletedAt,
+      })),
   ]
 
   return {
@@ -3095,6 +3527,13 @@ export function buildSeedData(now = new Date()) {
     orders,
     waitlist,
     auditLogs,
+    moderationActions,
+    organizerInvitations,
+    pictures,
+    trafficDaily,
+    // The roll-up last finished as the seed ran, so the screens read the
+    // demonstration totals as current rather than "never added up".
+    trafficRollup: { lastCompletedAt: now },
   }
 }
 
@@ -3249,13 +3688,26 @@ export function eventStatusPath(current, target) {
  * walk is what keeps it from needing a way round the gate that the API could
  * one day use too.
  *
+ * A deleted row is skipped (SPEC2-XI O17): `desi_event_deletion_moves` lets
+ * it leave DELETED only for its restore target, and only the platform
+ * restores. Deleting is not a status walk either; the writer records a
+ * deletion with its columns (see {@link eventWritePlan}).
+ *
  * @param {object} prisma A Prisma client.
  * @param {string} eventId The event.
  * @param {string} target The status the seed wants.
  * @returns {Promise<string[]>} The statuses written, in order.
+ * @throws {Error} If asked to walk an event into DELETED.
  */
 export async function settleEventStatus(prisma, eventId, target) {
+  if (target === 'DELETED') {
+    throw new Error('A deletion is written with its record, not walked to.')
+  }
+
   const row = await prisma.event.findUnique({ where: { id: eventId }, select: { status: true } })
+
+  if (row.status === 'DELETED') return []
+
   const path = eventStatusPath(row.status, target)
 
   for (const status of path) {
@@ -3263,6 +3715,52 @@ export async function settleEventStatus(prisma, eventId, target) {
   }
 
   return path
+}
+
+/**
+ * What the writer does with one seeded event, given the row the database
+ * already holds under its slug, if any.
+ *
+ * - No row: create it, in its status, with its deletion record if it has one.
+ * - A deleted row: leave it, and everything under it, exactly as it is
+ *   (SPEC2-XI O17) — whether the seed deleted it or a developer did since.
+ * - Any other row: update its content; then delete it again when the dataset
+ *   says it is deleted (recording the status it really had), or walk it to
+ *   the dataset's status.
+ *
+ * @param {{id: string, status: string}|null} existing The row under the slug.
+ * @param {{status: string}} event The event, from {@link buildSeedData}.
+ * @returns {{write: 'create'|'update'|'none', deleteFrom: string|null}} The plan.
+ */
+export function eventWritePlan(existing, event) {
+  if (!existing) return { write: 'create', deleteFrom: null }
+  if (existing.status === 'DELETED') return { write: 'none', deleteFrom: null }
+
+  return { write: 'update', deleteFrom: event.status === 'DELETED' ? existing.status : null }
+}
+
+/**
+ * The `Event` columns of a deletion record, or none for an event that is not
+ * deleted. Set together, as `event_deletion_consistency` requires.
+ *
+ * @param {object|null} deletion The event's `deletion`, from {@link buildSeedData}.
+ * @param {Map<string, string>} userIdByEmail Seeded user ids by email.
+ * @returns {object} The columns.
+ */
+export function deletionColumns(deletion, userIdByEmail) {
+  if (!deletion) return {}
+
+  return {
+    status: 'DELETED',
+    deletedAt: deletion.deletedAt,
+    deletedById: userIdByEmail.get(deletion.deletedByEmail) ?? null,
+    deletionReason: deletion.deletionReason,
+    deletionOutcome: deletion.deletionOutcome,
+    deletionAuthority: deletion.deletionAuthority,
+    statusBeforeDeletion: deletion.statusBeforeDeletion,
+    // It was public, so its web address stays retired with it.
+    deletedSlug: null,
+  }
 }
 
 /**
@@ -3334,6 +3832,15 @@ export async function writeSeedData(prisma, data) {
    * @returns {string|null|undefined} The real id, or the input when unmapped.
    */
   const real = (id) => (id == null ? id : (realId.get(id) ?? id))
+
+  /**
+   * Computed ids of events found deleted, which this run leaves untouched
+   * together with their sessions, ticket types, seats, promo codes, orders,
+   * waiting list, pictures and visit totals (SPEC2-XI O17).
+   *
+   * @type {Set<string>}
+   */
+  const untouched = new Set()
 
   for (const user of data.users) {
     const fields = {
@@ -3476,22 +3983,52 @@ export async function writeSeedData(prisma, data) {
     // separately on a re-seed, because the review gate refuses a jump from a
     // status a developer left the row in straight to a public one.
     const { status, ...unchanging } = fields
-    const eventRow = await prisma.event.upsert({
+    const existing = await prisma.event.findUnique({
       where: { slug: event.slug },
-      update: unchanging,
-      create: { id: event.id, slug: event.slug, ...fields },
       select: { id: true, status: true },
     })
+    const plan = eventWritePlan(existing, event)
 
-    if (eventRow.status !== status) await settleEventStatus(prisma, eventRow.id, status)
+    if (plan.write === 'create') {
+      await prisma.event.create({
+        data: {
+          id: event.id,
+          slug: event.slug,
+          ...fields,
+          ...deletionColumns(event.deletion, userIdByEmail),
+        },
+      })
+    } else if (plan.write === 'update') {
+      await prisma.event.update({ where: { id: existing.id }, data: unchanging })
+
+      if (plan.deleteFrom) {
+        // Back to deleted, recording the status it really had, as the
+        // deletion route would (`desi_event_deletion_moves`).
+        await prisma.event.update({
+          where: { id: existing.id },
+          data: {
+            ...deletionColumns(event.deletion, userIdByEmail),
+            statusBeforeDeletion: plan.deleteFrom,
+          },
+        })
+      } else if (existing.status !== status) {
+        await settleEventStatus(prisma, existing.id, status)
+      }
+    } else {
+      // O17: a deleted row is left exactly as it is, and so is everything the
+      // seed would otherwise write under it.
+      untouched.add(event.id)
+    }
 
     // Same reasoning as organizations: the slug matched an existing row, whose
     // id is authoritative regardless of what this run computed.
-    realId.set(event.id, eventRow.id)
+    realId.set(event.id, existing?.id ?? event.id)
   }
 
   // Sessions after their events and seat plans, before the tiers that name them.
   for (const session of data.eventSessions) {
+    if (untouched.has(session.eventId)) continue
+
     const fields = {
       eventId: real(session.eventId),
       label: session.label,
@@ -3512,6 +4049,18 @@ export async function writeSeedData(prisma, data) {
 
   // Promo codes are written before orders because orders reference them.
   for (const promo of data.promoCodes) {
+    if (promo.eventId && untouched.has(promo.eventId)) {
+      const kept = await prisma.promoCode.findUnique({
+        where: {
+          organizationId_code: { organizationId: real(promo.organizationId), code: promo.code },
+        },
+        select: { id: true },
+      })
+
+      if (kept) realId.set(promo.id, kept.id)
+      continue
+    }
+
     const fields = {
       eventId: real(promo.eventId),
       type: promo.type,
@@ -3541,6 +4090,8 @@ export async function writeSeedData(prisma, data) {
   }
 
   for (const ticketType of data.ticketTypes) {
+    if (untouched.has(ticketType.eventId)) continue
+
     const fields = {
       eventId: real(ticketType.eventId),
       name: ticketType.name,
@@ -3574,7 +4125,11 @@ export async function writeSeedData(prisma, data) {
   // Seats on sale for each seated session. A seat that is already there is left
   // exactly as it is: a re-run must not put a seat somebody has bought back on
   // sale.
+  const sessionEvent = new Map(data.eventSessions.map((session) => [session.id, session.eventId]))
+
   for (const seat of data.eventSeats) {
+    if (untouched.has(sessionEvent.get(seat.eventSessionId))) continue
+
     await prisma.eventSeat.upsert({
       where: {
         eventSessionId_seatId: { eventSessionId: seat.eventSessionId, seatId: seat.seatId },
@@ -3596,6 +4151,8 @@ export async function writeSeedData(prisma, data) {
   let holdCount = 0
 
   for (const order of data.orders) {
+    if (untouched.has(order.eventId)) continue
+
     const fields = {
       eventId: real(order.eventId),
       userId: order.userEmail ? userIdByEmail.get(order.userEmail) : null,
@@ -3695,6 +4252,8 @@ export async function writeSeedData(prisma, data) {
   }
 
   for (const entry of data.waitlist) {
+    if (untouched.has(entry.eventId)) continue
+
     const fields = {
       userId: entry.userEmail ? userIdByEmail.get(entry.userEmail) : null,
       quantity: entry.quantity,
@@ -3706,6 +4265,176 @@ export async function writeSeedData(prisma, data) {
       create: { eventId: real(entry.eventId), email: entry.email, ...fields },
     })
   }
+
+  // History rows are written once and never rewritten: a status move recorded
+  // against an event is a fact about the past.
+  for (const action of data.moderationActions) {
+    const present = await prisma.eventModerationAction.findUnique({
+      where: { id: action.id },
+      select: { id: true },
+    })
+
+    if (present) continue
+
+    await prisma.eventModerationAction.create({
+      data: {
+        id: action.id,
+        eventId: real(action.eventId),
+        actorId: userIdByEmail.get(action.actorEmail) ?? null,
+        fromStatus: action.fromStatus,
+        toStatus: action.toStatus,
+        reason: action.reason,
+        createdAt: action.createdAt,
+      },
+    })
+  }
+
+  // The waiting organiser invitation is created once. Its code is made here
+  // and thrown away at once: only the digest is stored, and nobody ever sees
+  // the code. Reissuing the invitation from /admin/organizer-invitations gives
+  // a usable one. A re-seed leaves the row as it finds it — reissued,
+  // withdrawn, accepted or expired — and creates none while another invitation
+  // to the same address is waiting (the one-waiting-per-address index).
+  let organizerInvitationCount = 0
+
+  for (const invitation of data.organizerInvitations) {
+    const present = await prisma.organizerInvitation.findUnique({
+      where: { id: invitation.id },
+      select: { id: true },
+    })
+    const waiting = present
+      ? null
+      : await prisma.organizerInvitation.findFirst({
+          where: { email: invitation.email, status: 'PENDING' },
+          select: { id: true },
+        })
+
+    if (present || waiting) continue
+
+    const { hash } = issueToken()
+
+    await prisma.organizerInvitation.create({
+      data: {
+        id: invitation.id,
+        email: invitation.email,
+        organizationName: invitation.organizationName,
+        organizationDescription: invitation.organizationDescription,
+        organizationWebsiteUrl: invitation.organizationWebsiteUrl,
+        note: invitation.note,
+        tokenHash: hash,
+        invitedById: userIdByEmail.get(invitation.invitedByEmail),
+        deliveryMode: invitation.deliveryMode,
+        createdAt: invitation.createdAt,
+        expiresAt: invitation.expiresAt,
+      },
+    })
+    organizerInvitationCount += 1
+  }
+
+  // The waiting picture is created once, with its bytes, as the upload
+  // pipeline leaves a picture. A re-seed does not put a picture somebody has
+  // approved or rejected since back in the queue.
+  for (const picture of data.pictures) {
+    if (untouched.has(picture.eventId)) continue
+
+    const present = await prisma.mediaAsset.findUnique({
+      where: { id: picture.id },
+      select: { id: true },
+    })
+
+    if (present) continue
+
+    await prisma.mediaAsset.create({
+      data: {
+        id: picture.id,
+        ownerType: 'EVENT',
+        ownerId: real(picture.eventId),
+        eventId: real(picture.eventId),
+        kind: picture.kind,
+        storageKey: picture.storageKey,
+        contentType: picture.contentType,
+        byteSize: picture.byteSize,
+        width: picture.width,
+        height: picture.height,
+        checksum: picture.checksum,
+        altText: picture.altText,
+        position: picture.position,
+        sanitisedAt: picture.sanitisedAt,
+        scanStatus: picture.scanStatus,
+        moderationStatus: picture.moderationStatus,
+        uploadedById: userIdByEmail.get(picture.uploadedByEmail) ?? null,
+        createdAt: picture.createdAt,
+      },
+    })
+    await prisma.mediaBlob.upsert({
+      where: { storageKey: picture.storageKey },
+      update: {},
+      create: {
+        storageKey: picture.storageKey,
+        bytes: picture.bytes,
+        byteSize: picture.byteSize,
+        checksum: picture.checksum,
+      },
+    })
+  }
+
+  // Demonstration visit totals. A day the roll-up has written real totals for
+  // (`demonstration = false`) is left alone; demonstration rows of these
+  // events outside the fortnight are removed, so a re-seed on a later day
+  // still leaves exactly fourteen days of them.
+  const demonstrationEvents = [...new Set(data.trafficDaily.map((row) => row.eventId))].filter(
+    (eventId) => !untouched.has(eventId),
+  )
+
+  if (demonstrationEvents.length > 0) {
+    await prisma.trafficDaily.deleteMany({
+      where: {
+        eventId: { in: demonstrationEvents.map(real) },
+        demonstration: true,
+        day: {
+          notIn: [...new Set(data.trafficDaily.map((row) => row.day.getTime()))].map(
+            (at) => new Date(at),
+          ),
+        },
+      },
+    })
+  }
+
+  let trafficDailyCount = 0
+
+  for (const row of data.trafficDaily) {
+    if (untouched.has(row.eventId)) continue
+
+    const eventId = real(row.eventId)
+    const present = await prisma.trafficDaily.findUnique({
+      where: { eventId_day: { eventId, day: row.day } },
+      select: { demonstration: true },
+    })
+
+    if (present && !present.demonstration) continue
+
+    const { eventId: _computed, day, ...counts } = row
+
+    await prisma.trafficDaily.upsert({
+      where: { eventId_day: { eventId, day } },
+      update: counts,
+      create: { eventId, day, ...counts },
+    })
+    trafficDailyCount += 1
+  }
+
+  // The roll-up's last completion, moved forward only: a later real run is
+  // not set back. The lease columns are the roll-up's and are not touched.
+  await prisma.trafficRollupState.updateMany({
+    where: {
+      id: ROLLUP_STATE_ID,
+      OR: [
+        { lastCompletedAt: null },
+        { lastCompletedAt: { lt: data.trafficRollup.lastCompletedAt } },
+      ],
+    },
+    data: { lastCompletedAt: data.trafficRollup.lastCompletedAt },
+  })
 
   // Audit rows are append-only at the database — `desi_audit_log_immutable`
   // refuses an UPDATE — so re-seeding creates the ones that are missing and
@@ -3752,6 +4481,11 @@ export async function writeSeedData(prisma, data) {
     ticketHolds: holdCount,
     waitlistEntries: data.waitlist.length,
     auditLogs: data.auditLogs.length,
+    moderationActions: data.moderationActions.length,
+    organizerInvitations: organizerInvitationCount,
+    pictures: data.pictures.length,
+    trafficDaily: trafficDailyCount,
+    eventsLeftDeleted: untouched.size,
   }
 }
 
@@ -3781,6 +4515,10 @@ export async function countRows(prisma) {
     payments,
     waitlistEntries,
     auditLogs,
+    eventModerationActions,
+    organizerInvitations,
+    mediaAssets,
+    trafficDaily,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.organization.count(),
@@ -3799,6 +4537,10 @@ export async function countRows(prisma) {
     prisma.payment.count(),
     prisma.waitlistEntry.count(),
     prisma.auditLog.count(),
+    prisma.eventModerationAction.count(),
+    prisma.organizerInvitation.count(),
+    prisma.mediaAsset.count(),
+    prisma.trafficDaily.count(),
   ])
 
   return {
@@ -3819,6 +4561,10 @@ export async function countRows(prisma) {
     payments,
     waitlistEntries,
     auditLogs,
+    eventModerationActions,
+    organizerInvitations,
+    mediaAssets,
+    trafficDaily,
   }
 }
 
@@ -3840,6 +4586,7 @@ export async function runSeed(options = {}) {
     const counts = await countRows(prisma)
 
     const published = data.events.filter((event) => event.publishedAt !== null).length
+    const deleted = data.events.filter((event) => event.status === 'DELETED').length
     const online = data.events.filter((event) => event.isOnline).length
     const paidOrders = data.orders.filter((order) => order.status === 'PAID')
     const grossCents = paidOrders.reduce((sum, order) => sum + order.totalCents, 0)
@@ -3855,7 +4602,13 @@ export async function runSeed(options = {}) {
     }
     console.log('')
     console.log(
-      `  events                  ${published} public at some point, ${data.events.length - published} draft, ${online} online`,
+      `  events                  ${published} public at some point (${deleted} since deleted), ${data.events.length - published} draft, ${online} online`,
+    )
+    console.log(
+      `  waiting for someone     ${data.organizerInvitations.length} organiser invitation (reissue it for a usable code), ${data.pictures.length} picture to review`,
+    )
+    console.log(
+      `  visit totals            ${data.trafficDaily.length} demonstration days across ${TRAFFIC_DEMONSTRATION_EVENT_KEYS.length} events`,
     )
     console.log(`  ticket types            ${soldOut} sold out`)
     console.log(

@@ -184,8 +184,9 @@ export default function AccountPrivacyPage() {
             told you — an order, a ticket, an offer — is on these pages instead.
           </Unavailable>
           <Unavailable title="Automatic deletion after a set time">
-            Scheduled deletion is switched off. The retention job only counts what a policy would
-            remove, and removes nothing.
+            Nothing about you, your orders or your tickets is deleted on a schedule. The retention
+            job only counts what a policy would remove, and removes nothing. The one deletion on a
+            timer is of raw visit records, which hold no address, browser description or account.
           </Unavailable>
         </ul>
       </Section>

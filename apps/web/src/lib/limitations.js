@@ -4,24 +4,39 @@
  *
  * `status` is the status the project records for each, word for word — the
  * Phase 4 brief's vocabulary, recorded for this build in the §Limitations
- * table of `docs/PHASE4_FEATURE_COMPLETION_REPORT.md` — so the page and the
+ * table of `docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md` (which carries on the
+ * table of `docs/PHASE4_FEATURE_COMPLETION_REPORT.md`) — so the page and the
  * report cannot disagree about a word. `meaning` is for somebody using the
  * site: what they will find, and what happens instead.
  *
  * An entry leaves this list only in the change that builds what it names,
  * with that change's tests. Handing on a reserved-seat ticket left it that way
- * (ADR 0006): the seat now goes with the ticket.
+ * (ADR 0006): the seat now goes with the ticket. Adding pictures to a
+ * published event left it the same way (ADR 0014): a new picture now appears
+ * once somebody other than its uploader approves it.
  *
  * @module lib/limitations
+ */
+
+/**
+ * A link inside an entry's meaning: `text` is words the meaning already
+ * says, word for word, and `href` is where they lead — another entry on the
+ * same page, by its `id`.
+ *
+ * @typedef {object} LimitationLink
+ * @property {string} text The words of the meaning that carry the link.
+ * @property {string} href Where they lead, such as `#visit-counts`.
  */
 
 /**
  * The recorded limitations, each with its status and what it means.
  *
  * `status` is the recorded status, word for word. `meaning` is for the person
- * using the site: what they will find, and what happens instead.
+ * using the site: what they will find, and what happens instead. It is plain
+ * text, so a test can read it whole; `links` name words in it that lead to
+ * another entry.
  *
- * @type {ReadonlyArray<{id: string, name: string, status: string, meaning: string}>}
+ * @type {ReadonlyArray<{id: string, name: string, status: string, meaning: string, links?: ReadonlyArray<LimitationLink>}>}
  */
 export const LIMITATIONS = Object.freeze([
   {
@@ -67,18 +82,66 @@ export const LIMITATIONS = Object.freeze([
       'Pictures an organiser uploads are checked to be a real JPEG, PNG or WebP, rebuilt from their image data alone and stripped of camera, location and other hidden details before anyone sees them. They are not run through an antivirus engine; a moderator reviews each one before it appears on a public page.',
   },
   {
-    id: 'pictures-after-publication',
-    name: 'Adding pictures to a published event',
+    id: 'organiser-sign-up',
+    name: 'Asking to become an organiser',
     status: 'NOT IMPLEMENTED',
     meaning:
-      'Once an event is published its pictures can be described again, reordered or removed, but a new picture cannot be added or swapped in, because every new picture is reviewed with the event.',
+      'There is no form on this site for asking to become an organiser. The Desi-Event team invites organisers it has agreed to work with, and each invitation carries a code that works once.',
+  },
+  {
+    id: 'live-changes-not-reviewed',
+    name: 'Reviewing changes to a published event',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'On a published, on-sale, paused, sold-out or postponed event, the organiser — or the Desi-Event team, in an editing session opened with a reason — can change everything without another review, and the change is public when it saves. The date, time, time zone, place, joining link, age limit and entry, refund and conduct terms change only with a reason, and every ticket holder is shown the change on their order page; it is not emailed. Ticket types can be added, edited, re-priced (people who already bought keep what they paid), closed, hidden, or removed if unused. Nights can be added, moved, given another seating map while nothing at them is sold, removed if unused, or cancelled with their tickets refunded. The venue cannot be changed while a night uses a seating map. New pictures appear only after someone on the Desi-Event team other than the person who uploaded them approves each one; the old cover stays until then. (Pictures copied by an import are the exception: the administrator who reviews the import approves them with the event.) A finished or cancelled event keeps its words and pictures editable. The organisation’s venue records can be edited at any time, and every event there shows the new details without review. An event’s website address can be changed at any time; a new address is not linked until an administrator approves it. Promo codes are never reviewed.',
+  },
+  {
+    id: 'night-cancellation-passes',
+    name: 'Refunding part of an every-night ticket',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'Cancelling one night refunds the tickets bought for that night. A ticket valid for every night is not refunded in part: its holder keeps it for the other nights and is shown a notice, and the organiser can refund those orders one at a time.',
+  },
+  {
+    id: 'event-refunds-batch',
+    name: 'Refunding a large cancelled event in the background',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'Refunds caused by deleting an event or cancelling a night are sent while the page waits: up to 500 at a time with simulated payments and 25 at a time with a payment provider. Any left over are sent with “Finish refunds” on the event, or by the organisation’s finance team. An order whose payment is disputed is left to the finance team rather than refunded, so it is not paid back twice.',
+  },
+  {
+    id: 'deleted-events-kept',
+    name: 'Erasing a deleted event',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'Deleting an event takes it off the site straight away, but its record, pictures, orders and history are kept so the Desi-Event team can restore it and so money stays accounted for. Nothing on this site erases a deleted event; removing somebody’s personal data goes through the privacy process. The reasons people type when deleting, restoring, cancelling a night or editing as the Desi-Event team are kept as written, and the privacy process does not rewrite them. A deleted event’s pictures stop being served at once, but a copy already in someone’s browser can stay there for up to a day.',
+  },
+  {
+    id: 'imported-events',
+    name: 'Keeping imported events up to date',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'Some events were copied from their listings on Sulekha.com on 29–30 September 2026 and are shown under “Sulekha Events”, each naming the organiser who presents it. They are not updated automatically: a change made on Sulekha afterwards shows here only when a Desi-Event administrator imports a newer listing. Tickets for them are sold on Sulekha, not here, and their prices are shown as Sulekha listed them on that date. Where Sulekha gave no end time, only the start is shown. Their pictures were copied when they were imported; an event whose pictures could not be copied shows a generated poster. Only events in Texas were copied.',
+  },
+  {
+    id: 'website-link-checks',
+    name: 'Checking the organiser’s website itself',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'An event’s “Visit the organiser’s website” link appears only after a Desi-Event administrator turns it on for the address the organiser gave. If the organiser changes the address, the link keeps going to the address the administrator approved until an administrator decides on the new one or turns the link off; only administrators turn it on or off. This site checks only that an address is a well-formed https address with a public site name and no sign-in, port or key in it; it does not open, scan or keep watching the site behind it. The switch covers that one link: links written into an event’s description, sponsors’ websites and social accounts are reviewed with the listing before it is published, and changes after publication are not reviewed again; none of them is switched or counted. An organisation’s own website on its organiser page is not switched or counted either. A visit through the link is counted without recording your address, browser or account, and a visit that could not be counted still reaches the site.',
+    links: Object.freeze([
+      Object.freeze({
+        text: 'changes after publication are not reviewed again',
+        href: '#live-changes-not-reviewed',
+      }),
+    ]),
   },
   {
     id: 'email',
     name: 'Email',
     status: 'EXTERNAL VERIFICATION PENDING',
     meaning:
-      'This site can email organiser-invitation, team-invitation and ticket-transfer codes, but only when its operator has configured an SMTP mail server; that has been tested only against a local test mail server. Without one, each code is shown once to whoever issues it, with a message they can send themselves, and passing it on is up to them. Receipts, address confirmation and password resets are not emailed in any configuration, so a forgotten password cannot be reset from here. When an event’s date, place or terms change, or it is postponed or cancelled, a notice is recorded against each order and not sent. Orders and tickets are on your account pages instead.',
+      'This site can email organiser-invitation, team-invitation and ticket-transfer codes, but only when its operator has configured an SMTP mail server; that has been tested only against a local test mail server. Without one, each code is shown once to whoever issues it, and passing it on is up to them; only an organiser-invitation code comes with a ready-to-send message. Receipts, address confirmation and password resets are not emailed in any configuration, so a forgotten password cannot be reset from here. When an event’s date, place or terms change, a night is cancelled, or the event is postponed, cancelled or deleted, a notice is recorded against each order and shown on its order page; it is not emailed. Orders and tickets are on your account pages instead.',
   },
   {
     id: 'sms',
@@ -88,9 +151,49 @@ export const LIMITATIONS = Object.freeze([
   },
   {
     id: 'retention',
-    name: 'Automatic deletion after a set time',
+    name: 'Automatic deletion of personal records after a set time',
     status: 'DISABLED',
     meaning:
-      'Nothing is deleted automatically. The retention job counts what a policy would remove, and removes nothing.',
+      'Nothing about a person, an order or a ticket is deleted automatically. The retention job counts what a policy would remove, and removes nothing. The one thing removed on a timer is the raw record of visits to event pages, which holds no address, browser description or account: it is deleted two days after the day it was made, once it has been added up into daily totals.',
+    links: Object.freeze([
+      Object.freeze({ text: 'the raw record of visits to event pages', href: '#visit-counts' }),
+    ]),
+  },
+  {
+    id: 'visit-counts',
+    name: 'Counting the same visitor across days, and exact visitor numbers',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'Visits to event pages are counted on this site without cookies and without keeping anybody’s address or browser description. A visitor is recognised for one day and one event only, by a code made from their connection and browser with a secret that is deleted from the live database when the day ends. Backups taken during the day keep that secret for as long as the backups are kept. So somebody who comes back another day, or looks at two events, is counted again. Robots, and organisers’ teams and Desi-Event staff while signed in, are not counted at all; people whose browser asks not to be tracked are counted as page views only, never as visitors. A browser that runs no JavaScript is not counted, and neither are some blocked visits. The record of each visit is deleted two days after the day it happened, by the job that adds visits up, once it has been added up. Only the daily totals are kept. Figures are brought up to date by that background job, so the newest visits appear later, and each analytics screen says when its figures run to. Days are UTC days. Somebody determined to can make visits look like more people than they are, so the figures are a guide, not an audit.',
   },
 ])
+
+/**
+ * An entry's meaning cut into runs of plain text and links, in order, so the
+ * page can render the links its `links` name.
+ *
+ * A link whose words the meaning does not contain is an error in the list, not
+ * something to drop quietly: the test of this module holds every link to its
+ * meaning.
+ *
+ * @param {{meaning: string, links?: ReadonlyArray<LimitationLink>}} limitation One entry.
+ * @returns {Array<{text: string, href?: string}>} The runs; a run with `href` is a link.
+ */
+export function meaningParts(limitation) {
+  const runs = []
+  let rest = limitation.meaning
+
+  for (const link of limitation.links ?? []) {
+    const at = rest.indexOf(link.text)
+
+    if (at === -1) {
+      throw new Error(`The meaning does not contain the link text “${link.text}”.`)
+    }
+    if (at > 0) runs.push({ text: rest.slice(0, at) })
+    runs.push({ text: link.text, href: link.href })
+    rest = rest.slice(at + link.text.length)
+  }
+  if (rest !== '') runs.push({ text: rest })
+
+  return runs
+}

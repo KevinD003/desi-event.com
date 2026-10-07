@@ -22,11 +22,12 @@
  */
 
 import Link from 'next/link'
+import { Fragment } from 'react'
 
 import { Diamond, MirrorDivider } from '../../components/festive-decor.jsx'
 import { TEXT_LINK } from '../../components/link-classes.js'
 import { PageHero } from '../../components/page-hero.jsx'
-import { LIMITATIONS } from '../../lib/limitations.js'
+import { LIMITATIONS, meaningParts } from '../../lib/limitations.js'
 
 export const metadata = {
   title: 'What this site does not do',
@@ -52,7 +53,11 @@ const ALSO = Object.freeze([
         </Link>
         , and an organisation started from one is verified from the start. An organisation made
         before invitations began can publish only after the platform has verified it. Every event is
-        reviewed by the Desi-Event team before it can be published.
+        reviewed by the Desi-Event team before it can be published.{' '}
+        <a href="#live-changes-not-reviewed" className={LINK}>
+          What can change after publication without another review
+        </a>{' '}
+        is listed above.
       </>
     ),
   },
@@ -77,7 +82,10 @@ const ALSO = Object.freeze([
       </>
     ),
   },
-  { key: 'fictional', text: 'Every event, organiser and price on this site is fictional.' },
+  {
+    key: 'fictional',
+    text: 'Events, organisers and prices on this site are fictional, except events copied from Sulekha.com listings, which name the organiser who presents them and show Sulekha’s prices.',
+  },
 ])
 
 /**
@@ -100,8 +108,9 @@ export default function LimitationsPage() {
           {LIMITATIONS.map((limitation) => (
             <li
               key={limitation.id}
+              id={limitation.id}
               aria-labelledby={`limitation-${limitation.id}`}
-              className="rounded-card bg-surface-raised p-6 shadow-card"
+              className="scroll-mt-28 rounded-card bg-surface-raised p-6 shadow-card"
             >
               <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
                 <h2 id={`limitation-${limitation.id}`} className="text-h3 font-semibold text-ink">
@@ -114,7 +123,17 @@ export default function LimitationsPage() {
                   </span>
                 </p>
               </div>
-              <p className="mt-3 max-w-prose text-ink">{limitation.meaning}</p>
+              <p className="mt-3 max-w-prose text-ink">
+                {meaningParts(limitation).map((run, index) =>
+                  run.href ? (
+                    <a key={index} href={run.href} className={LINK}>
+                      {run.text}
+                    </a>
+                  ) : (
+                    <Fragment key={index}>{run.text}</Fragment>
+                  ),
+                )}
+              </p>
             </li>
           ))}
         </ul>

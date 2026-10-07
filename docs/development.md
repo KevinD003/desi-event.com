@@ -90,36 +90,45 @@ than a confusing failure an hour later.
 
 ### API (`apps/api`)
 
-| Variable                  | Default   | What it does                                                                                                     |
-| ------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------- |
-| `API_HOST`                | `0.0.0.0` | Interface Fastify binds to                                                                                       |
-| `API_PORT`                | `4000`    | Port Fastify binds to                                                                                            |
-| `JWT_SECRET`              | —         | Signing key for bearer tokens. At least 32 characters; known placeholders are refused when `NODE_ENV=production` |
-| `JWT_EXPIRES_IN`          | `7d`      | Token lifetime, as `30m`, `12h` or `7d`                                                                          |
-| `CORS_ORIGIN`             | `*`       | `*` for any origin, or a comma-separated allow-list                                                              |
-| `PLATFORM_FEE_BPS`        | `590`     | Platform fee in basis points; 590 = 5.90% of the discounted subtotal                                             |
-| `PLATFORM_FEE_FLAT_CENTS` | `99`      | Flat fee per ticket, in integer cents                                                                            |
-| `TICKET_HOLD_TTL_SECONDS` | `600`     | How long a checkout hold reserves inventory                                                                      |
+| Variable                                                                                               | Default                             | What it does                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `API_HOST`                                                                                             | `0.0.0.0`                           | Interface Fastify binds to                                                                                                                                                                           |
+| `API_PORT`                                                                                             | `4000`                              | Port Fastify binds to                                                                                                                                                                                |
+| `JWT_SECRET`                                                                                           | —                                   | Signing key for bearer tokens. At least 32 characters; known placeholders are refused when `NODE_ENV=production`                                                                                     |
+| `JWT_EXPIRES_IN`                                                                                       | `7d`                                | Token lifetime, as `30m`, `12h` or `7d`                                                                                                                                                              |
+| `CORS_ORIGIN`                                                                                          | `*`                                 | `*` for any origin, or a comma-separated allow-list                                                                                                                                                  |
+| `PLATFORM_FEE_BPS`                                                                                     | `590`                               | Platform fee in basis points; 590 = 5.90% of the discounted subtotal                                                                                                                                 |
+| `PLATFORM_FEE_FLAT_CENTS`                                                                              | `99`                                | Flat fee per ticket, in integer cents                                                                                                                                                                |
+| `TICKET_HOLD_TTL_SECONDS`                                                                              | `600`                               | How long a checkout hold reserves inventory                                                                                                                                                          |
+| `DELIVERY_MODE`                                                                                        | `MANUAL`                            | How single-use codes reach people: `MANUAL` shows each once to whoever issued it; `EMAIL` sends it through `SMTP_HOST` (see "Emailing codes locally")                                                |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_TLS`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | port `587`, `SMTP_REQUIRE_TLS=true` | The mail server for `EMAIL` delivery. `SMTP_FROM` is required with it; user and password go together or not at all; production refuses a server that is neither `SMTP_SECURE` nor `SMTP_REQUIRE_TLS` |
+| `WEB_ORIGIN`                                                                                           | —                                   | The site's own origin, for the join link in an emailed letter (the code is never in it). Required with `EMAIL`; https in production                                                                  |
+| `TRAFFIC_TRUSTED_FORWARDERS`                                                                           | `127.0.0.1,::1,::ffff:127.0.0.1`    | IP addresses whose `x-desi-client-address` header the API believes: the web servers. Keep the API port private when loopback is trusted                                                              |
+| `TRAFFIC_BEACON_MAX_PER_MINUTE`                                                                        | `60`                                | Visit beacons one visitor may send a minute                                                                                                                                                          |
+| `IMPORT_IMAGE_SOURCE`                                                                                  | `network`                           | Where imported pictures are copied from: `network` (only `usimg.sulekha.io`, directly, no proxy) or `fixtures` (a directory; refused in production)                                                  |
+| `IMPORT_IMAGE_FIXTURE_DIR`                                                                             | —                                   | The directory `fixtures` reads pictures from, by file name. Required with `fixtures`                                                                                                                 |
 
 ### Worker (`apps/worker`)
 
-| Variable                   | Default      | What it does                                                                                                           |
-| -------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `QUEUE_PREFIX`             | `desi-event` | Namespace for every BullMQ key. Change it to run two workers against one Redis without them stealing each other's jobs |
-| `WORKER_CONCURRENCY`       | `5`          | Jobs each worker runs at once. The hold sweep is pinned to 1 regardless                                                |
-| `EXPIRE_HOLDS_INTERVAL_MS` | `30000`      | How often the hold sweep is enqueued                                                                                   |
+| Variable                     | Default      | What it does                                                                                                                 |
+| ---------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `QUEUE_PREFIX`               | `desi-event` | Namespace for every BullMQ key. Change it to run two workers against one Redis without them stealing each other's jobs       |
+| `WORKER_CONCURRENCY`         | `5`          | Jobs each worker runs at once. The hold sweep is pinned to 1 regardless                                                      |
+| `EXPIRE_HOLDS_INTERVAL_MS`   | `30000`      | How often the hold sweep is enqueued                                                                                         |
+| `TRAFFIC_ROLLUP_INTERVAL_MS` | `600000`     | How often the traffic roll-up adds visits up into daily totals (and deletes raw visit rows two days old); 1 minute to 1 hour |
 
 The worker also reads `PLATFORM_FEE_BPS`, `PLATFORM_FEE_FLAT_CENTS` and
 `TICKET_HOLD_TTL_SECONDS`, so the two processes agree on pricing and expiry.
 
 ### Web (`apps/web`)
 
-| Variable               | Default                 | What it does                                                                                                            |
-| ---------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `WEB_PORT`             | `3000`                  | Port `next dev` and `next start` listen on                                                                              |
-| `NEXT_PUBLIC_API_URL`  | `http://127.0.0.1:4000` | API origin the client is built against. Inlined into browser bundles — never put a secret in a `NEXT_PUBLIC_*` variable |
-| `NEXT_PUBLIC_SITE_URL` | `http://127.0.0.1:3000` | Canonical site origin, used for metadata                                                                                |
-| `WEB_E2E_PORT`         | `3210`                  | Port the Playwright suite starts its own dev server on, deliberately not 3000                                           |
+| Variable                     | Default                 | What it does                                                                                                                                                                                    |
+| ---------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WEB_PORT`                   | `3000`                  | Port `next dev` and `next start` listen on                                                                                                                                                      |
+| `NEXT_PUBLIC_API_URL`        | `http://127.0.0.1:4000` | API origin the client is built against. Inlined into browser bundles — never put a secret in a `NEXT_PUBLIC_*` variable                                                                         |
+| `NEXT_PUBLIC_SITE_URL`       | `http://127.0.0.1:3000` | Canonical site origin, used for metadata                                                                                                                                                        |
+| `WEB_E2E_PORT`               | `3210`                  | Port the Playwright suite starts its own dev server on, deliberately not 3000                                                                                                                   |
+| `TRAFFIC_TRUSTED_PROXY_HOPS` | `0`                     | Proxies in front of the web server that append to `x-forwarded-for`; the visitor's address is that many entries from the end. `0` takes the connection's address, and production logs a warning |
 
 ## Running individual apps
 
@@ -238,18 +247,58 @@ models without one get stable `seed-` prefixed primary keys, so running it
 twice leaves the database exactly as running it once did. There are no blind
 `create` calls.
 
-It produces the USA garba catalogue the site's sample data shows: 25 users
-(a platform admin and a moderator among them), 11 organisations (one waiting
-in the verification queue), 11 venues, 23 events (21 across every public
-lifecycle state, 2 drafts, 1 online), 38 ticket types and 13 orders in USD at
-the demo's 0% US tax, plus 10 sessions (the nine nights of the season pass and
-the live-band evening), a published 24-seat balcony plan sold through a
-reserved tier, holds, promo codes, waitlist entries and audit logs. Every name,
-address and email is invented, on `.example` domains. Every seeded account
-shares the password `DesiEvent!2026`; override it with `SEED_PASSWORD`. No
-account is seeded with a second factor: every account whose role needs one —
-the admin, the moderator, and the organisations' owners, administrators and
-managers — is asked to set up two-step sign-in the first time it signs in.
+It produces the USA garba catalogue the site's sample data shows: 26 users
+(a super administrator, a platform administrator and a moderator among them),
+11 organisations (one waiting in the verification queue), 11 venues, 24 events
+(21 across every public lifecycle state, 2 drafts and 1 deleted; 1 online), 39
+ticket types and 13 orders in USD at the demo's 0% US tax, plus 10 sessions (the
+nine nights of the season pass and the live-band evening), a published 24-seat
+balcony plan sold through a reserved tier, holds, promo codes, waitlist entries
+and audit logs. Every name, address and email is invented, on `.example`
+domains. Every seeded account shares the password `DesiEvent!2026`; override it
+with `SEED_PASSWORD`. No account is seeded with a second factor: every account
+whose role needs one — the super administrator, the platform administrator, the
+moderator, and the organisations' owners, administrators and managers — is
+asked to set up two-step sign-in the first time it signs in.
+
+**Accounts for the Desi-Event team:**
+
+| Account                             | Role          | What it is for                                                                                                                                                                            |
+| ----------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin@desi-event.example`          | `SUPER_ADMIN` | Everything, People and roles (`/admin/users`) included                                                                                                                                    |
+| `platform-admin@desi-event.example` | `ADMIN`       | The platform administrator: organiser invitations, event and picture review, website links, every event's visits, editing and deleting posted events, imports. Belongs to no organisation |
+| `moderator@desi-event.example`      | `MODERATOR`   | Event, picture and organisation reviews only                                                                                                                                              |
+
+**What else it seeds for the new screens (2026-10-06):**
+
+- **One organiser invitation waiting** to `new-organiser@desi-event.example` for
+  "Kathiawar Folk Nights", issued by the platform administrator. Its code was
+  made at seed time and thrown away — only its digest is stored, as for every
+  code — so nobody can use it as it is. To try the join flow, sign in as
+  `platform-admin@desi-event.example`, open `/admin/organizer-invitations` and
+  choose "Issue a new code" on it: that withdraws the seeded one and shows a
+  usable code once. Register `new-organiser@desi-event.example`, sign in as it,
+  and type the code at `/account/organizations/new`.
+- **One deleted event**, "Sharad Purnima Garba Showcase" (Mirrorwork Events),
+  deleted from on sale by the platform administrator with nothing sold
+  (outcome REMOVED). It is on `/admin/events` with "Deleted", in Mirrorwork's own
+  events list, and can be restored by the platform administrator. Its web
+  address stays retired.
+- **One picture waiting for review** on Mirrorwork's beginner garba workshop,
+  uploaded by its owner Nisha Patel, at `/moderation/pictures`. Nisha cannot
+  approve it; the moderator or the platform administrator can.
+- **Fourteen days of demonstration visit totals** (`TrafficDaily` rows marked
+  `demonstration`) for two of Mirrorwork's public events, Navratri Night One
+  and the live-band night, ending yesterday, and the roll-up's last completion
+  set to the moment the seed ran. `/analytics` says "Demonstration figures"
+  while any of them is summed.
+- **No imported events**: run `pnpm import:events` after seeding (README,
+  "Importing the Sulekha events").
+
+A re-seed leaves three things as it finds them: a deleted event (seeded, or
+deleted by you since) with everything under it; the invitation and the picture,
+which are created once; and any day the traffic roll-up has written real totals
+for.
 
 The seed only adds and updates rows. A database seeded by an older version
 keeps that version's rows beside the new ones until `pnpm db:reset`.
@@ -257,6 +306,55 @@ keeps that version's rows beside the new ones until `pnpm db:reset`.
 The dataset is built by a pure function of "now", which is what lets the
 arithmetic — order totals, `quantitySold`, promo redemption counts — be
 verified by `packages/db/tests/seed-data.test.js` without a database.
+
+## Emailing codes locally
+
+By default (`DELIVERY_MODE=MANUAL`) every single-use code is shown once to
+whoever issued it, and nothing is emailed. To see the `EMAIL` path, point the
+API at any SMTP server you run yourself — for example a capture tool such as
+MailHog or Mailpit on `localhost:1025` (you install it; this repository does not
+ship one):
+
+```bash
+DELIVERY_MODE=EMAIL
+SMTP_HOST=127.0.0.1
+SMTP_PORT=1025
+SMTP_REQUIRE_TLS=false      # a local capture server has no TLS; refused in production
+SMTP_FROM=no-reply@desi-event.example
+WEB_ORIGIN=http://127.0.0.1:3000
+```
+
+Restart the API. Organiser invitations, team invitations and ticket transfers
+then answer without a code and send a UTF-8 letter with the code on its own line
+and a link to the page where it is typed — never a link carrying the code. A
+refused send withdraws the invitation or transfer and answers 503
+`DELIVERY_FAILED`. At most three codes a day go to one address. The automated
+proof is `packages/providers/src/smtp.test.js` and
+`apps/api/tests/email-delivery-integration.test.js`, which run against
+`smtp-server` on loopback.
+
+## Visit counting locally
+
+The web server sends beacons for page views and clicks; the API stores raw
+visits without addresses; the worker's `roll-up-traffic` job adds them into
+`TrafficDaily` every `TRAFFIC_ROLLUP_INTERVAL_MS` (ten minutes by default). So
+`/analytics` changes only after the worker has run: start it with
+`pnpm --filter @desi-event/worker dev`. Visits you make while signed in as a
+member of the event's organisation, or as staff, are not counted. With the web
+and API on one machine the defaults (`TRAFFIC_TRUSTED_FORWARDERS` loopback,
+`TRAFFIC_TRUSTED_PROXY_HOPS=0`) are right.
+
+## Importing the Sulekha events locally
+
+See the README section "Importing the Sulekha events". In short:
+`pnpm import:events packages/db/data/imports/sulekha-texas-2026.json --as
+platform-admin@desi-event.example` plans the file; add `--apply` to import the
+events into review. Approving and publishing is done in the browser at
+`/admin/imports`. Picture copying needs direct outbound HTTPS to
+`usimg.sulekha.io` (no proxy is used); without it, set
+`IMPORT_IMAGE_SOURCE=fixtures` and `IMPORT_IMAGE_FIXTURE_DIR` to a directory of
+pictures named as in the listing addresses, or accept generated posters and use
+"Retry pictures" later. Events whose date has passed are skipped.
 
 ## Debugging
 

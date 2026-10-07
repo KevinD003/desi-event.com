@@ -25,10 +25,17 @@ const RECORDED = [
   ['Door scanning in Safari and Firefox', 'EXTERNAL DEVICE VERIFICATION PENDING'],
   ['Real payments, Stripe and Connect payouts', 'EXTERNAL VERIFICATION PENDING'],
   ['Virus scanning of uploaded pictures', 'NOT IMPLEMENTED'],
-  ['Adding pictures to a published event', 'NOT IMPLEMENTED'],
+  ['Asking to become an organiser', 'NOT IMPLEMENTED'],
+  ['Reviewing changes to a published event', 'NOT IMPLEMENTED'],
+  ['Refunding part of an every-night ticket', 'NOT IMPLEMENTED'],
+  ['Refunding a large cancelled event in the background', 'NOT IMPLEMENTED'],
+  ['Erasing a deleted event', 'NOT IMPLEMENTED'],
+  ['Keeping imported events up to date', 'NOT IMPLEMENTED'],
+  ['Checking the organiser’s website itself', 'NOT IMPLEMENTED'],
   ['Text messages', 'NOT IMPLEMENTED'],
   ['Email', 'EXTERNAL VERIFICATION PENDING'],
-  ['Automatic deletion after a set time', 'DISABLED'],
+  ['Automatic deletion of personal records after a set time', 'DISABLED'],
+  ['Counting the same visitor across days, and exact visitor numbers', 'NOT IMPLEMENTED'],
 ]
 
 /**
@@ -99,15 +106,29 @@ describe('LimitationsPage', () => {
     expect(email.textContent).not.toMatch(/no team invitations|no invitation codes/i)
   })
 
-  it('says notices about a changed event are recorded, and does not claim they were sent', () => {
+  it('says notices about a changed, cancelled or deleted event are recorded and shown, and does not claim they were sent', () => {
     render(<LimitationsPage />)
 
     const email = entryFor('Email')
 
-    expect(email.textContent).toMatch(/a notice is recorded against each order and not sent/i)
+    // SPEC2-XI §11 (O13): night cancellations and deletions record notices too.
+    expect(email.textContent).toContain(
+      'When an event’s date, place or terms change, a night is cancelled, or the event is postponed, cancelled or deleted, a notice is recorded against each order and shown on its order page; it is not emailed.',
+    )
     expect(email.textContent).not.toMatch(
       /ticket holders (have been|were) told|notice (was|has been) sent/i,
     )
+  })
+
+  it('says only an organiser-invitation code comes with a ready-to-send message', () => {
+    render(<LimitationsPage />)
+
+    const email = entryFor('Email').textContent
+
+    // Team-invitation and ticket-transfer panels show the code alone; the
+    // sentence must not promise them a letter.
+    expect(email).toMatch(/only an organiser-invitation code comes with a ready-to-send message/i)
+    expect(email).not.toMatch(/each code is shown once[^.;]*with a message/i)
   })
 
   it('names what group buyers can do, and what they still cannot', () => {
@@ -130,10 +151,22 @@ describe('LimitationsPage', () => {
 
     expect(scanning.textContent).toMatch(/not run through an antivirus engine/i)
     expect(scanning.textContent).toMatch(/a moderator reviews each one/i)
+  })
 
-    const later = entryFor('Adding pictures to a published event')
+  it('no longer lists adding pictures to a published event, which now waits for somebody else’s approval', () => {
+    const { container } = render(<LimitationsPage />)
 
-    expect(later.textContent).toMatch(/cannot be added or swapped in/i)
+    // SPEC2-XI O12: the entry is removed, because posted events take pictures.
+    expect(
+      screen.queryByRole('heading', { level: 2, name: 'Adding pictures to a published event' }),
+    ).toBeNull()
+    expect(container.textContent).not.toMatch(/cannot be added or swapped in/i)
+
+    const live = entryFor('Reviewing changes to a published event').textContent
+
+    expect(live).toMatch(
+      /New pictures appear only after someone on the Desi-Event team other than the person who uploaded them approves each one; the old cover stays until then\./,
+    )
   })
 
   it('names the group pass among what has not met a real phone, and claims no browser test for it', () => {
@@ -181,6 +214,176 @@ describe('LimitationsPage', () => {
     const { container } = render(<LimitationsPage />)
 
     expect(container.textContent).toMatch(/booking fee is then worked out on what is left/i)
+  })
+
+  it('says invitations are the only way to become an organiser', () => {
+    render(<LimitationsPage />)
+
+    expect(entryFor('Asking to become an organiser').textContent).toContain(
+      'There is no form on this site for asking to become an organiser. The Desi-Event team invites organisers it has agreed to work with, and each invitation carries a code that works once.',
+    )
+  })
+
+  it('says what a live event can change without another review, word for word (SPEC2-XI §11)', () => {
+    render(<LimitationsPage />)
+
+    const live = entryFor('Reviewing changes to a published event').textContent
+
+    for (const sentence of [
+      'On a published, on-sale, paused, sold-out or postponed event, the organiser — or the Desi-Event team, in an editing session opened with a reason — can change everything without another review, and the change is public when it saves.',
+      'The date, time, time zone, place, joining link, age limit and entry, refund and conduct terms change only with a reason, and every ticket holder is shown the change on their order page; it is not emailed.',
+      'Ticket types can be added, edited, re-priced (people who already bought keep what they paid), closed, hidden, or removed if unused.',
+      'Nights can be added, moved, given another seating map while nothing at them is sold, removed if unused, or cancelled with their tickets refunded.',
+      'The venue cannot be changed while a night uses a seating map.',
+      '(Pictures copied by an import are the exception: the administrator who reviews the import approves them with the event.)',
+      'A finished or cancelled event keeps its words and pictures editable.',
+      'The organisation’s venue records can be edited at any time, and every event there shows the new details without review.',
+      'An event’s website address can be changed at any time; a new address is not linked until an administrator approves it.',
+      'Promo codes are never reviewed.',
+    ]) {
+      expect(live).toContain(sentence)
+    }
+    // The first plan's list said pictures could not be added; that is gone.
+    expect(live).not.toMatch(/cannot be added|New pictures cannot/i)
+  })
+
+  it('says how cancelling one night treats a ticket for every night', () => {
+    render(<LimitationsPage />)
+
+    expect(entryFor('Refunding part of an every-night ticket').textContent).toContain(
+      'Cancelling one night refunds the tickets bought for that night. A ticket valid for every night is not refunded in part: its holder keeps it for the other nights and is shown a notice, and the organiser can refund those orders one at a time.',
+    )
+  })
+
+  it('states the refund batch sizes and how the rest are finished', () => {
+    render(<LimitationsPage />)
+
+    const batch = entryFor('Refunding a large cancelled event in the background').textContent
+
+    expect(batch).toContain(
+      'up to 500 at a time with simulated payments and 25 at a time with a payment provider',
+    )
+    expect(batch).toContain('“Finish refunds” on the event')
+    expect(batch).toMatch(/An order whose payment is disputed is left to the finance team/)
+  })
+
+  it('says a deleted event is kept, and that typed reasons are kept as written', () => {
+    render(<LimitationsPage />)
+
+    const kept = entryFor('Erasing a deleted event').textContent
+
+    expect(kept).toMatch(/Nothing on this site erases a deleted event/)
+    expect(kept).toMatch(/removing somebody’s personal data goes through the privacy process/)
+    expect(kept).toMatch(
+      /The reasons people type when deleting, restoring, cancelling a night or editing as the Desi-Event team are kept as written, and the privacy process does not rewrite them\./,
+    )
+    expect(kept).toMatch(/can stay there for up to a day/)
+  })
+
+  it('says imported events are copies from a date, sold on Sulekha, and not kept up to date', () => {
+    render(<LimitationsPage />)
+
+    const imported = entryFor('Keeping imported events up to date').textContent
+
+    expect(imported).toMatch(/copied from their listings on Sulekha\.com on 29–30 September 2026/)
+    expect(imported).toMatch(/They are not updated automatically/)
+    expect(imported).toMatch(/Tickets for them are sold on Sulekha, not here/)
+    expect(imported).toMatch(/Where Sulekha gave no end time, only the start is shown\./)
+    expect(imported).toMatch(/shows a generated poster/)
+    expect(imported).toMatch(/Only events in Texas were copied\./)
+  })
+
+  it('says the website link is switched by administrators and the site behind it is not checked', () => {
+    render(<LimitationsPage />)
+
+    const entry = entryFor('Checking the organiser’s website itself')
+
+    expect(entry.textContent).toMatch(
+      /appears only after a Desi-Event administrator turns it on for the address the organiser gave/,
+    )
+    expect(entry.textContent).toMatch(
+      /the link keeps going to the address the administrator approved until an administrator decides on the new one or turns the link off/,
+    )
+    expect(entry.textContent).toMatch(/it does not open, scan or keep watching the site behind it/)
+    expect(entry.textContent).toMatch(
+      /An organisation’s own website on its organiser page is not switched or counted either\./,
+    )
+    expect(
+      within(entry)
+        .getByRole('link', { name: 'changes after publication are not reviewed again' })
+        .getAttribute('href'),
+    ).toBe('#live-changes-not-reviewed')
+  })
+
+  it('names the one deletion on a timer, links it to how visits are counted, and keeps the retention job dry', () => {
+    render(<LimitationsPage />)
+
+    const retention = entryFor('Automatic deletion of personal records after a set time')
+
+    expect(retention.textContent).toMatch(
+      /Nothing about a person, an order or a ticket is deleted automatically\./,
+    )
+    expect(retention.textContent).toMatch(
+      /The retention job counts what a policy would remove, and removes nothing\./,
+    )
+    expect(retention.textContent).toMatch(/deleted two days after the day it was made/)
+    expect(
+      within(retention)
+        .getByRole('link', { name: 'the raw record of visits to event pages' })
+        .getAttribute('href'),
+    ).toBe('#visit-counts')
+    // The old name claimed nothing at all is ever deleted.
+    expect(
+      screen.queryByRole('heading', { level: 2, name: 'Automatic deletion after a set time' }),
+    ).toBeNull()
+  })
+
+  it('says how visits are counted, with the day secret, the purge and no cadence promised', () => {
+    render(<LimitationsPage />)
+
+    const visits = entryFor(
+      'Counting the same visitor across days, and exact visitor numbers',
+    ).textContent
+
+    expect(visits).toContain(
+      'by a code made from their connection and browser with a secret that is deleted from the live database when the day ends. Backups taken during the day keep that secret for as long as the backups are kept.',
+    )
+    expect(visits).toContain(
+      'The record of each visit is deleted two days after the day it happened, by the job that adds visits up, once it has been added up. Only the daily totals are kept.',
+    )
+    expect(visits).toMatch(/counted as page views only, never as visitors/)
+    expect(visits).toMatch(/the figures are a guide, not an audit/)
+    // The job's schedule is the deployment's to set; no sentence promises one.
+    expect(visits).not.toMatch(/every (ten|\d+) minutes/i)
+  })
+
+  it('gives every entry an anchor, so a link to one lands on it', () => {
+    const { container } = render(<LimitationsPage />)
+
+    for (const id of ['live-changes-not-reviewed', 'visit-counts', 'email', 'imported-events']) {
+      const target = container.querySelector(`#${id}`)
+
+      expect(target?.tagName).toBe('LI')
+    }
+    for (const link of container.querySelectorAll('a[href^="#"]')) {
+      expect(container.querySelector(link.getAttribute('href'))).not.toBeNull()
+    }
+  })
+
+  it('does not call every event fictional, since imported events are real listings', () => {
+    const { container } = render(<LimitationsPage />)
+
+    expect(container.textContent).not.toMatch(
+      /Every event, organiser and price on this site is fictional/,
+    )
+    expect(container.textContent).toMatch(
+      /Events, organisers and prices on this site are fictional, except events copied from Sulekha\.com listings/,
+    )
+    expect(
+      screen
+        .getByRole('link', { name: 'What can change after publication without another review' })
+        .getAttribute('href'),
+    ).toBe('#live-changes-not-reviewed')
   })
 
   it('makes no request of its own', () => {

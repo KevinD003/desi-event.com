@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { ValidationError } from './errors.js'
@@ -650,5 +654,55 @@ describe('parsing an environment twice', () => {
 
     const web = webEnvSchema.parse({})
     expect(webEnvSchema.parse(web)).toEqual(web)
+  })
+})
+
+describe('.env.example', () => {
+  /**
+   * `.env.example` at the repository root, read as text.
+   *
+   * @type {string}
+   */
+  const example = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '.env.example'),
+    'utf8',
+  )
+
+  /**
+   * The value a commented example line gives a variable, as `# NAME=value`.
+   *
+   * @param {string} name The variable.
+   * @returns {string} The value written after `=`.
+   */
+  function exampleValue(name) {
+    const line = example.split('\n').find((text) => text.startsWith(`# ${name}=`))
+
+    expect(line, `.env.example has no "# ${name}=" line`).toBeDefined()
+
+    return line.slice(`# ${name}=`.length)
+  }
+
+  // Each of these lines is introduced as the default, so uncommenting it must
+  // change nothing. One did not: the forwarders line named two loopback
+  // addresses where the default holds three, so a deployment that uncommented
+  // it would stop believing a web server reaching the API over IPv4-mapped
+  // loopback, and count every visit as that server's own.
+  it.each([
+    ['TRAFFIC_TRUSTED_FORWARDERS', apiEnvSchema, apiEnv],
+    ['TRAFFIC_BEACON_MAX_PER_MINUTE', apiEnvSchema, apiEnv],
+    ['SMTP_PORT', apiEnvSchema, apiEnv],
+    ['SMTP_SECURE', apiEnvSchema, apiEnv],
+    ['SMTP_REQUIRE_TLS', apiEnvSchema, apiEnv],
+    ['IMPORT_IMAGE_SOURCE', apiEnvSchema, apiEnv],
+    [
+      'TRAFFIC_ROLLUP_INTERVAL_MS',
+      workerEnvSchema,
+      (overrides = {}) => ({ DATABASE_URL: DB_URL, REDIS_URL: REDIS, ...overrides }),
+    ],
+    ['TRAFFIC_TRUSTED_PROXY_HOPS', webEnvSchema, (overrides = {}) => ({ ...overrides })],
+  ])('gives %s its default when the example line is uncommented', (name, schema, base) => {
+    const value = exampleValue(name)
+
+    expect(schema.parse(base({ [name]: value }))[name]).toEqual(schema.parse(base())[name])
   })
 })

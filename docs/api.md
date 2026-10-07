@@ -44,7 +44,7 @@ curl -s http://127.0.0.1:4000/v1/auth/register \
         "email": "priya@example.com",
         "password": "correct-horse-battery-staple",
         "displayName": "Priya Nair",
-        "role": "ORGANIZER"
+        "role": "ATTENDEE"
       }'
 ```
 
@@ -78,8 +78,11 @@ curl -s http://127.0.0.1:4000/v1/auth/me -H "authorization: Bearer $TOKEN"
 
 Notes that matter:
 
-- Registration accepts only `ATTENDEE` and `ORGANIZER`. `ADMIN` is granted out
-  of band.
+- Registration accepts only `ATTENDEE` (corrected 2026-10-06: it used to
+  accept `ORGANIZER` too). Organisers join by an organiser invitation from the
+  Desi-Event team (`organizerInvitations.accept`, below); the platform roles
+  `SUPER_ADMIN`, `ADMIN` and `MODERATOR` are granted by a super administrator
+  (`platform.setUserRole`), never by registering.
 - Token lifetime comes from `JWT_EXPIRES_IN` (default `7d`).
 - The token carries identity only — never memberships. Organisation roles are
   re-read from the database on every request, so a revoked membership takes
@@ -120,7 +123,13 @@ loaded, capability checks come from `@desi-event/permissions`
 itself. A failure is `403 FORBIDDEN`. Capabilities include `event:create`,
 `event:update`, `event:publish`, `event:view_draft`, `ticketType:manage`,
 `order:view`, `order:refund`, `ticket:check_in`, `organization:manage`,
-`promo:manage`, `report:view` and `platform:admin`.
+`promo:manage`, `report:view` and `platform:admin`. Since 2026-10-06 the
+platform administrator (`ADMIN`) holds exactly ten platform capabilities, an
+allow-list a load-time check enforces: `moderation:review`, `event:view_draft`,
+`venue:manage`, `organizer:invite`, `report:view`, `website_redirect:manage`,
+`analytics:view_all`, `event:platform_edit`, `event:platform_delete` and
+`event:import`. An organisation's members gain `event:delete_unsold` and
+`event:delete`.
 
 A resource you may not see answers `404`, not `403`, when telling the two apart
 would itself leak information — a draft event, for instance.
@@ -236,19 +245,27 @@ accident.
 
 ## Rate limits
 
-| Scope                                                                                                                                                                              | Budget                                                                        |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Global                                                                                                                                                                             | 300 requests per minute per client                                            |
-| The credential routes: `auth.register`, `auth.login`, `auth.stepUp`, `auth.enrollTotp`, `auth.confirmTotp`, `auth.disableFactor`, `auth.changePassword` and the email-token routes | 10 per minute                                                                 |
-| `teams.invite`, `teams.reissueInvitation`, `teams.accept`                                                                                                                          | 10 per minute per account                                                     |
-| `organizations.create`                                                                                                                                                             | 5 attempts an hour per account, and at most 3 organisations a day per account |
-| Door lookups and admissions, single and group                                                                                                                                      | 120 per minute per account                                                    |
-| `tickets.pass`, `orders.groupPass`, `orders.rotateGroupPass`                                                                                                                       | 30 per minute per account                                                     |
-| `orders.quote`                                                                                                                                                                     | 30 per minute per account                                                     |
-| `orders.create` when the body names a `promoCode` (a checkout with no code is never counted)                                                                                       | 30 per minute per account, or per address for a guest                         |
-| `events.addMedia`                                                                                                                                                                  | 20 per ten minutes per account, counted before the body is read               |
-| `media.get`                                                                                                                                                                        | 1,200 per minute per account or address, its own budget                       |
-| `/docs`                                                                                                                                                                            | Exempt                                                                        |
+| Scope                                                                                                                                                                              | Budget                                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Global                                                                                                                                                                             | 300 requests per minute per client                                                                                                                      |
+| The credential routes: `auth.register`, `auth.login`, `auth.stepUp`, `auth.enrollTotp`, `auth.confirmTotp`, `auth.disableFactor`, `auth.changePassword` and the email-token routes | 10 per minute                                                                                                                                           |
+| `teams.invite`, `teams.reissueInvitation`, `teams.accept`                                                                                                                          | 10 per minute per account                                                                                                                               |
+| `organizations.create`                                                                                                                                                             | None of its own since 2026-10-06: it refuses everybody (403 `ORGANIZER_INVITATION_REQUIRED`) before reading the body, so only the global budget applies |
+| `organizerInvitations.create` and `organizerInvitations.reissue`, together                                                                                                         | 30 an hour per administrator                                                                                                                            |
+| `organizerInvitations.accept`                                                                                                                                                      | The credential budget, 10 per minute per account                                                                                                        |
+| `platformEvents.openEdit`                                                                                                                                                          | 30 sittings an hour per administrator                                                                                                                   |
+| `eventImports.preview`, `eventImports.apply` and `eventImports.retryImages`, together                                                                                              | 20 an hour per administrator                                                                                                                            |
+| `traffic.beacon`                                                                                                                                                                   | 60 per minute per visitor; beyond 3,000 a minute for one event or 6,000 a minute for one API process, beacons are answered and not counted              |
+| `traffic.websiteVisit`                                                                                                                                                             | 120 per minute per visitor (6,000 shared); at most 300 counted visits per event a minute per process                                                    |
+| `tickets.startTransfer`, in `EMAIL` delivery only                                                                                                                                  | 5 an hour per sender                                                                                                                                    |
+| Codes emailed to one address (`teams.invite`, `teams.reissueInvitation`, `tickets.startTransfer`), in `EMAIL` delivery only                                                        | 3 a day per recipient address (429 `RECIPIENT_DAILY_LIMIT`)                                                                                             |
+| Door lookups and admissions, single and group                                                                                                                                      | 120 per minute per account                                                                                                                              |
+| `tickets.pass`, `orders.groupPass`, `orders.rotateGroupPass`                                                                                                                       | 30 per minute per account                                                                                                                               |
+| `orders.quote`                                                                                                                                                                     | 30 per minute per account                                                                                                                               |
+| `orders.create` when the body names a `promoCode` (a checkout with no code is never counted)                                                                                       | 30 per minute per account, or per address for a guest                                                                                                   |
+| `events.addMedia`                                                                                                                                                                  | 20 per ten minutes per account, counted before the body is read                                                                                         |
+| `media.get`                                                                                                                                                                        | 1,200 per minute per account or address, its own budget                                                                                                 |
+| `/docs`                                                                                                                                                                            | Exempt                                                                                                                                                  |
 
 A 429 carries `Retry-After`. The limiter uses an in-process store, so budgets
 are per API instance rather than per cluster. Budgets keyed "per account" fall
@@ -259,7 +276,7 @@ budget.
 
 ## Endpoints
 
-**164 operations across 22 tags.** This page describes the ones whose behaviour
+**193 operations across 24 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
@@ -267,17 +284,42 @@ validates with, and CI fails on a difference.
 
 | Tag           | Ops | Tag            | Ops |
 | ------------- | --- | -------------- | --- |
-| `events`      | 31  | `auth`         | 18  |
+| `events`      | 44  | `auth`         | 18  |
 | `tickets`     | 15  | `finance`      | 12  |
 | `operations`  | 12  | `venues`       | 12  |
-| `privacy`     | 10  | `organizers`   | 8   |
+| `privacy`     | 10  | `organizers`   | 9   |
+| `imports`     | 8   | `platform`     | 8   |
 | `teams`       | 8   | `refunds`      | 7   |
 | `orders`      | 6   | `ticket-types` | 6   |
-| `promo-codes` | 5   | `platform`     | 4   |
-| `holds`       | 3   | `analytics`    | 2   |
+| `promo-codes` | 5   | `holds`        | 3   |
+| `traffic`     | 3   | `analytics`    | 2   |
 | `sessions`    | 2   | `webhooks`     | 2   |
 | `health`      | 1   | `media`        | 1   |
 | `payments`    | 1   | `waitlist`     | 1   |
+
+> **Correction — 2026-10-06.** The total read "164 operations across 22
+> tags". Three pieces of work added twenty-nine operations and two tags, so the
+> total is **193** across **173** paths:
+>
+> - **Invite-only organisers** (ADR 0010): the four `organizerInvitations.*`
+>   administrator routes on the `platform` tag and `organizerInvitations.accept`
+>   on `organizers`.
+> - **The website link and visit counting** (ADRs 0012 and 0013): a new
+>   `traffic` tag (`traffic.beacon`, `traffic.events`, `traffic.websiteVisit`),
+>   and `moderation.setWebsiteRedirect` and `moderation.websiteLinks` on
+>   `events`.
+> - **Full control of posted events** (ADR 0014): eleven routes on `events` —
+>   `events.deletionPreview`, `events.delete`, `events.finishRefunds`,
+>   `events.sessionCancellationPreview`, `events.cancelSession`,
+>   `events.platformEdits`, the four `platformEvents.*` routes and
+>   `moderation.mediaQueue`.
+> - **Importing listed events** (ADR 0015): a new `imports` tag with the eight
+>   `eventImports.*` routes.
+>
+> The rows sum to 196, three more than the total, for the multi-tag reason
+> given below, which is unchanged. Counted from `apps/api/openapi.json` and
+> cross-checked against `apiRoutes.length`;
+> `apps/api/tests/api-doc-counts.test.js` holds both.
 
 > **Correction — 2026-09-29.** The total read "134 operations across 19
 > tags". The feature-completion work added thirty operations and three tags —
@@ -362,9 +404,11 @@ rather than a design.
 | GET    | `/v1/analytics/summary`    | session | Money, inventory, attendance and operations, in one call     |
 | GET    | `/v1/analytics/export.csv` | session | The same figures as a spreadsheet, under a column allow list |
 
-**`organizationId` is required, not optional.** There is no platform-wide
-analytics view, and an optional organisation is how an organisation capability
-quietly becomes a platform one.
+**`organizationId` is required, not optional.** An optional organisation is how
+an organisation capability quietly becomes a platform one. (Corrected
+2026-10-06: this said there was no platform-wide analytics view. There is now
+one, and it is a separate route, `traffic.events` below, held by the platform
+capability `analytics:view_all` and carrying counts only, never money.)
 
 **Two capabilities, one route.** `report:view` reaches every organisation role
 from VIEWER upward and gets the counts. The ledger figures are **omitted from
@@ -382,10 +426,24 @@ from the rows that are the fact. `lineValueCents` is called that rather than
 "revenue" because an order line's value is what it was priced at, and what the
 organisation keeps is a different figure computed a different way.
 
-**The conversion funnel is not invented.** Nothing here records a page view, so
-the step everybody means by "conversion" does not exist as data. Three real
-counts are reported — holds taken, orders created, orders paid — and
-`funnel.missing` names what cannot be counted.
+**The conversion funnel is not invented.** Its steps are counted from rows that
+exist: visitors and visitors who chose tickets or seats (from the daily visit
+totals, ADR 0013), then holds taken, orders created and orders paid.
+`funnel.missing` names what is not counted. (Corrected 2026-10-06: this said
+nothing recorded a page view, which was true until first-party visit counting
+was built.)
+
+**Visits (`traffic`).** Both routes carry a `traffic` branch for the
+organisation, or with `eventId` for one event: page views, visitors (distinct
+per event per UTC day), card clicks by place, ticket and seat clicks, website
+visits, where page views came from as five categories, a per-day series of at
+most 366 days, and paid orders against visitors. It is read from `TrafficDaily`,
+never from raw visits. `traffic.updatedAt` says when the background roll-up last
+finished, `traffic.stale` is set when that is over two hours ago, and
+`includesDemonstration` is true when any summed row was written by the
+development seed. Robots, signed-in members of the organisation and Desi-Event
+staff are not counted; a browser sending Global Privacy Control or Do Not Track
+is counted in views, never in visitors.
 
 **The export's columns are an allow list**, written out rather than derived from
 the payload's keys: no buyer, no email, no address, no card, no provider
@@ -910,7 +968,7 @@ back first, unless an order is still waiting on that hold's payment.
 
 | Method | Path                                                  | Auth    | Purpose                                                                                      |
 | ------ | ----------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------- |
-| POST   | `/v1/organizations`                                   | session | Create an organisation; the caller becomes its OWNER. 201                                    |
+| POST   | `/v1/organizations`                                   | session | Refused for everybody: 403 `ORGANIZER_INVITATION_REQUIRED` (since 2026-10-06)                |
 | GET    | `/v1/organizations/:id`                               | session | The organisation's profile as its members see it. `organization:view_members`                |
 | POST   | `/v1/organizations/:id/invitations`                   | session | Invite an address to a role. `team:invite`. In `MANUAL` delivery, returns the code once. 201 |
 | POST   | `/v1/organizations/:id/invitations/:memberId/reissue` | session | Withdraw an invitation and issue a new code for it, in one transaction. 201                  |
@@ -919,15 +977,25 @@ back first, unless an order is still waiting on that hold's payment.
 | GET    | `/v1/moderation/organizations`                        | session | The verification queue. `moderation:review`                                                  |
 | GET    | `/v1/moderation/organizations/:id`                    | session | One organisation, with its verification history. `moderation:review`                         |
 
-**Anybody signed in may create an organisation, because of what a new one
-cannot do.** It starts `UNVERIFIED`: it may draft events but cannot publish or
-be paid until a moderator verifies it. The body has no field for verification
-state, badge, suspension, payout currency, contact address or owner — the
-server sets them, and the contact address is the creator's own account email,
-never shown publicly. OWNER is privileged, so creating one is a privilege
-change (NF-10): the caller's other sessions end, a cookie session gets a new
-secret, and `data.session` says whether a second factor must be set up before
-the workspace will answer.
+**Nobody makes themselves an organiser** (since 2026-10-06, ADR 0010).
+`organizations.create` answers 403 `ORGANIZER_INVITATION_REQUIRED` to every
+caller without reading the body. An organisation is started only by accepting an
+organiser invitation (`organizerInvitations.accept`, below), which creates it
+VERIFIED with the inviting administrator as verifier and the acceptor as OWNER;
+OWNER is privileged, so accepting is a privilege change (NF-10) and
+`data.session` says whether a second factor must be set up. Before 2026-10-06
+anybody signed in could create an `UNVERIFIED` organisation; those already made
+keep their state and still need a moderator's verification to publish.
+
+**Posting roles come from the Desi-Event team.** An OWNER, ADMIN or MANAGER may
+invite or move members only to roles that cannot create or publish events
+(FINANCE, STAFF, SCANNER and VIEWER, derived from `capabilities.js`); a member
+who already posts may be moved only downwards. Anything else is 403
+`POSTING_ROLE_NEEDS_PLATFORM`. A posting role is given by an organiser
+invitation (the new organisation's OWNER) or by a super administrator's
+`platform.grantMembership`. `teams.list` gives, per member, `postsEvents` and
+`roleChoices` — the roles this caller may set for that member. Ownership may be
+handed only to a member who already posts (422 `HEIR_MUST_POST_EVENTS`).
 
 **Invitation codes are shown once** (ADR 0008). `teams.invite` and
 `teams.reissueInvitation` answer 201 with `data.delivery = { mode,
@@ -951,8 +1019,10 @@ step-up.
 
 ### Platform
 
-Four routes, all `platform:admin` (super administrators only). `platform:admin`
-is in `PLATFORM_ONLY_CAPABILITIES`, so none names an organisation scope.
+Eight routes on the `platform` tag. The four below are `platform:admin` (super
+administrators only); the other four are the organiser invitations, held by
+`organizer:invite` (ADMIN and SUPER_ADMIN), described under "Organiser
+invitations". Neither capability names an organisation scope.
 
 | Method | Path                                     | Step-up         | Purpose                                                                    |
 | ------ | ---------------------------------------- | --------------- | -------------------------------------------------------------------------- |
@@ -982,15 +1052,19 @@ credential, hash or factor.
 **A published event can still be edited.** `PATCH /v1/events/:id` on a live
 event (published, on sale, paused, sold out or postponed) treats a change to the
 date, time zone, venue, age limit, online status or policies as material: it
-needs `confirmMaterialChange: true` and a `changeReason`, and it queues a notice
-for every current order. The notice is recorded, not sent — this build sends no
-email. Everything else, the event page content included, is housekeeping. A
-live online event with no joining link is 422.
+needs `confirmMaterialChange: true` and a `changeReason`, and it records a
+notice for every current order, shown on its order page; notices are not
+emailed in any delivery mode. Everything else, the event page content included,
+is housekeeping. A live online event with no joining link is 422. Nothing here
+is reviewed again (ADR 0014); the Desi-Event team edits another organisation's
+posted event only in an editing session (`platformEvents.openEdit`).
 
-**Tiers change under row locks.** A tier that has sold keeps its price (409
-`TIER_SOLD`), one with live holds keeps it too (409 `TIER_IN_USE`), and a
-quantity may be lowered only to what is sold and held (409
-`TIER_QUANTITY_BELOW_SOLD`). Two tiers on one event may not share a name, a
+**Tiers change under row locks.** A tier that has sold may be re-priced — every
+order keeps the price it was bought at — but not change currency (409
+`TIER_SOLD`; corrected 2026-10-06, ADR 0014: a sold tier used to keep its price
+outright). One with live holds keeps its price until they are bought or
+released (409 `TIER_IN_USE`), and a quantity may be lowered only to what is sold
+and held (409 `TIER_QUANTITY_BELOW_SOLD`). Two tiers on one event may not share a name, a
 complimentary tier is free and hidden, and a hidden tier is left off every
 public view. Removing the last night of a live event is 409 `LAST_SESSION`.
 
@@ -1022,11 +1096,15 @@ The body of an upload is the file itself; `kind`, `altText` and `revision`
 travel in the query. The bytes decide the format — JPEG, PNG or WebP only, 415
 for anything else whatever it claims to be — and the picture is rebuilt from an
 allow-list of its format's structures, so camera and location details,
-comments, embedded thumbnails and trailing data do not survive. A new picture
-can be added only while the event is a draft or has changes requested, and is
-public only after a moderator approves the event. No storage path, uploader or
-scan detail is ever in a response. Full reasoning: [`MEDIA.md`](MEDIA.md) and
-ADR 0009.
+comments, embedded thumbnails and trailing data do not survive. A picture added
+while the event is a draft or has changes requested is public only after a
+moderator approves the event. A picture added to a posted event, or a
+replacement cover, is stored `PENDING` and is public only after somebody on the
+Desi-Event team other than its uploader approves it (`moderation.mediaQueue`,
+then `moderation.decideMedia`; 403 `SELF_REVIEW` for the uploader); the old
+cover stays until then (corrected 2026-10-06, ADR 0014). No storage path,
+uploader or scan detail is ever in a public response. Full reasoning:
+[`MEDIA.md`](MEDIA.md) and ADRs 0009 and 0014.
 
 ### Promo codes
 
@@ -1047,6 +1125,125 @@ needs a second factor confirmed within `PROMO_ACTION` (ten minutes); pausing and
 deleting only reduce what is on offer. There is no general edit: pause a code
 and make a new one. A code applies to every event of the organisation or to one
 of its events. Audit rows never record the code's text.
+
+### Organiser invitations — 2026-10-06
+
+The only way anybody comes to post events (ADR 0010).
+
+| Method | Path                                             | Step-up         | Purpose                                                                        |
+| ------ | ------------------------------------------------ | --------------- | ------------------------------------------------------------------------------ |
+| GET    | `/v1/platform/organizer-invitations`             | —               | The invitations issued, waiting ones by default. `organizer:invite`            |
+| POST   | `/v1/platform/organizer-invitations`             | `SECURITY_ROLE` | Invite an address to start a new organisation as its owner. 201                |
+| POST   | `/v1/platform/organizer-invitations/:id/revoke`  | —               | Withdraw a waiting invitation. Idempotent                                      |
+| POST   | `/v1/platform/organizer-invitations/:id/reissue` | `SECURITY_ROLE` | Withdraw it and issue a new code for the same invitation, in one go. 201       |
+| POST   | `/v1/organizer-invitations/accept`               | —               | Accept with the code, signed in as the invited address; makes the organisation |
+
+`organizer:invite` is held by ADMIN and SUPER_ADMIN. The administrator writes
+the organisation's name, and optionally its public description and website; the
+recipient chooses only its web address and time zone. The organisation is made
+VERIFIED with the inviting administrator as verifier. The code is single-use,
+bound to the address, lasts fourteen days, and is shown once in the `MANUAL`
+201 (`data.delivery.invitationCode`, `no-store`) or emailed in `EMAIL` mode
+(ADR 0011), never both; only its SHA-256 digest is stored. Refusals: 403
+`SELF_INVITATION`, 422 `STAFF_ACCOUNT` (and 403 at accept for a staff account,
+the code unspent), 409 `INVITATION_OUTSTANDING`, 409 `NOT_OUTSTANDING`, one 403
+`INVITATION_UNUSABLE` at accept that names no part of the address, and 503
+`DELIVERY_FAILED` in `EMAIL` mode with the invitation withdrawn.
+
+### Review — 2026-10-06
+
+An event becomes public only after a review decision (ADR 0010). The database
+holds the rule (`desi_event_status_requires_review`): APPROVED only from
+REVIEW_PENDING, and a public status only from APPROVED, another public status
+or a platform restore. A move the trigger refuses is 409 `REVIEW_REQUIRED`.
+`moderation.decide` approve **requires** the `revision` the reviewer saw (400
+without it, 409 `STALE_REVISION` when it moved). A reviewer who belongs to the
+event's organisation is refused 403 `CONFLICT_OF_INTEREST`, and the person who
+sent it for review 403 `SELF_REVIEW`; the one exception is an imported event of
+the platform-held organisation (ADR 0015). Sending an imported event back for
+changes is 409 `IMPORTED_EVENT_NO_EDITOR`, because nobody could make them.
+
+### The website link — 2026-10-06
+
+| Method | Path                                         | Auth    | Purpose                                                                     |
+| ------ | -------------------------------------------- | ------- | --------------------------------------------------------------------------- |
+| GET    | `/v1/moderation/website-links`               | session | The administrators' worklist: `waiting`, `drafts`, `on`, `off`, `all`       |
+| POST   | `/v1/moderation/events/:id/website-redirect` | session | Turn an event's website link on or off, with a reason. `MODERATION` step-up |
+| POST   | `/v1/traffic/website-visits`                 | none    | Where the link goes now, for the web server's redirect route only           |
+
+Both moderation routes need `website_redirect:manage` (ADMIN and SUPER_ADMIN).
+An organiser's address change never moves the switch: a changed address waits,
+and while the switch is on the link keeps going to the address an administrator
+approved (`websiteDecidedUrl`). A decision names the address the administrator
+saw, compared on the exact stored string (409 `WEBSITE_CHANGED`, with
+`details.currentWebsiteUrl`, when it moved). `traffic.websiteVisit` answers the
+decided address or one identical 404, `no-store`; the web proxy refuses it, so
+its only caller is the web route `GET /events/[slug]/website`, which answers a 302. Full reasoning: ADR 0012.
+
+### Visits — 2026-10-06
+
+| Method | Path                  | Auth    | Purpose                                                                  |
+| ------ | --------------------- | ------- | ------------------------------------------------------------------------ |
+| POST   | `/v1/traffic/beacons` | none    | Record a page view, a card click or a ticket or seat press. Always 202   |
+| GET    | `/v1/traffic/events`  | session | Visits to every event on the platform, counts only. `analytics:view_all` |
+
+A beacon names the event, the kind and the place, and for a page view only the
+referring site's host; nothing about the visitor is stored. It reads no session,
+and it is answered 202 whether or not it was counted, so it says nothing about
+an event that is not public. The address the visitor code is made from is
+believed from `x-desi-client-address` only when the request comes from
+`TRAFFIC_TRUSTED_FORWARDERS`. Figures reach the screens through the daily
+totals a background job writes. Full reasoning: ADR 0013.
+
+### Deleting, restoring and editing posted events — 2026-10-06
+
+| Method | Path                                              | Step-up         | Purpose                                                                    |
+| ------ | ------------------------------------------------- | --------------- | -------------------------------------------------------------------------- |
+| GET    | `/v1/events/:id/deletion`                         | —               | What a deletion would do now, decided on the server from what was sold     |
+| POST   | `/v1/events/:id/delete`                           | `EVENT_CANCEL`  | Delete the event (it becomes DELETED and is kept)                          |
+| POST   | `/v1/events/:id/refunds/finish`                   | `EVENT_CANCEL`  | Send the refunds a deletion or a cancelled night left waiting              |
+| GET    | `/v1/events/:id/sessions/:sessionId/cancellation` | —               | What cancelling one night would do                                         |
+| POST   | `/v1/events/:id/sessions/:sessionId/cancel`       | `EVENT_CANCEL`  | Cancel one night and refund its tickets                                    |
+| GET    | `/v1/events/:id/platform-edits`                   | —               | The Desi-Event team's editing sittings on the event, and what each changed |
+| GET    | `/v1/platform/events`                             | —               | Every event, for the Desi-Event team. `event:platform_edit`                |
+| POST   | `/v1/platform/events/:id/edit`                    | `MODERATION`    | Open an editing sitting on a posted event, with a reason                   |
+| POST   | `/v1/platform/events/:id/edit/close`              | —               | Close it                                                                   |
+| POST   | `/v1/platform/events/:id/restore`                 | `EVENT_PUBLISH` | Bring a deleted event back. `event:platform_delete`                        |
+| GET    | `/v1/moderation/media`                            | —               | Pictures waiting for approval on posted events. `moderation:review`        |
+
+A deletion's outcome — REMOVE, CANCEL_AND_REFUND or REMOVE_AFTER_EVENT — is
+decided on the server from what was sold and when, and the request must name
+the outcome the preview showed (409 `OUTCOME_CHANGED`), the revision, and the
+event's web address typed back (422 `CONFIRMATION_MISMATCH`). Refunds run
+through the refund service after the commit, 500 a request with simulated
+payments and 25 with a provider; `events.finishRefunds` sends the rest. Restore
+is platform-only and brings an on-sale event back paused. A Desi-Event
+administrator edits another organisation's posted event only inside a sitting
+that answers one browser session, lasts up to an hour, and asks for a second
+factor again every ten minutes of writes. Full reasoning: ADR 0014.
+
+### Imports — 2026-10-06
+
+Eight routes on the `imports` tag, all `event:import` (ADMIN and SUPER_ADMIN);
+approving also needs `moderation:review`.
+
+| Method | Path                                            | Step-up         | Purpose                                                                |
+| ------ | ----------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
+| GET    | `/v1/platform/imports`                          | —               | The import runs                                                        |
+| POST   | `/v1/platform/imports`                          | —               | Upload a dataset file and plan it; writes only the run. Up to 2 MiB    |
+| GET    | `/v1/platform/imports/:runId`                   | —               | One run: its plan, notes, events and pictures                          |
+| POST   | `/v1/platform/imports/:runId/apply`             | `MODERATION`    | Import the plan the administrator read; events land in review          |
+| POST   | `/v1/platform/imports/:runId/images/retry`      | `MODERATION`    | Try copying pictures again                                             |
+| POST   | `/v1/platform/imports/:runId/approve`           | `EVENT_PUBLISH` | Approve and publish named events, with their pictures and Sulekha link |
+| GET    | `/v1/platform/import-targets`                   | —               | Organisations an imported event may move to                            |
+| POST   | `/v1/platform/imports/events/:eventId/reassign` | `EVENT_PUBLISH` | Move an imported event to an organiser's own organisation              |
+
+Imported events belong to the member-less platform-held organisation "Sulekha
+Events", are published without ticket types or sales (409 `SOLD_ON_SOURCE` for
+adding tiers or opening sales there), and link to their Sulekha page through
+the website switch. Pictures are copied only from `https://usimg.sulekha.io`.
+The CLI `pnpm import:events` previews and applies; it never approves. Full
+reasoning: ADR 0015.
 
 ## Calling the API from JavaScript
 

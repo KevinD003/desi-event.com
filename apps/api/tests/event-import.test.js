@@ -1101,6 +1101,11 @@ describe('the review of a platform-held import (SPEC2-XI O5, O16)', () => {
 
     expect(fromReview.statusCode).toBe(409)
     expect(fromReview.json().error.code).toBe('IMPORTED_EVENT_NO_EDITOR')
+    // The web's sentence word for word, and no promise ("yet") in it.
+    expect(fromReview.json().error.message).toBe(
+      'Nobody runs this event on Desi-Event, so nobody could make changes you ask for. Approve it and correct it once it is published, reject it, or delete it.',
+    )
+    expect(fromReview.json().error.message).not.toMatch(/\byet\b|\bsoon\b/iu)
 
     const transitions = await app.inject({
       method: 'GET',
@@ -1125,6 +1130,7 @@ describe('the review of a platform-held import (SPEC2-XI O5, O16)', () => {
 
     expect(fromApproval.statusCode).toBe(409)
     expect(fromApproval.json().error.code).toBe('IMPORTED_EVENT_NO_EDITOR')
+    expect(fromApproval.json().error.message).toBe(fromReview.json().error.message)
     expect(prisma._store.event.find((row) => row.id === event.id).status).toBe('APPROVED')
 
     await app.close()

@@ -129,18 +129,28 @@ transaction.
 
 ## What may change when
 
-| Event status                                                    | Upload or replace | Describe again, reorder | Remove |
-| --------------------------------------------------------------- | ----------------- | ----------------------- | ------ |
-| `DRAFT`, `CHANGES_REQUIRED`                                     | yes               | yes                     | yes    |
-| `REVIEW_PENDING`, `APPROVED`                                    | no                | no                      | no     |
-| `PUBLISHED`, `ON_SALE`, `SALES_PAUSED`, `SOLD_OUT`, `POSTPONED` | no                | yes                     | yes    |
-| `COMPLETED`, `CANCELLED`, `REJECTED`, `ARCHIVED`                | no                | no                      | yes    |
+_Rewritten 2026-10-06 (ADR 0014): a posted event now takes new pictures, each
+approved individually. The table before that date refused uploads after
+publication._
 
-New pixels only while the event is editable, because every new picture is
-reviewed with the event. Removal stays open almost everywhere, because an
-organiser must always be able to take down a picture of somebody who asked;
-only while a moderator holds this version of the event is it closed. Removing
-a picture deletes its row and its bytes; nothing is hidden and kept.
+| Event status                                                                              | Upload or replace                | Describe again, reorder | Remove |
+| ----------------------------------------------------------------------------------------- | -------------------------------- | ----------------------- | ------ |
+| `DRAFT`, `CHANGES_REQUIRED`                                                               | yes, reviewed with the event     | yes                     | yes    |
+| `REVIEW_PENDING`, `APPROVED`                                                              | no                               | no                      | no     |
+| `PUBLISHED`, `ON_SALE`, `SALES_PAUSED`, `SOLD_OUT`, `POSTPONED`, `COMPLETED`, `CANCELLED` | yes, each one waits for approval | yes                     | yes    |
+| `REJECTED`, `ARCHIVED`                                                                    | no                               | no                      | yes    |
+| `DELETED`                                                                                 | no                               | no                      | no     |
+
+No new pixels reach a public page without a review. On a draft every new
+picture is reviewed with the event. On a posted event each new picture is
+stored `PENDING` and is not shown until somebody on the Desi-Event team other
+than its uploader approves it; a new cover waits beside the current one, which
+stays public until the new one is approved. Removal stays open almost
+everywhere, because an organiser must always be able to take down a picture of
+somebody who asked; it is closed only while a moderator holds this version of
+the event, and on a deleted event, whose pictures stay exactly as they were so a
+restore brings it back whole. Removing a picture deletes its row and its bytes;
+nothing is hidden and kept.
 
 Every organiser write goes through `authorChange`: it takes the revision as a
 precondition (409 `STALE_REVISION` otherwise), bumps it, and writes one audit
@@ -151,9 +161,22 @@ A reorder names the full gallery; a set that no longer matches is 409
 
 ## Review
 
-A new picture is `PENDING`. Approving the event approves every picture still
-waiting, in the same transaction, with one `moderation.media_approved` audit
-row per picture. There is no separate queue.
+A new picture is `PENDING`. On a draft, approving the event approves every
+picture still waiting, in the same transaction, with one
+`moderation.media_approved` audit row per picture.
+
+_Since 2026-10-06 (ADR 0014)_ a picture added to a posted event is decided on
+its own. The queue is `GET /v1/moderation/media` (web `/moderation/pictures`,
+`moderation:review`), oldest first, with the event and whether the picture
+replaces a cover. Approving one is `POST /v1/moderation/media/:id/decision`
+with `{ "decision": "approve" }`; **its uploader may not** (403 `SELF_REVIEW`),
+which covers an administrator who uploaded through a platform editing sitting.
+Approving a replacement cover swaps it in under a lock, in one transaction: the
+old cover and its bytes go, and the replacement becomes the cover. Rejecting it
+leaves the old cover in place and shows the organiser the reason. Uploading
+another replacement discards a waiting or rejected one first. Pictures copied
+by an import are the one exception to the uploader rule: the administrator who
+reviewed the import run approves them with their event (ADR 0015).
 
 Uploads are refused while the event is under review, but that alone does not
 pin the set: an organiser can withdraw the event, add a picture and resubmit
@@ -263,6 +286,27 @@ The event page's JSON-LD `image` lists the cover and the first two gallery
 pictures as absolute URLs on this site, or the poster card's address when
 there are none.
 
+## Deleted events — 2026-10-06
+
+A deleted event's pictures stop being served at once (`media.get` answers the
+public the 404 an unknown picture gets; the organisation and the Desi-Event
+team can still open them), though a copy
+already in somebody's browser can stay there for up to a day, the time it was
+served with. The rows and bytes are kept so a restore brings the event back
+whole, and they do not count toward the organisation's storage quota while it
+is deleted. Nothing purges them; whether a purge window is wanted is an open
+question for review.
+
+## Imported pictures — 2026-10-06
+
+Pictures of imported events (ADR 0015) are copied by `lib/import-images.js`
+from `usimg.sulekha.io` only, through the same sanitiser as an upload, and
+stored `PENDING` with an `EventImportImage` row naming where they came from.
+Public pages never carry the Sulekha address. The administrator who reviews the
+import run approves them together with their event, after seeing them; a
+picture stored after that page was loaded changes the event's revision, so the
+approval fails rather than publishing a picture nobody looked at.
+
 ## Not done
 
 - **No antivirus engine.** The check is structural (above). A moderator
@@ -273,8 +317,9 @@ there are none.
   here.
 - **No signed URLs.** Access is decided per request by authorisation instead.
 - **No transcoding at upload.** `next/image` sizes and re-encodes on delivery.
-- **No pictures added after publication.** A live event's pictures can be
-  described again, reordered or removed, not added to or replaced.
+- ~~**No pictures added after publication.**~~ Done 2026-10-06 (ADR 0014): a
+  posted event takes new pictures, each approved by somebody other than its
+  uploader.
 - **Not covered by subject redaction.** Pictures can show identifiable people,
   and the privacy redaction pipeline does not reach them; the organiser can
   delete a picture and a moderator can take one down.

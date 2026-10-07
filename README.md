@@ -121,7 +121,7 @@ cp .env.example .env
 set -a; . ./.env; set +a   # export the variables into this shell — see below
 
 pnpm db:migrate            # create the schema
-pnpm db:seed               # 25 users, 11 organisations, 23 events, 13 orders (USD)
+pnpm db:seed               # 26 users, 11 organisations, 24 events, 13 orders (USD)
 pnpm dev                   # api, web and worker together
 ```
 
@@ -133,7 +133,11 @@ That leaves three processes running:
 | API     | http://127.0.0.1:4000 | Fastify; `/health`, `/docs`, `/openapi.json`  |
 | Worker  | —                     | BullMQ; sweeps expired holds every 30 seconds |
 
-Seeded accounts all share the password `DesiEvent!2026`.
+Seeded accounts all share the password `DesiEvent!2026`. Among them are the
+platform administrator `platform-admin@desi-event.example`, who invites
+organisers and reviews events, and the super administrator
+`admin@desi-event.example`; [docs/development.md](docs/development.md) lists
+every account and what else the seed writes.
 
 **Why the `set -a` line.** Each application reads `.env` relative to its own
 working directory, and pnpm runs every script from the package that owns it. A
@@ -143,6 +147,46 @@ marks subsequent assignments for export, `. ./.env` sources the file, `set +a`
 turns the marking off again. [direnv](https://direnv.net) with an `.envrc` of
 `dotenv` does the same thing automatically. `pnpm db:seed` is the exception —
 it reads the root `.env` itself — but the rest need the export.
+
+## Importing the Sulekha events
+
+The seed does not import anything. The 45 Texas events copied from Sulekha.com
+listings (collected on 29–30 September 2026) are in
+`packages/db/data/imports/sulekha-texas-2026.json`, and are loaded after
+seeding by an account that holds `event:import` (a platform administrator or
+super administrator):
+
+```bash
+pnpm import:events packages/db/data/imports/sulekha-texas-2026.json \
+  --as platform-admin@desi-event.example            # plan only; writes the run
+pnpm import:events packages/db/data/imports/sulekha-texas-2026.json \
+  --as platform-admin@desi-event.example --apply    # import into review
+```
+
+The file can also be uploaded at `/admin/imports`, which shows the same plan.
+Applying writes each event as a draft waiting for review and copies its
+pictures. Approving and publishing is done only in the browser, at
+`/admin/imports`, with a second factor; the command line never approves and
+never changes an event that is already posted.
+
+- **Events already past are skipped.** Every event in the file falls between
+  2 October and 22 November 2026, so after 22 November 2026 the file imports
+  nothing.
+- **Pictures need direct outbound HTTPS to `usimg.sulekha.io`.** The importer
+  copies each picture itself and uses no proxy, deliberately, so that it can
+  check the address it connects to. A machine that reaches the internet only
+  through a proxy cannot copy them. This build's own environment is one: its
+  imported events show generated posters, and "Retry pictures" on
+  `/admin/imports` copies them later from a machine that can reach the host.
+  Whether Sulekha's picture host lets another server fetch its pictures has not
+  been tried from here.
+- **Nothing is kept up to date.** A change on Sulekha shows here only when the
+  file is updated and imported again, and a posted event is updated only when
+  an administrator ticks "Update from Sulekha" for it.
+
+[ADR 0015](docs/adr/0015-importing-listed-events.md) records why it works this
+way, and [docs/development.md](docs/development.md) how to try it locally
+without network access to the picture host.
 
 ## pnpm scripts
 
@@ -287,12 +331,13 @@ Start with the one that matches what you are doing.
 
 ### Where the project stands
 
-| Document                                                                             | Contents                                                                                     |
-| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| [PHASE2_STATUS.md](PHASE2_STATUS.md)                                                 | **Authoritative current status**: the twenty gates, in one table                             |
-| [PHASE2_FINAL_CLOSEOUT_REPORT.md](PHASE2_FINAL_CLOSEOUT_REPORT.md)                   | The closeout cycle, its verification, and the one thing left                                 |
-| [PHASE2_REQUIREMENTS_TRACEABILITY.md](PHASE2_REQUIREMENTS_TRACEABILITY.md)           | Requirement → implementation → evidence, row by row                                          |
-| [docs/PHASE4_FEATURE_COMPLETION_REPORT.md](docs/PHASE4_FEATURE_COMPLETION_REPORT.md) | The feature-completion work: what each area built, its safeguards, and what is still limited |
+| Document                                                                                 | Contents                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [PHASE2_STATUS.md](PHASE2_STATUS.md)                                                     | **Authoritative current status**: the twenty gates, in one table                                                                                                           |
+| [PHASE2_FINAL_CLOSEOUT_REPORT.md](PHASE2_FINAL_CLOSEOUT_REPORT.md)                       | The closeout cycle, its verification, and the one thing left                                                                                                               |
+| [PHASE2_REQUIREMENTS_TRACEABILITY.md](PHASE2_REQUIREMENTS_TRACEABILITY.md)               | Requirement → implementation → evidence, row by row                                                                                                                        |
+| [docs/PHASE4_FEATURE_COMPLETION_REPORT.md](docs/PHASE4_FEATURE_COMPLETION_REPORT.md)     | The feature-completion work: what each area built, its safeguards, and what is still limited                                                                               |
+| [docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md](docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md) | Organiser invitations, the website link, visit counts, full control of posted events and the Sulekha import: what was built, what was checked and what needs your accounts |
 
 ### The system
 
@@ -303,7 +348,7 @@ Start with the one that matches what you are doing.
 | [docs/api.md](docs/api.md)                   | REST reference: auth, errors, pagination, every endpoint                       |
 | [docs/PROVIDERS.md](docs/PROVIDERS.md)       | The four adapters, mock mode, webhook intake and dispatch                      |
 | [docs/DECISIONS.md](docs/DECISIONS.md)       | The authoritative decision index, including decisions that live in code        |
-| [docs/adr/](docs/adr/)                       | Architecture decision records, 0001 to 0009                                    |
+| [docs/adr/](docs/adr/)                       | Architecture decision records, 0001 to 0015                                    |
 | [docs/MEDIA.md](docs/MEDIA.md)               | Event pictures: upload, sanitising, storage, moderation and serving            |
 
 ### Money

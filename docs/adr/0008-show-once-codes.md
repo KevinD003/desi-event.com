@@ -1,6 +1,6 @@
 # ADR 0008 — Invitation and transfer codes are shown once to whoever issues them
 
-- **Status:** Accepted
+- **Status:** Accepted; its `EMAIL`-mode wording superseded by ADR 0011, 2026-10-06
 - **Date:** 2026-09-29
 - **Supersedes:** nothing. It reverses a rule that was never an ADR: "the
   one-time token is delivered out of band and never appears in a response",

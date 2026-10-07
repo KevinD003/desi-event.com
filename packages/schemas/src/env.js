@@ -485,10 +485,12 @@ export const workerEnvSchema = z.object({
    * `SKIPPED_DISABLED` — the state the schema already anticipated and nothing
    * previously implemented.
    *
-   * Note what this flag does **not** do: it does not enable deletion. No
-   * deletion path exists anywhere in this repository. It gates whether a
-   * rehearsal runs at all, so that an environment nobody has considered does
-   * not quietly start counting people's rows.
+   * Note what this flag does **not** do: it does not enable deletion. The
+   * retention rehearsal has no deletion path. The only deletion on a timer in
+   * this repository is the traffic roll-up's, of raw visit rows it has already
+   * added up (see `@desi-event/db/traffic-rollup`), and this flag does not
+   * touch it. It gates whether a rehearsal runs at all, so that an environment
+   * nobody has considered does not quietly start counting people's rows.
    */
   RETENTION_ENFORCEMENT_ACTIVATED: envBoolean(false).describe(
     'Let this environment run a retention rehearsal. Off means it records SKIPPED_DISABLED and counts nothing.',

@@ -46,6 +46,19 @@ describe('AccountPrivacyPage', () => {
     expect(container.textContent).not.toMatch(/coming soon|\bsoon\b|\byet\b|in a future/i)
   })
 
+  it('says nothing about the visitor is deleted on a schedule, and names the one timed deletion', () => {
+    const { container } = render(<AccountPrivacyPage />)
+
+    expect(container.textContent).toMatch(
+      /Nothing about you, your orders or your tickets is deleted on a schedule\./,
+    )
+    expect(container.textContent).toMatch(/removes nothing/)
+    // The traffic roll-up deletes raw visit rows on a timer (SPEC2 §4.N-H), so
+    // the page no longer says scheduled deletion is off altogether.
+    expect(container.textContent).toMatch(/The one deletion on a timer is of raw visit records/)
+    expect(container.textContent).not.toMatch(/Scheduled deletion is switched off/)
+  })
+
   it('says a forgotten password cannot be reset, because resets are not emailed', () => {
     const { container } = render(<AccountPrivacyPage />)
 

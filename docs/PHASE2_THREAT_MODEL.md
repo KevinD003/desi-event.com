@@ -245,7 +245,9 @@ _Extended 2026-09-29_, for the routes that now grant roles:
   organisation with none, and refuses a suspended account.
 - **Creating an organisation** makes the creator OWNER, a privileged role: their
   other sessions end, the current one is shortened, and nothing works until a
-  second factor is set up. Limited to three a day per account.
+  second factor is set up. Limited to three a day per account. _(Since
+  2026-10-06 nobody creates one: see below. Accepting an organiser invitation
+  is the same privilege change.)_
 - **Accepting a team invitation** needs the caller to be signed in as the
   invited address, and ends their other sessions. A member cannot invite
   somebody to a role carrying powers they lack, and OWNER cannot be invited.
@@ -254,10 +256,43 @@ _Extended 2026-09-29_, for the routes that now grant roles:
 - Every one of these ends sessions with the reason `role_changed` and is
   audited.
 
-**Residual:** this build sends no email, so an account's address is not
-confirmed. Somebody who obtains an invitation code and registers the invited
-address first can accept it (ADR 0008). Codes are single-use, expire and are
-audited on acceptance; an owner can remove the member.
+**Residual:** no account's address is ever confirmed by email, so somebody who
+obtains an invitation code and registers the invited address first can accept
+it (ADR 0008). Codes are single-use, expire and are audited on acceptance; an
+owner can remove the member.
+
+_Extended 2026-10-06_, for invite-only organisers (ADR 0010), full control of
+posted events (ADR 0014) and the import (ADR 0015):
+
+- **Becoming an organiser.** `organizations.create` refuses everybody;
+  registration accepts only `ATTENDEE`. An organisation, and its OWNER, come
+  only from an organiser invitation issued by an ADMIN or SUPER_ADMIN
+  (`organizer:invite`, `SECURITY_ROLE` step-up), single-use, bound to the
+  invited address, fourteen days. Staff accounts can neither be invited nor
+  accept.
+- **Posting roles.** Members may grant or move others only to FINANCE, STAFF,
+  SCANNER and VIEWER; a posting member moves only downwards; an heir must
+  already post. A posting role in an existing organisation comes only from a
+  super administrator's grant. Upward attempts are 403
+  `POSTING_ROLE_NEEDS_PLATFORM`.
+- **The platform administrator.** `ADMIN` holds exactly ten capabilities, an
+  allow-list `assertPlatformAdministratorBounds` checks at load (a doctored
+  table giving it `platform:admin`, `event:publish`, `attendee:export` or
+  `promo:manage` throws). It holds no money capability and no lifecycle
+  authority (Rule L: 403 `ORGANIZER_ONLY`).
+- **Editing somebody else's event.** Only in a sitting: reason, MFA step-up,
+  bound to one browser session, at most 60 minutes, a fresh second factor every
+  ten minutes of writes, re-checked `FOR SHARE` in each write. Membership is
+  read before platform authority.
+- **Reviewing what you submitted.** Refused (`SELF_REVIEW`,
+  `CONFLICT_OF_INTEREST`), for events and for pictures, except imported events
+  of the member-less platform-held organisation.
+
+**Residuals, stated:** an ADMIN can invite a second address of their own and
+approve that organisation's events from the first account (alias accounts);
+whoever reads the invited inbox first can accept an organiser invitation; a
+non-member SUPER_ADMIN keeps lifecycle moves without a sitting, audited as "by
+the Desi-Event team".
 
 ---
 

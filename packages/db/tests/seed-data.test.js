@@ -12,15 +12,22 @@ import { describe, expect, it } from 'vitest'
 
 import { websiteUrlProblem } from '@desi-event/schemas/website'
 
+import { inflateSync } from 'node:zlib'
+
 import {
   applyBps,
   buildSeedData,
   computeSeedOrderTotals,
+  deletionColumns,
+  demonstrationTrafficDay,
   eventStatusPath,
+  eventWritePlan,
   localTime,
   offset,
   onOrAfterWeekday,
+  seedStorageKey,
   settleEventStatus,
+  solidSeedPng,
   startOfUtcDay,
 } from '../scripts/seed.mjs'
 
@@ -183,11 +190,12 @@ describe('buildSeedData shape', () => {
   it('produces the documented breadth of data', () => {
     // Ten organisers and eleven venues, as in the web catalogue, and an
     // eleventh organisation waiting to be verified, which has no events and so
-    // no copy there; the catalogue's twenty events plus an online workshop and
-    // two drafts.
+    // no copy there; the catalogue's twenty events plus an online workshop,
+    // two drafts and one deleted event, which no catalogue shows.
     expect(data.organizations).toHaveLength(11)
     expect(data.venues).toHaveLength(11)
-    expect(data.events).toHaveLength(23)
+    expect(data.events).toHaveLength(24)
+    expect(data.events.filter((event) => event.status === 'DELETED')).toHaveLength(1)
     expect(data.promoCodes.length).toBeGreaterThanOrEqual(3)
     expect(data.orders.length).toBeGreaterThanOrEqual(6)
   })
@@ -378,7 +386,7 @@ describe('seeded events', () => {
     for (const id of ids) expect(id).toMatch(/^[a-z][a-z0-9]{7,31}$/)
   })
 
-  it('exercises every state a public page has to say honestly, and drafts', () => {
+  it('exercises every state a public page has to say honestly, drafts and a deleted event', () => {
     const statuses = new Set(data.events.map((event) => event.status))
 
     expect(statuses).toEqual(
@@ -390,6 +398,7 @@ describe('seeded events', () => {
         'CANCELLED',
         'COMPLETED',
         'DRAFT',
+        'DELETED',
       ]),
     )
   })
@@ -436,12 +445,20 @@ describe('seeded events', () => {
     expect(weekday).toBe('Saturday')
   })
 
-  it('seeds no pictures and no external image address', () => {
+  it('seeds one picture, waiting for review, no cover and no external image address', () => {
     // A cover is an uploaded, moderated MediaAsset now, and an external image
-    // address is not a column any more. The seed writes neither, so every
-    // listing keeps the poster drawn from the event's slug.
+    // address is not a column any more. The seed writes no cover, so every
+    // listing keeps the poster drawn from the event's slug; its one picture is
+    // a gallery picture nobody has approved, which no public page shows
+    // (SPEC2-XI §4.9).
     for (const event of data.events) expect(Object.hasOwn(event, 'coverImageUrl')).toBe(false)
-    expect(Object.keys(data).filter((key) => /media|picture|image/iu.test(key))).toEqual([])
+    expect(Object.keys(data).filter((key) => /media|picture|image/iu.test(key))).toEqual([
+      'pictures',
+    ])
+    expect(data.pictures).toHaveLength(1)
+    expect(data.pictures.every((picture) => picture.kind === 'EVENT_GALLERY')).toBe(true)
+    expect(data.pictures.every((picture) => picture.moderationStatus === 'PENDING')).toBe(true)
+    expect(JSON.stringify(data.pictures)).not.toMatch(/https?:\/\//u)
   })
 
   it('mixes past and future start times around the anchor', () => {
@@ -496,6 +513,303 @@ describe('seeded events', () => {
         expect(event.publishedAt.getTime()).toBeLessThan(event.startsAt.getTime())
       }
     }
+  })
+})
+
+describe('the seeded deleted event (SPEC2-XI §4.9)', () => {
+  const deleted = data.events.find((event) => event.status === 'DELETED')
+
+  it('was deleted from on sale by the platform administrator, with nothing sold', () => {
+    expect(deleted.slug).toBe('mirrorwork-sharad-purnima-showcase')
+    expect(deleted.organizationId).toBe(data.organizations[0].id)
+    expect(deleted.deletion).toEqual({
+      statusBeforeDeletion: 'ON_SALE',
+      deletionOutcome: 'REMOVED',
+      deletionAuthority: 'PLATFORM',
+      deletionReason: expect.any(String),
+      deletedByEmail: 'platform-admin@desi-event.example',
+      deletedAt: expect.any(Date),
+    })
+    // REMOVED means nobody held a paid order.
+    expect(data.orders.filter((order) => order.eventId === deleted.id)).toEqual([])
+    expect(
+      data.ticketTypes
+        .filter((type) => type.eventId === deleted.id)
+        .every((type) => type.quantitySold === 0),
+    ).toBe(true)
+  })
+
+  it('keeps a reason the database accepts, deleted after it was published and before now', () => {
+    const reason = deleted.deletion.deletionReason.trim()
+
+    expect(reason.length).toBeGreaterThanOrEqual(10)
+    expect(reason.length).toBeLessThanOrEqual(500)
+    expect(deleted.publishedAt.getTime()).toBeLessThan(deleted.deletion.deletedAt.getTime())
+    expect(deleted.deletion.deletedAt.getTime()).toBeLessThanOrEqual(NOW.getTime())
+  })
+
+  it('records the deletion in its history and its audit, once each', () => {
+    expect(data.moderationActions).toEqual([
+      expect.objectContaining({
+        eventId: deleted.id,
+        actorEmail: 'platform-admin@desi-event.example',
+        fromStatus: 'ON_SALE',
+        toStatus: 'DELETED',
+        reason: deleted.deletion.deletionReason,
+      }),
+    ])
+
+    const audit = data.auditLogs.filter((log) => log.action === 'event.deleted')
+
+    expect(audit).toHaveLength(1)
+    expect(audit[0]).toMatchObject({
+      entityType: 'Event',
+      entityId: deleted.id,
+      actorEmail: 'platform-admin@desi-event.example',
+      metadata: { from: 'ON_SALE', outcome: 'REMOVE', authority: 'PLATFORM', slugReleased: false },
+    })
+  })
+
+  it('writes every deletion column together, and none for an event that is not deleted', () => {
+    const ids = new Map([['platform-admin@desi-event.example', 'usr_admin']])
+
+    expect(deletionColumns(deleted.deletion, ids)).toEqual({
+      status: 'DELETED',
+      deletedAt: deleted.deletion.deletedAt,
+      deletedById: 'usr_admin',
+      deletionReason: deleted.deletion.deletionReason,
+      deletionOutcome: 'REMOVED',
+      deletionAuthority: 'PLATFORM',
+      statusBeforeDeletion: 'ON_SALE',
+      deletedSlug: null,
+    })
+    expect(deletionColumns(null, ids)).toEqual({})
+  })
+})
+
+describe('re-seeding a deleted event (SPEC2-XI O17)', () => {
+  const live = { status: 'ON_SALE' }
+  const deletedEvent = { status: 'DELETED' }
+
+  it('creates a missing row, deletion and all', () => {
+    expect(eventWritePlan(null, live)).toEqual({ write: 'create', deleteFrom: null })
+    expect(eventWritePlan(null, deletedEvent)).toEqual({ write: 'create', deleteFrom: null })
+  })
+
+  it('leaves a deleted row untouched, whether the seed deleted it or a developer did', () => {
+    expect(eventWritePlan({ id: 'evt_1', status: 'DELETED' }, deletedEvent)).toEqual({
+      write: 'none',
+      deleteFrom: null,
+    })
+    expect(eventWritePlan({ id: 'evt_1', status: 'DELETED' }, live)).toEqual({
+      write: 'none',
+      deleteFrom: null,
+    })
+  })
+
+  it('deletes a restored row again, recording the status it really had', () => {
+    expect(eventWritePlan({ id: 'evt_1', status: 'SALES_PAUSED' }, deletedEvent)).toEqual({
+      write: 'update',
+      deleteFrom: 'SALES_PAUSED',
+    })
+    expect(eventWritePlan({ id: 'evt_1', status: 'DRAFT' }, live)).toEqual({
+      write: 'update',
+      deleteFrom: null,
+    })
+  })
+
+  it('never walks a deleted row anywhere, and never walks a row into DELETED', async () => {
+    const writes = []
+    const prisma = {
+      event: {
+        findUnique: async () => ({ status: 'DELETED' }),
+        update: async ({ data: next }) => writes.push(next.status),
+      },
+    }
+
+    expect(await settleEventStatus(prisma, 'evt_1', 'ON_SALE')).toEqual([])
+    expect(writes).toEqual([])
+    await expect(settleEventStatus(prisma, 'evt_1', 'DELETED')).rejects.toThrow(
+      /written with its record/u,
+    )
+    expect(writes).toEqual([])
+  })
+})
+
+describe('the seeded organiser invitation (SPEC2 §8 Stage C)', () => {
+  it('waits for new-organiser@desi-event.example to start Kathiawar Folk Nights, issued by the platform administrator', () => {
+    expect(data.organizerInvitations).toEqual([
+      expect.objectContaining({
+        email: 'new-organiser@desi-event.example',
+        organizationName: 'Kathiawar Folk Nights',
+        invitedByEmail: 'platform-admin@desi-event.example',
+        deliveryMode: 'MANUAL',
+      }),
+    ])
+  })
+
+  it('carries no code or digest in the dataset: the code is made at write time and thrown away', () => {
+    const [invitation] = data.organizerInvitations
+
+    expect(Object.keys(invitation)).not.toContain('tokenHash')
+    expect(Object.keys(invitation)).not.toContain('token')
+    expect(JSON.stringify(invitation)).not.toMatch(/[0-9a-f]{64}/u)
+  })
+
+  it('is within the shapes the database checks, and works for fourteen days from its issue', () => {
+    const [invitation] = data.organizerInvitations
+
+    expect(invitation.email).toBe(invitation.email.toLowerCase())
+    expect(invitation.organizationName.length).toBeGreaterThanOrEqual(2)
+    expect(invitation.organizationName.length).toBeLessThanOrEqual(120)
+    expect(invitation.organizationDescription.length).toBeLessThanOrEqual(2000)
+    expect(invitation.note.length).toBeLessThanOrEqual(1000)
+    expect(websiteUrlProblem(invitation.organizationWebsiteUrl)).toBeNull()
+    expect(invitation.organizationWebsiteUrl).toMatch(
+      /^https:\/\/([a-z0-9-]+\.)+([a-z]{2,63}|xn--[a-z0-9-]+)\/[!-~]*$/u,
+    )
+    expect(invitation.createdAt.getTime()).toBeLessThan(NOW.getTime())
+    expect(invitation.expiresAt.getTime() - invitation.createdAt.getTime()).toBe(14 * 86_400_000)
+  })
+
+  it('is audited the way issuing one is: the delivery, and nothing that opens it', () => {
+    const [invitation] = data.organizerInvitations
+    const audit = data.auditLogs.filter((log) => log.action === 'organizer_invitation.issued')
+
+    expect(audit).toEqual([
+      expect.objectContaining({
+        actorEmail: 'platform-admin@desi-event.example',
+        entityType: 'OrganizerInvitation',
+        entityId: invitation.id,
+        metadata: { role: 'OWNER', deliveryMode: 'MANUAL' },
+      }),
+    ])
+  })
+})
+
+describe('the seeded picture waiting for review (SPEC2-XI §4.9)', () => {
+  const [picture] = data.pictures
+  const event = data.events.find((candidate) => candidate.id === picture.eventId)
+  const owner = data.organizations[0].members.find((member) => member.role === 'OWNER')
+
+  it('waits on a live event of the first organisation, uploaded by its owner', () => {
+    expect(event.organizationId).toBe(data.organizations[0].id)
+    expect(event.status).toBe('ON_SALE')
+    expect(picture.uploadedByEmail).toBe(owner.email)
+    expect(picture).toMatchObject({
+      kind: 'EVENT_GALLERY',
+      position: 0,
+      moderationStatus: 'PENDING',
+      scanStatus: 'CLEAN',
+    })
+    expect(picture.sanitisedAt).toBeInstanceOf(Date)
+    expect(picture.altText.trim().length).toBeGreaterThan(0)
+  })
+
+  it('stores a real PNG of the size it claims, with its own digest, under a key the store issues', () => {
+    expect(picture.bytes.subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    )
+    expect(picture.bytes.readUInt32BE(16)).toBe(picture.width)
+    expect(picture.bytes.readUInt32BE(20)).toBe(picture.height)
+    expect(picture.byteSize).toBe(picture.bytes.length)
+    expect(picture.checksum).toMatch(/^[0-9a-f]{64}$/u)
+    expect(picture.storageKey).toMatch(/^pg\/[0-9a-f-]{36}$/u)
+    expect(picture.storageKey).toBe(seedStorageKey(`seed-picture-${picture.key}`))
+  })
+})
+
+describe('solidSeedPng', () => {
+  it('holds exactly the pixels it describes, and only the three chunks a PNG needs', () => {
+    const png = solidSeedPng(3, 2, [10, 20, 30])
+    const types = []
+    let at = 8
+    let idat = null
+
+    while (at < png.length) {
+      const length = png.readUInt32BE(at)
+      const type = png.subarray(at + 4, at + 8).toString('latin1')
+
+      types.push(type)
+      if (type === 'IDAT') idat = png.subarray(at + 8, at + 8 + length)
+      at += 12 + length
+    }
+
+    expect(types).toEqual(['IHDR', 'IDAT', 'IEND'])
+    expect([...inflateSync(idat)]).toEqual([
+      0, 10, 20, 30, 10, 20, 30, 10, 20, 30, 0, 10, 20, 30, 10, 20, 30, 10, 20, 30,
+    ])
+  })
+})
+
+describe('seeded visit totals (SPEC2 §8 Stage C)', () => {
+  const firstOrg = data.organizations[0].id
+  const eventIds = [...new Set(data.trafficDaily.map((row) => row.eventId))]
+
+  it('covers fourteen whole UTC days, ending yesterday, for two public events of the first organisation', () => {
+    expect(eventIds).toHaveLength(2)
+
+    for (const eventId of eventIds) {
+      const event = data.events.find((candidate) => candidate.id === eventId)
+      const days = data.trafficDaily
+        .filter((row) => row.eventId === eventId)
+        .map((row) => row.day.toISOString())
+
+      expect(event.organizationId).toBe(firstOrg)
+      expect(['ON_SALE', 'SOLD_OUT', 'SALES_PAUSED', 'PUBLISHED']).toContain(event.status)
+      expect(days).toHaveLength(14)
+      expect(new Set(days).size).toBe(14)
+      expect(days.at(-1)).toBe(offset(startOfUtcDay(NOW), -1).toISOString())
+      expect(days[0]).toBe(offset(startOfUtcDay(NOW), -14).toISOString())
+      for (const day of days) expect(day.endsWith('T00:00:00.000Z')).toBe(true)
+    }
+  })
+
+  it('marks every row as a demonstration, which the screens announce', () => {
+    expect(data.trafficDaily.every((row) => row.demonstration === true)).toBe(true)
+  })
+
+  it('keeps every rule the database checks on daily totals', () => {
+    for (const row of data.trafficDaily) {
+      const counts = Object.entries(row).filter(([, value]) => typeof value === 'number')
+
+      for (const [, value] of counts) {
+        expect(Number.isInteger(value)).toBe(true)
+        expect(value).toBeGreaterThanOrEqual(0)
+      }
+      expect(row.views).toBe(
+        row.viewsDirect + row.viewsInternal + row.viewsSearch + row.viewsSocial + row.viewsOther,
+      )
+      expect(row.cardClicks).toBe(row.cardClicksHome + row.cardClicksListing + row.cardClicksSearch)
+      expect(row.visitors + row.anonymousViews).toBeLessThanOrEqual(row.views)
+      expect(row.ticketClickVisitors).toBeLessThanOrEqual(row.ticketClicks + row.seatClicks)
+      expect(row.websiteRedirectVisitors).toBeLessThanOrEqual(row.websiteRedirects)
+      expect(row.computedAt.getTime()).toBeGreaterThan(row.day.getTime())
+    }
+  })
+
+  it('counts website visits only where the link is on, and seat clicks only where there are seats', () => {
+    for (const eventId of eventIds) {
+      const event = data.events.find((candidate) => candidate.id === eventId)
+      const rows = data.trafficDaily.filter((row) => row.eventId === eventId)
+      const redirects = rows.reduce((sum, row) => sum + row.websiteRedirects, 0)
+
+      if (event.website?.on) expect(redirects).toBeGreaterThan(0)
+      else expect(redirects).toBe(0)
+    }
+
+    expect(
+      demonstrationTrafficDay({ index: 3, eventIndex: 0, seated: false, websiteOn: false })
+        .seatClicks,
+    ).toBe(0)
+    expect(
+      demonstrationTrafficDay({ index: 3, eventIndex: 0, seated: true, websiteOn: false })
+        .seatClicks,
+    ).toBeGreaterThan(0)
+  })
+
+  it('says the totals were last brought up to date as the seed ran', () => {
+    expect(data.trafficRollup).toEqual({ lastCompletedAt: NOW })
   })
 })
 

@@ -4,11 +4,16 @@ import { render, screen, within } from '@testing-library/react'
 import { SiteFooter } from './site-footer.jsx'
 
 describe('SiteFooter', () => {
-  it('says on every page that payments are simulated and the catalogue is fictional', () => {
+  it('says on every page that payments are simulated and the catalogue is fictional, apart from Sulekha listings', () => {
     const { container } = render(<SiteFooter />)
 
     expect(container.textContent).toMatch(/Payments on this site are simulated/)
     expect(container.textContent).toMatch(
+      /Events, organisers and prices on this site are fictional, except events copied from Sulekha\.com listings\./,
+    )
+    // Imported events are real listings, so the blanket claim would be false
+    // wherever an administrator has imported them (ADR 0015).
+    expect(container.textContent).not.toMatch(
       /Every event, organiser and price on this site is fictional/,
     )
   })

@@ -11,9 +11,12 @@
  *   - **Nothing activates enforcement.** That is a worker environment variable,
  *     set by whoever deploys the worker, and a page that could flip it would be
  *     a page that could switch on a policy nobody has approved.
- *   - **Nothing deletes.** No deletion path exists anywhere in the repository,
+ *   - **Nothing here deletes.** The retention machinery has no deletion path,
  *     and a `DRY_RUN` row claiming a non-zero `affectedCount` is refused by a
- *     database CHECK constraint whatever any code believes.
+ *     database CHECK constraint whatever any code believes. The one deletion
+ *     on a timer in the repository is the traffic roll-up's, of raw visit rows
+ *     it has already added up; it is not a retention class and this page does
+ *     not show it.
  *
  * ## What the screen must keep apart
  *
@@ -168,9 +171,11 @@ export default async function RetentionPage({ searchParams }) {
         <h1 className="mt-2 text-h2 font-semibold text-ink">Retention rehearsals</h1>
         <p className="mt-2 max-w-3xl text-ink-muted">
           What a retention sweep <em>would</em> reach, if the proposed durations were adopted.
-          Nothing on this page has deleted anything, and nothing on this page can: there is no
-          deletion path in this system, and the database refuses to record a rehearsal that claims
-          to have changed something.
+          Nothing on this page has deleted anything, and nothing on this page can: the retention job
+          has no way to delete, and the database refuses to record a rehearsal that claims to have
+          changed something. The one deletion on a timer in this system is of raw visit records,
+          which the job that adds visits up removes two days after the day they were made, once
+          added up.
         </p>
       </header>
 
