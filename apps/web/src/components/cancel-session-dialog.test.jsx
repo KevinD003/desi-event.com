@@ -139,6 +139,108 @@ describe('CancelSessionDialog', () => {
     expect(onCancelled.mock.calls[0][0].refunds).toEqual(REFUNDS)
   })
 
+  it('puts focus on the outcome, keeps it until closed, and offers the night nothing after', async () => {
+    const onClosed = vi.fn()
+
+    apiFetch
+      .mockResolvedValueOnce(answer(200, { data: preview() }))
+      .mockResolvedValueOnce(
+        answer(200, { data: { session: { ...NIGHT, status: 'CANCELLED' }, refunds: REFUNDS } }),
+      )
+
+    const user = userEvent.setup()
+
+    render(
+      <CancelSessionDialog
+        eventId={EVENT_ID}
+        session={NIGHT}
+        timeZone="America/Chicago"
+        onCancelled={vi.fn()}
+        onClosed={onClosed}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Cancel this night…' }))
+    await screen.findByText(/paid orders for this night are refunded/)
+    await user.type(screen.getByLabelText(/Why is this night being cancelled/), REASON)
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'Cancel this night and refund it' }))
+
+    const region = screen.getByRole('region', { name: /^Cancel the night of Night 2/ })
+
+    expect(
+      await screen.findByText(
+        'Its tickets no longer work at the door. 5 orders refunded ($150.00).',
+      ),
+    ).toBeVisible()
+    await waitFor(() => expect(document.activeElement).toHaveTextContent(/^Night cancelled/))
+    expect(region).toContainElement(document.activeElement)
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+
+    expect(onClosed).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('region', { name: /^Cancel the night of / })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+  })
+
+  it('drawn again with the outcome it was given, says what happened, with focus on it, until closed', async () => {
+    const onClosed = vi.fn()
+    const user = userEvent.setup()
+
+    render(
+      <CancelSessionDialog
+        eventId={EVENT_ID}
+        session={NIGHT}
+        timeZone="America/Chicago"
+        outcome={{ session: { ...NIGHT, status: 'CANCELLED' }, refunds: REFUNDS }}
+        onCancelled={vi.fn()}
+        onClosed={onClosed}
+      />,
+    )
+
+    const region = screen.getByRole('region', { name: /^Cancel the night of Night 2/ })
+
+    expect(screen.getByText('Night cancelled', { exact: true })).toBeVisible()
+    expect(
+      screen.getByText('Its tickets no longer work at the door. 5 orders refunded ($150.00).'),
+    ).toBeVisible()
+    await waitFor(() => expect(document.activeElement).toHaveTextContent(/^Night cancelled/))
+    expect(region).toContainElement(document.activeElement)
+    // Nothing is being read: the night is already cancelled.
+    expect(screen.queryByText(/^Reading what cancelling/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+
+    expect(onClosed).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('region', { name: /^Cancel the night of / })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+  })
+
+  it('says why a cancellation was refused, keeps the form, and reports nothing cancelled', async () => {
+    const onCancelled = vi.fn()
+
+    apiFetch
+      .mockResolvedValueOnce(answer(200, { data: preview() }))
+      .mockResolvedValueOnce(
+        answer(409, { error: { code: 'SESSION_STARTED', message: 'This night has started.' } }),
+      )
+    const user = await openDialog(onCancelled)
+
+    await screen.findByText(/paid orders for this night are refunded/)
+    await user.type(screen.getByLabelText(/Why is this night being cancelled/), REASON)
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'Cancel this night and refund it' }))
+
+    expect(await screen.findByText('Not cancelled')).toBeVisible()
+    expect(screen.getByText('This night has started.')).toBeVisible()
+    await waitFor(() => expect(document.activeElement).toHaveTextContent(/^Not cancelled/))
+    expect(screen.getByRole('button', { name: 'Cancel this night and refund it' })).toBeVisible()
+    expect(screen.queryByText('Night cancelled', { exact: true })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument()
+    expect(onCancelled).not.toHaveBeenCalled()
+  })
+
   it('asks for the box to be ticked before sending', async () => {
     apiFetch.mockResolvedValueOnce(answer(200, { data: preview() }))
     const user = await openDialog()

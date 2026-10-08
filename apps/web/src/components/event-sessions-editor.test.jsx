@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
@@ -400,12 +400,576 @@ describe('cancelling a night', () => {
     await user.click(screen.getByRole('checkbox'))
     await user.click(screen.getByRole('button', { name: 'Cancel this night and refund it' }))
 
+    // Said once, in the night's dialog; the editor's notice does not repeat it.
+    const dialog = screen.getByRole('region', { name: /^Cancel the night of / })
+
     expect(
-      await screen.findByText(
-        'Night cancelled. Its tickets no longer work at the door. 5 orders refunded ($250.00).',
+      await within(dialog).findByText(
+        'Its tickets no longer work at the door. 5 orders refunded ($250.00).',
       ),
     ).toBeInTheDocument()
+    expect(within(dialog).getByText('Night cancelled', { exact: true })).toBeInTheDocument()
+    expect(screen.queryByText(/^Night cancelled\. Its tickets/)).not.toBeInTheDocument()
     expect(onRevision).toHaveBeenCalledWith(8)
+  })
+})
+
+describe('the outcome of cancelling a night', () => {
+  const REASON = 'The singer cancelled at short notice.'
+  const DOOR = 'Its tickets no longer work at the door.'
+  const OUTCOME = `${DOOR} 5 orders refunded ($250.00).`
+
+  /**
+   * A night of a live event that people hold tickets for.
+   *
+   * @param {string} id The night.
+   * @param {string} label Its label.
+   * @returns {object} The session.
+   */
+  const usedNight = (id, label) =>
+    session({ id, label, usage: { sold: 5, held: 0 }, removable: false })
+
+  const PREVIEW = {
+    revision: 6,
+    permitted: true,
+    missing: null,
+    refusal: null,
+    orders: 5,
+    ordersRefunded: 5,
+    ordersToldOnly: 0,
+    zeroValueOrders: 0,
+    disputedOrders: 0,
+    ordersCancelled: 0,
+    ticketsWithdrawn: 7,
+    refundableCents: 25_000,
+    currency: 'USD',
+    paymentMode: 'MOCK',
+  }
+
+  const REFUNDS = {
+    owed: 5,
+    settled: 5,
+    waiting: 0,
+    failed: 0,
+    disputed: 0,
+    amountCents: 25_000,
+    currency: 'USD',
+  }
+
+  /**
+   * A promise the test settles when it chooses.
+   *
+   * @returns {{promise: Promise<*>, resolve: Function}} The promise and its resolver.
+   */
+  function deferred() {
+    let resolve
+
+    const promise = new Promise((settle) => {
+      resolve = settle
+    })
+
+    return { promise, resolve }
+  }
+
+  /**
+   * Answer every night's preview and cancellation the way the server does,
+   * and the editor's re-read of the list with `relist`, given the nights as
+   * they now are.
+   *
+   * @param {object[]} nights The nights as first loaded.
+   * @param {Function} [relist] Answers the re-read; by default at once.
+   * @param {{sent?: Promise<*>}} [options] `sent`: the cancellation is answered once it settles.
+   * @returns {void}
+   */
+  function serve(
+    nights,
+    relist = async (now) => answer(200, { data: now, meta: { revision: 8 } }),
+    { sent = null } = {},
+  ) {
+    const cancelled = new Set()
+
+    apiFetch.mockImplementation(async (path) => {
+      const night = nights.find((candidate) => path.includes(`/sessions/${candidate.id}/`))
+
+      if (path.endsWith('/cancellation')) {
+        return answer(200, { data: { ...PREVIEW, sessionId: night.id } })
+      }
+      if (path.endsWith('/cancel')) {
+        await sent
+        cancelled.add(night.id)
+
+        return answer(200, {
+          data: {
+            session: { ...night, status: 'CANCELLED', cancellationReason: REASON },
+            refunds: REFUNDS,
+          },
+        })
+      }
+
+      return relist(
+        nights.map((each) =>
+          cancelled.has(each.id)
+            ? { ...each, status: 'CANCELLED', cancellationReason: REASON }
+            : each,
+        ),
+      )
+    })
+  }
+
+  /**
+   * One night's card.
+   *
+   * @param {string} label The night's label.
+   * @returns {object} Queries bound to the card.
+   */
+  const card = (label) =>
+    within(screen.getByRole('heading', { name: new RegExp(`^${label}\\b`) }).closest('li'))
+
+  /**
+   * Cancel a night through its dialog.
+   *
+   * @param {object} user The user-event instance.
+   * @param {string} label The night's label.
+   * @returns {Promise<void>} Resolves once the cancellation is sent.
+   */
+  async function cancelThrough(user, label) {
+    await user.click(card(label).getByRole('button', { name: 'Cancel this night…' }))
+    await card(label).findByText(/paid orders for this night are refunded/)
+    await user.click(card(label).getByLabelText(/Why is this night being cancelled/))
+    await user.paste(REASON)
+    await user.click(card(label).getByRole('checkbox'))
+    await user.click(card(label).getByRole('button', { name: 'Cancel this night and refund it' }))
+  }
+
+  const LIVE = '[role="status"], [role="alert"], [aria-live]:not([aria-live="off"])'
+
+  /**
+   * Count each time a live region comes to hold `sentence`: once per region
+   * that newly holds it, the outermost region of a nested pair counted once.
+   *
+   * @param {string} sentence What is announced.
+   * @returns {{count: Function, holders: Function, stop: Function}} The tally.
+   */
+  function announcements(sentence) {
+    const holding = new Set()
+    let count = 0
+
+    /**
+     * Look at every live region now on the page.
+     *
+     * @returns {void}
+     */
+    const look = () => {
+      const regions = [...document.querySelectorAll(LIVE)].filter(
+        (region) => !region.parentElement?.closest(LIVE),
+      )
+
+      for (const region of regions) {
+        const holds = region.textContent.includes(sentence)
+
+        if (holds && !holding.has(region)) {
+          holding.add(region)
+          count += 1
+        }
+        if (!holds) holding.delete(region)
+      }
+    }
+    const observer = new MutationObserver(look)
+
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+
+    return {
+      count: () => {
+        look()
+        return count
+      },
+      holders: () => [...holding].filter((region) => region.isConnected),
+      stop: () => observer.disconnect(),
+    }
+  }
+
+  it('stays in the dialog, with focus on it, after a re-read that answers later finds the night cancelled', async () => {
+    const user = userEvent.setup()
+    const onRevision = vi.fn()
+    const relisted = deferred()
+    let drawnWhenAsked = null
+
+    serve([usedNight('snight1', 'Night 1')], (now) => {
+      drawnWhenAsked = Boolean(screen.queryByText('Night cancelled', { exact: true }))
+      return relisted.promise.then(() => answer(200, { data: now, meta: { revision: 8 } }))
+    })
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[usedNight('snight1', 'Night 1')]}
+        revision={6}
+        onRevision={onRevision}
+        mode="live"
+        mayCancelNights
+      />,
+    )
+
+    const said = announcements(DOOR)
+
+    await cancelThrough(user, 'Night 1')
+
+    const dialog = screen.getByRole('region', { name: /^Cancel the night of Night 1/ })
+
+    expect(await within(dialog).findByText(OUTCOME)).toBeVisible()
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement))
+    expect(document.activeElement).not.toBe(document.body)
+    expect(document.activeElement).toHaveTextContent(/^Night cancelled/)
+    expect(drawnWhenAsked).toBe(false)
+
+    // The re-read answers only now, with the night cancelled.
+    relisted.resolve()
+
+    expect(await card('Night 1').findByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+    expect(onRevision).toHaveBeenCalledWith(8)
+    expect(dialog).toBeInTheDocument()
+    expect(within(dialog).getByText('Night cancelled', { exact: true })).toBeVisible()
+    expect(within(dialog).getByText(OUTCOME)).toBeVisible()
+    expect(dialog).toContainElement(document.activeElement)
+    expect(document.activeElement).toHaveTextContent(/^Night cancelled/)
+
+    // Announced once, by the dialog, never again by the editor's notice.
+    expect(said.count()).toBe(1)
+    expect(said.holders()).toHaveLength(1)
+    expect(dialog).toContainElement(said.holders()[0])
+    said.stop()
+  })
+
+  it('stays in the dialog when the re-read answers before the outcome is drawn', async () => {
+    const user = userEvent.setup()
+    let drawnWhenAsked = null
+
+    serve([usedNight('snight1', 'Night 1')], async (now) => {
+      drawnWhenAsked = Boolean(screen.queryByText('Night cancelled', { exact: true }))
+      return answer(200, { data: now, meta: { revision: 8 } })
+    })
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[usedNight('snight1', 'Night 1')]}
+        revision={6}
+        mode="live"
+        mayCancelNights
+      />,
+    )
+
+    const said = announcements(DOOR)
+
+    await cancelThrough(user, 'Night 1')
+
+    expect(await card('Night 1').findByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+    expect(drawnWhenAsked).toBe(false)
+
+    const dialog = screen.getByRole('region', { name: /^Cancel the night of Night 1/ })
+
+    expect(within(dialog).getByText('Night cancelled', { exact: true })).toBeVisible()
+    expect(within(dialog).getByText(OUTCOME)).toBeVisible()
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement))
+    expect(document.activeElement).not.toBe(document.body)
+    expect(said.count()).toBe(1)
+    said.stop()
+  })
+
+  it('closes on request, offers that night no cancellation again, and puts focus on the night', async () => {
+    const user = userEvent.setup()
+
+    serve([usedNight('snight1', 'Night 1')])
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[usedNight('snight1', 'Night 1')]}
+        revision={6}
+        mode="live"
+        mayCancelNights
+      />,
+    )
+
+    await cancelThrough(user, 'Night 1')
+    expect(await card('Night 1').findByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+
+    const dialog = screen.getByRole('region', { name: /^Cancel the night of Night 1/ })
+
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+    expect(screen.queryByRole('region', { name: /^Cancel the night of / })).not.toBeInTheDocument()
+    expect(screen.queryByText('Night cancelled', { exact: true })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /^Night 1\s*State:\s*Cancelled/ })).toHaveFocus(),
+    )
+  })
+
+  it('keeps each night’s outcome until it is closed, while another night is cancelled', async () => {
+    const user = userEvent.setup()
+    const nights = [usedNight('snight1', 'Night 1'), usedNight('snight2', 'Night 2')]
+
+    serve(nights)
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={nights}
+        revision={6}
+        mode="live"
+        mayCancelNights
+      />,
+    )
+
+    await cancelThrough(user, 'Night 1')
+    expect(await card('Night 1').findByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+
+    // Night 2 is still on, and can be cancelled while night 1 says what it did.
+    await cancelThrough(user, 'Night 2')
+    expect(await card('Night 2').findByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+
+    const first = screen.getByRole('region', { name: /^Cancel the night of Night 1/ })
+    const second = screen.getByRole('region', { name: /^Cancel the night of Night 2/ })
+
+    expect(within(first).getByText(OUTCOME)).toBeVisible()
+    expect(within(second).getByText(OUTCOME)).toBeVisible()
+    await waitFor(() => expect(second).toContainElement(document.activeElement))
+
+    await user.click(within(second).getByRole('button', { name: 'Close' }))
+
+    expect(second).not.toBeInTheDocument()
+    expect(first).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /^Night 2\s*State:\s*Cancelled/ })).toHaveFocus(),
+    )
+
+    await user.click(within(first).getByRole('button', { name: 'Close' }))
+
+    expect(screen.queryByRole('region', { name: /^Cancel the night of / })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /^Night 1\s*State:\s*Cancelled/ })).toHaveFocus(),
+    )
+  })
+
+  it('says what happened, and offers no cancellation again, when Edit was pressed while it was being sent', async () => {
+    const user = userEvent.setup()
+    const sent = deferred()
+
+    serve([usedNight('snight1', 'Night 1')], undefined, { sent: sent.promise })
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[usedNight('snight1', 'Night 1')]}
+        revision={6}
+        mode="live"
+        mayCancelNights
+      />,
+    )
+
+    const said = announcements(DOOR)
+
+    await cancelThrough(user, 'Night 1')
+    expect(
+      await screen.findByText('Cancelling the night and refunding its orders…'),
+    ).toBeInTheDocument()
+
+    // Edit takes the dialog's place while the cancellation is on its way.
+    await user.click(screen.getByRole('button', { name: 'Edit session 1' }))
+    expect(screen.queryByRole('region', { name: /^Cancel the night of / })).not.toBeInTheDocument()
+
+    sent.resolve()
+
+    expect(await card('Night 1').findByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+
+    const dialog = await screen.findByRole('region', { name: /^Cancel the night of Night 1/ })
+
+    expect(within(dialog).getByText('Night cancelled', { exact: true })).toBeVisible()
+    expect(within(dialog).getByText(OUTCOME)).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+    // A cancelled night is not edited: its form is gone with the night.
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument()
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement))
+    expect(within(dialog).queryByText(/^Reading what cancelling/)).not.toBeInTheDocument()
+    expect(said.count()).toBe(1)
+    said.stop()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+    expect(screen.queryByRole('region', { name: /^Cancel the night of / })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /^Night 1\s*State:\s*Cancelled/ })).toHaveFocus(),
+    )
+  })
+
+  it('says what happened when the night stops being one to cancel while it was being sent', async () => {
+    const user = userEvent.setup()
+    const sent = deferred()
+    const props = {
+      event,
+      sessions: [usedNight('snight1', 'Night 1')],
+      revision: 6,
+      mode: 'live',
+      platform: true,
+    }
+
+    serve(props.sessions, undefined, { sent: sent.promise })
+
+    const { rerender } = render(<EventSessionsEditor {...props} mayCancelNights />)
+
+    await cancelThrough(user, 'Night 1')
+    expect(
+      await screen.findByText('Cancelling the night and refunding its orders…'),
+    ).toBeInTheDocument()
+
+    // The editing session ends while the answer is on its way.
+    rerender(<EventSessionsEditor {...props} mayCancelNights={false} />)
+    sent.resolve()
+
+    expect(await card('Night 1').findByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+
+    const dialog = await screen.findByRole('region', { name: /^Cancel the night of Night 1/ })
+
+    expect(within(dialog).getByText(OUTCOME)).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement))
+
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+    expect(screen.queryByRole('region', { name: /^Cancel the night of / })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /^Night 1\s*State:\s*Cancelled/ })).toHaveFocus(),
+    )
+  })
+
+  it('treats the night as cancelled from the answer, before the re-read comes back', async () => {
+    const user = userEvent.setup()
+    const relisted = deferred()
+
+    serve([usedNight('snight1', 'Night 1')], (now) =>
+      relisted.promise.then(() => answer(200, { data: now, meta: { revision: 8 } })),
+    )
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[usedNight('snight1', 'Night 1')]}
+        revision={6}
+        mode="live"
+        mayCancelNights
+      />,
+    )
+
+    await cancelThrough(user, 'Night 1')
+
+    const dialog = screen.getByRole('region', { name: /^Cancel the night of Night 1/ })
+
+    expect(await within(dialog).findByText(OUTCOME)).toBeVisible()
+
+    // Nothing on the night to edit or prepare while the list is re-read.
+    expect(screen.getByRole('heading', { name: /^Night 1\s*State:\s*Cancelled/ })).toBeVisible()
+    expect(
+      card('Night 1').queryByRole('button', { name: 'Edit session 1' }),
+    ).not.toBeInTheDocument()
+    expect(
+      card('Night 1').queryByRole('button', { name: 'Prepare inventory' }),
+    ).not.toBeInTheDocument()
+
+    relisted.resolve()
+
+    expect(await card('Night 1').findByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument()
+    expect(within(dialog).getByText(OUTCOME)).toBeVisible()
+  })
+
+  it('keeps the newest re-read when an older one answers after it', async () => {
+    const user = userEvent.setup()
+    const onRevision = vi.fn()
+    const nights = [usedNight('snight1', 'Night 1'), usedNight('snight2', 'Night 2')]
+    const firstRelist = deferred()
+    let relists = 0
+
+    serve(nights, (now) => {
+      relists += 1
+      // The first re-read, asked after night 1, answers last.
+      return relists === 1
+        ? firstRelist.promise.then(() => answer(200, { data: now, meta: { revision: 8 } }))
+        : answer(200, { data: now, meta: { revision: 9 } })
+    })
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={nights}
+        revision={6}
+        onRevision={onRevision}
+        mode="live"
+        mayCancelNights
+      />,
+    )
+
+    await cancelThrough(user, 'Night 1')
+    expect(await card('Night 1').findByText(OUTCOME)).toBeVisible()
+    await cancelThrough(user, 'Night 2')
+    expect(await card('Night 2').findByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+    expect(onRevision).toHaveBeenLastCalledWith(9)
+
+    firstRelist.resolve()
+    await firstRelist.promise
+    await new Promise((settle) => setTimeout(settle, 0))
+
+    // The older answer, which had only night 1 cancelled, changes nothing.
+    expect(onRevision).toHaveBeenLastCalledWith(9)
+    expect(onRevision).not.toHaveBeenCalledWith(8)
+    expect(card('Night 1').getByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+    expect(card('Night 2').getByText(`Cancelled: ${REASON}`)).toBeInTheDocument()
+  })
+
+  it('keeps what happened on screen, and lets nothing escape, when the re-read cannot be sent', async () => {
+    const user = userEvent.setup()
+    const escaped = []
+    /**
+     * Keep a rejection nobody handled.
+     *
+     * @param {*} reason Why it was rejected.
+     * @returns {void}
+     */
+    const unhandled = (reason) => escaped.push(reason)
+
+    process.on('unhandledRejection', unhandled)
+
+    try {
+      serve([usedNight('snight1', 'Night 1')], async () => {
+        throw new TypeError('Failed to fetch')
+      })
+      render(
+        <EventSessionsEditor
+          event={event}
+          sessions={[usedNight('snight1', 'Night 1')]}
+          revision={6}
+          mode="live"
+          mayCancelNights
+        />,
+      )
+
+      await cancelThrough(user, 'Night 1')
+
+      const dialog = screen.getByRole('region', { name: /^Cancel the night of Night 1/ })
+
+      expect(await within(dialog).findByText(OUTCOME)).toBeVisible()
+      await waitFor(() => expect(dialog).toContainElement(document.activeElement))
+      // Long enough for a rejection nobody handled to be reported.
+      await new Promise((settle) => setTimeout(settle, 20))
+      expect(escaped).toEqual([])
+
+      await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+
+      expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+      await waitFor(() =>
+        expect(
+          screen.getByRole('heading', { name: /^Night 1\s*State:\s*Cancelled/ }),
+        ).toHaveFocus(),
+      )
+    } finally {
+      process.off('unhandledRejection', unhandled)
+    }
   })
 })
 

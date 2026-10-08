@@ -26,14 +26,14 @@
  * @file components/event-sessions-editor
  */
 
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 
 import { CancelSessionDialog } from './cancel-session-dialog.jsx'
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { SessionForm, toSessionForm } from './session-form.jsx'
 import { STEP_UP_DECLINED_SENTENCE, useStepUpRetry } from './step-up-retry.jsx'
 import { Alert, Badge, Button, Card, CardBody } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
-import { refundSummarySentence } from '../lib/event-control.js'
 import { ESTIMATED_END_LABEL, endIsEstimate } from '../lib/imports.js'
 import { refusalSentence } from '../lib/refusal.js'
 import { toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
@@ -90,6 +90,8 @@ export function EventSessionsEditor({
   platform = false,
   onSittingEnded,
 }) {
+  const id = useId()
+  const focusAfterRender = useFocusAfterRender()
   const mode = givenMode ?? (editable ? 'draft' : 'locked')
   const canEdit = mode === 'draft' || mode === 'live'
   const [sessions, setSessionsState] = useState(initial)
@@ -100,6 +102,16 @@ export function EventSessionsEditor({
   const [editing, setEditing] = useState(null)
   const [confirmRemove, setConfirmRemove] = useState(null)
   const [addKey, setAddKey] = useState(0)
+  // The nights cancelled here, by id: what the cancellation answered, and
+  // whether that outcome is still on screen in the night's dialog. A cancelled
+  // night is no longer one to cancel, so the re-read would otherwise take the
+  // dialog, and what it says, away before anyone had read it. The answer also
+  // makes the night a cancelled one before the re-read comes back, or if it
+  // never does: there is nothing on it left to edit, prepare or cancel.
+  const [cancellations, setCancellations] = useState({})
+  // Which re-read of the list is the newest: an older one answering after it
+  // would put back the nights as they were.
+  const reloads = useRef(0)
   // A write the server refused for want of a fresh second factor: asked for
   // here, then sent again (SPEC2-XI X-A).
   const stepUp = useStepUpRetry({
@@ -164,17 +176,29 @@ export function EventSessionsEditor({
   }
 
   /**
-   * Re-read the list, with every session's usage.
+   * Re-read the list, with every session's usage. Only the newest re-read's
+   * answer is kept; one that is refused or never answered leaves the list as
+   * it was.
    *
-   * @returns {Promise<void>} Resolves when reloaded.
+   * @returns {Promise<void>} Resolves when reloaded, or when the answer is set aside.
    */
   async function reload() {
-    const response = await apiFetch(`/v1/events/${encodeURIComponent(event.id)}/sessions`)
-    const body = await response.json().catch(() => null)
+    reloads.current += 1
 
-    if (response.ok && body) {
-      setSessions(body.data ?? [])
-      if (Number.isInteger(body.meta?.revision)) onRevision(body.meta.revision)
+    const asked = reloads.current
+
+    try {
+      const response = await apiFetch(`/v1/events/${encodeURIComponent(event.id)}/sessions`)
+      const body = await response.json().catch(() => null)
+
+      if (asked !== reloads.current) return
+
+      if (response.ok && body) {
+        setSessions(body.data ?? [])
+        if (Number.isInteger(body.meta?.revision)) onRevision(body.meta.revision)
+      }
+    } catch {
+      // Not answered: the list stays as it was, as when the read is refused.
     }
   }
 
@@ -239,19 +263,45 @@ export function EventSessionsEditor({
   }
 
   /**
-   * Take a cancelled night back from its dialog: re-read the list, which also
-   * brings the event's new revision, and say what the cancellation refunded.
+   * Take a cancelled night back from its dialog: keep the dialog drawn, with
+   * what the cancellation answered, which says what it refunded (the one place
+   * that says it); close any edit of the night, which is over; and re-read the
+   * list, which also brings the event's new revision.
    *
-   * @param {{refunds: object|null}} result What the cancellation answered.
+   * @param {object} session The night.
+   * @param {{session: object, refunds: object|null}} result What the cancellation answered.
    * @returns {Promise<void>} Resolves when reloaded.
    */
-  async function nightCancelled(result) {
+  async function nightCancelled(session, result) {
+    setCancellations((current) => ({ ...current, [session.id]: { result, shown: true } }))
+    setEditing((current) => (current === session.id ? null : current))
+    setNotice(null)
     await reload()
-    setNotice(
-      `Night cancelled. Its tickets no longer work at the door. ${
-        refundSummarySentence(result?.refunds) ?? 'Nobody was owed a refund.'
-      }`,
-    )
+  }
+
+  /**
+   * The outcome of a night's cancellation was closed: stop drawing its dialog
+   * and move focus to the night, whose heading says it is cancelled.
+   *
+   * @param {object} session The night.
+   * @returns {void}
+   */
+  function cancelOutcomeClosed(session) {
+    setCancellations((current) => ({
+      ...current,
+      [session.id]: { ...current[session.id], shown: false },
+    }))
+    focusAfterRender(() => document.getElementById(nightHeadingId(session)))
+  }
+
+  /**
+   * The id of a night's heading.
+   *
+   * @param {object} session The night.
+   * @returns {string} The id.
+   */
+  function nightHeadingId(session) {
+    return `${id}-night-${session.id}`
   }
 
   /**
@@ -369,7 +419,8 @@ export function EventSessionsEditor({
           {sessions.map((session, index) => {
             const usage = usageLine(session)
             const zones = session.priceZones ?? []
-            const cancelled = session.status === 'CANCELLED'
+            const cancellation = cancellations[session.id] ?? null
+            const cancelled = session.status === 'CANCELLED' || cancellation !== null
             // A night of a live event that people hold tickets for cannot be
             // removed; it can be cancelled, which refunds them.
             const cancellable =
@@ -381,7 +432,11 @@ export function EventSessionsEditor({
                   <CardBody>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-medium text-ink">
+                        <h3
+                          id={nightHeadingId(session)}
+                          tabIndex={-1}
+                          className="font-medium text-ink focus-visible:outline-none"
+                        >
                           {session.label || `Session ${index + 1}`}{' '}
                           {cancelled ? (
                             <Badge variant="danger" srLabel="State:">
@@ -481,13 +536,15 @@ export function EventSessionsEditor({
                       </p>
                     ) : null}
 
-                    {cancellable && editing !== session.id ? (
+                    {cancellation?.shown || (cancellable && editing !== session.id) ? (
                       <div className="mt-3">
                         <CancelSessionDialog
                           eventId={event.id}
                           session={session}
                           timeZone={session.timezone ?? event.timezone}
-                          onCancelled={nightCancelled}
+                          outcome={cancellation?.result ?? null}
+                          onCancelled={(result) => nightCancelled(session, result)}
+                          onClosed={() => cancelOutcomeClosed(session)}
                         />
                       </div>
                     ) : null}

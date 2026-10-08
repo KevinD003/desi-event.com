@@ -17,10 +17,18 @@
  * (EVENT_CANCEL). An inline region: focus to its heading on opening, back to
  * the opener on cancelling, every message polite.
  *
+ * Once the night is cancelled the region keeps saying so, with focus on that
+ * outcome, until the person closes it; the owner keeps it drawn for that long
+ * even though the night is no longer one that can be cancelled, and moves
+ * focus when it closes (`onClosed`). A cancelled night offers no opener again.
+ * The owner hands the outcome back (`outcome`) when it draws the region afresh,
+ * having taken it away while the cancellation was on its way, so what happened
+ * is said, and focused, all the same.
+ *
  * @module components/cancel-session-dialog
  */
 
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { ControlReasonField } from './control-reason-field.jsx'
 import { useFocusAfterRender } from './focus-after-render.jsx'
@@ -40,7 +48,11 @@ import { sessionDisplayLabel } from '../lib/sessions.js'
  * @property {string} eventId The event.
  * @property {{id: string, startsAt: string, label?: string|null, timezone?: string}} session The night.
  * @property {string} [timeZone] The event's zone, to read the night in.
+ * @property {{session: object, refunds: object|null}|null} [outcome] What cancelling the night
+ *   answered, when it is already cancelled: the region opens on it.
  * @property {Function} onCancelled Given `{ session, refunds }` once the night is cancelled.
+ * @property {Function} [onClosed] Called when the person closes the outcome of a cancellation;
+ *   the dialog then draws nothing, so the owner moves focus.
  */
 
 /**
@@ -49,13 +61,22 @@ import { sessionDisplayLabel } from '../lib/sessions.js'
  * @param {CancelSessionDialogProps} props Component props.
  * @returns {JSX.Element} The control.
  */
-export function CancelSessionDialog({ eventId, session, timeZone, onCancelled }) {
+export function CancelSessionDialog({
+  eventId,
+  session,
+  timeZone,
+  outcome = null,
+  onCancelled,
+  onClosed,
+}) {
   const id = useId()
   const openerRef = useRef(null)
   const headingRef = useRef(null)
   const summaryRef = useRef(null)
+  const resultRef = useRef(null)
+  const openedOnOutcome = useRef(Boolean(outcome))
   const focusAfterRender = useFocusAfterRender()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(Boolean(outcome))
   const [preview, setPreview] = useState(null)
   const [readFailure, setReadFailure] = useState(null)
   const [changedNote, setChangedNote] = useState(null)
@@ -65,10 +86,16 @@ export function CancelSessionDialog({ eventId, session, timeZone, onCancelled })
   const [refusal, setRefusal] = useState(null)
   const [stepUp, setStepUp] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState(null)
+  const [result, setResult] = useState(outcome)
   const night = sessionDisplayLabel(session, { timeZone })
   const errors = Object.fromEntries(problems.map((problem) => [problem.field, problem.message]))
   const base = `/v1/events/${encodeURIComponent(eventId)}/sessions/${encodeURIComponent(session.id)}`
+
+  // Opened on an outcome: what had focus went with the region it replaces, so
+  // focus goes to what happened, as it does when the answer arrives here.
+  useEffect(() => {
+    if (openedOnOutcome.current) resultRef.current?.focus()
+  }, [])
 
   /**
    * Ask the server what cancelling the night would do now.
@@ -143,6 +170,9 @@ export function CancelSessionDialog({ eventId, session, timeZone, onCancelled })
 
       if (response.ok && body?.data) {
         setResult(body.data)
+        // The form, and the button that had focus, are gone: focus goes to
+        // what happened, which stays until the person closes it.
+        focusAfterRender(resultRef)
         onCancelled?.(body.data)
         return
       }
@@ -175,6 +205,9 @@ export function CancelSessionDialog({ eventId, session, timeZone, onCancelled })
   }
 
   if (!open) {
+    // Closed after cancelling: the night is cancelled, so nothing to offer.
+    if (result) return null
+
     return (
       <Button
         ref={openerRef}
@@ -213,7 +246,7 @@ export function CancelSessionDialog({ eventId, session, timeZone, onCancelled })
       </h4>
 
       <p role="status" aria-live="polite" className="text-sm font-medium text-ink">
-        {!preview && !readFailure ? 'Reading what cancelling this night would do…' : ''}
+        {!preview && !readFailure && !result ? 'Reading what cancelling this night would do…' : ''}
         {busy ? 'Cancelling the night and refunding its orders…' : ''}
       </p>
 
@@ -230,12 +263,24 @@ export function CancelSessionDialog({ eventId, session, timeZone, onCancelled })
       ) : null}
 
       {result ? (
-        <Alert variant="success" title="Night cancelled">
-          <p>
-            Its tickets no longer work at the door.{' '}
-            {refundSummarySentence(result.refunds) ?? 'Nobody was owed a refund.'}
-          </p>
-        </Alert>
+        <div ref={resultRef} tabIndex={-1} className="space-y-3 focus-visible:outline-none">
+          <Alert variant="success" title="Night cancelled">
+            <p>
+              Its tickets no longer work at the door.{' '}
+              {refundSummarySentence(result.refunds) ?? 'Nobody was owed a refund.'}
+            </p>
+          </Alert>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setOpen(false)
+              onClosed?.()
+            }}
+          >
+            Close
+          </Button>
+        </div>
       ) : null}
 
       {preview && !result && preview.refusal ? (
