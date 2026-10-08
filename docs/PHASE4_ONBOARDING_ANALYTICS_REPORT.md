@@ -1,12 +1,17 @@
 # Phase 4 onboarding, analytics, full control and import report
 
-- **Date:** 2026-10-06
+- **Date:** 2026-10-08
 - **Branch:** `claude/phase4-frontend-ui-ux-completion`
 - **Base:** `5eb42f4` and the fixes after it (`edbc3ea`, `340dcfa`, `efd3527`).
   This work is in the commits from `26f5b77` (the mail provider packages)
-  through `92600b3` (guards for full control and the importer), then the
-  integration stage recorded here: the limitations page, the documents, the
-  development seed's demonstration data and the full set of checks.
+  through `a892956`. The features run to `92600b3` (guards for full control and
+  the importer); `176e895` is the integration stage (the limitations page, the
+  documents and the development seed's demonstration data). After it came the
+  browser journeys (`20e2915`), the fixes from the whole-build review
+  (`9caacba`), two test-reliability fixes (`ec0c909`), search speed (`4a01f61`),
+  "try again" instead of a failure for commands that wait on a busy event, with
+  four database indexes (`8d37320`), and a cancelled night's confirmation that
+  stays on screen until it is closed (`a892956`).
 - **Payment mode:** `PAYMENT_MODE=MOCK` throughout. No real payment, card
   capture, Connect onboarding, refund or payout happens anywhere in this work.
   Every refund it mentions is simulated.
@@ -16,9 +21,10 @@
 This report is written for the site's owner. It says what each of your three
 requests became, what a published event can still change without another
 review, what this build cannot do honestly, what was not built, what needs your
-own accounts or machines, and the decisions taken for you, each of which can be
-reversed. The limitations page (`/limitations`) mirrors the §Limitations table
-below word for word; `apps/web/src/lib/limitations.js` cites this section.
+own accounts or machines, the decisions taken for you, each of which can be
+reversed, and what was found and fixed after this report's first version. The
+limitations page (`/limitations`) mirrors the §Limitations table below word for
+word; `apps/web/src/lib/limitations.js` cites this section.
 
 Historical reports are not rewritten. Where this report and
 [`PHASE4_FEATURE_COMPLETION_REPORT.md`](PHASE4_FEATURE_COMPLETION_REPORT.md)
@@ -288,7 +294,9 @@ can edit or delete any posted event.
 - **Large refunds may take more than one pass.** Refunds for a deleted event or
   a cancelled night are sent while the page waits: 500 at a time here
   (simulated), 25 at a time with a real provider. Any left over are sent with
-  "Finish refunds".
+  "Finish refunds", and so is a refund whose order stayed busy with another
+  change (a checkout, or finance at the refund screen) for longer than it could
+  wait: it is left owed, with nothing of it half-written.
 - **A ticket valid for every night is not partly refunded** when one night is
   cancelled. Its holder is told, and the organiser can refund it by hand.
 - **A deleted event is kept, not erased.** Reasons people type are kept as
@@ -304,8 +312,10 @@ can edit or delete any posted event.
   in the same format, so other states can be added by collecting them the same
   way.
 - **Sulekha gives no end time for 43 of the 45 events.** Those pages show only a
-  start time; the database stores an estimate (start plus three hours) that is
-  never shown.
+  start time. The database stores an estimate (start plus three hours), which
+  public pages never show; the editing screens show it marked "Not listed by
+  Sulekha (estimate for scheduling)". Once an editor sets a real end time, the
+  page shows it; moving the whole night keeps the end an estimate.
 - **Pictures for imported events need direct internet access to Sulekha's
   picture server.** This build's own environment has none, so its imported
   events show generated posters until "Retry pictures" runs somewhere that can
@@ -324,16 +334,34 @@ can edit or delete any posted event.
   2 MiB only.** A file just under that size can still be too large once stored;
   the server refuses it with a 422 and the reason, and the form shows that
   reason.
-- **Whether a deleted event's pictures are ever purged is left open.** They stop
-  counting towards the organisation's 1 GiB picture allowance. An organiser who
-  deletes unsold events and uploads again could therefore keep growing what is
-  stored; a purge window or a separate cap would close that, and neither exists.
+- **A purge of long-deleted events' pictures is not built.** A deleted event's
+  pictures are kept for a restore and stop counting towards the organisation's
+  1 GiB picture allowance. A second ceiling counts everything the organisation
+  holds, deleted events included: 2 GiB in all. Past it, an upload is refused
+  with a sentence telling the organiser to remove pictures from past events, or
+  to ask the Desi-Event team to restore a deleted event and then remove its
+  pictures, so deleting events and uploading again cannot grow storage without
+  end.
 - **The optional rule "a reviewer may not review organisers they invited" is
   not built**; it was offered as an option and left off.
-- **The browser journeys for this work have not been run.** The two browser
-  specs that check the limitations page were updated to its new list, but no
-  Playwright suite was run in this stage, and the whole-build review of this
-  work happens after it. Their results belong to those stages' reports.
+- **After an imported event is moved to a real organiser, its terms still point
+  to Sulekha.** Its refund terms still say tickets are sold on Sulekha, and its
+  entry terms still send people to the Sulekha listing. The move does not
+  change the terms; the new owner can edit them.
+- **A night's cancellation and a refund of the same order settling at the same
+  moment can deadlock.** The database then stops one of the two with nothing
+  half-written, and that one has to be tried again; a canceller is told to try
+  again. This was found by reading the code; no test has forced it.
+- **An order can stay marked paid after being refunded in full.** When a
+  night's cancellation refunds an order but keeps its free ticket for another
+  night, the order stays paid so that ticket still admits. If that ticket is
+  later withdrawn too (its own night cancelled), the whole order is recorded as
+  refunded (simulated here), but it is still marked paid.
+- **The ceiling of 3,000 visit records a minute for one event counts repeats
+  too.** On each server process, a repeat that the database then turns away as
+  already counted still takes a place under that ceiling, so in a minute that
+  busy some new visitors can go uncounted. The website link's own per-minute
+  limit gives such places back; this ceiling does not.
 
 ## What needs your accounts or your machines
 
@@ -526,28 +554,153 @@ sentence or two to change.
 
 ---
 
+## Found and fixed after the first version of this report
+
+After the first version, the browser journeys were run (`20e2915`) and seven
+independent reviews went through the whole of this work: onboarding, the
+website link, visit figures, privacy and security, full control with refunds,
+imports, and the tests' reliability. They found 30 faults, and all are fixed
+(`9caacba`); every fault in the code is fixed with a test that fails without the
+fix. What matters to you:
+
+- **Money: cancelling a night.** A night could not be cancelled at all if one
+  of its orders had earlier been given a partial refund of a set amount; it now
+  refunds what is left of those tickets, and the preview shows the same amount.
+  Cancelling a night no longer withdraws the same order's free tickets for
+  other nights, and a refund settling at the same moment can no longer leave
+  one of the night's paid tickets withdrawn but unrefunded (every refund here is
+  simulated).
+- **Limits.** The limit of three emailed codes a day to one address, for team
+  invitations and ticket transfers when email is switched on, could be passed
+  by sending many at once; it now holds however many are sent together. The
+  website link's per-minute limit now counts only the visits it recorded, so
+  repeated clicks cannot use it up, and the pictures an organisation holds,
+  deleted events' included, now stop at 2 GiB in all (see "Not built, and found
+  while building").
+- **Privacy.** Erasing a person through the privacy process now also removes
+  their address and the private note from the organiser invitations sent to
+  them. An erasure is held back while an invitation to that address is still
+  waiting to be accepted, and an invitation whose address was erased cannot be
+  reissued.
+- **Import details.** An imported night's real end time, once an editor sets
+  one, now appears on the event page, and the editing screens mark the
+  estimate. Approving an event that a second administrator re-imported now
+  records the right importer, a super administrator who only resubmitted an
+  imported event can no longer approve it as its importer, `pnpm import:events`
+  refuses a suspended account, and public price names leave out Sulekha's sales
+  dates and urgency wording ("Early Bird (Ends on 10/9)" reads "Early Bird").
+- **Visit figures.** With no start date chosen, the default on `/analytics`,
+  the visit-to-order figures counted orders paid before visit counting began;
+  they now start on the first counted day. Day labels on charts and tables carry
+  the year when a period runs into a second year.
+- **Reliability.** Text with a broken character (a lone UTF-16 surrogate), a
+  revision number too large to store, or a date in the year 0 made some requests
+  fail with a server error; they are now refused with a reason, and nothing is
+  written. A deleted event's review page offered website-link controls that
+  could never work; it now says the switch is kept as it was.
+- **The tests themselves.** Several unit tests depended on the date and would
+  have made every CI run fail from 10 October 2026, and the development server
+  behind the browser suites sometimes started with pages missing; the tests now
+  freeze the clock at a set moment, and a patch used only by that development
+  server, with a check of its pages before any test, closes the second. Three
+  dependency advisories (sharp, fastify and source-map-js) were closed by
+  updates within the ranges their packages allow.
+
+**What the browser journeys found** (fixed in `20e2915`, not among the 30).
+Confirming the second-factor prompt on the invitation and move forms reloaded
+the page instead of finishing the action, some pages scrolled sideways on a
+320-pixel screen, the import plan could not be reached by keyboard, some links
+were smaller than the 24-pixel target, the outcome of moving or restoring an
+event vanished when the page refreshed, a gallery picture added to a posted
+event said "Waiting for review" while the new cover beside it said "Waiting for
+approval", and a dialog opened by a button pressed just as its page finished
+loading could leave the keyboard focus behind on the page; each is fixed with a
+test.
+
+The commits after the review changed four more things:
+
+- **A busy event answers "try again" instead of failing** (`8d37320`).
+  Cancelling a night while a deletion of the same event was being saved failed
+  with a server error after 13 seconds. Deleting, restoring, cancelling a night,
+  sending refunds, opening or closing an editing session, the website switch,
+  picture decisions and imports now wait a bounded time and, if it runs out,
+  keep nothing of what they were saving at that moment and answer 503 asking
+  you to try again in a moment (a pass of refunds keeps every refund it had
+  already sent); in a batch only the item that ran out is refused, and a refund
+  is left owed for the next pass.
+- **Search speed** (`4a01f61`). Public search had slowed past its half-second
+  budget as the test catalogue grew, because a word naming many organisers or
+  venues stopped the database using its search index; such words now keep only
+  the matches that add something, with the same results. Three runs then
+  measured 365 to 408 ms at the 95th percentile, and browsing 245 ms against its
+  400 ms budget.
+- **Database indexes** (`8d37320`, migration
+  `20261008090000_foreign_key_indexes`). Four links between tables had no index
+  (order lines and hold lines to ticket types, orders and holds to nights), so
+  deleting a ticket type or a night, or finding a night's orders to cancel it,
+  read the whole table; they are now indexed.
+- **A cancelled night's confirmation stays** (`a892956`). The full browser run
+  on `8d37320` failed one journey: after a night was cancelled, the list of
+  nights was read again, and because that night could no longer be cancelled
+  its dialog disappeared, taking the "Night cancelled" confirmation and the
+  keyboard focus with it, so whether anyone saw the outcome depended on which
+  finished first. The confirmation now stays, with focus on it, until it is
+  closed, and focus then moves to the night; the outcome is announced once;
+  and from the moment the cancellation answers, the night offers nothing more
+  to edit, prepare or cancel.
+
 ## Verification
 
-From the integration stage's runs on 2026-10-06 and its verification on
-2026-10-07, each against a freshly migrated private PostgreSQL database with
-`REQUIRE_DATABASE=1`. No browser suite was run.
+The full local gate on `a892956`, run on 2026-10-08 on a clean tree; every
+step exited 0.
 
-| Check                                            | Result                                                                                                                                                                              |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm manifest:emit`, `pnpm openapi:emit`        | 193 routes, 193 operations; the committed files did not change                                                                                                                      |
-| `pnpm contract:check`                            | Valid: 193 routes, 193 OpenAPI operations, 173 paths; `openapi.json` up to date                                                                                                     |
-| `pnpm policy:check`, `ci:check`                  | Pass; 34 browser specs each collected by exactly one of 7 CI jobs                                                                                                                   |
-| `pnpm secrets:scan`                              | Pass, nothing credential-shaped                                                                                                                                                     |
-| `pnpm format:check`, `pnpm lint`                 | Pass                                                                                                                                                                                |
-| `pnpm verify:tests:fresh`                        | 12,308 cases in 524 files across 16 packages, none failed or skipped; `apps/api` 3,338 (its whole suite, on PostgreSQL), `apps/web` 3,875, `apps/worker` 361, `packages/db` 210     |
-| `pnpm test:coverage`, every package at once      | All 18 tasks pass and every threshold holds; `apps/api` 92.62 % statements, 83.39 % branches, 97.33 % functions, 94.92 % lines against floors of 80, 75, 80 and 80                  |
-| `pnpm db:verify:fresh`, `db:verify:upgrade`      | 211 of 211 checks, and 71 of 71                                                                                                                                                     |
-| `pnpm --filter @desi-event/web build`            | Pass                                                                                                                                                                                |
-| `pnpm bundle:scan`                               | Pass: 731 browser-deliverable files, nothing server-only                                                                                                                            |
-| Development seed, run twice on an empty database | Same row counts both times; the deleted event's row, its ticket type and its history entry byte-for-byte unchanged by the second run; after a restore, a third run deleted it again |
+| Check                                       | Result                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stale-cache check                           | Pass                                                                                                                                                                                                                                                                                                                                                                         |
+| `pnpm verify:tests:fresh`                   | 12,519 cases in 530 files across 16 packages, none failed or skipped: `apps/api` 3,413 in 152 files (its whole suite, on PostgreSQL), `apps/web` 3,972 in 239 files, `apps/worker` 362, `packages/db` 212, schemas 1,559, permissions 804, providers 510, config 398, auth 362, inventory 296, api-contract 221, ui 126, pricing 116, logger 78, notifications 57, ledger 33 |
+| `pnpm contract:check`                       | Valid: 193 routes, 193 OpenAPI operations, 173 paths; `openapi.json` up to date                                                                                                                                                                                                                                                                                              |
+| `pnpm manifest:emit`, `pnpm openapi:emit`   | The committed files did not change                                                                                                                                                                                                                                                                                                                                           |
+| `pnpm test:coverage`, every package at once | All 18 tasks pass and every threshold holds; `apps/api` 92.81 % statements, 83.78 % branches, 97.43 % functions, 95.11 % lines against floors of 80, 75, 80 and 80                                                                                                                                                                                                           |
+| `pnpm db:verify:fresh`, `db:verify:upgrade` | 211 of 211 checks, and 72 of 72                                                                                                                                                                                                                                                                                                                                              |
+| `pnpm bundle:scan`                          | Pass: 733 browser-deliverable files, nothing server-only                                                                                                                                                                                                                                                                                                                     |
+| Dependency audit                            | No known vulnerabilities                                                                                                                                                                                                                                                                                                                                                     |
+| Production payment kill switch              | Its test passes                                                                                                                                                                                                                                                                                                                                                              |
+| Reliability                                 | The smoke run passes, and the suite passes 11 of 11 scenarios                                                                                                                                                                                                                                                                                                                |
+| `pnpm skips:check`                          | Pass: no skipped tests                                                                                                                                                                                                                                                                                                                                                       |
+| `pnpm ci:check`                             | Pass: 39 browser specs, each collected by exactly one of 7 CI browser jobs; the 6 configs that start `next dev` do so through `apps/web/e2e/support/next-dev.mjs`, with their routes proved before any test                                                                                                                                                                  |
 
-Two faults were found and fixed while running these, each with a test that
-failed before the fix:
+The browser journeys for this work have been run. New journeys cover
+invitation-only onboarding, the website switch and its counted link,
+organisers' and administrators' visit figures, deleting, restoring and
+cancelling nights of posted events, and the Sulekha import; the accessibility
+sweep covers every new screen at four widths and at 200% zoom. What they found
+is under "Found and fixed after the first version of this report".
+
+The browser suites on `a892956`, each on fresh databases as CI runs them, with
+nothing unexpected, flaky or skipped in any:
+
+| Suite                                | Passed     |
+| ------------------------------------ | ---------- |
+| default                              | 119 of 119 |
+| production                           | 19 of 19   |
+| organizer                            | 13 of 13   |
+| events                               | 30 of 30   |
+| refusals                             | 4 of 4     |
+| sweep (accessibility and responsive) | 159 of 159 |
+| detail                               | 221 of 221 |
+
+On `8d37320` the same suites passed except detail, where the night
+cancellation journey failed and the six journeys after it in the same file did
+not run; that failure is the one `a892956` fixes. GitHub's CI had not run on
+`a892956` when this was written.
+
+The development seed was run twice on an empty database at the integration
+stage: the same row counts both times; the deleted event's row, its ticket type
+and its history entry byte-for-byte unchanged by the second run; and after a
+restore, a third run deleted it again. The seed has not changed since.
+
+The integration stage's runs (2026-10-06 and 2026-10-07) found two faults, each
+fixed then with a test that failed before the fix:
 
 - **The worker's outbox tests took other suites' messages.** Every package's
   tests share one database, at once in `verify:tests:fresh` and
@@ -563,8 +716,21 @@ failed before the fix:
   pass, it put two nights on one date (or every night a day late), and two
   sample-data tests failed at that hour. It now adds calendar days.
 
-The first of the two coverage runs also had two `apps/web` cases exceed
-Vitest's default five-second limit while all eighteen packages ran at once on
-four cores; both passed in the second run and in `verify:tests:fresh`. Unlike
-the Node packages, which allow thirty seconds, the web suite keeps that
-default, so the same can happen on a busy CI runner.
+In the first of that stage's two coverage runs, two `apps/web` cases went over
+Vitest's default five-second limit while all eighteen coverage tasks ran at
+once on four cores. The final review found why: one drew two lists of every
+time zone and typed a reason a key at a time, and the other drew the full
+twelve-card event listing twice to check one sentence. Both now draw less
+(`9caacba`): the first uses a short zone list for that case and pastes the
+reason, taking 395–427 ms instead of 1352–1710 ms; the events page's test draws
+one card, 247–258 ms instead of 1189–1517 ms, and the same test on the home page
+takes 381–415 ms instead of 1020–1209 ms. No time limit was raised: the web
+suite keeps Vitest's five-second default.
+
+After the review, running the gate on a busy machine showed two real-PostgreSQL
+suites depending on other runs or on load: one collided with rows an earlier
+run had left in a shared database, and one fixture's transaction ran past
+Prisma's five-second limit while orders queued on the same tiers. Both are fixed
+(`ec0c909`). The four missing indexes above were found the same way, when
+deletes in a database test read whole tables and stalled the suites running
+beside it (`8d37320`).
