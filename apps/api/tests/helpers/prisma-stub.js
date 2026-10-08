@@ -2092,11 +2092,12 @@ export function createPrismaStub(seed = {}) {
       },
       /**
        * `groupBy`, supporting the shapes the API uses: group by columns, then
-       * count and sum; order by a grouped column or by a sum; and page with
-       * `skip` and `take`. Enough for the device list and the visit totals, and
-       * deliberately not a general implementation — a stub that pretends to
-       * support more of the query language than it does is worse than one that
-       * throws.
+       * count and sum, or nothing (the distinct combinations alone, as the
+       * search asks which venues and organisers add an event); order by a
+       * grouped column or by a sum; and page with `skip` and `take`. Enough for
+       * the device list, the visit totals and the search, and deliberately not
+       * a general implementation — a stub that pretends to support more of the
+       * query language than it does is worse than one that throws.
        *
        * A sum over a group whose values are all null is null, as Prisma
        * returns it; callers write `?? 0`.
@@ -2108,9 +2109,6 @@ export function createPrismaStub(seed = {}) {
         const by = toArray(args.by)
 
         if (by.length === 0) throw new Error('groupBy needs at least one column')
-        if (!args._count && !args._sum) {
-          throw new Error('the stub only implements groupBy with _count or _sum')
-        }
 
         for (const key of Object.keys(args)) {
           if (['by', 'where', '_count', '_sum', 'orderBy', 'skip', 'take'].includes(key)) continue

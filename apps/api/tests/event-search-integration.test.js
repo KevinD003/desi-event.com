@@ -457,3 +457,158 @@ describe('what a visitor types is matched character for character, never as a pa
     expect(await venues('city=SnakeXtown')).toEqual([LOOSE])
   })
 })
+
+describe('a word that names many venues and organisers', () => {
+  // "night" named 416 organisers on the shared test catalogue ("Nine Nights …"),
+  // each of whose only event already says "night". Carrying all 416 ids in the
+  // search's OR moved PostgreSQL from the trigram bitmap scan to reading every
+  // event, for the page and the count alike. The resolution keeps only the
+  // venues and organisers that add an event the word's own-text match misses.
+  //
+  // The word has an underscore so the check that drops them is shown to read
+  // it literally: "ZephyrXquill" is what an unescaped `_` would also match.
+  const PRUNE = 'prunetest'
+  const WORD = 'zephyr_quill'
+  const COPIES = 55
+
+  let societyId = null
+  let keptVenueId = null
+
+  /**
+   * The suite's events a search finds, through the resolved ids or through the
+   * relations.
+   *
+   * @param {object} search What `resolveSearchTerms` returned, or [] for the relations.
+   * @returns {Promise<string[]>} The slugs, sorted.
+   */
+  async function found(search) {
+    const query = listEventsQuerySchema.parse({ q: WORD, perPage: '100' })
+    const { where } = buildEventQuery(query, null, { search })
+    const rows = await prisma.event.findMany({
+      where: { AND: [where, { slug: { startsWith: `${PRUNE}-` } }] },
+      select: { slug: true },
+    })
+
+    return rows.map((row) => row.slug).sort()
+  }
+
+  /**
+   * Remove everything this block created, whatever an earlier run left.
+   *
+   * @returns {Promise<void>} Resolves when gone.
+   */
+  async function clean() {
+    await prisma.event.deleteMany({ where: { slug: { startsWith: `${PRUNE}-` } } })
+    await prisma.venue.deleteMany({ where: { slug: { startsWith: `${PRUNE}-` } } })
+    await prisma.organization.deleteMany({ where: { slug: { startsWith: `${PRUNE}-` } } })
+  }
+
+  beforeAll(async () => {
+    if (!reachable) return
+
+    await clean()
+
+    const at = new Date('2031-11-01T00:00:00.000Z').getTime()
+    const event = (slug, title, organizationId, venueId) => ({
+      slug,
+      title,
+      organizationId,
+      venueId,
+      isOnline: venueId === null,
+      summary: 'Fixture',
+      description: 'Fixture event for the search resolution.',
+      category: 'CULTURAL_FESTIVAL',
+      status: 'PUBLISHED',
+      startsAt: new Date(at),
+      endsAt: new Date(at + 7_200_000),
+      publishedAt: new Date(at),
+    })
+
+    // Organisers named after the word whose events say it themselves, and one
+    // whose event does not: only that one adds anything to the search.
+    const circles = await prisma.organization.createManyAndReturn({
+      data: Array.from({ length: COPIES }, (_, index) => ({
+        name: `Zephyr_quill Circle ${index}`,
+        slug: `${PRUNE}-circle-${index}`,
+        contactEmail: 'prune@example.com',
+      })),
+      select: { id: true },
+    })
+    const society = await prisma.organization.create({
+      data: {
+        name: 'Zephyr_quill Society',
+        slug: `${PRUNE}-society`,
+        contactEmail: 'prune@example.com',
+      },
+    })
+    const hosts = await prisma.organization.create({
+      data: {
+        name: 'Lanternfold Hosts',
+        slug: `${PRUNE}-hosts`,
+        contactEmail: 'prune@example.com',
+      },
+    })
+
+    // The same for venues, all hosted by an organiser the word does not name.
+    const grounds = await prisma.venue.createManyAndReturn({
+      data: Array.from({ length: COPIES + 1 }, (_, index) => ({
+        name: 'Zephyr_quill Ground',
+        slug: `${PRUNE}-ground-${index}`,
+        addressLine1: `${index} Quill Lane`,
+        city: 'Lanternfold',
+        region: 'TX',
+        postalCode: '77002',
+        country: 'US',
+      })),
+      select: { id: true, slug: true },
+    })
+    const kept = grounds.find((ground) => ground.slug === `${PRUNE}-ground-${COPIES}`)
+
+    societyId = society.id
+    keptVenueId = kept.id
+
+    await prisma.event.createMany({
+      data: [
+        ...circles.map((circle, index) =>
+          event(`${PRUNE}-circle-${index}`, `Zephyr_quill Night ${index}`, circle.id, null),
+        ),
+        event(`${PRUNE}-society-harvest`, 'ZephyrXquill Harvest', society.id, null),
+        ...grounds
+          .filter((ground) => ground.id !== kept.id)
+          .map((ground, index) =>
+            event(`${PRUNE}-ground-${index}`, `Zephyr_quill Evening ${index}`, hosts.id, ground.id),
+          ),
+        event(`${PRUNE}-ground-mela`, 'ZephyrXquill Mela', hosts.id, kept.id),
+      ],
+    })
+  }, 120_000)
+
+  afterAll(async () => {
+    if (prisma && reachable) await clean()
+  })
+
+  it('keeps only the venues and organisers that add an event the own-text match misses', async () => {
+    if (!reachable) return
+
+    const [resolved] = await resolveSearchTerms(prisma, WORD)
+
+    // 56 organisers and 56 venues are named after the word; one of each adds
+    // an event, and an unescaped `_` would have counted "ZephyrXquill" as
+    // saying it and dropped them too.
+    expect(resolved.organizationIds).toEqual([societyId])
+    expect(resolved.venueIds).toEqual([keptVenueId])
+  })
+
+  it('finds the same events through the kept ids as through the relations', async () => {
+    if (!reachable) return
+
+    const throughIds = await found(await resolveSearchTerms(prisma, WORD))
+
+    expect(throughIds).toEqual(await found([]))
+    // Every event that says the word, and the two found only by their
+    // organiser's or their venue's name.
+    expect(throughIds).toHaveLength(2 * COPIES + 2)
+    expect(throughIds).toContain(`${PRUNE}-society-harvest`)
+    expect(throughIds).toContain(`${PRUNE}-ground-mela`)
+  })
+})

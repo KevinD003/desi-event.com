@@ -247,6 +247,16 @@ const MAX_SEARCH_TERMS = 8
 const MAX_RESOLVED_IDS = 1000
 
 /**
+ * From how many venues or organisers a word's list is checked for the ones
+ * that add an event (see {@link contributingIds}).
+ *
+ * A list this short never moved PostgreSQL's plan in measurement — with 74
+ * organiser ids "night" kept its trigram bitmap scan; with 150 it read every
+ * event — and checking it would cost a round trip for nothing.
+ */
+const CONTRIBUTION_CHECK_FROM = 50
+
+/**
  * Split a free-text search into the words that must each match.
  *
  * @param {string|undefined} q The validated, trimmed query.
@@ -261,8 +271,8 @@ export function searchTerms(q) {
 /**
  * @typedef {object} ResolvedTerm
  * @property {string} term The word.
- * @property {string[]|null} venueIds Venues whose name or city holds it, or null when too many to list.
- * @property {string[]|null} organizationIds Organisers whose name holds it, or null when too many to list.
+ * @property {string[]|null} venueIds Venues whose name or city holds it and that add an event to the search, or null when too many to list.
+ * @property {string[]|null} organizationIds Organisers whose name holds it and that add an event to the search, or null when too many to list.
  */
 
 /**
@@ -272,6 +282,10 @@ export function searchTerms(q) {
  * first and filtering events by id keeps a search as fast as one over the
  * event's own text; asking Postgres to reach through both relations inside
  * the same OR more than doubled it under load.
+ *
+ * A long list is then cut to the venues and organisers that add an event the
+ * word's own-text match does not already find ({@link contributingIds}), so a
+ * common word does not carry hundreds of ids that change nothing.
  *
  * @param {object} prisma The Prisma client.
  * @param {string|undefined} q The validated, trimmed query.
@@ -294,14 +308,63 @@ export async function resolveSearchTerms(prisma, q) {
         }),
       ])
 
-      return {
-        term,
-        venueIds: venues.length > MAX_RESOLVED_IDS ? null : venues.map((row) => row.id),
-        organizationIds:
-          organizations.length > MAX_RESOLVED_IDS ? null : organizations.map((row) => row.id),
+      // The word in the event's own text: the branch of the search that no
+      // venue or organiser id is needed for.
+      const ownText = {
+        OR: [{ title: contains }, { summary: contains }, { description: contains }],
       }
+      const [venueIds, organizationIds] = await Promise.all([
+        contributingIds(prisma, 'venueId', venues, ownText),
+        contributingIds(prisma, 'organizationId', organizations, ownText),
+      ])
+
+      return { term, venueIds, organizationIds }
     }),
   )
+}
+
+/**
+ * The venues (or organisers) found by name that add an event to a search:
+ * those with at least one event, in any status, whose own text does not hold
+ * the word.
+ *
+ * The others change nothing. Every event of theirs is found by its own title,
+ * summary or description, so `venueId IN (…)` or `organizationId IN (…)` only
+ * repeats it — at a price. Each id is a bind parameter in the page and the
+ * count, and PostgreSQL costs a long id list as hundreds of index probes. On
+ * the shared test catalogue "night" names 416 organisers ("Nine Nights …",
+ * one more set per browser-suite seed), each of whose only event already says
+ * "night"; carrying those ids turned the page and the count from the trigram
+ * bitmap scan (29ms) into a scan of every event running ILIKE on each row
+ * (55-64ms), and the load suite's public search went over its budget on code
+ * that had passed it (efd3527 measures the same on today's catalogue).
+ *
+ * Exact, not a heuristic: an event of a dropped venue or organiser still
+ * matches the word through its own text. A list shorter than
+ * {@link CONTRIBUTION_CHECK_FROM} is kept as it is, and a list too long to
+ * hold becomes `null` as before, which filters through the relation.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {'venueId'|'organizationId'} column The event column the ids are matched on.
+ * @param {Array<{id: string}>} rows The venues or organisers whose name holds the word, at most {@link MAX_RESOLVED_IDS} + 1.
+ * @param {object} ownText The `where` fragment for the word in an event's own text.
+ * @returns {Promise<string[]|null>} The ids to search by, or null when too many to list.
+ */
+async function contributingIds(prisma, column, rows, ownText) {
+  if (rows.length > MAX_RESOLVED_IDS) return null
+
+  const ids = rows.map((row) => row.id)
+
+  if (ids.length < CONTRIBUTION_CHECK_FROM) return ids
+
+  // One row per venue or organiser that has such an event: an index probe per
+  // id, and the word tested against their events only.
+  const groups = await prisma.event.groupBy({
+    by: [column],
+    where: { [column]: { in: ids }, NOT: ownText },
+  })
+
+  return groups.map((group) => group[column])
 }
 
 /**
@@ -677,10 +740,30 @@ export function registerEventRoutes(app, { prisma, env }) {
         search,
       })
 
-      // The card's columns only, and the approved cover: see EVENT_SUMMARY_SELECT.
+      // The page's ids first, then the cards for those ids only: Prisma sends
+      // one statement per relation EVENT_SUMMARY_SELECT reads (five) even
+      // when the page is empty, so a search that found nothing cost seven
+      // statements and now costs one. The total needs its own count only when
+      // the page does not show where the list ends.
+      const page = await prisma.event.findMany({
+        where,
+        orderBy,
+        skip,
+        take,
+        select: { id: true },
+      })
+      const endsHere = page.length < take && (page.length > 0 || skip === 0)
       const [events, total] = await Promise.all([
-        prisma.event.findMany({ where, orderBy, skip, take, select: EVENT_SUMMARY_SELECT }),
-        prisma.event.count({ where }),
+        page.length === 0
+          ? []
+          : // Read back under the same filter, so an event that left the
+            // listing between the two reads is dropped rather than shown.
+            prisma.event.findMany({
+              where: { AND: [{ id: { in: page.map((row) => row.id) } }, where] },
+              orderBy,
+              select: EVENT_SUMMARY_SELECT,
+            }),
+        endsHere ? skip + page.length : prisma.event.count({ where }),
       ])
 
       return {

@@ -412,6 +412,35 @@ describe('GET /v1/events', () => {
     expect(second.data[0].slug).not.toBe(first.data[0].slug)
   })
 
+  it('tells the same total from a last page, a page past the end and an empty search', async () => {
+    const { app, prisma } = await createTestApp()
+    const count = prisma.event.count
+    let counted = 0
+
+    prisma.event.count = (args) => {
+      counted += 1
+
+      return count(args)
+    }
+
+    // A page that is not full shows where the list ends; a page past the end
+    // does not, and is counted. Either way the total is the listing's.
+    const last = await list(app, 'page=1&perPage=5')
+    const beyond = await list(app, 'page=2&perPage=5')
+    const nothing = await list(app, 'q=zzzznomatch')
+
+    expect(last.data).toHaveLength(2)
+    expect(last.pagination).toMatchObject({ total: 2, totalPages: 1, hasNextPage: false })
+    expect(beyond.data).toEqual([])
+    expect(beyond.pagination).toMatchObject({ total: 2, totalPages: 1, hasNextPage: false })
+    expect(nothing.data).toEqual([])
+    expect(nothing.pagination).toMatchObject({ total: 0, hasNextPage: false })
+    // Only the page past the end needed a count of its own.
+    expect(counted).toBe(1)
+
+    await app.close()
+  })
+
   it('sorts by the requested key', async () => {
     const { app } = await createTestApp()
 

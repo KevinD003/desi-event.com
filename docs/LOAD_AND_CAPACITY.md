@@ -159,6 +159,28 @@ Listings now load only the columns a card shows (`EVENT_SUMMARY_SELECT`). The
 response schema's time zone check, which built an `Intl.DateTimeFormat` for
 every card, now remembers the zones it has accepted.
 
+A week later the same scenario failed again, at p95 461-605ms on 27,695
+events, and the code was not the cause: efd3527, the commit that had passed
+it, measured the same (p95 548-607ms in the same in-process harness) on the
+same database. The shared test database had grown, and in one particular way.
+Each browser-suite seed adds organisers called "Nine Nights …" and venues
+called "Garba Ground": "night" now named 416 organisers (74 when efd3527 was
+measured) and "garba" 407 venues. Every one of those 416 organisers' events
+already says "night" in its own text, so their ids changed nothing in the
+search, but they were bind parameters in both the page and the count, and with
+more than about 150 of them PostgreSQL stopped using the trigram bitmap scan
+and read all 27,695 events, running ILIKE on each, for the page (64ms rather
+than 41ms) and the count (55ms rather than 29ms).
+
+The search now keeps, of a word's venues and organisers, only those with an
+event whose own text does not contain the word (`contributingIds` in
+`routes/events.js`); the others are found by the text branch already, so the
+result is the same. The listing also reads the page's ids first and the
+cards' columns and relations only for those ids: a search that finds nothing
+no longer sends Prisma's five relation queries, and the sort that ranks the
+whole catalogue carries ids rather than whole rows. Three runs then measured
+p95 388.7, 407.9 and 365.0ms (p50 57-66ms) against the unchanged 500ms budget.
+
 ---
 
 ## Why these numbers are not capacity
