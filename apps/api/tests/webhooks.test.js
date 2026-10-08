@@ -608,7 +608,10 @@ describe('what a stored payload carries', () => {
     expect(serialised).not.toContain('priya@example.com')
     expect(serialised).not.toContain('Priya Sharma')
     expect(serialised).not.toContain('12 Example Road')
-    expect(serialised).not.toContain('4242')
+    // As a JSON string, quoted: the bare digits can occur inside the event's
+    // `created` epoch seconds (1791424204 does), which says nothing about cards.
+    expect(serialised).not.toContain('"4242"')
+    expect(serialised).not.toContain('"last4"')
 
     await app.close()
   })

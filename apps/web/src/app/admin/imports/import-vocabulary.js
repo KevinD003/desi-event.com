@@ -170,6 +170,7 @@ const FAILURES = Object.freeze({
   MEDIA_QUOTA_EXCEEDED: 'The organisation’s picture allowance is used up.',
   NOT_EDITABLE: 'The event has moved on since, so the picture was not added.',
   NOT_PLATFORM_HELD: 'The event has been moved to an organiser, so the picture was not added.',
+  TRY_AGAIN: 'Another change to the event was being saved at the same moment. Copy it again.',
 })
 
 /**

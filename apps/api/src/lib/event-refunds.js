@@ -24,6 +24,12 @@
  * never makes hundreds of calls. The rest wait for `events.finishRefunds`. In
  * this build payments are simulated (PAYMENT_MODE=MOCK), so no money moves.
  *
+ * Each refund's own transactions wait behind whatever holds its order (a
+ * checkout, finance at the refund screen), so each has a budget and a bounded
+ * lock wait (`lib/transaction-budget.js`). One that runs out was rolled back
+ * whole: that refund is left as it was, still owed, and counted `waiting`, and
+ * the pass carries on with the next; nothing of it was half-written.
+ *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc namepath.
  *
  * @file @desi-event/api/lib/event-refunds
@@ -43,6 +49,7 @@ import {
   requestRefund,
   submitRefund,
 } from './refunds.js'
+import { TRANSACTION_BUDGETS, budgetedTransaction, isBudgetRefusal } from './transaction-budget.js'
 
 /** How many refunds one pass of the driver sends, by payment mode. */
 export const REFUND_DRIVER_BATCH = Object.freeze({ MOCK: 500, default: 25 })
@@ -64,6 +71,24 @@ export function eventRefundPrefix(eventId) {
 export function sessionRefundPrefix(sessionId) {
   return `session-cancelled:${sessionId}:`
 }
+
+/**
+ * What the sender of a pass is told when recording it ran out of time. Every
+ * refund the pass sent stands; the record of the pass is what was not saved.
+ */
+export const REFUND_PASS_OUT_OF_TIME_SENTENCE =
+  'Another change to this event’s orders was being saved at the same moment, so recording this pass of refunds ran out of time. Every refund it sent stands; try again in a moment to send the rest.'
+
+/**
+ * One step of one refund (repair, approval, replacement): a budget for the
+ * order's lock and its few writes. Its refusal is never shown: the driver
+ * counts the refund waiting and carries on ({@link isBudgetRefusal}).
+ */
+const REFUND_STEP = Object.freeze({
+  budget: TRANSACTION_BUDGETS.REFUND,
+  refusal:
+    'Another change to this order was being saved at the same moment, so this refund was left as it was. It is still owed.',
+})
 
 /**
  * The `where` that selects what an event (or one of its nights) still owes.
@@ -161,7 +186,7 @@ function isRefusal(error) {
  * @returns {Promise<object|null>} The APPROVED refund to send, or null when nothing is left to send.
  */
 async function approveOwed(prisma, refund, { actorId, requestId, via, now }) {
-  const repaired = await prisma.$transaction((tx) =>
+  const repaired = await budgetedTransaction(prisma, REFUND_STEP, (tx) =>
     repairUnreservedRefund(tx, { refund, actorId, requestId, now }),
   )
 
@@ -172,7 +197,7 @@ async function approveOwed(prisma, refund, { actorId, requestId, via, now }) {
   if (target.status === REFUND_STATES.APPROVED) return target
 
   try {
-    await prisma.$transaction(async (tx) =>
+    await budgetedTransaction(prisma, REFUND_STEP, async (tx) =>
       approveRefund(tx, {
         refund: target,
         order: await tx.order.findUnique({ where: { id: target.orderId } }),
@@ -187,7 +212,7 @@ async function approveOwed(prisma, refund, { actorId, requestId, via, now }) {
 
     // Another refund took part of the order since this one failed. Withdraw
     // it and ask for whatever is left under a new key, as finance would.
-    const replacement = await prisma.$transaction(async (tx) => {
+    const replacement = await budgetedTransaction(prisma, REFUND_STEP, async (tx) => {
       const order = await tx.order.findUnique({ where: { id: target.orderId } })
 
       await cancelRefund(tx, {
@@ -325,6 +350,11 @@ export async function refundOwed(prisma, options) {
         continue
       }
 
+      // Its order was held past the lock wait, or a step ran past its
+      // budget: rolled back whole, still owed, counted waiting. The next
+      // pass (or `events.finishRefunds`) sends it.
+      if (isBudgetRefusal(error)) continue
+
       if (!isRefusal(error)) throw error
 
       failed += 1
@@ -342,7 +372,12 @@ export async function refundOwed(prisma, options) {
   }
 
   // After the provider calls, in a transaction of its own: what this pass did.
-  await prisma.$transaction((tx) =>
+  const budget = {
+    budget: TRANSACTION_BUDGETS.ROW,
+    refusal: REFUND_PASS_OUT_OF_TIME_SENTENCE,
+  }
+
+  await budgetedTransaction(prisma, budget, (tx) =>
     recordAudit(tx, {
       action: AUDIT_ACTIONS.EVENT_REFUNDS_DRIVEN,
       entityType: 'Event',

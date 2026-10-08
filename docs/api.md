@@ -177,12 +177,26 @@ bug — leaves through one handler in one shape:
 | 422    | `UNPROCESSABLE`          | Well-formed but not actionable: sold out, outside the sales window, event not published |
 | 429    | `RATE_LIMITED`           | Too many attempts; the message says how long to wait                                    |
 | 500    | `INTERNAL_SERVER_ERROR`  | A bug. In production the message is fixed and the detail stays in the logs              |
-| 503    | `SERVICE_UNAVAILABLE`    | The database is unreachable                                                             |
+| 503    | `SERVICE_UNAVAILABLE`    | The database is unreachable, or the change could not wait for another; see below        |
 
 Checkout adds its own outcomes, with sentences written for the buyer that
 production does not mask: 402 `PAYMENT_DECLINED`, 409 `ORDER_PENDING` and
 `ORDER_CANCELLED`, 500 `ORDER_NOT_COMPLETED` and 502 `PAYMENT_TIMEOUT` (see
 Orders).
+
+A command that waits behind another change to the same event (deleting it,
+cancelling a night, restoring it, opening or closing a sitting, the website
+link, a picture's decision, an import's listing or approval, the refund
+driver's passes) runs in a transaction with a budget and bounded waits
+(`apps/api/src/lib/transaction-budget.js`): no lock is waited for longer than
+15 seconds and no statement outlives the budget. One that runs out is rolled
+back whole and answered `503 SERVICE_UNAVAILABLE` with `Retry-After: 5` and a
+sentence saying what was not changed, never a 500 carrying the database's
+words; trying again usually meets the other change's own refusal
+(`STALE_REVISION`, `ALREADY_DELETED`) or succeeds. In a batch (an import run,
+an approval, the refund driver) only the item that ran out is refused
+(`TRY_AGAIN`, or counted waiting), and the rest go on. Any other transaction
+that runs out of time (`P2028`, SQLSTATE `55P03` or `57014`) gets the same 503.
 
 A NUL (U+0000) in any string or key of a validated body, query or path is a
 400 `VALIDATION_ERROR` whose issue names the field: PostgreSQL stores that

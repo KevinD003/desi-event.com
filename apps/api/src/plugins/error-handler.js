@@ -49,12 +49,20 @@ export async function registerErrorHandler(app, { nodeEnv }) {
       )
     }
 
-    // What `tooManyRequests` was told to say: when the caller may try again.
-    // Only for a 429, and only a whole number of seconds, which is the form
-    // the header takes.
-    const retryAfter = /** @type {{retryAfterSeconds?: unknown}} */ (error)?.retryAfterSeconds
+    // When the caller may try again: what `tooManyRequests` was told to say
+    // for a 429, and, for a 503 from a transaction that ran out of time, what
+    // the service or the error normalisation said (`lib/transaction-budget.js`,
+    // `isOutOfTime`). Only for those two statuses, and only a whole number of
+    // seconds, which is the form the header takes.
+    const retryAfter =
+      normalised.retryAfterSeconds ??
+      /** @type {{retryAfterSeconds?: unknown}} */ (error)?.retryAfterSeconds
 
-    if (normalised.statusCode === 429 && Number.isInteger(retryAfter) && retryAfter > 0) {
+    if (
+      (normalised.statusCode === 429 || normalised.statusCode === 503) &&
+      Number.isInteger(retryAfter) &&
+      retryAfter > 0
+    ) {
       reply.header('retry-after', String(retryAfter))
     }
 

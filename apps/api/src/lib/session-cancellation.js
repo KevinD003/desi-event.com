@@ -52,6 +52,7 @@ import {
 } from './refunds.js'
 import { lockEventSessions } from './session-inventory.js'
 import { SESSION_CANCELLED_PREFIX, withdrawTickets } from './tickets.js'
+import { TRANSACTION_BUDGETS, budgetedTransaction, liveOrderCount } from './transaction-budget.js'
 import { openReconciliation } from './webhook-handlers.js'
 
 /** The template a night's cancellation notice is sent with. */
@@ -68,6 +69,14 @@ export const SESSION_CANCELLATION_SENTENCES = Object.freeze({
   PAYMENT_IN_FLIGHT:
     'Somebody is paying for a ticket for this night right now. Try again in a few minutes. If this stays, the payment has to be resolved first.',
 })
+
+/**
+ * What a canceller is told when the cancellation ran out of time: behind
+ * another change to the event (a deletion, another night) past its lock wait,
+ * or past its budget. Rolled back whole: the night is still on.
+ */
+export const NIGHT_OUT_OF_TIME_SENTENCE =
+  'Another change to this event was being saved at the same moment, and cancelling the night could not wait for it, so nothing was changed: the night is still on. Try again in a moment.'
 
 /** What a canceller is told when orders changed since the preview. */
 export const ORDERS_CHANGED_SENTENCE =
@@ -472,7 +481,14 @@ export async function cancelSession(prisma, options) {
   const actorId = actor?.id ?? null
   const platform = byPlatform(authority)
 
-  const counts = await prisma.$transaction(async (tx) => {
+  // A budget for the night's orders and for the wait behind whatever holds the
+  // event's row (a deletion, another night): one that runs out answers 503
+  // and leaves the night as it was (`lib/transaction-budget.js`).
+  const orders = await liveOrderCount(prisma, event.id)
+
+  const budget = { budget: TRANSACTION_BUDGETS.ORDERS, orders, refusal: NIGHT_OUT_OF_TIME_SENTENCE }
+
+  const counts = await budgetedTransaction(prisma, budget, async (tx) => {
     // 1. The event row first.
     const { count } = await tx.event.updateMany({
       where: { id: event.id, revision: body.revision, status: event.status },

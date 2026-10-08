@@ -218,7 +218,7 @@
             }
           },
           "503": {
-            "description": "A dependency (database or Redis) is unreachable.",
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -33448,7 +33448,7 @@
             }
           },
           "503": {
-            "description": "A dependency (database or Redis) is unreachable.",
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -38681,7 +38681,7 @@
             }
           },
           "503": {
-            "description": "A dependency (database or Redis) is unreachable.",
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40805,6 +40805,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -40988,6 +40998,16 @@
           },
           "409": {
             "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41514,6 +41534,16 @@
           },
           "409": {
             "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42351,6 +42381,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -42549,6 +42589,16 @@
           },
           "404": {
             "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44234,6 +44284,16 @@
           },
           "409": {
             "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46417,6 +46477,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -47085,6 +47155,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -47305,6 +47385,16 @@
           },
           "409": {
             "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49151,6 +49241,16 @@
           },
           "409": {
             "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65825,6 +65925,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -66417,6 +66527,16 @@
           },
           "422": {
             "description": "Well-formed but not actionable, e.g. sold out or outside the sales window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {

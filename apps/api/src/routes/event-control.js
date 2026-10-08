@@ -48,6 +48,7 @@ import { likeLiteral } from '../lib/like-pattern.js'
 import { toEventDetail } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
 import { cancelSession, sessionCancellationPreview } from '../lib/session-cancellation.js'
+import { TRANSACTION_BUDGETS, budgetedTransaction } from '../lib/transaction-budget.js'
 import { WEBSITE_REDIRECT_INCLUDE, websiteViewFor } from '../lib/website-redirect.js'
 import { platformEditRateLimit } from '../plugins/rate-limit.js'
 import { toSession } from './event-authoring.js'
@@ -79,6 +80,25 @@ async function waitingRefunds(prisma, event, sessionId = null) {
     currency: null,
   }
 }
+
+/**
+ * An administrator's editing sitting, opened or closed: a row or two and an
+ * audit row, which can wait behind a write under the sitting (`FOR SHARE` on
+ * it) or a deletion ending it. One that runs out answers 503 and changes
+ * nothing (`lib/transaction-budget.js`).
+ */
+const SITTING_OPEN_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Another change to this event was being saved at the same moment, and opening your editing sitting could not wait for it, so nothing was changed. Try again in a moment.',
+})
+
+/** The same, for closing one. */
+const SITTING_CLOSE_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Another change to this event was being saved at the same moment, and closing your editing sitting could not wait for it, so nothing was changed: it is still open. Try again in a moment.',
+})
 
 /** What deleting and restoring read about an event. */
 const CONTROL_INCLUDE = Object.freeze({
@@ -654,7 +674,7 @@ export function registerEventControlRoutes(
       let row
 
       try {
-        row = await prisma.$transaction(async (tx) => {
+        row = await budgetedTransaction(prisma, SITTING_OPEN_BUDGET, async (tx) => {
           // An earlier sitting of this administrator on the event ends here:
           // SUPERSEDED while it was still running, EXPIRED once it had run out.
           const superseded = await tx.eventPlatformEdit.updateMany({
@@ -728,7 +748,7 @@ export function registerEventControlRoutes(
       const now = new Date()
       const actorId = request.actor.id
 
-      const closed = await prisma.$transaction(async (tx) => {
+      const closed = await budgetedTransaction(prisma, SITTING_CLOSE_BUDGET, async (tx) => {
         const open = await tx.eventPlatformEdit.findFirst({
           where: { eventId: event.id, actorId, closedAt: null },
           orderBy: { openedAt: 'desc' },

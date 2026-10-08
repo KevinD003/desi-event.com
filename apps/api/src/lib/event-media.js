@@ -58,6 +58,7 @@ import {
 import { sanitiseImportedImage } from './import-images.js'
 import { STRUCTURAL_SCAN_NOTE, createPostgresMediaStorage } from './media-storage.js'
 import { assertIndependentReviewer } from './review-independence.js'
+import { TRANSACTION_BUDGETS, budgetedTransaction, isBudgetRefusal } from './transaction-budget.js'
 
 /** The conditions a picture must meet, besides its event's status, to be public. */
 export const PUBLIC_MEDIA_WHERE = Object.freeze({
@@ -339,6 +340,28 @@ export async function assertMediaChange(db, event, actor, change, { session = nu
 
 /** The database codes a picture write meets when the pictures changed under it. */
 const MEDIA_RACE_CODES = Object.freeze(new Set(['23503', '23514', 'P2002', 'P2025']))
+
+/**
+ * A picture's decision: its row, and for a replacement cover the event's row
+ * and the old cover's removal. It waits behind whatever holds the event's row
+ * (an organiser's upload, a deletion); one that runs out answers 503 and
+ * decides nothing (`lib/transaction-budget.js`).
+ */
+const MEDIA_DECISION_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Another change to this event’s pictures was being saved at the same moment, and this decision could not wait for it, so nothing was decided. Try again in a moment.',
+})
+
+/**
+ * An imported picture's copy: the event's row and the picture's bytes. One
+ * that runs out is reported for the picture (`TRY_AGAIN`), never thrown.
+ */
+const IMPORTED_PICTURE_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.PICTURE,
+  refusal:
+    'Another change to this event was being saved at the same moment, so this picture was not copied. Use Retry pictures.',
+})
 
 /**
  * Turn a database refusal met by a picture write into the conflict it means.
@@ -1008,7 +1031,7 @@ export async function storeImportedImage(prisma, storage, options) {
   const altText = importedAltText(image.alt)
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await budgetedTransaction(prisma, IMPORTED_PICTURE_BUDGET, async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${event.id} FOR UPDATE`
 
       const current = await tx.event.findUnique({
@@ -1163,6 +1186,11 @@ export async function storeImportedImage(prisma, storage, options) {
     ) {
       return { ok: false, code: error.code }
     }
+
+    // The event's row was held past the lock wait (an approval, a deletion),
+    // or the copy ran past its budget: rolled back whole, nothing stored, and
+    // the picture waits for Retry pictures like any other that was not copied.
+    if (isBudgetRefusal(error)) return { ok: false, code: 'TRY_AGAIN' }
 
     return rethrowMediaChanged(error)
   }
@@ -1330,95 +1358,93 @@ export async function decideMedia(prisma, { mediaId, decision, reason = null, ac
     throw httpError(409, 'CONFLICT', 'This picture did not pass the structural check.')
   }
 
-  return prisma
-    .$transaction(async (tx) => {
-      /** @type {string|null} */
-      let replaced = null
+  return budgetedTransaction(prisma, MEDIA_DECISION_BUDGET, async (tx) => {
+    /** @type {string|null} */
+    let replaced = null
 
-      if (rule.to === 'APPROVED' && asset.replacesMediaId) {
-        // The event first, as every writer of its pictures takes it.
-        await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${asset.event.id} FOR UPDATE`
+    if (rule.to === 'APPROVED' && asset.replacesMediaId) {
+      // The event first, as every writer of its pictures takes it.
+      await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${asset.event.id} FOR UPDATE`
 
-        const current = await tx.mediaAsset.findUnique({
-          where: { id: mediaId },
-          select: { id: true, moderationStatus: true, replacesMediaId: true },
-        })
-
-        if (!current || current.moderationStatus !== asset.moderationStatus) {
-          throw httpError(409, 'MEDIA_CHANGED', MEDIA_CHANGED_SENTENCE)
-        }
-
-        if (current.replacesMediaId) {
-          await removeReplacedCover(tx, media, current.replacesMediaId)
-          replaced = current.replacesMediaId
-        }
-      }
-
-      const { count } = await tx.mediaAsset.updateMany({
-        where: { id: mediaId, moderationStatus: asset.moderationStatus },
-        data: {
-          moderationStatus: rule.to,
-          moderatedAt: new Date(),
-          moderatedById: actor?.id ?? null,
-          moderationNote: rule.to === 'REJECTED' ? reason : null,
-          // An approved picture replaces nothing: the cover it pointed at is
-          // gone, and the CHECK refuses an approved row that still points.
-          ...(rule.to === 'APPROVED' ? { replacesMediaId: null } : {}),
-        },
-      })
-
-      if (count !== 1) {
-        throw httpError(
-          409,
-          'MEDIA_CHANGED',
-          'Somebody else decided on this picture, or it was removed, while you were looking. Reload to see it as it is now.',
-        )
-      }
-
-      await recordAudit(tx, {
-        action: rule.action,
-        entityType: 'MediaAsset',
-        entityId: mediaId,
-        actorId: actor?.id ?? null,
-        metadata: {
-          eventId: asset.event.id,
-          kind: asset.kind,
-          checksum: asset.checksum,
-          from: asset.moderationStatus,
-          to: rule.to,
-          // The moderator's reason, as `moderation.decide` records one: it is
-          // the note the organiser reads, not a secret and not the picture.
-          ...(rule.to === 'REJECTED' ? { reason } : {}),
-          // Who imported it and who approved it, when the import exemption
-          // let the uploader approve it.
-          ...(exemption
-            ? {
-                exemption,
-                importedById: asset.uploadedById ?? null,
-                approvedById: actor?.id ?? null,
-              }
-            : {}),
-        },
-      })
-
-      if (replaced) {
-        await recordAudit(tx, {
-          action: AUDIT_ACTIONS.EVENT_MEDIA_REPLACEMENT_APPLIED,
-          entityType: 'Event',
-          entityId: asset.event.id,
-          actorId: actor?.id ?? null,
-          metadata: { mediaId, replacedMediaId: replaced },
-        })
-      }
-
-      const after = await tx.mediaAsset.findUnique({
+      const current = await tx.mediaAsset.findUnique({
         where: { id: mediaId },
-        select: EVENT_MEDIA_SELECT,
+        select: { id: true, moderationStatus: true, replacesMediaId: true },
       })
 
-      return { asset: toEventMedia(after, asset.event.status), event: asset.event }
+      if (!current || current.moderationStatus !== asset.moderationStatus) {
+        throw httpError(409, 'MEDIA_CHANGED', MEDIA_CHANGED_SENTENCE)
+      }
+
+      if (current.replacesMediaId) {
+        await removeReplacedCover(tx, media, current.replacesMediaId)
+        replaced = current.replacesMediaId
+      }
+    }
+
+    const { count } = await tx.mediaAsset.updateMany({
+      where: { id: mediaId, moderationStatus: asset.moderationStatus },
+      data: {
+        moderationStatus: rule.to,
+        moderatedAt: new Date(),
+        moderatedById: actor?.id ?? null,
+        moderationNote: rule.to === 'REJECTED' ? reason : null,
+        // An approved picture replaces nothing: the cover it pointed at is
+        // gone, and the CHECK refuses an approved row that still points.
+        ...(rule.to === 'APPROVED' ? { replacesMediaId: null } : {}),
+      },
     })
-    .catch(rethrowMediaChanged)
+
+    if (count !== 1) {
+      throw httpError(
+        409,
+        'MEDIA_CHANGED',
+        'Somebody else decided on this picture, or it was removed, while you were looking. Reload to see it as it is now.',
+      )
+    }
+
+    await recordAudit(tx, {
+      action: rule.action,
+      entityType: 'MediaAsset',
+      entityId: mediaId,
+      actorId: actor?.id ?? null,
+      metadata: {
+        eventId: asset.event.id,
+        kind: asset.kind,
+        checksum: asset.checksum,
+        from: asset.moderationStatus,
+        to: rule.to,
+        // The moderator's reason, as `moderation.decide` records one: it is
+        // the note the organiser reads, not a secret and not the picture.
+        ...(rule.to === 'REJECTED' ? { reason } : {}),
+        // Who imported it and who approved it, when the import exemption
+        // let the uploader approve it.
+        ...(exemption
+          ? {
+              exemption,
+              importedById: asset.uploadedById ?? null,
+              approvedById: actor?.id ?? null,
+            }
+          : {}),
+      },
+    })
+
+    if (replaced) {
+      await recordAudit(tx, {
+        action: AUDIT_ACTIONS.EVENT_MEDIA_REPLACEMENT_APPLIED,
+        entityType: 'Event',
+        entityId: asset.event.id,
+        actorId: actor?.id ?? null,
+        metadata: { mediaId, replacedMediaId: replaced },
+      })
+    }
+
+    const after = await tx.mediaAsset.findUnique({
+      where: { id: mediaId },
+      select: EVENT_MEDIA_SELECT,
+    })
+
+    return { asset: toEventMedia(after, asset.event.status), event: asset.event }
+  }).catch(rethrowMediaChanged)
 }
 
 /** The statuses whose pictures the queue lists: posted events only. */

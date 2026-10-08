@@ -8,6 +8,8 @@ import { ValidationError, errorResponseSchema } from '@desi-event/schemas'
 
 import {
   DATABASE_REFUSALS,
+  OUT_OF_TIME_RETRY_AFTER_SECONDS,
+  OUT_OF_TIME_SENTENCE,
   POSTING_ROLE_SENTENCE,
   REVIEW_REQUIRED_SENTENCE,
   OUT_OF_RANGE_MESSAGE,
@@ -15,10 +17,58 @@ import {
   databaseRefusal,
   exposedServerError,
   httpError,
+  isOutOfTime,
   normaliseError,
   toErrorBody,
 } from '../src/lib/errors.js'
 import { bearer, createTestApp, signIn } from './helpers/app.js'
+
+/**
+ * What Prisma 7 with the pg adapter throws when a transaction runs out of
+ * time, as each was observed against PostgreSQL 16: the interactive
+ * transaction past its timeout (`P2028`), a statement past its
+ * `lock_timeout` (`55P03`), from a raw query (`P2010`) and from a delegate
+ * (`P2039`), and one past its `statement_timeout` (`57014`), the SQLSTATE
+ * nested where the adapter puts it.
+ *
+ * @returns {Array<Array<*>>} Pairs of a label and the error.
+ */
+function outOfTimeErrors() {
+  const lockTimeout = (code, kind, sqlState = '55P03') =>
+    Object.assign(
+      new Error(`${kind} failed. Code: \`${sqlState}\`. canceling statement due to lock timeout`),
+      {
+        name: 'PrismaClientKnownRequestError',
+        code,
+        meta: {
+          driverAdapterError: {
+            name: 'DriverAdapterError',
+            cause: {
+              originalCode: sqlState,
+              originalMessage: 'canceling statement due to lock timeout',
+              kind: 'postgres',
+              code: sqlState,
+            },
+          },
+        },
+      },
+    )
+
+  return [
+    [
+      'an expired transaction',
+      Object.assign(
+        new Error(
+          'Transaction API error: A query cannot be executed on an expired transaction. The timeout for this transaction was 5000 ms, however 12991 ms passed since the start of the transaction.',
+        ),
+        { name: 'PrismaClientKnownRequestError', code: 'P2028' },
+      ),
+    ],
+    ['a raw query past its lock wait', lockTimeout('P2010', 'Raw query')],
+    ['a write past its lock wait', lockTimeout('P2039', 'Database error')],
+    ['a statement past its budget', lockTimeout('P2039', 'Database error', '57014')],
+  ]
+}
 
 describe('normaliseError', () => {
   it('keeps the status and code each domain package chose', () => {
@@ -339,6 +389,38 @@ describe('normaliseError', () => {
     }
   })
 
+  it('answers a transaction that ran out of time, by budget or by lock wait, with a 503 to try again', () => {
+    for (const [label, error] of outOfTimeErrors()) {
+      expect(isOutOfTime(error), label).toBe(true)
+
+      for (const exposeInternals of [true, false]) {
+        const normalised = normaliseError(error, { exposeInternals })
+
+        expect(normalised, label).toEqual({
+          statusCode: 503,
+          code: 'SERVICE_UNAVAILABLE',
+          message: OUT_OF_TIME_SENTENCE,
+          expected: true,
+          retryAfterSeconds: OUT_OF_TIME_RETRY_AFTER_SECONDS,
+        })
+
+        const body = toErrorBody(normalised, 'DE-REQ')
+
+        expect(errorResponseSchema.parse(body).error.statusCode).toBe(503)
+        expect(JSON.stringify(body), label).not.toMatch(
+          /P2028|P2039|P2010|55P03|57014|expired|lock timeout/,
+        )
+      }
+    }
+
+    // A lost deadlock is still TRY_AGAIN, and anything else of the database's
+    // is still a fault: only these two codes are out of time.
+    expect(isOutOfTime(Object.assign(new Error('deadlock'), { code: '40P01' }))).toBe(false)
+    expect(isOutOfTime(Object.assign(new Error('unique'), { code: 'P2002' }))).toBe(false)
+    expect(isOutOfTime(null)).toBe(false)
+    expect(normaliseError(Object.assign(new Error('x'), { code: 'P2025' })).statusCode).toBe(500)
+  })
+
   it('treats a nonsensical status as a server error', () => {
     expect(normaliseError(Object.assign(new Error('x'), { statusCode: 999 })).statusCode).toBe(500)
     expect(normaliseError(Object.assign(new Error('x'), { statusCode: 200 })).statusCode).toBe(500)
@@ -491,6 +573,42 @@ describe('the error handler over HTTP', () => {
       code: 'INTERNAL_SERVER_ERROR',
       message: 'An unexpected error occurred.',
     })
+
+    await app.close()
+  })
+
+  it('answers a read that ran out of time with 503 and Retry-After, never the driver’s words', async () => {
+    for (const [label, error] of outOfTimeErrors()) {
+      const { app, prisma } = await createTestApp({ env: { NODE_ENV: 'production' } })
+
+      prisma.event.findMany = async () => {
+        throw error
+      }
+
+      const response = await app.inject({ method: 'GET', url: '/v1/events' })
+
+      expect(response.statusCode, label).toBe(503)
+      expect(response.headers['retry-after'], label).toBe(String(OUT_OF_TIME_RETRY_AFTER_SECONDS))
+      expect(response.json().error).toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message: OUT_OF_TIME_SENTENCE,
+      })
+      expect(response.body, label).not.toMatch(/P2028|P2039|P2010|55P03|57014|expired|lock timeout/)
+
+      await app.close()
+    }
+
+    // A fault carries no Retry-After: there is no point at which it gets better.
+    const { app, prisma } = await createTestApp()
+
+    prisma.event.findMany = async () => {
+      throw new Error('a bug')
+    }
+
+    const fault = await app.inject({ method: 'GET', url: '/v1/events' })
+
+    expect(fault.statusCode).toBe(500)
+    expect(fault.headers['retry-after']).toBeUndefined()
 
     await app.close()
   })

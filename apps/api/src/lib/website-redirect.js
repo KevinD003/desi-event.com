@@ -47,6 +47,7 @@ import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { httpError, notFound } from './errors.js'
 import { maySeeDrafts } from './event-insiders.js'
 import { likeLiteral } from './like-pattern.js'
+import { TRANSACTION_BUDGETS, budgetedTransaction } from './transaction-budget.js'
 import { isTransactionClient } from './transaction-client.js'
 
 /** The relation the deciding administrator's name is read through. */
@@ -425,6 +426,16 @@ async function decideInTransaction(tx, params) {
 }
 
 /**
+ * The website link's own transaction: the event's row lock and two writes.
+ * One that runs out answers 503 and changes nothing.
+ */
+const REDIRECT_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Another change to this event was being saved at the same moment, and the website link could not wait for it, so nothing was changed. Try again in a moment.',
+})
+
+/**
  * Turn an event's website link on or off: an administrator's decision about
  * the address on their screen.
  *
@@ -432,7 +443,9 @@ async function decideInTransaction(tx, params) {
  * address, the write and its audit row. Given a transaction client (see
  * {@link isTransactionClient}) it runs in that transaction and opens none; the
  * importer switches an imported event's link on in the transaction that
- * publishes it. The event's revision is not changed, so an organiser's open
+ * publishes it. Its own transaction waits behind whatever holds the event's
+ * row (a deletion, an edit) for a bounded time; one that runs out answers 503
+ * and changes nothing (`lib/transaction-budget.js`). The event's revision is not changed, so an organiser's open
  * editor is not made stale.
  *
  * Authority is the caller's: the route requires `website_redirect:manage` and
@@ -452,7 +465,7 @@ async function decideInTransaction(tx, params) {
 export function decideWebsiteRedirect(db, params) {
   return isTransactionClient(db)
     ? decideInTransaction(db, params)
-    : db.$transaction((tx) => decideInTransaction(tx, params))
+    : budgetedTransaction(db, REDIRECT_BUDGET, (tx) => decideInTransaction(tx, params))
 }
 
 // Kept exported from here for the callers and tests that already import them;

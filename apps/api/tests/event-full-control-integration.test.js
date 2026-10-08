@@ -16,6 +16,10 @@
  *    and a payment captured while the event is being deleted (XM3). Each
  *    interleaving that matters is forced with an outside row lock and
  *    `pg_blocking_pids`, not hoped for;
+ *  - a deletion and a night's cancellation that cannot wait behind the event's
+ *    row: each gives up at its lock wait (`lib/transaction-budget.js`) with a
+ *    503 to try again, never a 500, leaves nothing written and nothing of its
+ *    own still queued on the row;
  *  - the whole CANCEL_AND_REFUND path on orders that carry a fee, tax and a
  *    promo code (`helpers/fee-orders.js`): every Order CHECK and the
  *    `desi_refund_within_order_total` trigger hold, and every refund settles —
@@ -41,7 +45,11 @@ import { createInMemoryProviderRegistry } from '@desi-event/providers'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 
 import { buildApp } from '../src/app.js'
+import { OUT_OF_TIME_RETRY_AFTER_SECONDS } from '../src/lib/errors.js'
+import { DELETION_OUT_OF_TIME_SENTENCE } from '../src/lib/event-deletion.js'
+import { NIGHT_OUT_OF_TIME_SENTENCE } from '../src/lib/session-cancellation.js'
 import { startSession } from '../src/lib/sessions.js'
+import { LOCK_WAIT_MS, TRANSACTION_BUDGETS, budgetOptions } from '../src/lib/transaction-budget.js'
 import { trafficSummary } from '../src/lib/traffic-report.js'
 import {
   SEAT_POLICIES,
@@ -57,7 +65,7 @@ import { dispatchDelivery } from '../src/lib/webhook-handlers.js'
 import { testEnv } from './helpers/app.js'
 import { connectTestDatabase } from './helpers/database.js'
 import { createFeeEvent, createFeeOrder } from './helpers/fee-orders.js'
-import { untilWaiting } from './helpers/row-locks.js'
+import { untilWaiting, waitingOn } from './helpers/row-locks.js'
 
 const { prisma, reachable, when } = await connectTestDatabase('the full control suite')
 
@@ -80,6 +88,9 @@ const CLEARED = Object.freeze({
   statusBeforeDeletion: null,
   deletedSlug: null,
 })
+
+/** A deletion's transaction options on an event without orders. */
+const DELETION_BUDGET = budgetOptions(TRANSACTION_BUDGETS.ORDERS)
 
 /** The tables a test may hold a row of from outside the app. */
 const LOCKABLE = new Set(['Event', 'TicketType', 'TicketHold'])
@@ -276,15 +287,17 @@ function eventRow(eventId) {
  * @param {object} [options] Options.
  * @param {object} [options.headers] Whose request; the owner's in the suite's organisation by default.
  * @param {number} [options.revision] The revision to send.
+ * @param {string} [options.slug] The web address to confirm, read beforehand; with `revision`, nothing is read first.
  * @param {object} [options.extra] More body fields.
  * @returns {Promise<object>} The response.
  */
 async function deleteEvent(
   eventId,
   outcome,
-  { headers = world.home.headers, revision, extra = {} } = {},
+  { headers = world.home.headers, revision, slug, extra = {} } = {},
 ) {
-  const row = await eventRow(eventId)
+  // Read beforehand, a racing test's deletion goes straight to the API.
+  const row = slug && revision !== undefined ? { slug, revision } : await eventRow(eventId)
 
   return app.inject({
     method: 'POST',
@@ -857,12 +870,16 @@ when()('deleting through the API, racing', () => {
 
   it('a deletion and a night’s cancellation at one revision are serialised by the event row', async () => {
     const { event, nights } = await posted('night-race', { nights: 2 })
-    const { revision } = await eventRow(event.id)
+    const { revision, slug } = await eventRow(event.id)
     const eventLock = await lockFromOutside('Event', event.id)
 
+    // The cancellation waits on the row from here until it is let go: each
+    // request carries what it would otherwise read, so the wait is the
+    // deletion's way to the row and no more, well inside the cancellation's
+    // lock wait (`LOCK_WAIT_MS`) and its budget.
     const cancelling = cancelNight(event.id, nights[0].id, 0, { revision })
     const [canceller] = await untilWaiting(prisma, () => [eventLock.pid], 1, 'the cancellation')
-    const deleting = deleteEvent(event.id, 'REMOVE', { revision })
+    const deleting = deleteEvent(event.id, 'REMOVE', { revision, slug })
 
     await untilWaiting(prisma, () => [eventLock.pid, canceller], 2, 'the deletion')
     await eventLock.open()
@@ -899,6 +916,106 @@ when()('deleting through the API, racing', () => {
 
     expect(after.status === 'DELETED' ? cancelledNights === 0 : cancelledNights === 1).toBe(true)
   })
+
+  // The deletion's budget, which it proves, and the suite's thirty seconds
+  // besides.
+  it(
+    'a deletion and a night’s cancellation that cannot wait behind the event row answer 503, never 500, and change nothing',
+    async () => {
+      const { event, nights } = await posted('night-wait', { nights: 2 })
+      const before = await eventRow(event.id)
+      const eventLock = await lockFromOutside('Event', event.id)
+      const answered = (request) => request.then((response) => ({ response, at: Date.now() }))
+      const started = Date.now()
+
+      // The cancellation waits on the row's holder; the deletion queues behind
+      // the cancellation, for the row's tuple lock and then for the holder: two
+      // lock waits, which its statement bound (its budget) cuts short.
+      const cancelling = answered(
+        cancelNight(event.id, nights[0].id, 0, { revision: before.revision }),
+      )
+      let answers = null
+      let queued = null
+      let deleting = Promise.resolve(null)
+
+      try {
+        const [canceller] = await untilWaiting(prisma, () => [eventLock.pid], 1, 'the cancellation')
+
+        deleting = answered(
+          deleteEvent(event.id, 'REMOVE', { revision: before.revision, slug: before.slug }),
+        )
+        await untilWaiting(prisma, () => [eventLock.pid, canceller], 2, 'the deletion')
+
+        // Held past their bounds, they give up on their own, well before the
+        // row is let go, which is only after this.
+        answers = await Promise.race([
+          Promise.all([cancelling, deleting]),
+          new Promise((resolve) => {
+            setTimeout(() => resolve(null), DELETION_BUDGET.timeout + 10_000)
+          }),
+        ])
+        // Answered while the row is still held, and nothing of theirs is still
+        // queued behind it: PostgreSQL ended each transaction, locks and all.
+        queued = await waitingOn(prisma, [eventLock.pid])
+      } finally {
+        await eventLock.open()
+        await Promise.allSettled([cancelling, deleting])
+      }
+
+      expect(answers, 'they were still waiting on the event row').not.toBeNull()
+      expect(queued).toEqual([])
+
+      const [cancelled, deleted] = answers
+
+      // They waited as long as they promise to, and were not refused at once.
+      expect(cancelled.at - started).toBeGreaterThanOrEqual(LOCK_WAIT_MS)
+      expect(deleted.at - started).toBeGreaterThanOrEqual(LOCK_WAIT_MS)
+
+      for (const [{ response: answer }, sentence] of [
+        [cancelled, NIGHT_OUT_OF_TIME_SENTENCE],
+        [deleted, DELETION_OUT_OF_TIME_SENTENCE],
+      ]) {
+        expect(answer.statusCode, answer.body).toBe(503)
+        expect(answer.headers['retry-after']).toBe(String(OUT_OF_TIME_RETRY_AFTER_SECONDS))
+        expect(answer.json().error).toMatchObject({
+          code: 'SERVICE_UNAVAILABLE',
+          message: sentence,
+        })
+        expect(answer.body).not.toMatch(/P20\d\d|55P03|57014|lock timeout|expired transaction/)
+      }
+
+      // Nothing of either was written.
+      expect(await eventRow(event.id)).toMatchObject({
+        status: before.status,
+        revision: before.revision,
+        ...CLEARED,
+      })
+      expect(
+        (
+          await prisma.eventSession.findMany({
+            where: { eventId: event.id },
+            orderBy: { startsAt: 'asc' },
+          })
+        ).map((night) => night.status),
+      ).toEqual(['SCHEDULED', 'SCHEDULED'])
+      expect(
+        await prisma.auditLog.count({
+          where: {
+            entityId: event.id,
+            action: { in: ['event.deleted', 'event.session_cancelled'] },
+          },
+        }),
+      ).toBe(0)
+      expect(await prisma.eventModerationAction.count({ where: { eventId: event.id } })).toBe(0)
+
+      // And trying again, as they said, does what was asked.
+      const again = await cancelNight(event.id, nights[0].id, 0, { revision: before.revision })
+
+      expect(again.statusCode, again.body).toBe(200)
+      expect(again.json().data.session.status).toBe('CANCELLED')
+    },
+    DELETION_BUDGET.timeout + 30_000,
+  )
 
   it('a cover’s approval and the old cover’s removal end with one current cover, in either order', async () => {
     for (const first of ['removal', 'approval']) {

@@ -56,16 +56,18 @@ import { recordAudit } from './audit.js'
 import { bindReservedSeatsAudited } from './event-authoring.js'
 import { authorityAuditMetadata, byPlatform, lifecycleAuthority } from './event-authority.js'
 import {
+  OUT_OF_TIME_RETRY_AFTER_SECONDS,
   conflict,
-  databaseErrorCode,
   databaseRefusal,
   exposedServerError,
   forbidden,
   httpError,
+  isOutOfTime,
   notFound,
   unprocessable,
 } from './errors.js'
 import { assertIndependentReviewer, reviewIndependence } from './review-independence.js'
+import { boundLockWait } from './transaction-budget.js'
 
 /**
  * Organisation verification states from which an event may be published.
@@ -527,6 +529,7 @@ export async function availableTransitions(prisma, event, actor) {
  * @param {object} [options.requestedChanges] What a moderator wants changed.
  * @param {Function} [options.onCommit] Extra work inside the transaction, given `(tx, event, { authority, byPlatform })`. It may return `{ auditMetadata }`, which the transition's audit record carries beside `from`, `to` and `reason`.
  * @param {{timeout: number, maxWait: number}} [options.transactionOptions] The transaction's budget, when `onCommit` does work that grows with the event (a cancellation reserves a refund per paid order). Prisma's default of five seconds otherwise.
+ * @param {number} [options.lockWaitMs] When set, the longest any statement of the transaction waits for one lock another transaction holds (`lock_timeout`), and no statement outlives `transactionOptions.timeout` (`statement_timeout`): `lib/transaction-budget.js`, for a caller whose budget counts on it.
  * @returns {Promise<object>} The updated event.
  * @throws {Error} 403, 404, 409 or 422, each meaning something different; 503 when the transaction outran its budget and nothing was changed.
  */
@@ -539,6 +542,7 @@ export async function transitionEvent(prisma, options) {
     requestedChanges = null,
     onCommit = null,
     transactionOptions = undefined,
+    lockWaitMs = null,
   } = options
   const from = event.status
 
@@ -643,6 +647,13 @@ export async function transitionEvent(prisma, options) {
   // 4. Write it, naming the status we expect to be replacing.
   return prisma
     .$transaction(async (tx) => {
+      if (lockWaitMs) {
+        await boundLockWait(tx, {
+          lockMs: lockWaitMs,
+          statementMs: transactionOptions?.timeout ?? lockWaitMs,
+        })
+      }
+
       const { count } = await tx.event.updateMany({
         where: { id: event.id, status: from },
         data: stampsFor({ to, reason, event }),
@@ -729,10 +740,12 @@ export function exemptionNote({ exemption, importedById, approvedById }, reason 
  * The refusal for a transition whose transaction ran out of time.
  *
  * Prisma rolls an interactive transaction back once it outlives its timeout
- * (`P2028`), so nothing of the move was kept: the event is still what it was,
- * and no work it would have raised exists. Said so, as a 503 the caller can
- * retry, rather than as a 500 carrying the driver's message. Anything else is
- * passed through untouched.
+ * (`P2028`), and PostgreSQL ends one whose statement waited past its
+ * `lock_timeout` (`55P03`) or `statement_timeout` (`57014`), so nothing of the
+ * move was kept: the event is still what it was, and no work it would have
+ * raised exists. Said so, as a 503 the caller can retry (with `Retry-After`),
+ * rather than as a 500 carrying the driver's message. Anything else is passed
+ * through untouched.
  *
  * @param {unknown} error Whatever the transaction threw.
  * @param {object} move The move.
@@ -741,13 +754,16 @@ export function exemptionNote({ exemption, importedById, approvedById }, reason 
  * @returns {unknown} The error to throw.
  */
 function outranBudget(error, { from, to }) {
-  if (databaseErrorCode(error) !== 'P2028') return error
+  if (!isOutOfTime(error)) return error
 
-  return exposedServerError(
-    503,
-    'SERVICE_UNAVAILABLE',
-    `This event could not become ${to} in time, so nothing was changed: it is still ${from}. Try again in a moment.`,
-    { from, to },
+  return Object.assign(
+    exposedServerError(
+      503,
+      'SERVICE_UNAVAILABLE',
+      `This event could not become ${to} in time, so nothing was changed: it is still ${from}. Try again in a moment.`,
+      { from, to },
+    ),
+    { retryAfterSeconds: OUT_OF_TIME_RETRY_AFTER_SECONDS },
   )
 }
 

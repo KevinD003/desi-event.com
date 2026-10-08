@@ -50,7 +50,7 @@ import {
   platformHolds,
 } from './event-authority.js'
 import { clearAttendeeStaging } from './checkout.js'
-import { cancellationTransactionOptions, cancellationWork } from './event-cancellation.js'
+import { cancellationWork } from './event-cancellation.js'
 import { recordChangeNotice } from './event-change-notices.js'
 import { lifecycleStamps } from './event-lifecycle.js'
 import { eventRefundPrefix, refundOwed } from './event-refunds.js'
@@ -61,6 +61,7 @@ import { REFUND_BLOCKING_DISPUTE_STATES, refundableCents, requestRefund } from '
 import { releaseSeats } from './seating.js'
 import { lockEventSessions } from './session-inventory.js'
 import { EVENT_DELETED_PREFIX, withdrawTickets } from './tickets.js'
+import { TRANSACTION_BUDGETS, budgetedTransaction, liveOrderCount } from './transaction-budget.js'
 import { isEligible } from './verification.js'
 
 /** A night counts as started this long before its doors (or its start). */
@@ -109,6 +110,22 @@ export const OUTCOME_CHANGED_SENTENCE =
 /** What the deleter is told when a finished event nobody was checked in at needs a word. */
 export const TOOK_PLACE_UNCONFIRMED_SENTENCE =
   'Nobody was checked in at this event through Desi-Event. Confirm that it took place, or choose to cancel it and refund every order.'
+
+/**
+ * What a deleter is told when the deletion ran out of time: behind another
+ * change to the event (a night's cancellation, an edit) past its lock wait,
+ * or past its budget. Rolled back whole: nothing was cancelled, refunded or
+ * withdrawn, and the event is as it was.
+ */
+export const DELETION_OUT_OF_TIME_SENTENCE =
+  'Another change to this event was being saved at the same moment, and deleting it could not wait for it, so nothing was changed: the event is as it was. Try again in a moment.'
+
+/**
+ * What the Desi-Event team is told when a restore ran out of time. Rolled
+ * back whole: the event is still deleted.
+ */
+export const RESTORE_OUT_OF_TIME_SENTENCE =
+  'Another change to this event was being saved at the same moment, and restoring it could not wait for it, so nothing was changed: the event is still deleted. Try again in a moment.'
 
 /** What the deleter is told when the typed web address does not match. */
 export const CONFIRMATION_MISMATCH_SENTENCE =
@@ -748,9 +765,18 @@ export async function deleteEvent(prisma, options) {
     })
   }
 
-  const transactionOptions = await cancellationTransactionOptions(prisma, event.id)
+  // A budget sized to the orders it will touch and to the wait behind whatever
+  // holds the event's row (a night's cancellation, an edit): one that runs out
+  // answers 503 and leaves the event as it was (`lib/transaction-budget.js`).
+  const orders = await liveOrderCount(prisma, event.id)
 
-  const result = await prisma.$transaction(async (tx) => {
+  const budget = {
+    budget: TRANSACTION_BUDGETS.ORDERS,
+    orders,
+    refusal: DELETION_OUT_OF_TIME_SENTENCE,
+  }
+
+  const result = await budgetedTransaction(prisma, budget, async (tx) => {
     // 1. The event row first: the revision compare-and-set.
     const { count } = await tx.event.updateMany({
       where: { id: event.id, revision: body.revision, status: event.status },
@@ -1014,7 +1040,7 @@ export async function deleteEvent(prisma, options) {
     }
 
     return { outcome, authority }
-  }, transactionOptions)
+  })
 
   // After the commit: the refunds, through the refund service. A failure here
   // leaves the deletion as it is; `events.finishRefunds` sends the rest.
@@ -1098,7 +1124,9 @@ export async function restoreEvent(prisma, options) {
     )
   }
 
-  return prisma.$transaction(async (tx) => {
+  const budget = { budget: TRANSACTION_BUDGETS.ROW, refusal: RESTORE_OUT_OF_TIME_SENTENCE }
+
+  return budgetedTransaction(prisma, budget, async (tx) => {
     // The web address back, if nobody took it meanwhile.
     let slug = event.slug
     let slugChanged = false

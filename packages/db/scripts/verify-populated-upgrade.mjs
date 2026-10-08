@@ -169,6 +169,10 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // Events imported from another site: the platform-held organisation column
   // and its no-members trigger, nights with no listed end, and three tables.
   '20260930160000_event_imports',
+  // Indexes on the four foreign keys into tiers and nights that had none, so a
+  // tier's or a night's deletion stops reading every order line, hold line and
+  // order. Building them over tables that already hold rows is the upgrade case.
+  '20261008090000_foreign_key_indexes',
 ])
 
 /**

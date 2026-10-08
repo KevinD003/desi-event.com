@@ -735,6 +735,8 @@ model TicketHold {
   @@index([ticketTypeId, status])
   @@index([userId, status])
   @@index([guestTokenHash])
+  // The foreign key from a night: deleting one finds its holds by it.
+  @@index([eventSessionId])
 }
 
 enum OrderStatus {
@@ -802,6 +804,9 @@ model Order {
   @@index([status, createdAt])
   @@index([eventId, status])
   @@index([buyerEmail])
+  // The foreign key from a night: deleting one, and cancelling one, find its
+  // orders by it.
+  @@index([eventSessionId])
 }
 
 model OrderItem {
@@ -829,6 +834,9 @@ model OrderItem {
   holdItems   HoldItem[]
 
   @@index([orderId])
+  // The foreign key from a tier: deleting one, and the tier editor's counts,
+  // find its order lines by it.
+  @@index([ticketTypeId])
 }
 
 enum TicketStatus {
@@ -1788,6 +1796,9 @@ model HoldItem {
   @@index([holdId])
   @@index([eventSeatId])
   @@index([orderItemId])
+  // The foreign key from a tier: deleting one, and the tier editor's counts,
+  // find its hold lines by it.
+  @@index([ticketTypeId])
 }
 
 // ---------------------------------------------------------------------------

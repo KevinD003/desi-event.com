@@ -91,6 +91,13 @@ import { TOO_SMALL_FOR_COVER_NOTE, fetchImportImage } from './import-images.js'
 import { equalsIgnoringCase, likeLiteral } from './like-pattern.js'
 import { ensurePlatformHeldOrganization, isUniqueViolation } from './organization-provisioning.js'
 import { assertIndependentReviewer } from './review-independence.js'
+import {
+  LOCK_WAIT_MS,
+  TRANSACTION_BUDGETS,
+  budgetOptions,
+  budgetedTransaction,
+  isBudgetRefusal,
+} from './transaction-budget.js'
 import { applyWebsiteChange, decideWebsiteRedirect } from './website-redirect.js'
 
 /** How long a previewed plan may be applied, in milliseconds. */
@@ -140,6 +147,41 @@ const RUN_INCLUDE = Object.freeze({
   appliedBy: { select: { displayName: true } },
 })
 
+/**
+ * What one listing's refusal says when its transaction waited too long
+ * behind another change to its event (`lib/transaction-budget.js`). The
+ * listing was rolled back whole; the rest of the run went on.
+ *
+ * @type {string}
+ */
+export const IMPORT_ROW_OUT_OF_TIME_SENTENCE =
+  'Another change to this event was being saved at the same moment, and this listing could not wait for it, so nothing of it was changed. Try again in a moment.'
+
+/**
+ * The budgets of an import's transactions. Each writes a row or two and its
+ * audit row, behind whatever holds the event's row (or the platform-held
+ * organisation's), and says what was not done when it runs out.
+ */
+const IMPORT_ROW_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal: IMPORT_ROW_OUT_OF_TIME_SENTENCE,
+})
+const IMPORT_STEP_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Another change was being saved at the same moment, and this import could not wait for it, so nothing was changed. Try again in a moment.',
+})
+const IMPORT_SUMMARY_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Every listing this run wrote stands, but its summary could not be saved in time behind another change. Reload the run to see what it wrote.',
+})
+const REASSIGN_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Another change to this event was being saved at the same moment, and moving it could not wait for it, so nothing was changed: it is still held where it was. Try again in a moment.',
+})
+
 // ---------------------------------------------------------------------------
 // Small pieces
 // ---------------------------------------------------------------------------
@@ -175,6 +217,12 @@ export function rowRefusal(error) {
       code: 'TRY_AGAIN',
       message: 'Another change to this event was being saved at the same moment. Try again.',
     }
+  }
+  // Its transaction waited past its lock wait behind another change to the
+  // event, or ran past its budget (`lib/transaction-budget.js`): rolled back
+  // whole, so this listing was left as it was and the rest went on.
+  if (isBudgetRefusal(error)) {
+    return { code: 'TRY_AGAIN', message: IMPORT_ROW_OUT_OF_TIME_SENTENCE }
   }
   if (isUniqueViolation(error)) {
     return {
@@ -639,7 +687,7 @@ function countBy(values) {
  */
 async function platformHeldOrganization(prisma, { source, actor, now }) {
   try {
-    const { organization } = await prisma.$transaction((tx) =>
+    const { organization } = await budgetedTransaction(prisma, IMPORT_STEP_BUDGET, (tx) =>
       ensurePlatformHeldOrganization(tx, { source, actor, now }),
     )
 
@@ -647,7 +695,7 @@ async function platformHeldOrganization(prisma, { source, actor, now }) {
   } catch (error) {
     if (!isUniqueViolation(error)) throw error
 
-    const { organization } = await prisma.$transaction((tx) =>
+    const { organization } = await budgetedTransaction(prisma, IMPORT_STEP_BUDGET, (tx) =>
       ensurePlatformHeldOrganization(tx, { source, actor, now }),
     )
 
@@ -1255,7 +1303,7 @@ export async function applyImport(prisma, storage, options) {
       const eventId =
         mode === 'UPDATE_POSTED'
           ? await updatePosted(prisma, context, listing, row)
-          : await prisma.$transaction(async (tx) => {
+          : await budgetedTransaction(prisma, IMPORT_ROW_BUDGET, async (tx) => {
               const id =
                 mode === 'CREATE'
                   ? await createImported(tx, context, listing)
@@ -1296,7 +1344,7 @@ export async function applyImport(prisma, storage, options) {
 
   const summary = summarise(results)
 
-  await prisma.$transaction(async (tx) => {
+  await budgetedTransaction(prisma, IMPORT_SUMMARY_BUDGET, async (tx) => {
     await tx.eventImportRun.update({ where: { id: run.id }, data: { summary } })
     await recordAudit(tx, {
       action: AUDIT_ACTIONS.EVENT_IMPORT_APPLIED,
@@ -1608,7 +1656,7 @@ export async function retryRunImages(prisma, storage, options) {
 
   const pictures = await fetchRunImages(prisma, storage, { ...options, now })
 
-  await prisma.$transaction((tx) =>
+  await budgetedTransaction(prisma, IMPORT_STEP_BUDGET, (tx) =>
     recordAudit(tx, {
       action: AUDIT_ACTIONS.EVENT_IMPORT_IMAGES_RETRIED,
       entityType: 'EventImportRun',
@@ -1836,6 +1884,10 @@ async function approveOne(prisma, { run, item, actor, now }) {
       event: loaded,
       to: 'APPROVED',
       actor,
+      // The approval, its pictures, the publication and the link: one row's
+      // worth of work, behind whatever holds the event's row.
+      transactionOptions: budgetOptions(TRANSACTION_BUDGETS.ROW),
+      lockWaitMs: LOCK_WAIT_MS,
       onCommit: async (tx, decided) => {
         // The status write holds the row: no picture lands between this check
         // and the commit, and every stored picture bumps the revision.
@@ -1873,7 +1925,7 @@ async function approveOne(prisma, { run, item, actor, now }) {
   }
 
   if (event.status === 'APPROVED' || PUBLICLY_VISIBLE_STATUSES.has(event.status)) {
-    const after = await prisma.$transaction(async (tx) => {
+    const after = await budgetedTransaction(prisma, IMPORT_ROW_BUDGET, async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${event.id} FOR UPDATE`
 
       const locked = await approvableItem(tx, run, event.id)
@@ -1981,7 +2033,7 @@ export function reassignLinkReason(name) {
 export async function reassignImportedEvent(prisma, options) {
   const { eventId, organizationId, reason, revision, actor, now = new Date() } = options
 
-  return prisma.$transaction(async (tx) => {
+  return budgetedTransaction(prisma, REASSIGN_BUDGET, async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${eventId} FOR UPDATE`
 
     const event = await tx.event.findUnique({

@@ -57,6 +57,9 @@ describe('the words of the import pages', () => {
 
   it('says why a picture was not copied', () => {
     expect(failureReason('TIMEOUT')).toBe('Sulekha’s picture host took too long to answer.')
+    expect(failureReason('TRY_AGAIN')).toBe(
+      'Another change to the event was being saved at the same moment. Copy it again.',
+    )
     expect(failureReason('HTTP_404')).toBe('Sulekha answered with status 404.')
     expect(failureReason('SANITISER_REFUSED:IMAGE_TOO_SMALL')).toBe(
       'The picture checks refused it (IMAGE_TOO_SMALL).',

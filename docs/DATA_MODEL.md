@@ -904,3 +904,25 @@ untouched on a re-seed.
   edit or a reschedule); moving the whole night keeps it an estimate.
 
 Only `lib/event-import.js` writes the three import tables (a source scan).
+
+## Foreign keys into tiers and nights, indexed — 2026-10-08
+
+`20261008090000_foreign_key_indexes` (listed last in `PHASE3_MIGRATIONS`)
+adds the four indexes these foreign keys lacked:
+
+| Index                           | Foreign key                                                      |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `OrderItem_ticketTypeId_idx`    | `OrderItem.ticketTypeId` → `TicketType` (ON DELETE RESTRICT)     |
+| `HoldItem_ticketTypeId_idx`     | `HoldItem.ticketTypeId` → `TicketType` (ON DELETE RESTRICT)      |
+| `Order_eventSessionId_idx`      | `Order.eventSessionId` → `EventSession` (ON DELETE SET NULL)     |
+| `TicketHold_eventSessionId_idx` | `TicketHold.eventSessionId` → `EventSession` (ON DELETE CASCADE) |
+
+PostgreSQL checks a foreign key from the referenced side as well: deleting a
+tier looks for order lines and hold lines that name it, and deleting a night
+looks for (and rewrites) the orders that name it and removes its holds.
+Without an index each look read the whole table, as did the tier editor's
+counts of a tier's lines and a night's cancellation's search for its orders.
+On a copy of the shared test database (52,017 order lines, 10,160 hold lines)
+deleting one organisation with one event and one tier made one sequential
+scan of each table; with the indexes it makes none. Each index is the
+`@@index` of its model in `schema.prisma`, under Prisma's default name.

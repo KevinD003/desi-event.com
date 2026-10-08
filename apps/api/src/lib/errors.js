@@ -80,6 +80,7 @@ const JWT_ERROR_CODES = new Set([
  * @property {string} [reason] A closed-vocabulary refusal code, for a 4xx.
  * @property {string} [orderReference] The order a checkout answer is about, when one was placed and the caller has to find it (see `orderReferenceOf`).
  * @property {{currentWebsiteUrl?: string|null, enabled?: boolean}} [details] The facts a few refusals name, from a closed list (see `exposedDetailsOf`).
+ * @property {number} [retryAfterSeconds] When the caller may try again, for the `Retry-After` header of a 503 (see {@link isOutOfTime}).
  * @property {boolean} expected Whether this is an anticipated 4xx rather than a bug.
  */
 
@@ -313,6 +314,62 @@ export const DATABASE_REFUSALS = Object.freeze([
   }),
 ])
 
+/**
+ * The codes of a transaction that ran out of time, which PostgreSQL or Prisma
+ * rolled back whole.
+ *
+ * - `P2028`: Prisma's interactive transaction outlived its `timeout`, or could
+ *   not start within its `maxWait`. Prisma rolls it back, and the next
+ *   statement in it is refused. A statement already waiting on a row lock is
+ *   not interrupted by this: it waits until the lock is let go.
+ * - `55P03` `lock_not_available`: a statement waited past the transaction's
+ *   `lock_timeout` for a row another transaction holds
+ *   (`lib/transaction-budget.js` sets one on every transaction that can wait
+ *   behind another). PostgreSQL cancels the statement, which ends the
+ *   transaction, and lets go of everything it had locked.
+ * - `57014` `query_canceled`: a statement ran past the transaction's
+ *   `statement_timeout`, which the same module sets to the transaction's
+ *   budget (a statement queued behind another waiter waits for two locks, so
+ *   `lock_timeout` alone does not bound it). The same: cancelled, ended,
+ *   every lock let go.
+ *
+ * None leaves anything of the transaction behind, so trying again is the
+ * remedy, and the answer is a 503 rather than a fault.
+ *
+ * @type {ReadonlySet<string>}
+ */
+const OUT_OF_TIME_CODES = Object.freeze(new Set(['P2028', '55P03', '57014']))
+
+/** Seconds a caller is told to wait, in `Retry-After`, before trying again. */
+export const OUT_OF_TIME_RETRY_AFTER_SECONDS = 5
+
+/**
+ * What a caller is told when a transaction ran out of time and no service
+ * said more precisely what was not done. True of every route, including one
+ * that saved something in an earlier transaction: only what it was doing
+ * when it stopped is said to be unsaved.
+ *
+ * @type {string}
+ */
+export const OUT_OF_TIME_SENTENCE =
+  'Another change was being saved at the same moment and this request ran out of time waiting for it, so what it was doing when it stopped was not saved. Try again in a moment.'
+
+/**
+ * Whether a database error is a transaction that ran out of time (`P2028`),
+ * a lock wait past its `lock_timeout` (`55P03`) or a statement past its
+ * `statement_timeout` (`57014`), wherever the driver put the code.
+ *
+ * @param {unknown} error The thrown value.
+ * @returns {boolean} True for one.
+ */
+export function isOutOfTime(error) {
+  if (!error || typeof error !== 'object') return false
+
+  const { codes } = databaseRefusalParts(error)
+
+  return [...codes].some((code) => OUT_OF_TIME_CODES.has(code))
+}
+
 /** The SQLSTATE and Prisma codes of a lost deadlock or write conflict. */
 const RETRYABLE_CODES = Object.freeze(new Set(['40P01', 'P2034']))
 
@@ -440,6 +497,21 @@ export function normaliseError(error, options = {}) {
       code: 'VALIDATION_ERROR',
       message: OUT_OF_RANGE_MESSAGE,
       expected: true,
+    }
+  }
+
+  // A transaction that ran out of time: past its budget, or past its lock
+  // wait behind another transaction. It was rolled back whole, so this is a
+  // 503 to try again, never a 500 carrying the driver's message. A service
+  // that knows what was not done says so itself (`lib/transaction-budget.js`);
+  // this is the floor for every other path.
+  if (isOutOfTime(error)) {
+    return {
+      statusCode: 503,
+      code: CODE_BY_STATUS[503],
+      message: OUT_OF_TIME_SENTENCE,
+      expected: true,
+      retryAfterSeconds: OUT_OF_TIME_RETRY_AFTER_SECONDS,
     }
   }
 

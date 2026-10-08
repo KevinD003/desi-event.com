@@ -485,7 +485,8 @@ export const API_ERRORS = Object.freeze({
   unavailable: Object.freeze({
     status: 503,
     code: 'SERVICE_UNAVAILABLE',
-    description: 'A dependency (database or Redis) is unreachable.',
+    description:
+      'A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.',
   }),
   /**
    * A show-once code that could not be emailed. Only in `EMAIL` mode, and
@@ -2303,6 +2304,10 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.notFound,
         API_ERRORS.conflict,
         API_ERRORS.unprocessable,
+        // The deletion and its refund reservations are one transaction, budgeted
+        // for the event's orders and for waiting behind another change to the
+        // event; one that cannot wait is rolled back whole (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -2325,6 +2330,10 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.stepUpRequired,
         API_ERRORS.notFound,
         API_ERRORS.conflict,
+        // Each refund is its own budgeted transaction; one that cannot wait
+        // behind a checkout or another pass is left owed and counted waiting.
+        // Only the pass's own record running out answers this (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -2364,6 +2373,11 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.stepUpRequired,
         API_ERRORS.notFound,
         API_ERRORS.conflict,
+        // The night's cancellation and its refund reservations are one
+        // transaction, budgeted for the event's orders and for waiting behind
+        // another change to the event (a deletion, a cancellation); one that
+        // cannot wait is rolled back whole, the night still on (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -2422,6 +2436,9 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.notFound,
         API_ERRORS.conflict,
         API_ERRORS.rateLimited,
+        // Opening the sitting waits behind whatever holds the event's row, for
+        // a bounded time; past it nothing is opened (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -2439,7 +2456,14 @@ export const apiRoutes = Object.freeze(
       body: null,
       response: platformEditResponseSchema,
       successStatus: 200,
-      errors: [API_ERRORS.unauthorized, API_ERRORS.forbidden, API_ERRORS.notFound],
+      errors: [
+        API_ERRORS.unauthorized,
+        API_ERRORS.forbidden,
+        API_ERRORS.notFound,
+        // Closing the sitting waits behind whatever holds the event's row, for
+        // a bounded time; past it the sitting stays open (`Retry-After`).
+        API_ERRORS.unavailable,
+      ],
     },
     {
       id: 'platformEvents.restore',
@@ -2463,6 +2487,9 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.stepUpRequired,
         API_ERRORS.notFound,
         API_ERRORS.conflict,
+        // The restore waits behind whatever holds the event's row, for a
+        // bounded time; past it the event stays deleted (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -2547,6 +2574,10 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.conflict,
         API_ERRORS.unprocessable,
         API_ERRORS.rateLimited,
+        // Each listing is its own budgeted transaction (a listing that cannot
+        // wait is refused `TRY_AGAIN` in its result); only the run's own steps
+        // running out answer this (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -2572,6 +2603,9 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.notFound,
         API_ERRORS.conflict,
         API_ERRORS.rateLimited,
+        // A picture that cannot wait is reported `TRY_AGAIN`; only the run's
+        // own record running out answers this (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -2596,6 +2630,10 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.stepUpRequired,
         API_ERRORS.notFound,
         API_ERRORS.conflict,
+        // Each event is its own budgeted transaction (one that cannot wait is
+        // refused `TRY_AGAIN` in its result); only a step outside them running
+        // out answers this (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -2637,6 +2675,9 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.stepUpRequired,
         API_ERRORS.notFound,
         API_ERRORS.conflict,
+        // The move waits behind whatever holds the event's row, for a bounded
+        // time; past it nothing is moved (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -3464,6 +3505,9 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.stepUpRequired,
         API_ERRORS.notFound,
         API_ERRORS.conflict,
+        // The decision waits behind whatever holds the event's row, for a
+        // bounded time; past it the picture is left undecided (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -3506,6 +3550,9 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.notFound,
         API_ERRORS.conflict,
         API_ERRORS.unprocessable,
+        // The switch waits behind whatever holds the event's row, for a
+        // bounded time; past it the link is left as it was (`Retry-After`).
+        API_ERRORS.unavailable,
       ],
     },
     {
