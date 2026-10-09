@@ -767,6 +767,15 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §11)', ()
     expect(routeById('orders.create').errors.map((error) => error.status)).toContain(401)
   })
 
+  it('names no per-account limit, no hand-on refusal and no completed uses anywhere (SPEC3-XI §1.2, §1.3, §8.4)', () => {
+    for (const route of apiRoutes) {
+      expect(route.description, route.id).not.toMatch(
+        /VENUE_PAYMENT_LIMIT|PAID_AT_VENUE_NOT_TRANSFERABLE/u,
+      )
+      expect(route.description, route.id).not.toMatch(/completedUses/u)
+    }
+  })
+
   it('takes a payment with the door confirmations and documents the amount refusal', () => {
     expect(Object.keys(routeById('tickets.checkIn').body.shape ?? {})).toContain('payment')
     expect(Object.keys(routeById('tickets.checkInGroup').body.shape ?? {})).toContain(
@@ -778,6 +787,97 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §11)', ()
         routeById(id).errors.map((error) => error.status),
         id,
       ).toEqual(expect.arrayContaining([409, 422]))
+    }
+  })
+})
+
+describe('unpaid pay-at-the-venue tickets cancelled (SPEC3-XI §11)', () => {
+  /** id → [method, path, step-up, tag, error statuses]. */
+  const EXPECTED = {
+    'venueBookings.unpaid': [
+      'GET',
+      '/v1/events/:id/venue-bookings',
+      'FINANCE_VIEW',
+      'events',
+      [400, 401, 403, 404, 409],
+    ],
+    'venueBookings.cancel': [
+      'POST',
+      '/v1/orders/:reference/venue-cancellations',
+      'FINANCE_ACTION',
+      'orders',
+      [400, 401, 403, 404, 409, 422, 429, 503],
+    ],
+  }
+
+  it('places the two routes, with their step-up before any handler, and no capability of their own', () => {
+    expect(Object.keys(EXPECTED)).toHaveLength(2)
+
+    for (const [id, [method, path, stepUp, tag, statuses]] of Object.entries(EXPECTED)) {
+      const route = routeById(id)
+
+      expect(routeKey(route), id).toBe(`${method} ${path}`)
+      expect(route.auth, id).toBe('session')
+      // The authority is decided in the handler: a membership that grants
+      // `order:refund`, or the platform-only `venue_booking:cancel` (XU2).
+      expect(route.capability ?? undefined, id).toBeUndefined()
+      expect(route.stepUp, id).toBe(stepUp)
+      expect(route.successStatus, id).toBe(200)
+      expect(route.tags, id).toEqual([tag])
+      expect(
+        route.errors.map((error) => error.status),
+        id,
+      ).toEqual(statuses)
+    }
+  })
+
+  it('brings SPEC3’s thirteen routes to fifteen', () => {
+    const spec3 = apiRoutes.filter((route) =>
+      /^(paymentTerms|referralCodes|platformFees|venuePayments|venueBookings)\./u.test(route.id),
+    )
+
+    expect(spec3).toHaveLength(15)
+  })
+
+  it('takes 1 to 100 distinct tickets and a reason, and pages or names one booking', () => {
+    const cancel = routeById('venueBookings.cancel').body
+
+    expect(Object.keys(cancel.shape).sort()).toEqual(['reason', 'ticketIds'])
+    expect(
+      cancel.safeParse({ ticketIds: ['c000000000000000000000001'], reason: 'Never paid' }).success,
+    ).toBe(true)
+    expect(cancel.safeParse({ ticketIds: [], reason: 'Never paid' }).success).toBe(false)
+
+    const query = routeById('venueBookings.unpaid').query
+
+    expect(Object.keys(query.shape)).toEqual(expect.arrayContaining(['page', 'perPage', 'order']))
+  })
+
+  it('answers whether the freed places are on sale as ALL, SOME or NONE, and never a kept tax', () => {
+    const data = routeById('venueBookings.cancel').response.shape.data.shape
+
+    expect(data.placesOnSale.options).toEqual(['ALL', 'SOME', 'NONE'])
+    expect(Object.keys(data)).toEqual(
+      expect.arrayContaining(['feeKeptCents', 'eventSalesStopped', 'replayed', 'placesReturned']),
+    )
+    expect(Object.keys(data).filter((key) => /tax/iu.test(key))).toEqual([])
+  })
+
+  it('says each refusal by its code', () => {
+    const description = routeById('venueBookings.cancel').description
+
+    for (const code of [
+      'NOT_A_VENUE_BOOKING',
+      'TICKET_NOT_IN_BOOKING',
+      'VENUE_CANCEL_NOT_LIVE',
+      'VENUE_NIGHT_OVER',
+      'VENUE_BOOKING_CHANGED',
+      'REFUND_IN_PROGRESS',
+      'VENUE_CANCEL_TAXED',
+      'CONFLICT_OF_INTEREST',
+      'TRY_AGAIN',
+    ]) {
+      expect(description, code).toContain(code)
     }
   })
 })

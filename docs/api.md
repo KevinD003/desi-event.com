@@ -300,7 +300,7 @@ budget.
 
 ## Endpoints
 
-**206 operations across 25 tags.** This page describes the ones whose behaviour
+**208 operations across 25 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
@@ -308,11 +308,11 @@ validates with, and CI fails on a difference.
 
 | Tag              | Ops | Tag           | Ops |
 | ---------------- | --- | ------------- | --- |
-| `events`         | 48  | `auth`        | 18  |
+| `events`         | 49  | `auth`        | 18  |
 | `tickets`        | 15  | `finance`     | 12  |
 | `operations`     | 12  | `venues`      | 12  |
 | `privacy`        | 10  | `organizers`  | 9   |
-| `imports`        | 8   | `orders`      | 8   |
+| `imports`        | 8   | `orders`      | 9   |
 | `platform`       | 8   | `teams`       | 8   |
 | `referral-codes` | 7   | `refunds`     | 7   |
 | `ticket-types`   | 6   | `promo-codes` | 5   |
@@ -321,6 +321,11 @@ validates with, and CI fails on a difference.
 | `webhooks`       | 2   | `health`      | 1   |
 | `media`          | 1   | `payments`    | 1   |
 | `waitlist`       | 1   |               |     |
+
+> **Correction — 2026-10-09 (unpaid tickets cancelled).** The total read
+> "206 operations across 25 tags". Cancelling unpaid pay-at-the-venue tickets
+> adds two operations and no tag, so the total is **208** across **186** paths:
+> `venueBookings.unpaid` on `events` and `venueBookings.cancel` on `orders`.
 
 > **Correction — 2026-10-09.** The total read "193 operations across 24
 > tags". Booking fees, referral codes and paying at the venue add thirteen

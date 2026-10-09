@@ -285,6 +285,99 @@ describe('what ticket holders are told about a change to their event', () => {
   })
 })
 
+describe('unpaid tickets cancelled (SPEC3-XI §9.9)', () => {
+  const buyer = {
+    eventId: 'c000000000000000000000001',
+    eventTitle: 'Navratri Nights',
+    recipient: 'BUYER',
+    orderReference: 'DE-3N01',
+    ticketCount: 1,
+    dueCents: 4500,
+    feeKeptCents: 364,
+    currency: 'USD',
+    reason: 'Not paid before the doors opened.',
+    by: 'ORGANISER',
+    othersRemain: true,
+  }
+
+  it('tells the buyer what was cancelled, that the fee is kept, the reason and that the rest stand', () => {
+    const rendered = renderEmail({ template: 'venue_booking.cancelled', data: buyer })
+
+    expect(rendered.subject).toBe('[DEMO] Unpaid tickets cancelled: Navratri Nights')
+    expect(rendered.text).toContain(
+      'The organiser cancelled 1 ticket on your order DE-3N01 because it was not paid for at the door. You no longer owe USD 45.00 for it.',
+    )
+    expect(rendered.text).toContain(
+      'The booking fee you paid online for it, USD 3.64, is kept by Desi-Event and is not refunded.',
+    )
+    expect(rendered.text).toContain('Reason given: Not paid before the doors opened.')
+    expect(rendered.text).toContain('Your other tickets on this order are not affected.')
+  })
+
+  it('speaks of several tickets, nothing paid online, the Desi-Event team, and no other tickets', () => {
+    const rendered = renderEmail({
+      template: 'venue_booking.cancelled',
+      data: {
+        ...buyer,
+        ticketCount: 2,
+        dueCents: 9000,
+        feeKeptCents: 0,
+        by: 'DESI_EVENT',
+        othersRemain: false,
+      },
+    })
+
+    expect(rendered.text).toContain(
+      'The Desi-Event team cancelled 2 tickets on your order DE-3N01 because they were not paid for at the door. You no longer owe USD 90.00 for them.',
+    )
+    expect(rendered.text).toContain('Nothing was paid online for them.')
+    expect(rendered.text).not.toContain('booking fee you paid online')
+    expect(rendered.text).not.toContain('Your other tickets')
+  })
+
+  it('tells another holder only about the tickets they hold', () => {
+    const rendered = renderEmail({
+      template: 'venue_booking.cancelled',
+      data: {
+        eventId: buyer.eventId,
+        eventTitle: 'Navratri Nights',
+        recipient: 'HOLDER',
+        ticketCount: 1,
+        dueCents: 4500,
+        currency: 'USD',
+        reason: 'Not paid before the doors opened.',
+        by: 'ORGANISER',
+      },
+    })
+
+    expect(rendered.text).toContain(
+      'The organiser cancelled 1 ticket you hold for Navratri Nights because it was not paid for at the door. You no longer owe USD 45.00 for it.',
+    )
+    expect(rendered.text).toContain('Reason given: Not paid before the doors opened.')
+    expect(rendered.text).not.toContain('DE-3N01')
+    expect(rendered.text).not.toContain('booking fee')
+  })
+
+  it('never says a place is back on sale', () => {
+    for (const data of [buyer, { ...buyer, recipient: 'HOLDER' }]) {
+      const rendered = renderEmail({ template: 'venue_booking.cancelled', data })
+
+      expect(rendered.text).not.toMatch(/on sale/i)
+      expect(rendered.html).not.toMatch(/on sale/i)
+    }
+  })
+
+  it('escapes the reason and the title in the HTML', () => {
+    const rendered = renderEmail({
+      template: 'venue_booking.cancelled',
+      data: { ...buyer, eventTitle: '<b>Garba</b>', reason: '<script>alert(1)</script>' },
+    })
+
+    expect(rendered.html).not.toContain('<script>')
+    expect(rendered.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+  })
+})
+
 describe('marking what is not real', () => {
   /**
    * Desi-Event settles every order with an in-memory mock and issues passes

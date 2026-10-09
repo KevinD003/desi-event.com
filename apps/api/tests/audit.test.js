@@ -230,6 +230,13 @@ describe('AUDIT_ACTIONS', () => {
     })
   })
 
+  it('names the unpaid-tickets cancellation and the referral return exactly as SPEC3-XI §4.3 does', () => {
+    expect(AUDIT_ACTIONS).toMatchObject({
+      VENUE_BOOKING_CANCELLED: 'venue_booking.cancelled',
+      REFERRAL_USE_RETURNED: 'referral_code.use_returned',
+    })
+  })
+
   it('has no two names sharing one action string', () => {
     const values = Object.values(AUDIT_ACTIONS)
 

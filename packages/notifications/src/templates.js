@@ -31,6 +31,10 @@ export const OUTBOX_TEMPLATES = Object.freeze([
   'ticket.revoked',
   'refund.settled',
   'security.alert',
+  // Unpaid pay-at-the-venue tickets cancelled by the organiser or the
+  // Desi-Event team (SPEC3-XI XU11): to the buyer, and to each other account
+  // holding a cancelled ticket.
+  'venue_booking.cancelled',
 ])
 
 /**
@@ -58,6 +62,9 @@ export const UNSUPPRESSIBLE_TEMPLATES = Object.freeze(
     'ticket.revoked',
     'refund.settled',
     'security.alert',
+    // Tickets somebody booked, cancelled because they were not paid for: the
+    // buyer no longer owes their price, and the booking fee is kept.
+    'venue_booking.cancelled',
   ]),
 )
 

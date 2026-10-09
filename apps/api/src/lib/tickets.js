@@ -74,7 +74,14 @@ import { createHash, randomBytes } from 'node:crypto'
 import { RECORDED_CHECK_IN_METHODS } from '@desi-event/schemas'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
-import { conflict, forbidden, httpError, notFound, unprocessable } from './errors.js'
+import {
+  UNPAID_CANCELLED_SENTENCE,
+  conflict,
+  forbidden,
+  httpError,
+  notFound,
+  unprocessable,
+} from './errors.js'
 import { issueTicketCredential } from './ticket-credentials.js'
 
 /**
@@ -254,6 +261,10 @@ export const ADMISSION_REFUSAL_SENTENCES = Object.freeze({
   PREVIEW_INVALID: 'That check could not be confirmed. Look the ticket up again.',
   PREVIEW_MISMATCH: 'The pass presented is not the one that was checked. Look it up again.',
   GROUP_CHANGED: 'Some tickets in this group changed after it was looked up.',
+  // A ticket booked to pay at the venue and cancelled because it was not paid
+  // for (SPEC3-XI XU12). Which REVOKED ticket answers it is Stage B1-V's
+  // `admissionRefusalCode`; the sentence belongs to the vocabulary.
+  UNPAID_CANCELLED: UNPAID_CANCELLED_SENTENCE,
 })
 
 /**

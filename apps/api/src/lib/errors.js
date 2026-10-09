@@ -125,14 +125,27 @@ const EXPOSED_DETAILS = Object.freeze({
   PAYMENT_TERMS_CHANGED: Object.freeze({ currentSequence: isCount }),
   PAYMENT_DUE: Object.freeze({
     dueCents: isCount,
+    // The same holder's other unpaid tickets, and whether the group pass
+    // covers them (SPEC3-XI §9.3).
     booking: (value) =>
       Boolean(value) &&
       typeof value === 'object' &&
       Object.keys(value).every(
-        (key) => key === 'otherUnpaidTickets' || key === 'otherUnpaidCents',
+        (key) => key === 'otherUnpaidTickets' || key === 'otherUnpaidCents' || key === 'groupPass',
       ) &&
       isCount(value.otherUnpaidTickets) &&
-      isCount(value.otherUnpaidCents),
+      isCount(value.otherUnpaidCents) &&
+      (value.groupPass === undefined || typeof value.groupPass === 'boolean'),
+  }),
+  // SPEC3-XI XU3: which of the chosen tickets stopped being cancellable, so
+  // the screen can reload the booking and show them. Ids of the caller's own
+  // request, never anything else.
+  VENUE_BOOKING_CHANGED: Object.freeze({
+    ticketIds: (value) =>
+      Array.isArray(value) &&
+      value.length >= 1 &&
+      value.length <= 100 &&
+      value.every((id) => typeof id === 'string' && /^[a-z0-9]{20,40}$/u.test(id)),
   }),
   REFERRAL_EVENT_NOT_ELIGIBLE: Object.freeze({
     eventIds: (value) =>
@@ -353,6 +366,54 @@ export const PAYMENT_NOT_RECORDED_SENTENCE =
   'The payment was not recorded because the booking changed at the same moment. Look the ticket up again; nothing was recorded and nobody was let in.'
 
 /**
+ * What a door is told about a ticket cancelled because it was not paid for
+ * (SPEC3-XI XU12): the admission refusal `UNPAID_CANCELLED`'s sentence.
+ *
+ * @type {string}
+ */
+export const UNPAID_CANCELLED_SENTENCE = 'This ticket was cancelled because it was not paid for.'
+
+/**
+ * What a person cancelling unpaid tickets is told when the booking changed
+ * after they opened it (SPEC3-XI XU10, §4.5): the code
+ * `VENUE_BOOKING_CHANGED`, from the service and from every database guard of
+ * the cancellation.
+ *
+ * @type {string}
+ */
+export const VENUE_BOOKING_CHANGED_SENTENCE =
+  'This booking changed after you opened it: a ticket you chose was paid for at the door, let in, passed on or cancelled meanwhile. Nothing was cancelled. Look at the booking again.'
+
+/**
+ * What a refund that would reach into a booking fee kept when unpaid tickets
+ * were cancelled is told (SPEC3-XI XU6): `FEE_KEPT`.
+ *
+ * @type {string}
+ */
+export const FEE_KEPT_SENTENCE =
+  "Part of this order's booking fee was kept when its unpaid tickets were cancelled, so it can't be refunded."
+
+/**
+ * What a write to an order's referral return marker or its code is told when
+ * a database guard refuses it (SPEC3-XI §5.5): `ORDER_CHANGED`.
+ *
+ * @type {string}
+ */
+export const ORDER_CHANGED_SENTENCE =
+  'This order changed at the same moment. Reload it; nothing was changed.'
+
+/**
+ * What a transfer's acceptance is told when the database refuses a successor
+ * that would not owe what its predecessor owed, or a due changed meanwhile
+ * (SPEC3-XI §5.5): acceptance's own sentence (`lib/tickets.js`), code
+ * `CONFLICT` with the reason `TICKET_CHANGED`.
+ *
+ * @type {string}
+ */
+export const TICKET_CHANGED_ON_ACCEPT_SENTENCE =
+  'That ticket changed while the transfer was being accepted. Nothing was handed on.'
+
+/**
  * Every refusal SPEC3 adds (§4.5), with its status and the sentence the
  * caller reads. A sentence with `{…}` is completed by the service that raises
  * it, which knows the amount, the currency or the count; the rest are used as
@@ -461,6 +522,46 @@ export const PAYMENT_TERMS_REFUSALS = Object.freeze({
     message:
       'Refund tickets by choosing them, or the whole order. A booking fee on its own is refunded by the Desi-Event team.',
   }),
+  // Cancelling unpaid pay-at-the-venue tickets (SPEC3-XI §4.5).
+  NOT_A_VENUE_BOOKING: Object.freeze({
+    statusCode: 409,
+    message: 'This order was paid by card, so it has nothing to pay at the door.',
+  }),
+  TICKET_NOT_IN_BOOKING: Object.freeze({
+    statusCode: 422,
+    message: 'Choose tickets of this booking.',
+  }),
+  VENUE_CANCEL_NOT_LIVE: Object.freeze({
+    statusCode: 409,
+    message: "This event is not running now, so its unpaid tickets can't be cancelled.",
+  }),
+  VENUE_NIGHT_OVER: Object.freeze({
+    statusCode: 409,
+    message:
+      'That night is over. Tickets not paid by then stay as they are, and the booking fee is kept.',
+  }),
+  VENUE_BOOKING_CHANGED: Object.freeze({
+    statusCode: 409,
+    message: VENUE_BOOKING_CHANGED_SENTENCE,
+  }),
+  REFUND_IN_PROGRESS: Object.freeze({
+    statusCode: 409,
+    message:
+      'A refund of this booking is being processed. Cancel its unpaid tickets once it has finished.',
+  }),
+  /** Unreachable while the online booking fee of a pay-at-the-venue order carries no tax (XU6). */
+  VENUE_CANCEL_TAXED: Object.freeze({
+    statusCode: 409,
+    message: 'This booking carries tax on its booking fee. Refund its tickets instead.',
+  }),
+  FEE_KEPT: Object.freeze({
+    statusCode: 409,
+    message: FEE_KEPT_SENTENCE,
+  }),
+  ORDER_CHANGED: Object.freeze({
+    statusCode: 409,
+    message: ORDER_CHANGED_SENTENCE,
+  }),
 })
 
 /**
@@ -487,6 +588,9 @@ export const PAYMENT_TERMS_SENTENCES = Object.freeze({
   /** 409 `PAYMENT_TERMS_CHANGED`, when the switch or its limit moved since it was read. */
   venuePaymentChanged:
     "Another administrator changed this event's payment settings after you opened the page. Reload to see them. Nothing was changed.",
+  /** 503 `TRY_AGAIN`, when cancelling unpaid tickets waited too long (SPEC3-XI XU10). */
+  venueCancelTryAgain:
+    'Another change to this booking was being saved at the same moment, so nothing was cancelled. Try again in a moment.',
 })
 
 /**
@@ -524,7 +628,10 @@ export function paymentTermsRefusal(code, { values = {}, details } = {}) {
  * field, so the constraint is recognised by its name, which the migration
  * writes into the message as well (`event_public_requires_review`).
  *
- * @type {ReadonlyArray<{constraint: string, statusCode: number, code: string, message: string}>}
+ * A refusal may also carry a `reason`, a code from a closed vocabulary the
+ * caller branches on (sent as `error.reason`).
+ *
+ * @type {ReadonlyArray<{constraint: string, statusCode: number, code: string, message: string, reason?: string}>}
  */
 export const DATABASE_REFUSALS = Object.freeze([
   Object.freeze({
@@ -637,6 +744,58 @@ export const DATABASE_REFUSALS = Object.freeze([
       code: 'PAYMENT_NOT_RECORDED',
       message: PAYMENT_NOT_RECORDED_SENTENCE,
     }),
+  ),
+  // SPEC3-XI §5.5: unpaid tickets cancelled. `venue_booking_cancellation_sum`
+  // contains no other name here, and `ticket_venue_cancellation_shape`
+  // contains `venue_cancellation_` only as part of itself: the longest name
+  // wins either way.
+  ...[
+    'venue_booking_cancellation_shape',
+    'venue_booking_cancellation_sum',
+    'venue_booking_cancellation_append_only',
+    'ticket_venue_cancellation_fixed',
+    'venue_cancellation_ticket',
+    'ticket_venue_cancellation_shape',
+    'order_venue_cancel_shape',
+    'order_item_venue_cancelled_within_line',
+    'ticket_type_sold_not_negative',
+  ].map((constraint) =>
+    Object.freeze({
+      constraint,
+      statusCode: 409,
+      code: 'VENUE_BOOKING_CHANGED',
+      message: VENUE_BOOKING_CHANGED_SENTENCE,
+    }),
+  ),
+  // A refund reservation reaching into a booking fee that was kept (XU6).
+  Object.freeze({
+    constraint: 'order_venue_kept_within_total',
+    statusCode: 409,
+    code: 'FEE_KEPT',
+    message: FEE_KEPT_SENTENCE,
+  }),
+  // The referral return marker and the code an order used (XR).
+  ...['order_referral_return_shape', 'order_referral_return_once', 'order_referral_code_fixed'].map(
+    (constraint) =>
+      Object.freeze({
+        constraint,
+        statusCode: 409,
+        code: 'ORDER_CHANGED',
+        message: ORDER_CHANGED_SENTENCE,
+      }),
+  ),
+  // What is due stays with a ticket (open question 7): a successor that would
+  // not owe what its predecessor owed is a transfer acceptance that raced a
+  // change, answered with acceptance's own sentence and reason.
+  ...['ticket_venue_due_fixed', 'ticket_venue_due_successor', 'ticket_venue_insert_unpaid'].map(
+    (constraint) =>
+      Object.freeze({
+        constraint,
+        statusCode: 409,
+        code: 'CONFLICT',
+        message: TICKET_CHANGED_ON_ACCEPT_SENTENCE,
+        reason: 'TICKET_CHANGED',
+      }),
   ),
 ])
 
@@ -769,7 +928,14 @@ export function databaseRefusal(error) {
     (left, right) => right.constraint.length - left.constraint.length,
   )[0]
 
-  return refusal ? httpError(refusal.statusCode, refusal.code, refusal.message) : null
+  if (!refusal) return null
+
+  return httpError(
+    refusal.statusCode,
+    refusal.code,
+    refusal.message,
+    refusal.reason ? { reason: refusal.reason } : undefined,
+  )
 }
 
 /**
@@ -858,12 +1024,18 @@ export function normaliseError(error, options = {}) {
   const refusal = databaseRefusal(error)
 
   if (refusal) {
-    return {
+    /** @type {NormalisedError} */
+    const refused = {
       statusCode: refusal.statusCode,
       code: refusal.code,
       message: refusal.message,
       expected: true,
     }
+
+    const reason = refusalReasonOf(refusal)
+    if (reason) refused.reason = reason
+
+    return refused
   }
 
   if (isAuthError(error)) {

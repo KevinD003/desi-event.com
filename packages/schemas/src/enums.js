@@ -314,6 +314,23 @@ export const REFERRAL_CODE_SCOPES = Object.freeze(['ALL_EVENTS', 'SELECTED_EVENT
 /** How a payment at the door was recorded: with one ticket, or through a group pass. */
 export const VENUE_PAYMENT_VIAS = Object.freeze(['DOOR_TICKET', 'DOOR_GROUP'])
 
+/**
+ * Why an order's referral use was given back (SPEC3-XI XR4). The browser-safe
+ * `REFERRAL_RETURN_CAUSES` of `@desi-event/schemas/payment-terms` names the
+ * same values (a test holds them equal).
+ */
+export const REFERRAL_USE_RETURN_CAUSES = Object.freeze([
+  'PAYMENT_FAILED',
+  'NOT_COMPLETED',
+  'UNPAID_ORDER_CANCELLED',
+  'REFUNDED',
+  'VENUE_UNPAID_CANCELLED',
+  'EVENT_CANCELLED',
+  'EVENT_DELETED',
+  'SESSION_CANCELLED',
+  'TICKETS_REVOKED',
+])
+
 export const DISPUTE_STATUSES = Object.freeze([
   'OPENED',
   'NEEDS_RESPONSE',
@@ -446,6 +463,11 @@ export const ADMISSION_REFUSAL_REASONS = Object.freeze([
    * group is looked up again.
    */
   'GROUP_CHANGED',
+  /**
+   * The ticket was booked to pay at the venue and cancelled by the organiser
+   * or the Desi-Event team because it was not paid for (SPEC3-XI XU12).
+   */
+  'UNPAID_CANCELLED',
 ])
 
 /** What an admission preview found. */
@@ -662,6 +684,9 @@ export const orderPaymentMethodSchema = z.enum([...ORDER_PAYMENT_METHODS])
 
 /** `REFERRAL_CODE_SCOPES` as a Zod enum. */
 export const referralCodeScopeSchema = z.enum([...REFERRAL_CODE_SCOPES])
+
+/** `REFERRAL_USE_RETURN_CAUSES` as a Zod enum. */
+export const referralUseReturnCauseSchema = z.enum([...REFERRAL_USE_RETURN_CAUSES])
 
 /** `VENUE_PAYMENT_VIAS` as a Zod enum. */
 export const venuePaymentViaSchema = z.enum([...VENUE_PAYMENT_VIAS])

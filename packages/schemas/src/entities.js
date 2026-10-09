@@ -45,6 +45,7 @@ import { WEBSITE_LIMITS, publicWebsiteLinkSchema, websiteRedirectStateSchema } f
 import { eventChangeNoticeSchema } from './event-control.js'
 import {
   orderFeeTermsSchema,
+  orderVenueCancellationSchema,
   orderVenuePaymentSchema,
   paymentMethodSchema,
   paymentTermsViewSchema,
@@ -457,6 +458,12 @@ export const orderSchema = z.object({
   tax: z.object({ applied: z.boolean(), appliedTo: z.enum([...TAX_APPLIED_TO]) }).optional(),
   /** A pay-at-the-venue order's state at the door; null for a card order. */
   venuePayment: orderVenuePaymentSchema.nullable().optional(),
+  /**
+   * Its unpaid pay-at-the-venue tickets cancelled, oldest first, for the buyer
+   * and organisation readers (SPEC3-XI §11.3). Only organisation readers get a
+   * name; buyers read "The organiser" or "The Desi-Event team".
+   */
+  venueCancellations: z.array(orderVenueCancellationSchema).optional(),
   ...auditColumns,
 })
 

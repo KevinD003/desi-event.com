@@ -692,6 +692,33 @@ export function feeRefundRateLimit(overrides = {}) {
 }
 
 /**
+ * Cancelling unpaid pay-at-the-venue tickets, per person: sixty an hour
+ * (`venue-cancel:actor:<id>`, SPEC3-XI §4.4), counted on every request. One
+ * route, so a plain per-route limit.
+ *
+ * @type {Readonly<{max: number, timeWindow: string}>}
+ */
+export const DEFAULT_VENUE_CANCEL_LIMIT = Object.freeze({ max: 60, timeWindow: '1 hour' })
+
+/**
+ * Build the per-route `config.rateLimit` object for `venueBookings.cancel`.
+ *
+ * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, for tests.
+ * @returns {object} The effective limit.
+ */
+export function venueCancelRateLimit(overrides = {}) {
+  return {
+    ...DEFAULT_VENUE_CANCEL_LIMIT,
+    ...overrides,
+    hook: 'preHandler',
+    keyGenerator: (request) =>
+      request.actor?.id
+        ? `venue-cancel:actor:${request.actor.id}`
+        : `venue-cancel:ip:${request.ip}`,
+  }
+}
+
+/**
  * Build the per-route `config.rateLimit` object for accepting an organiser
  * invitation: the credential budget, keyed `organizer-accept:actor:<id>`.
  *

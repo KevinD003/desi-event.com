@@ -79,54 +79,55 @@ model User {
   suspendedAt     DateTime?
   suspendedReason String?
 
-  memberships              Membership[]
-  orders                   Order[]
-  waitlist                 WaitlistEntry[]
-  auditLogs                AuditLog[]
-  ticketHolds              TicketHold[]
-  sessions                 Session[]
-  devices                  Device[]
-  mfaFactors               MfaFactor[]
-  authTokens               AuthToken[]
-  invitesSent              Invitation[]              @relation("InvitationInvitedBy")
-  invitesAccepted          Invitation[]              @relation("InvitationAcceptedBy")
-  ticketsOwned             Ticket[]                  @relation("TicketOwner")
-  transfersSent            TicketTransfer[]          @relation("TicketTransferFrom")
-  transfersReceived        TicketTransfer[]          @relation("TicketTransferTo")
-  checkInsPerformed        CheckIn[]
-  refundsRequested         Refund[]                  @relation("RefundRequestedBy")
-  refundsApproved          Refund[]                  @relation("RefundApprovedBy")
-  ledgerBatches            LedgerBatch[]
-  moderationActions        EventModerationAction[]
-  notificationPreferences  NotificationPreference[]
-  mediaUploaded            MediaAsset[]              @relation("MediaUploadedBy")
-  mediaModerated           MediaAsset[]              @relation("MediaModeratedBy")
-  reconciliationTasks      ReconciliationTask[]
-  privacyRequestsAsSubject PrivacyRequest[]          @relation("PrivacyRequestSubject")
-  privacyRequestsRaised    PrivacyRequest[]          @relation("PrivacyRequestRequestedBy")
-  privacyHoldsAsSubject    PrivacyHold[]             @relation("PrivacyHoldSubject")
-  privacyHoldsPlaced       PrivacyHold[]             @relation("PrivacyHoldPlacedBy")
-  privacyHoldsReleased     PrivacyHold[]             @relation("PrivacyHoldReleasedBy")
-  exportArtifactsRequested ExportArtifact[]
-  exportArtifactSubjects   ExportArtifactSubject[]
-  organizationsCreated     Organization[]            @relation("OrganizationCreatedBy")
-  organizerInvitesSent     OrganizerInvitation[]     @relation("OrganizerInvitationInvitedBy")
-  organizerInvitesAccepted OrganizerInvitation[]     @relation("OrganizerInvitationAcceptedBy")
-  organizerInvitesRevoked  OrganizerInvitation[]     @relation("OrganizerInvitationRevokedBy")
-  eventWebsiteDecisions    Event[]                   @relation("EventWebsiteRedirectChangedBy")
-  eventsDeleted            Event[]                   @relation("EventDeletedBy")
-  platformEdits            EventPlatformEdit[]       @relation("EventPlatformEditActor")
-  eventImportRunsCreated   EventImportRun[]          @relation("EventImportRunCreatedBy")
-  eventImportRunsApplied   EventImportRun[]          @relation("EventImportRunAppliedBy")
-  eventImportsImported     EventImportItem[]         @relation("EventImportItemImportedBy")
-  eventImportsApproved     EventImportItem[]         @relation("EventImportItemApprovedBy")
-  eventImportsReassigned   EventImportItem[]         @relation("EventImportItemReassignedBy")
-  venuePaymentDecisions    Event[]                   @relation("EventVenuePaymentChangedBy")
-  eventFeeSettings         EventFeeSetting[]         @relation("EventFeeSetBy")
-  venuePaymentChanges      EventVenuePaymentChange[] @relation("VenuePaymentChangedBy")
-  referralCodesCreated     ReferralCode[]            @relation("ReferralCodeCreatedBy")
-  referralCodesUpdated     ReferralCode[]            @relation("ReferralCodeUpdatedBy")
-  venuePaymentsRecorded    VenuePayment[]            @relation("VenuePaymentRecordedBy")
+  memberships               Membership[]
+  orders                    Order[]
+  waitlist                  WaitlistEntry[]
+  auditLogs                 AuditLog[]
+  ticketHolds               TicketHold[]
+  sessions                  Session[]
+  devices                   Device[]
+  mfaFactors                MfaFactor[]
+  authTokens                AuthToken[]
+  invitesSent               Invitation[]               @relation("InvitationInvitedBy")
+  invitesAccepted           Invitation[]               @relation("InvitationAcceptedBy")
+  ticketsOwned              Ticket[]                   @relation("TicketOwner")
+  transfersSent             TicketTransfer[]           @relation("TicketTransferFrom")
+  transfersReceived         TicketTransfer[]           @relation("TicketTransferTo")
+  checkInsPerformed         CheckIn[]
+  refundsRequested          Refund[]                   @relation("RefundRequestedBy")
+  refundsApproved           Refund[]                   @relation("RefundApprovedBy")
+  ledgerBatches             LedgerBatch[]
+  moderationActions         EventModerationAction[]
+  notificationPreferences   NotificationPreference[]
+  mediaUploaded             MediaAsset[]               @relation("MediaUploadedBy")
+  mediaModerated            MediaAsset[]               @relation("MediaModeratedBy")
+  reconciliationTasks       ReconciliationTask[]
+  privacyRequestsAsSubject  PrivacyRequest[]           @relation("PrivacyRequestSubject")
+  privacyRequestsRaised     PrivacyRequest[]           @relation("PrivacyRequestRequestedBy")
+  privacyHoldsAsSubject     PrivacyHold[]              @relation("PrivacyHoldSubject")
+  privacyHoldsPlaced        PrivacyHold[]              @relation("PrivacyHoldPlacedBy")
+  privacyHoldsReleased      PrivacyHold[]              @relation("PrivacyHoldReleasedBy")
+  exportArtifactsRequested  ExportArtifact[]
+  exportArtifactSubjects    ExportArtifactSubject[]
+  organizationsCreated      Organization[]             @relation("OrganizationCreatedBy")
+  organizerInvitesSent      OrganizerInvitation[]      @relation("OrganizerInvitationInvitedBy")
+  organizerInvitesAccepted  OrganizerInvitation[]      @relation("OrganizerInvitationAcceptedBy")
+  organizerInvitesRevoked   OrganizerInvitation[]      @relation("OrganizerInvitationRevokedBy")
+  eventWebsiteDecisions     Event[]                    @relation("EventWebsiteRedirectChangedBy")
+  eventsDeleted             Event[]                    @relation("EventDeletedBy")
+  platformEdits             EventPlatformEdit[]        @relation("EventPlatformEditActor")
+  eventImportRunsCreated    EventImportRun[]           @relation("EventImportRunCreatedBy")
+  eventImportRunsApplied    EventImportRun[]           @relation("EventImportRunAppliedBy")
+  eventImportsImported      EventImportItem[]          @relation("EventImportItemImportedBy")
+  eventImportsApproved      EventImportItem[]          @relation("EventImportItemApprovedBy")
+  eventImportsReassigned    EventImportItem[]          @relation("EventImportItemReassignedBy")
+  venuePaymentDecisions     Event[]                    @relation("EventVenuePaymentChangedBy")
+  eventFeeSettings          EventFeeSetting[]          @relation("EventFeeSetBy")
+  venuePaymentChanges       EventVenuePaymentChange[]  @relation("VenuePaymentChangedBy")
+  referralCodesCreated      ReferralCode[]             @relation("ReferralCodeCreatedBy")
+  referralCodesUpdated      ReferralCode[]             @relation("ReferralCodeUpdatedBy")
+  venuePaymentsRecorded     VenuePayment[]             @relation("VenuePaymentRecordedBy")
+  venueBookingCancellations VenueBookingCancellation[] @relation("VenueBookingCancelledBy")
 
   @@index([role])
   @@index([suspendedAt])
@@ -592,43 +593,45 @@ model Event {
   /// Their reason, 10-500 characters. Shown to the organiser with their name.
   venuePaymentReason      String?
 
-  organization             Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  venue                    Venue?                    @relation(fields: [venueId], references: [id], onDelete: SetNull)
-  ticketTypes              TicketType[]
-  orders                   Order[]
-  promoCodes               PromoCode[]
-  waitlist                 WaitlistEntry[]
-  sessions                 EventSession[]
-  moderationHistory        EventModerationAction[]
-  media                    MediaAsset[]
+  organization              Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  venue                     Venue?                     @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  ticketTypes               TicketType[]
+  orders                    Order[]
+  promoCodes                PromoCode[]
+  waitlist                  WaitlistEntry[]
+  sessions                  EventSession[]
+  moderationHistory         EventModerationAction[]
+  media                     MediaAsset[]
   /// The door scanners whose authority names this event.
-  scannerScopes            ScannerScope[]
+  scannerScopes             ScannerScope[]
   /// The administrator who last decided the website link.
-  websiteRedirectChangedBy User?                     @relation("EventWebsiteRedirectChangedBy", fields: [websiteRedirectChangedById], references: [id], onDelete: SetNull)
+  websiteRedirectChangedBy  User?                      @relation("EventWebsiteRedirectChangedBy", fields: [websiteRedirectChangedById], references: [id], onDelete: SetNull)
   /// Counted visits, kept for two days after their day. See `TrafficEvent`.
-  trafficEvents            TrafficEvent[]
+  trafficEvents             TrafficEvent[]
   /// Daily visit totals. See `TrafficDaily`.
-  trafficDaily             TrafficDaily[]
+  trafficDaily              TrafficDaily[]
   /// Who deleted it, while it is deleted.
-  deletedBy                User?                     @relation("EventDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletedBy                 User?                      @relation("EventDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
   /// The Desi-Event team's editing sittings on it.
-  platformEdits            EventPlatformEdit[]
+  platformEdits             EventPlatformEdit[]
   /// What ticket holders are shown changed about it.
-  changeNotices            EventChangeNotice[]
+  changeNotices             EventChangeNotice[]
   /// Where it was imported from, when it was.
-  importItem               EventImportItem?
+  importItem                EventImportItem?
   /// The fee decision the current EVENT terms came from.
-  feeSetting               EventFeeSetting?          @relation("EventCurrentFee", fields: [feeSettingId], references: [id], onDelete: SetNull)
+  feeSetting                EventFeeSetting?           @relation("EventCurrentFee", fields: [feeSettingId], references: [id], onDelete: SetNull)
   /// The administrator who last changed the pay-at-the-venue switch or limit.
-  venuePaymentChangedBy    User?                     @relation("EventVenuePaymentChangedBy", fields: [venuePaymentChangedById], references: [id], onDelete: SetNull)
+  venuePaymentChangedBy     User?                      @relation("EventVenuePaymentChangedBy", fields: [venuePaymentChangedById], references: [id], onDelete: SetNull)
   /// Every fee decision about it, oldest first by `sequence`.
-  feeSettings              EventFeeSetting[]         @relation("EventFeeHistory")
+  feeSettings               EventFeeSetting[]          @relation("EventFeeHistory")
   /// Every change of its pay-at-the-venue switch or limit.
-  venuePaymentChanges      EventVenuePaymentChange[]
+  venuePaymentChanges       EventVenuePaymentChange[]
   /// The referral codes whose scope names it.
-  referralScopes           ReferralCodeEvent[]
+  referralScopes            ReferralCodeEvent[]
   /// Payments taken at its door. Not platform money.
-  venuePayments            VenuePayment[]
+  venuePayments             VenuePayment[]
+  /// Unpaid pay-at-the-venue tickets of its orders cancelled (SPEC3-XI XU).
+  venueBookingCancellations VenueBookingCancellation[]
 
   @@index([status, startsAt])
   @@index([category, startsAt])
@@ -675,6 +678,26 @@ enum ReferralCodeScope {
 enum VenuePaymentVia {
   DOOR_TICKET
   DOOR_GROUP
+}
+
+/// Why an order's referral use was given back (SPEC3-XI XR4): the order ended
+/// without being used. Written only by apps/api/src/lib/referral-uses.js.
+enum ReferralUseReturnCause {
+  /// The card payment did not go through.
+  PAYMENT_FAILED
+  /// A booking with nothing to pay online could not be completed.
+  NOT_COMPLETED
+  /// An unpaid order was cancelled (event deletion, night cancellation).
+  UNPAID_ORDER_CANCELLED
+  /// Refunded in full, with no ticket standing.
+  REFUNDED
+  /// Its unpaid pay-at-the-venue tickets were all cancelled.
+  VENUE_UNPAID_CANCELLED
+  EVENT_CANCELLED
+  EVENT_DELETED
+  SESSION_CANCELLED
+  /// The organiser withdrew every ticket and nothing was left to refund.
+  TICKETS_REVOKED
 }
 
 // Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECK
@@ -833,6 +856,57 @@ model VenuePayment {
   @@index([eventSessionId])
 }
 
+// Hand-written in `20261009110000_pay_at_the_venue`: the CHECK
+// `venue_booking_cancellation_shape` (1-100 tickets, a basis above 0, a kept
+// fee of 0 or more, a currency code, an authority of ORGANIZATION_ROLE or
+// PLATFORM_ROLE, a role of 1-40 characters, a reason of 10-500), the trigger
+// `desi_venue_booking_cancellation_append_only` (constraint
+// `venue_booking_cancellation_append_only`: no UPDATE except clearing
+// `cancelledById`, no DELETE) and the deferred constraint trigger
+// `desi_venue_booking_cancellation_sum` (constraint
+// `venue_booking_cancellation_sum`: at commit the tickets pointing at it number
+// `ticketCount` and their dues sum to `basisCents`), checked again at commit by
+// `desi_ticket_venue_cancellation_sum` and
+// `desi_ticket_venue_cancellation_sum_on_delete` on `Ticket` whenever a ticket
+// joins it or is removed, in any later transaction.
+/// Unpaid pay-at-the-venue tickets of one order cancelled by an organiser or the
+/// Desi-Event team (SPEC3-XI XU). Their places were freed; Desi-Event kept their
+/// booking fee; nothing was refunded or posted to the ledger. Only
+/// apps/api/src/lib/venue-bookings.js writes it. Never edited.
+model VenueBookingCancellation {
+  id             String   @id @default(cuid())
+  orderId        String
+  eventId        String
+  /// Copied from the event; a plain column, as `VenuePayment`'s.
+  organizationId String
+  /// How many tickets it cancelled, 1-100.
+  ticketCount    Int
+  /// The door price no longer owed: the sum of its tickets' `venueDueCents`.
+  basisCents     Int
+  /// The booking fee Desi-Event kept for them. Never refunded. Only the fee is
+  /// ever kept; tax on it would go back to the buyer (SPEC3-XI XU6).
+  feeKeptCents   Int
+  currency       String
+  /// ORGANIZATION_ROLE | PLATFORM_ROLE (SPEC3-XI XU2).
+  authority      String
+  /// The role that granted it, as the door's audit records a role.
+  role           String
+  /// Why, 10-500 characters. Shown to the buyer and to the tickets' holders.
+  reason         String
+  /// Who cancelled. Null once the account is gone.
+  cancelledById  String?
+  createdAt      DateTime @default(now())
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  cancelledBy User?    @relation("VenueBookingCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  tickets     Ticket[]
+
+  @@index([eventId, createdAt])
+  @@index([orderId])
+  @@index([cancelledById])
+}
+
 // ---------------------------------------------------------------------------
 // Ticketing
 // ---------------------------------------------------------------------------
@@ -879,7 +953,9 @@ model TicketType {
   priceCents    Int
   currency      String           @default("INR")
   quantityTotal Int
-  // Denormalised counter kept in step with paid orders inside a transaction.
+  /// Incremented at settlement; decremented only when unpaid pay-at-the-venue
+  /// tickets are cancelled (apps/api/src/lib/venue-bookings.js). CHECK
+  /// ticket_type_sold_not_negative.
   quantitySold  Int              @default(0)
   minPerOrder   Int              @default(1)
   maxPerOrder   Int              @default(10)
@@ -992,7 +1068,17 @@ enum OrderStatus {
 // bounds; an EVENT order keeps its setting or its numbers). Hand-written in
 // `20261009110000_pay_at_the_venue`: the CHECK `order_venue_payment_shape` (a
 // CARD order owes nothing at the door; an AT_VENUE order owes the ticket price
-// after the promo there and pays only the booking fee and its tax online).
+// after the promo there and pays only the booking fee and its tax online),
+// and, for unpaid tickets cancelled (SPEC3-XI XU), the CHECKs
+// `order_venue_cancel_shape` (the basis within the door price, the kept fee
+// within the fee charged, both 0 on a card order) and
+// `order_venue_kept_within_total` (refunded, pending and kept money never above
+// the online total, so a kept fee is never refunded). Hand-written in
+// `20261009100000_payment_terms_and_referral_codes`: the CHECK
+// `order_referral_return_shape` (a return marker has its cause and a code) and
+// the trigger `desi_order_referral_fixed` (constraints
+// `order_referral_code_fixed`: the code an order used never changes, and
+// `order_referral_return_once`: a set marker never changes).
 // The payment and fee columns are written only when the order is placed
 // (`apps/api/src/routes/orders.js`); `referralCodeId` names a code only an
 // administrator reads.
@@ -1044,42 +1130,53 @@ model Order {
 
   /// CARD: everything online. AT_VENUE: the booking fee (and any tax on it)
   /// online, the ticket price at the door.
-  paymentMethod         OrderPaymentMethod @default(CARD)
+  paymentMethod            OrderPaymentMethod      @default(CARD)
   /// Whose terms priced the booking fee.
-  feeSource             FeeSource          @default(SITE_DEFAULT)
+  feeSource                FeeSource               @default(SITE_DEFAULT)
   /// The event's fee decision used, for EVENT terms. Null for SITE_DEFAULT.
-  feeSettingId          String?
+  feeSettingId             String?
   /// The percentage used, in basis points. Null when the terms were not
   /// recorded (orders placed before 9 October 2026 without a usable snapshot).
-  feePercentageBps      Int?
+  feePercentageBps         Int?
   /// The amount per ticket used. Null exactly when `feePercentageBps` is.
-  feeFlatCentsPerTicket Int?
+  feeFlatCentsPerTicket    Int?
   /// The booking fee the terms came to, before any waiver.
-  feeGrossCents         Int                @default(0)
+  feeGrossCents            Int                     @default(0)
   /// The booking fee a referral code waived: all of it, or nothing.
-  feeWaivedCents        Int                @default(0)
+  feeWaivedCents           Int                     @default(0)
   /// The referral code that waived it. Administrators only.
-  referralCodeId        String?
+  referralCodeId           String?
   /// The ticket price after the promo, to be paid at the door. 0 on a card
   /// order. Never changes.
-  venueDueCents         Int                @default(0)
+  venueDueCents            Int                     @default(0)
+  /// When this order's referral use was given back (it ended without being used),
+  /// and why. Set once, by apps/api/src/lib/referral-uses.js only.
+  referralUseReturnedAt    DateTime?
+  referralUseReturnCause   ReferralUseReturnCause?
+  /// Door price no longer owed: the dues of tickets cancelled unpaid (SPEC3-XI XU).
+  venueCancelledBasisCents Int                     @default(0)
+  /// The booking fee kept by Desi-Event for those tickets. Never refunded. Only the
+  /// fee is ever kept; tax on it would go back to the buyer (SPEC3-XI XU6).
+  venueFeeKeptCents        Int                     @default(0)
 
-  event         Event            @relation(fields: [eventId], references: [id], onDelete: Restrict)
-  user          User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-  promoCode     PromoCode?       @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
-  eventSession  EventSession?    @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
-  refunds       Refund[]
-  transfers     Transfer[]
-  ledgerBatches LedgerBatch[]
-  items         OrderItem[]
-  holds         TicketHold[]
-  payments      Payment[]
+  event              Event                      @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user               User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  promoCode          PromoCode?                 @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
+  eventSession       EventSession?              @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
+  refunds            Refund[]
+  transfers          Transfer[]
+  ledgerBatches      LedgerBatch[]
+  items              OrderItem[]
+  holds              TicketHold[]
+  payments           Payment[]
   /// The order's group pass, created lazily on the holder's first retrieval.
-  groupPass     GroupPass?
-  feeSetting    EventFeeSetting? @relation(fields: [feeSettingId], references: [id], onDelete: SetNull)
-  referralCode  ReferralCode?    @relation(fields: [referralCodeId], references: [id], onDelete: Restrict)
+  groupPass          GroupPass?
+  feeSetting         EventFeeSetting?           @relation(fields: [feeSettingId], references: [id], onDelete: SetNull)
+  referralCode       ReferralCode?              @relation(fields: [referralCodeId], references: [id], onDelete: Restrict)
   /// Payments taken at the door for its tickets. Not platform money.
-  venuePayments VenuePayment[]
+  venuePayments      VenuePayment[]
+  /// Its unpaid pay-at-the-venue tickets cancelled, if any (SPEC3-XI XU).
+  venueCancellations VenueBookingCancellation[]
 
   @@index([status, createdAt])
   @@index([eventId, status])
@@ -1090,6 +1187,7 @@ model Order {
   @@index([feeSettingId])
   @@index([referralCodeId, status])
   @@index([eventId, paymentMethod, status])
+  @@index([referralCodeId, referralUseReturnedAt])
 }
 
 model OrderItem {
@@ -1102,15 +1200,18 @@ model OrderItem {
 
   /// Quantity already refunded from this line. The refund allocator reads this
   /// to enforce "you cannot refund more of a line than was bought".
-  refundedQuantity Int      @default(0)
-  refundedCents    Int      @default(0)
+  refundedQuantity       Int      @default(0)
+  refundedCents          Int      @default(0)
   /// Names typed at checkout for a general-admission line, staged until
   /// settlement issues the tickets, then cleared. Positional; never longer
   /// than quantity (CHECK order_item_attendee_names_within_quantity).
-  attendeeNames    String[] @default([])
+  attendeeNames          String[] @default([])
   /// The line's ticket price after its promo share, to be paid at the door. 0
   /// on a card order (CHECK `order_item_venue_due_shape`).
-  venueDueCents    Int      @default(0)
+  venueDueCents          Int      @default(0)
+  /// Tickets of this line cancelled unpaid (SPEC3-XI XU). Refunds count them as
+  /// gone (CHECK `order_item_venue_cancelled_within_line`).
+  venueCancelledQuantity Int      @default(0)
 
   order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
   ticketType  TicketType   @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
@@ -1165,7 +1266,20 @@ enum TicketStatus {
 // ticket names still equals its tickets); and
 // `desi_check_in_ticket_admissible` refusing an admission while the amount due
 // is unpaid (`check_in_payment_due`). A ticket with an amount due is handed on
-// like any other (open question 7).
+// like any other (open question 7); the trigger `desi_ticket_venue_due_guard`
+// keeps its due with it (constraints `ticket_venue_due_fixed`: a due never
+// changes; `ticket_venue_due_successor`: a successor owes what its predecessor
+// owed; `ticket_venue_insert_unpaid`: a ticket is inserted neither paid nor
+// cancelled). For a ticket cancelled unpaid (SPEC3-XI XU): the CHECK
+// `ticket_venue_cancellation_shape` (only a REVOKED, unpaid ticket owing
+// something), the trigger `desi_ticket_venue_cancellation_guard` (constraints
+// `ticket_venue_cancellation_fixed` and `venue_cancellation_ticket`: set once,
+// to a cancellation of its own order, while the ticket goes from VALID or
+// TRANSFER_PENDING to REVOKED and was never admitted), the guard above refusing
+// a payment for it (`venue_payment_order`), and the deferred constraint
+// triggers `desi_ticket_venue_cancellation_sum` and
+// `desi_ticket_venue_cancellation_sum_on_delete` (constraint
+// `venue_booking_cancellation_sum`).
 /// One admission.
 ///
 /// Two identifiers, deliberately. `code` is the human-readable reference a
@@ -1180,58 +1294,66 @@ enum TicketStatus {
 /// no order reference, no authorisation claim. Everything the gate needs to
 /// decide is looked up server-side from the hash.
 model Ticket {
-  id                 String       @id @default(cuid())
-  orderItemId        String
+  id                  String       @id @default(cuid())
+  orderItemId         String
   /// Human-readable reference. Admits nobody by itself.
-  code               String       @unique
+  code                String       @unique
   /// SHA-256 of the bearer credential in the QR pass. Never the credential.
-  credentialHash     String?      @unique
+  credentialHash      String?      @unique
   /// Bumped every time the credential is rotated, so an old pass is provably
   /// stale rather than merely unrecognised.
-  credentialVersion  Int          @default(1)
-  credentialIssuedAt DateTime?
-  attendeeName       String?
+  credentialVersion   Int          @default(1)
+  credentialIssuedAt  DateTime?
+  attendeeName        String?
   /// Who holds it now. Null for a guest purchase that was never claimed.
-  ownerUserId        String?
+  ownerUserId         String?
   /// The seat, for reserved seating. Null for general admission. Unique among
   /// live tickets (VALID, TRANSFER_PENDING, CHECKED_IN) by a partial index
   /// Prisma cannot express; a handed-on or refunded row keeps its seat as
   /// history. See ADR 0006.
-  eventSeatId        String?
-  status             TicketStatus @default(VALID)
-  checkedInAt        DateTime?
-  revokedAt          DateTime?
-  revokedReason      String?
+  eventSeatId         String?
+  status              TicketStatus @default(VALID)
+  checkedInAt         DateTime?
+  revokedAt           DateTime?
+  revokedReason       String?
   /// The ticket this one replaced, when it was created by a transfer or a
   /// reissue. Gives an unbroken chain from the original purchase.
-  supersedesTicketId String?      @unique
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  supersedesTicketId  String?      @unique
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
   /// This ticket's share of its line's door price; 0 unless paid at the venue.
-  /// Never changes. Written only at settlement (`apps/api/src/lib/checkout.js`).
-  venueDueCents      Int          @default(0)
+  /// Never changes (trigger desi_ticket_venue_due_guard). Written at settlement
+  /// (`apps/api/src/lib/checkout.js`) and copied to a transfer's successor
+  /// (`apps/api/src/lib/tickets.js`).
+  venueDueCents       Int          @default(0)
   /// The door payment that paid it, or null while unpaid. Once set, never changes
   /// (trigger desi_ticket_venue_payment_guard). Only
   /// `apps/api/src/lib/venue-payments.js` writes it.
-  venuePaymentId     String?
+  venuePaymentId      String?
+  /// The cancellation that cancelled it unpaid, or null. Set once (trigger
+  /// desi_ticket_venue_cancellation_guard). Only
+  /// `apps/api/src/lib/venue-bookings.js` writes it.
+  venueCancellationId String?
 
-  orderItem    OrderItem        @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  owner        User?            @relation("TicketOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  eventSeat    EventSeat?       @relation(fields: [eventSeatId], references: [id], onDelete: SetNull)
-  supersedes   Ticket?          @relation("TicketSupersession", fields: [supersedesTicketId], references: [id], onDelete: SetNull)
-  supersededBy Ticket?          @relation("TicketSupersession")
-  transfers    TicketTransfer[]
+  orderItem         OrderItem                 @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  owner             User?                     @relation("TicketOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  eventSeat         EventSeat?                @relation(fields: [eventSeatId], references: [id], onDelete: SetNull)
+  supersedes        Ticket?                   @relation("TicketSupersession", fields: [supersedesTicketId], references: [id], onDelete: SetNull)
+  supersededBy      Ticket?                   @relation("TicketSupersession")
+  transfers         TicketTransfer[]
   /// One for a ticket that admits once; one per night for a ticket good for
   /// every night. See `CheckIn`.
-  checkIns     CheckIn[]
-  refundItems  RefundItem[]
-  venuePayment VenuePayment?    @relation(fields: [venuePaymentId], references: [id], onDelete: Restrict)
+  checkIns          CheckIn[]
+  refundItems       RefundItem[]
+  venuePayment      VenuePayment?             @relation(fields: [venuePaymentId], references: [id], onDelete: Restrict)
+  venueCancellation VenueBookingCancellation? @relation(fields: [venueCancellationId], references: [id], onDelete: Restrict)
 
   @@index([orderItemId])
   @@index([status])
   @@index([ownerUserId])
   @@index([eventSeatId])
   @@index([venuePaymentId])
+  @@index([venueCancellationId])
 }
 
 enum PaymentStatus {

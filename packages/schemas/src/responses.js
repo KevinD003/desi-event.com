@@ -61,9 +61,13 @@ import {
 } from './event-control.js'
 import { mediaQueueItemSchema, publicMediaSchema } from './media.js'
 import {
+  PLACES_ON_SALE,
   REFERRAL_CODE_PATTERN,
   REFERRAL_LIMITS,
+  REFERRAL_RETURN_CAUSES,
   REFERRAL_STATUSES,
+  VENUE_CANCELLED_BY,
+  VENUE_CANCEL_LIMITS,
   admissionPaymentSchema,
   checkInPaymentResultSchema,
   groupAdmissionPaymentSchema,
@@ -74,6 +78,7 @@ import {
   publicVenuePaymentSchema,
   quoteReferralSchema,
   ticketVenuePaymentSchema,
+  venueBookingTicketSchema,
 } from './payment-terms.js'
 import { IMPORT_LIMITS, IMPORT_PLAN_ACTIONS, importSourceIdSchema } from './imports.js'
 import {
@@ -200,10 +205,16 @@ export const errorResponseSchema = z.object({
         currentSequence: z.int().min(0).optional(),
         dueCents: centsSchema.optional(),
         booking: z
-          .object({ otherUnpaidTickets: z.int().min(0), otherUnpaidCents: centsSchema })
+          .object({
+            otherUnpaidTickets: z.int().min(0),
+            otherUnpaidCents: centsSchema,
+            groupPass: z.boolean().optional(),
+          })
           .strict()
           .optional(),
         eventIds: z.array(cuidSchema).max(50).optional(),
+        /** `VENUE_BOOKING_CHANGED`: the chosen tickets that stopped being cancellable (SPEC3-XI XU10). */
+        ticketIds: z.array(cuidSchema).min(1).max(VENUE_CANCEL_LIMITS.maxTickets).optional(),
       })
       .strict()
       .optional(),
@@ -1261,6 +1272,13 @@ const salesGroupSchema = z.object({
   lineValueCents: z.number().int().nullable(),
   refundedQuantity: z.number().int(),
   refundedCents: z.number().int().nullable(),
+  /**
+   * Unpaid pay-at-the-venue tickets cancelled (SPEC3-XI §9.10): their places
+   * went back to stock, so they are not counted as sold. Optional until the
+   * breakdown's builder sends it (Stage B1-V, `lib/analytics.js`): a required
+   * field would refuse every analytics answer the current builder makes.
+   */
+  cancelledQuantity: z.number().int().min(0).optional(),
   startsAt: timestampSchema.nullable().optional(),
 })
 
@@ -1589,13 +1607,15 @@ export const analyticsSummaryResponseSchema = z.object({
     /**
      * Tickets booked to pay at the venue in the scope and currency: those still
      * unpaid and what they owe, and what was taken at the door — by the
-     * organiser, so outside the ledger's money figures (SPEC3 §9.10).
+     * organiser, so outside the ledger's money figures (SPEC3 §9.10) — and how
+     * many unpaid tickets were cancelled, their places freed (SPEC3-XI §9.10).
      */
     venuePayments: z
       .object({
         ticketsUnpaid: countSchema,
         unpaidCents: centsSchema,
         paidAtDoorCents: centsSchema,
+        cancelledUnpaidTickets: countSchema,
       })
       .optional(),
     limits: z.object({ breakdownRows: z.number().int() }),
@@ -1692,6 +1712,13 @@ export const refundableResponseSchema = z.object({
         unitPriceCents: z.number().int(),
         refundedQuantity: z.number().int(),
         pendingQuantity: z.number().int(),
+        /**
+         * Tickets of the line cancelled unpaid (SPEC3-XI §10.2): never offered
+         * for refund, and outside `refundableQuantity`. Optional until
+         * `refunds.summary` sends it (Stage B1-V, `routes/refunds.js`): a
+         * required field would refuse every answer the current handler makes.
+         */
+        cancelledQuantity: z.number().int().min(0).optional(),
         refundableQuantity: z.number().int(),
       }),
     ),
@@ -1935,11 +1962,14 @@ const waivedInCurrencySchema = z.object({ currency: z.string().length(3), cents:
 const referralCreatorSchema = z.object({ id: cuidSchema, displayName: z.string() }).nullable()
 
 /**
- * A referral code as platform administrators manage it (SPEC3 §8.4): its text
- * (`referralCode`, never `code`), label, scope with up to three of its events
- * and how many, expiry and limit, how often it was used, the fees it waived per
- * currency, and who made it. `useCount` includes orders still waiting for
- * payment; `completedUses` and `waived` count PAID and REFUNDED orders.
+ * A referral code as platform administrators manage it (SPEC3 §8.4, SPEC3-XI
+ * §8.4): its text (`referralCode`, never `code`), label, scope with up to three
+ * of its events and how many, expiry and limit, its uses, the fees it waived per
+ * currency, and who made it. `useCount` is the uses counted now (orders naming
+ * it that have not given their use back, including orders still waiting for
+ * payment); `usesPlaced` is every order placed with it and `usesReturned` the
+ * orders that gave their use back, so `usesPlaced − usesReturned = useCount`.
+ * `waived` is the booking fee a current use waived on a PAID order.
  */
 export const adminReferralCodeSchema = z.object({
   id: cuidSchema,
@@ -1955,7 +1985,8 @@ export const adminReferralCodeSchema = z.object({
   expiresAt: timestampSchema.nullable(),
   maxUses: z.int().min(1).max(REFERRAL_LIMITS.maxUses).nullable(),
   useCount: z.int().min(0),
-  completedUses: z.int().min(0),
+  usesPlaced: z.int().min(0),
+  usesReturned: z.int().min(0),
   waived: z.array(waivedInCurrencySchema),
   status: z.enum([...REFERRAL_STATUSES]),
   active: z.boolean(),
@@ -1986,6 +2017,10 @@ export const referralUseSchema = z.object({
   orderStatus: orderStatusSchema,
   feeWaivedCents: centsSchema,
   currency: z.string().length(3),
+  /** When and why the order gave its use back, or null while it counts (SPEC3-XI XR). */
+  useReturned: z
+    .object({ at: timestampSchema, cause: z.enum([...REFERRAL_RETURN_CAUSES]) })
+    .nullable(),
 })
 
 /** `referralCodes.get`: the code and a page of its uses, newest first. */
@@ -1999,8 +2034,10 @@ export const referralAdministratorRowSchema = z.object({
   /** Null for codes whose maker's account is gone ("A former administrator"). */
   administrator: referralCreatorSchema,
   codes: z.int().min(0),
-  uses: z.int().min(0),
-  completedUses: z.int().min(0),
+  /** Orders placed with their codes, those that gave their use back, and the uses counted now. */
+  usesPlaced: z.int().min(0),
+  usesReturned: z.int().min(0),
+  currentUses: z.int().min(0),
   waived: z.array(waivedInCurrencySchema),
 })
 
@@ -2012,8 +2049,9 @@ export const referralAdministratorListResponseSchema = z.object({
 /**
  * One order's booking-fee figures, read by reference to refund that fee by
  * hand (SPEC3 §7.4). No buyer name or address. `refundableFeeCents` is the
- * fee left plus the tax charged on it; an order with nothing to refund still
- * previews, at 0.
+ * fee left plus the tax charged on it, after any share kept when unpaid tickets
+ * were cancelled (`feeKeptCents`, never refundable, SPEC3-XI XU6); an order
+ * with nothing to refund still previews, at 0.
  */
 export const platformFeePreviewSchema = z.object({
   reference: orderReferenceSchema,
@@ -2027,6 +2065,7 @@ export const platformFeePreviewSchema = z.object({
   feeRefundedCents: centsSchema,
   refundableFeeCents: centsSchema,
   taxOnFeeCents: centsSchema,
+  feeKeptCents: centsSchema,
   disputed: z.boolean(),
 })
 
@@ -2059,6 +2098,10 @@ export const venuePaymentsReportSchema = z.object({
     notPaidByEndCents: centsSchema,
     /** Taken at the door on bookings later refunded or cancelled: still with the organiser. */
     paidOnRefundedCents: centsSchema,
+    /** Unpaid tickets cancelled, the door price no longer owed, and the booking fee kept (SPEC3-XI §9.8). */
+    cancelledUnpaidTickets: z.int().min(0),
+    cancelledUnpaidCents: centsSchema,
+    feeKeptCents: centsSchema,
   }),
   payments: z.array(
     z.object({
@@ -2087,11 +2130,85 @@ export const venuePaymentsReportSchema = z.object({
       unpaidCents: centsSchema,
     }),
   ),
+  /** The newest 50 cancellations of unpaid tickets (SPEC3-XI §9.8). */
+  cancellations: z
+    .array(
+      z.object({
+        id: cuidSchema,
+        at: timestampSchema,
+        by: z.enum([...VENUE_CANCELLED_BY]),
+        byName: z.string().nullable(),
+        orderReference: orderReferenceSchema,
+        ticketCount: z.int().min(1).max(VENUE_CANCEL_LIMITS.maxTickets),
+        basisCents: centsSchema,
+        reason: z.string(),
+      }),
+    )
+    .max(50),
+  cancellationsHasMore: z.boolean(),
+  /** Whether the reader may cancel unpaid tickets of this event (SPEC3-XI XU2). */
+  canCancelUnpaid: z.boolean(),
   pagination: paginationMetaSchema,
 })
 
 /** `venuePayments.report` response. */
 export const venuePaymentsReportResponseSchema = z.object({ data: venuePaymentsReportSchema })
+
+/**
+ * `venueBookings.unpaid` (SPEC3-XI §11.2): an event's bookings with tickets
+ * waiting to be paid at the door, each with its tickets, for the organiser's
+ * "Payments at the venue" page, the administrators' "Bookings waiting to be
+ * paid at the door" and the cancel dialog. `buyerName` and every
+ * `attendeeName` are null for a platform reader.
+ */
+export const venueBookingsResponseSchema = z.object({
+  data: z.object({
+    eventId: cuidSchema,
+    eventTitle: z.string(),
+    currency: z.string().length(3),
+    bookings: z.array(
+      z.object({
+        orderReference: orderReferenceSchema,
+        placedAt: timestampSchema,
+        buyerName: addressFree(z.string()).nullable(),
+        feesCents: centsSchema,
+        unpaidTickets: z.int().min(0),
+        unpaidCents: centsSchema,
+        tickets: z.array(venueBookingTicketSchema),
+      }),
+    ),
+    pagination: paginationMetaSchema,
+  }),
+})
+
+/**
+ * `venueBookings.cancel` (SPEC3-XI §11.2): the cancellation written, or found
+ * already written for the same tickets (`replayed`). The door price no longer
+ * owed (`basisCents`) and the booking fee Desi-Event kept (`feeKeptCents`, the
+ * only thing ever kept); the places freed (`seatsReturned`, `placesReturned`
+ * per tier) and whether they are on sale now (`placesOnSale`), and whether the
+ * event's sales are paused or sold out (`eventSalesStopped`). `byName` only for
+ * organisation readers.
+ */
+export const venueBookingCancellationResponseSchema = z.object({
+  data: z.object({
+    cancellationId: cuidSchema,
+    orderReference: orderReferenceSchema,
+    ticketCount: z.int().min(1).max(VENUE_CANCEL_LIMITS.maxTickets),
+    basisCents: centsSchema,
+    feeKeptCents: centsSchema,
+    currency: z.string().length(3),
+    cancelledAt: timestampSchema,
+    by: z.enum([...VENUE_CANCELLED_BY]),
+    byName: z.string().nullable(),
+    reason: z.string(),
+    seatsReturned: z.int().min(0),
+    placesReturned: z.record(z.string(), z.int().min(1)),
+    placesOnSale: z.enum([...PLACES_ON_SALE]),
+    eventSalesStopped: z.boolean(),
+    replayed: z.boolean(),
+  }),
+})
 
 /** `GET /v1/moderation/media`: a page of pictures waiting, oldest first. */
 export const mediaQueueResponseSchema = z.object({

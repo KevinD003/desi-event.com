@@ -1,7 +1,7 @@
 /**
- * Booking fees, referral codes and paying at the venue (SPEC3): the limits, the
- * vocabulary and every request body of the thirteen routes the Desi-Event team
- * and organisers use, and the two fields checkout gains.
+ * Booking fees, referral codes and paying at the venue (SPEC3, SPEC3-XI): the
+ * limits, the vocabulary and every request body of the fifteen routes the
+ * Desi-Event team and organisers use, and the two fields checkout gains.
  *
  * Browser-safe, at `@desi-event/schemas/payment-terms`: it imports only `zod`
  * and `./primitives.js`, so the admin and checkout forms validate with the same
@@ -26,6 +26,7 @@ import {
   centsSchema,
   cuidSchema,
   currencySchema,
+  orderReferenceSchema,
   paginationQuerySchema,
   queryDateTimeSchema,
   timestampSchema,
@@ -49,6 +50,13 @@ export const VENUE_PAYMENT_LIMITS = Object.freeze({
   maxEventLimit: 100000,
   suggestedEventLimit: 50,
 })
+
+/**
+ * Cancelling unpaid pay-at-the-venue tickets (SPEC3-XI XU3): at most 100
+ * tickets of one booking in one request, as `VenueBookingCancellation`'s
+ * `ticketCount` allows.
+ */
+export const VENUE_CANCEL_LIMITS = Object.freeze({ maxTickets: 100 })
 
 /** A referral code's bounds: its length, its scope, its total limit and its label. */
 export const REFERRAL_LIMITS = Object.freeze({
@@ -86,8 +94,54 @@ export const REFERRAL_STATUSES = Object.freeze(['ON', 'OFF', 'EXPIRED', 'USED_UP
 /** Why a quote did not apply a referral code. One answer for every cause of refusal. */
 export const REFERRAL_QUOTE_REASONS = Object.freeze(['NOT_ACCEPTED', 'NOTHING_TO_WAIVE'])
 
-/** What a pay-at-the-venue order's buyer-facing state reads from (`venuePaymentStateOf`). */
-export const VENUE_PAYMENT_STATES = Object.freeze(['TO_PAY', 'PAID', 'NONE'])
+/**
+ * What a pay-at-the-venue order's buyer-facing state reads from
+ * (`venuePaymentStateOf`), by precedence: the buyer's own tickets still to pay;
+ * some paid at the door (by the buyer or by people they passed tickets to);
+ * tickets passed on and still owing; tickets cancelled unpaid; nothing (and
+ * always nothing for a card order). SPEC3-XI §4.6.
+ */
+export const VENUE_PAYMENT_STATES = Object.freeze([
+  'TO_PAY',
+  'PAID',
+  'PASSED_ON',
+  'CANCELLED',
+  'NONE',
+])
+
+/**
+ * Why an order's referral use was given back: the order ended without being
+ * used (SPEC3-XI XR4). The same names as `ReferralUseReturnCause`.
+ */
+export const REFERRAL_RETURN_CAUSES = Object.freeze([
+  'PAYMENT_FAILED',
+  'NOT_COMPLETED',
+  'UNPAID_ORDER_CANCELLED',
+  'REFUNDED',
+  'VENUE_UNPAID_CANCELLED',
+  'EVENT_CANCELLED',
+  'EVENT_DELETED',
+  'SESSION_CANCELLED',
+  'TICKETS_REVOKED',
+])
+
+/**
+ * Whether the places freed by cancelling unpaid tickets are on sale at that
+ * moment (SPEC3-XI XU5): every one, none, or some. A freed place sells only
+ * while the event is bookable, its tier's sales window is open and its night's
+ * is too.
+ */
+export const PLACES_ON_SALE = Object.freeze(['ALL', 'SOME', 'NONE'])
+
+/** Who cancelled unpaid tickets, as a buyer, a holder and the reports read it. */
+export const VENUE_CANCELLED_BY = Object.freeze(['ORGANISER', 'DESI_EVENT'])
+
+/**
+ * The description of the reason for cancelling unpaid tickets (SPEC3-XI §12.14,
+ * §9.11): the buyer and the tickets' holders read it.
+ */
+export const VENUE_CANCEL_REASON_DESCRIPTION =
+  "Shown to the buyer and to anybody holding these tickets. Do not include anybody's personal details. At least 10 characters."
 
 /** What an order's tax was charged on. */
 export const TAX_APPLIED_TO = Object.freeze(['TICKETS_AND_FEE', 'BOOKING_FEE', 'NOTHING'])
@@ -393,6 +447,44 @@ export const platformFeeRefundRequestSchema = z.strictObject({
 /** `venuePayments.report`: a page of payments and unpaid bookings. */
 export const venuePaymentsQuerySchema = paginationQuerySchema
 
+/**
+ * Report a list of ticket ids that names a ticket twice.
+ *
+ * @param {string[]} ids The ids.
+ * @param {z.RefinementCtx} ctx Zod refinement context.
+ * @returns {void}
+ */
+function distinctTicketIds(ids, ctx) {
+  if (new Set(ids).size !== ids.length) {
+    ctx.addIssue({ code: 'custom', path: [], message: 'Name each ticket once.' })
+  }
+}
+
+/**
+ * `venueBookings.cancel` (SPEC3-XI XU3, XU10): the unpaid tickets of one
+ * booking to cancel, 1 to 100 distinct ids, and why, 10 to 500 characters. The
+ * reason is shown to the buyer and to anybody holding those tickets.
+ */
+export const cancelUnpaidVenueTicketsRequestSchema = z.strictObject({
+  ticketIds: z
+    .array(cuidSchema)
+    .min(1, 'Choose at least one ticket.')
+    .max(
+      VENUE_CANCEL_LIMITS.maxTickets,
+      `Choose ${VENUE_CANCEL_LIMITS.maxTickets} tickets at most.`,
+    )
+    .superRefine(distinctTicketIds),
+  reason: reasonSchema.describe(VENUE_CANCEL_REASON_DESCRIPTION),
+})
+
+/**
+ * `venueBookings.unpaid`: a page of an event's bookings with unpaid tickets,
+ * or the one booking named by `order` (the cancel dialog's loader).
+ */
+export const venueBookingsQuerySchema = paginationQuerySchema.extend({
+  order: orderReferenceSchema.optional(),
+})
+
 /** `paymentTerms.get`: the history before an instant, for "Show older changes". */
 export const paymentTermsQuerySchema = z.strictObject({
   before: queryDateTimeSchema.optional(),
@@ -491,8 +583,13 @@ export const quoteReferralSchema = z.object({
 })
 
 /**
- * A pay-at-the-venue order's state at the door (`venuePaymentStateOf`): what it
- * owes there in all, what was paid, and its standing tickets still unpaid.
+ * A pay-at-the-venue order's state at the door (`venuePaymentStateOf`,
+ * SPEC3-XI §4.6): what it owes there in all; what the buyer paid at the door
+ * for the tickets they hold (`paidCents`, `paidTickets`), apart from what
+ * people they passed tickets to paid (`paidByOthers*`, XT7); the buyer's own
+ * standing tickets still unpaid (`unpaid*`) apart from those passed on and
+ * still owing (`passedOnUnpaid*`); the tickets cancelled unpaid and the
+ * booking fee Desi-Event kept for them.
  */
 export const orderVenuePaymentSchema = z.object({
   dueCents: centsSchema,
@@ -500,14 +597,63 @@ export const orderVenuePaymentSchema = z.object({
   unpaidTickets: countSchema,
   unpaidCents: centsSchema,
   paidTickets: countSchema,
+  paidByOthersTickets: countSchema,
+  paidByOthersCents: centsSchema,
+  passedOnUnpaidTickets: countSchema,
+  passedOnUnpaidCents: centsSchema,
+  cancelledTickets: countSchema,
+  cancelledCents: centsSchema,
+  feeKeptCents: centsSchema,
   state: z.enum([...VENUE_PAYMENT_STATES]),
 })
 
-/** A ticket's amount due at the door, and whether it was paid. Null for one that owes nothing. */
+/**
+ * One cancellation of unpaid tickets on an order, as the buyer reads it
+ * (SPEC3-XI §11.2): when, by the organiser or the Desi-Event team, how many,
+ * the door price no longer owed, the booking fee kept, and the reason given.
+ * Organisation readers also get `byName` (SPEC2 W6); buyers never do.
+ */
+export const orderVenueCancellationSchema = z.object({
+  at: timestampSchema,
+  by: z.enum([...VENUE_CANCELLED_BY]),
+  byName: z.string().nullable().optional(),
+  ticketCount: z.int().min(1).max(VENUE_CANCEL_LIMITS.maxTickets),
+  basisCents: centsSchema,
+  feeKeptCents: centsSchema,
+  reason: z.string(),
+})
+
+/**
+ * A ticket's amount due at the door, whether it was paid, whether it was
+ * cancelled unpaid (when and by whom), and whether the holder reading it paid
+ * it at the door themselves (XT7). Null for one that owes nothing.
+ */
 export const ticketVenuePaymentSchema = z.object({
   dueCents: centsSchema,
   paid: z.boolean(),
   currency: currencySchema,
+  cancelled: z.object({ at: timestampSchema, by: z.enum([...VENUE_CANCELLED_BY]) }).nullable(),
+  paidAtDoorByYou: z.boolean(),
+})
+
+/**
+ * One ticket of a booking waiting to be paid at the door, as the cancel
+ * dialog lists it (SPEC3-XI §11.2): its label ("Ticket 2 of 3"), the attendee
+ * name (null for a platform reader), its night or every night, its due, who
+ * holds it, whether an offer to pass it on is open, and whether it can be
+ * cancelled now (not once its night is over).
+ */
+export const venueBookingTicketSchema = z.object({
+  ticketId: cuidSchema,
+  label: z.string(),
+  attendeeName: z.string().nullable(),
+  nightLabel: z.string().nullable(),
+  everyNight: z.boolean(),
+  dueCents: centsSchema.min(1),
+  heldBy: z.enum(['BUYER', 'SOMEONE_ELSE']),
+  offerPending: z.boolean(),
+  cancellable: z.boolean(),
+  notCancellable: z.enum(['NIGHT_OVER']).nullable(),
 })
 
 /**
@@ -520,9 +666,15 @@ export const admissionPaymentSchema = z.union([
     dueCents: centsSchema.min(1),
     currency: currencySchema,
     paid: z.literal(false),
+    /**
+     * The order's other standing unpaid tickets held by the same account as the
+     * ticket presented, and whether that account is the buyer, whose group
+     * pass covers them (SPEC3-XI §9.3).
+     */
     booking: z.object({
       otherUnpaidTickets: countSchema,
       otherUnpaidCents: centsSchema,
+      groupPass: z.boolean(),
     }),
   }),
   z.object({
@@ -539,8 +691,13 @@ export const checkInPaymentResultSchema = z.object({
   byThisRequest: z.boolean(),
 })
 
-/** What a group preview says the named tickets owe at the door in all. */
+/**
+ * What a group preview says the named tickets owe at the door in all, and how
+ * many tickets of the booking now held by other people still owe there (they
+ * pay with their own tickets, SPEC3-XI §9.5).
+ */
 export const groupAdmissionPaymentSchema = z.object({
   dueCents: centsSchema,
   currency: currencySchema,
+  handedOnUnpaidTickets: countSchema,
 })

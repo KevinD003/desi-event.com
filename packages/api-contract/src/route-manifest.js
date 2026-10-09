@@ -1256,6 +1256,22 @@ export const apiRouteManifest = Object.freeze([
     query: true,
   },
   {
+    id: 'venueBookings.unpaid',
+    method: 'GET',
+    path: '/v1/events/:id/venue-bookings',
+    auth: 'session',
+    body: false,
+    query: true,
+  },
+  {
+    id: 'venueBookings.cancel',
+    method: 'POST',
+    path: '/v1/orders/:reference/venue-cancellations',
+    auth: 'session',
+    body: true,
+    query: false,
+  },
+  {
     id: 'events.sessions',
     method: 'GET',
     path: '/v1/events/:id/sessions',

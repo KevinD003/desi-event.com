@@ -4,26 +4,39 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
-import { ORDER_PAYMENT_METHODS } from './enums.js'
+import {
+  ADMISSION_REFUSAL_REASONS,
+  ORDER_PAYMENT_METHODS,
+  REFERRAL_USE_RETURN_CAUSES,
+} from './enums.js'
 import {
   FEE_LIMITS,
   GENERATED_REFERRAL_CODE_PATTERN,
   PAYMENT_METHODS,
   PAYMENT_TERMS_MESSAGES,
+  PLACES_ON_SALE,
   REASON_DESCRIPTION,
   REASON_LIMITS,
   REFERRAL_ALPHABET,
   REFERRAL_CODE_PATTERN,
   REFERRAL_LIMITS,
   REFERRAL_QUOTE_REASONS,
+  REFERRAL_RETURN_CAUSES,
   REFERRAL_STATUSES,
+  VENUE_CANCELLED_BY,
+  VENUE_CANCEL_LIMITS,
+  VENUE_CANCEL_REASON_DESCRIPTION,
   VENUE_PAYMENT_LIMITS,
+  VENUE_PAYMENT_STATES,
   admissionPaymentSchema,
+  cancelUnpaidVenueTicketsRequestSchema,
   createReferralCodeRequestSchema,
   doorPaymentRequestSchema,
   feeTermsViewSchema,
+  groupAdmissionPaymentSchema,
   listReferralCodesQuerySchema,
   orderTaxViewSchema,
+  orderVenueCancellationSchema,
   orderVenuePaymentSchema,
   paymentMethodSchema,
   paymentTermsQuerySchema,
@@ -36,7 +49,10 @@ import {
   setPlatformFeeRequestSchema,
   setVenuePaymentRequestSchema,
   switchOffReferralCodeRequestSchema,
+  ticketVenuePaymentSchema,
   updateReferralCodeRequestSchema,
+  venueBookingTicketSchema,
+  venueBookingsQuerySchema,
 } from './payment-terms.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -70,6 +86,51 @@ describe('the limits SPEC3 §4.6 names', () => {
     expect(REASON_LIMITS).toEqual({ min: 10, max: 500 })
     expect(REFERRAL_QUOTE_REASONS).toEqual(['NOT_ACCEPTED', 'NOTHING_TO_WAIVE'])
     expect(REFERRAL_STATUSES).toEqual(['ON', 'OFF', 'EXPIRED', 'USED_UP'])
+  })
+
+  it('has no per-account key in the venue limits (the owner’s answer to open question 1)', () => {
+    expect(Object.keys(VENUE_PAYMENT_LIMITS).sort()).toEqual([
+      'maxEventLimit',
+      'suggestedEventLimit',
+    ])
+    expect(Object.keys(VENUE_PAYMENT_LIMITS).some((key) => /buyer|account|user/i.test(key))).toBe(
+      false,
+    )
+  })
+})
+
+describe('the vocabulary SPEC3-XI §4.6 names', () => {
+  it('caps a cancellation at 100 tickets', () => {
+    expect(VENUE_CANCEL_LIMITS).toEqual({ maxTickets: 100 })
+    expect(Object.isFrozen(VENUE_CANCEL_LIMITS)).toBe(true)
+  })
+
+  it('reads a booking in five states, by precedence', () => {
+    expect(VENUE_PAYMENT_STATES).toEqual(['TO_PAY', 'PAID', 'PASSED_ON', 'CANCELLED', 'NONE'])
+  })
+
+  it('gives every cause a use can come back for, NOT_COMPLETED included, as the database names them', () => {
+    expect(REFERRAL_RETURN_CAUSES).toEqual([
+      'PAYMENT_FAILED',
+      'NOT_COMPLETED',
+      'UNPAID_ORDER_CANCELLED',
+      'REFUNDED',
+      'VENUE_UNPAID_CANCELLED',
+      'EVENT_CANCELLED',
+      'EVENT_DELETED',
+      'SESSION_CANCELLED',
+      'TICKETS_REVOKED',
+    ])
+    expect([...REFERRAL_RETURN_CAUSES]).toEqual([...REFERRAL_USE_RETURN_CAUSES])
+  })
+
+  it('says all, some or none of the freed places are on sale, never a yes or no', () => {
+    expect(PLACES_ON_SALE).toEqual(['ALL', 'SOME', 'NONE'])
+    expect(VENUE_CANCELLED_BY).toEqual(['ORGANISER', 'DESI_EVENT'])
+  })
+
+  it('refuses a ticket cancelled unpaid at the door with its own reason', () => {
+    expect(ADMISSION_REFUSAL_REASONS).toContain('UNPAID_CANCELLED')
   })
 
   it('names the payment methods the database enum does, and nothing else', () => {
@@ -604,9 +665,19 @@ describe('the views responses are built from', () => {
         dueCents: 2500,
         currency: 'USD',
         paid: false,
-        booking: { otherUnpaidTickets: 1, otherUnpaidCents: 2500 },
+        booking: { otherUnpaidTickets: 1, otherUnpaidCents: 2500, groupPass: true },
       }).success,
     ).toBe(true)
+    // The same holder's other tickets and whether the group pass covers them
+    // (SPEC3-XI §9.3): a booking without `groupPass` is not a shape the door acts on.
+    expect(
+      admissionPaymentSchema.safeParse({
+        dueCents: 2500,
+        currency: 'USD',
+        paid: false,
+        booking: { otherUnpaidTickets: 1, otherUnpaidCents: 2500 },
+      }).success,
+    ).toBe(false)
     expect(
       admissionPaymentSchema.safeParse({ dueCents: 2500, currency: 'USD', paid: true }).success,
     ).toBe(true)
@@ -651,20 +722,179 @@ describe('the views responses are built from', () => {
     expect(quoteReferralSchema.safeParse({ applied: false, reason: 'EXPIRED' }).success).toBe(false)
   })
 
-  it('reads a pay-at-the-venue order’s state in the three words the buyer is shown', () => {
+  it('reads a pay-at-the-venue order’s state in the five words the buyer is shown', () => {
     const state = {
       dueCents: 5000,
       paidCents: 2500,
       unpaidTickets: 1,
       unpaidCents: 2500,
       paidTickets: 1,
+      paidByOthersTickets: 0,
+      paidByOthersCents: 0,
+      passedOnUnpaidTickets: 0,
+      passedOnUnpaidCents: 0,
+      cancelledTickets: 0,
+      cancelledCents: 0,
+      feeKeptCents: 0,
     }
 
-    for (const word of ['TO_PAY', 'PAID', 'NONE']) {
+    for (const word of ['TO_PAY', 'PAID', 'PASSED_ON', 'CANCELLED', 'NONE']) {
       expect(orderVenuePaymentSchema.safeParse({ ...state, state: word }).success).toBe(true)
     }
 
     expect(orderVenuePaymentSchema.safeParse({ ...state, state: 'CASH' }).success).toBe(false)
+    expect(Object.keys(orderVenuePaymentSchema.shape).some((key) => /tax/i.test(key))).toBe(false)
+  })
+
+  it('tells the buyer who cancelled, never by name unless an organisation reads it', () => {
+    const cancellation = {
+      at: '2026-10-09T10:00:00.000Z',
+      by: 'ORGANISER',
+      ticketCount: 2,
+      basisCents: 9000,
+      feeKeptCents: 729,
+      reason: 'Not paid before the doors opened.',
+    }
+
+    expect(orderVenueCancellationSchema.parse(cancellation)).toEqual(cancellation)
+    expect(orderVenueCancellationSchema.safeParse({ ...cancellation, by: 'FINANCE' }).success).toBe(
+      false,
+    )
+    expect(
+      orderVenueCancellationSchema.safeParse({ ...cancellation, ticketCount: 101 }).success,
+    ).toBe(false)
+  })
+
+  it('tells a ticket’s holder it was cancelled, and whether they paid it at the door', () => {
+    const view = {
+      dueCents: 4500,
+      paid: false,
+      currency: 'USD',
+      cancelled: { at: '2026-10-09T10:00:00.000Z', by: 'DESI_EVENT' },
+      paidAtDoorByYou: false,
+    }
+
+    expect(ticketVenuePaymentSchema.parse(view)).toEqual(view)
+    expect(ticketVenuePaymentSchema.safeParse({ ...view, cancelled: null }).success).toBe(true)
+    expect(
+      ticketVenuePaymentSchema.safeParse({ ...view, paidAtDoorByYou: undefined }).success,
+    ).toBe(false)
+  })
+
+  it('lists a booking’s ticket for the cancel dialog, cancellable or over', () => {
+    const ticket = {
+      ticketId: id(1),
+      label: 'Ticket 2 of 3',
+      attendeeName: 'Guest Two',
+      nightLabel: 'Night 2',
+      everyNight: false,
+      dueCents: 4000,
+      heldBy: 'SOMEONE_ELSE',
+      offerPending: true,
+      cancellable: false,
+      notCancellable: 'NIGHT_OVER',
+    }
+
+    expect(venueBookingTicketSchema.safeParse(ticket).success).toBe(true)
+    expect(venueBookingTicketSchema.safeParse({ ...ticket, dueCents: 0 }).success).toBe(false)
+    expect(venueBookingTicketSchema.safeParse({ ...ticket, notCancellable: 'PAID' }).success).toBe(
+      false,
+    )
+  })
+
+  it('counts, at a group door, the booking’s tickets other people hold that still owe', () => {
+    expect(
+      groupAdmissionPaymentSchema.safeParse({
+        dueCents: 4000,
+        currency: 'USD',
+        handedOnUnpaidTickets: 1,
+      }).success,
+    ).toBe(true)
+    expect(groupAdmissionPaymentSchema.safeParse({ dueCents: 4000, currency: 'USD' }).success).toBe(
+      false,
+    )
+  })
+})
+
+describe('cancelUnpaidVenueTicketsRequestSchema (SPEC3-XI XU10)', () => {
+  const ids = (count, start = 1) => Array.from({ length: count }, (_, index) => id(start + index))
+  const REASON_TEN = 'Never paid'
+
+  it('takes 1 to 100 distinct tickets and a reason of 10 to 500 characters', () => {
+    expect(
+      cancelUnpaidVenueTicketsRequestSchema.safeParse({ ticketIds: ids(1), reason: REASON_TEN })
+        .success,
+    ).toBe(true)
+    expect(
+      cancelUnpaidVenueTicketsRequestSchema.safeParse({ ticketIds: ids(100), reason: REASON_TEN })
+        .success,
+    ).toBe(true)
+  })
+
+  it('refuses no tickets, 101 tickets and a ticket named twice', () => {
+    const none = cancelUnpaidVenueTicketsRequestSchema.safeParse({
+      ticketIds: [],
+      reason: REASON_TEN,
+    })
+
+    expect(none.success).toBe(false)
+    expect(messages(none)).toContain('Choose at least one ticket.')
+    expect(
+      cancelUnpaidVenueTicketsRequestSchema.safeParse({ ticketIds: ids(101), reason: REASON_TEN })
+        .success,
+    ).toBe(false)
+
+    const twice = cancelUnpaidVenueTicketsRequestSchema.safeParse({
+      ticketIds: [id(1), id(2), id(1)],
+      reason: REASON_TEN,
+    })
+
+    expect(twice.success).toBe(false)
+    expect(messages(twice)).toContain('Name each ticket once.')
+  })
+
+  it('takes a reason of 10 and 500 characters and refuses 9 and 501', () => {
+    for (const [reason, ok] of [
+      ['x'.repeat(9), false],
+      ['x'.repeat(10), true],
+      ['x'.repeat(500), true],
+      ['x'.repeat(501), false],
+    ]) {
+      expect(
+        cancelUnpaidVenueTicketsRequestSchema.safeParse({ ticketIds: ids(1), reason }).success,
+        `${reason.length} characters`,
+      ).toBe(ok)
+    }
+  })
+
+  it('refuses any other field, and a reason with a control character', () => {
+    expect(
+      cancelUnpaidVenueTicketsRequestSchema.safeParse({
+        ticketIds: ids(1),
+        reason: REASON_TEN,
+        orderId: id(9),
+      }).success,
+    ).toBe(false)
+    expect(
+      cancelUnpaidVenueTicketsRequestSchema.safeParse({
+        ticketIds: ids(1),
+        reason: 'Not paid\u0000 at all',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('describes the reason as shown to the buyer and the holders', () => {
+    expect(VENUE_CANCEL_REASON_DESCRIPTION).toBe(
+      "Shown to the buyer and to anybody holding these tickets. Do not include anybody's personal details. At least 10 characters.",
+    )
+  })
+})
+
+describe('venueBookingsQuerySchema', () => {
+  it('takes a page and, for the cancel dialog, one booking by its reference', () => {
+    expect(venueBookingsQuerySchema.parse({}).page).toBe(1)
+    expect(venueBookingsQuerySchema.parse({ order: 'de-abcdefgh' }).order).toBe('DE-ABCDEFGH')
+    expect(venueBookingsQuerySchema.safeParse({ order: 'not a reference' }).success).toBe(false)
   })
 })
 

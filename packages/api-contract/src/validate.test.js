@@ -399,4 +399,11 @@ describe('step-up policy, finding NF-11', () => {
   it('removing a second factor uses the tightest window, not the finance one', () => {
     expect(routeById('auth.disableFactor').stepUp).toBe('CREDENTIAL')
   })
+
+  it('validates the venue-bookings routes, which ask for no new window (SPEC3-XI §4.2)', () => {
+    const routes = [routeById('venueBookings.unpaid'), routeById('venueBookings.cancel')]
+
+    expect(routes.map((route) => route.stepUp)).toEqual(['FINANCE_VIEW', 'FINANCE_ACTION'])
+    expect(codes(validateContract({ routes }))).toEqual([])
+  })
 })

@@ -9,12 +9,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CLIENT_ADDRESS_HEADER } from '../lib/traffic.js'
 import {
   DEFAULT_FEE_REFUND_LIMIT,
+  DEFAULT_VENUE_CANCEL_LIMIT,
   DEFAULT_PAYMENT_TERMS_LIMIT,
   DEFAULT_REFERRAL_ADMIN_LIMIT,
   DEFAULT_REFERRAL_ATTEMPT_LIMIT,
   REFERRAL_ATTEMPTS_SENTENCE,
   actorBudget,
   feeRefundRateLimit,
+  venueCancelRateLimit,
   referralAttemptBuckets,
   referralAttemptBudget,
 } from './rate-limit.js'
@@ -219,5 +221,17 @@ describe('the booking-fee refund limit', () => {
     expect(limit).toMatchObject({ max: 30, timeWindow: '1 hour', hook: 'preHandler' })
     expect(limit.keyGenerator(request({ actorId: 'admin-1' }))).toBe('fee-refund:actor:admin-1')
     expect(feeRefundRateLimit({ max: 2 }).max).toBe(2)
+  })
+})
+
+describe('the unpaid-tickets cancel limit (SPEC3-XI §4.4)', () => {
+  it('is sixty an hour per person, keyed on the account, on every request', () => {
+    const limit = venueCancelRateLimit()
+
+    expect(DEFAULT_VENUE_CANCEL_LIMIT).toEqual({ max: 60, timeWindow: '1 hour' })
+    expect(limit).toMatchObject({ max: 60, timeWindow: '1 hour', hook: 'preHandler' })
+    expect(limit.keyGenerator(request({ actorId: 'owner-1' }))).toBe('venue-cancel:actor:owner-1')
+    expect(limit).not.toHaveProperty('skip')
+    expect(venueCancelRateLimit({ max: 2 }).max).toBe(2)
   })
 })

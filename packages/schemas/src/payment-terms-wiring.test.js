@@ -35,6 +35,8 @@ import {
   referralCodeDetailResponseSchema,
   referralUseSchema,
   ticketPassResponseSchema,
+  venueBookingCancellationResponseSchema,
+  venueBookingsResponseSchema,
   venuePaymentsReportResponseSchema,
 } from './responses.js'
 
@@ -211,12 +213,78 @@ describe('orders, tickets and refunds', () => {
         unpaidTickets: 2,
         unpaidCents: 5000,
         paidTickets: 0,
+        paidByOthersTickets: 0,
+        paidByOthersCents: 0,
+        passedOnUnpaidTickets: 0,
+        passedOnUnpaidCents: 0,
+        cancelledTickets: 0,
+        cancelledCents: 0,
+        feeKeptCents: 0,
         state: 'TO_PAY',
       },
     })
 
     expect(parsed.venuePayment.state).toBe('TO_PAY')
     expect(orderSchema.safeParse({ ...order, fee: null, venuePayment: null }).success).toBe(true)
+  })
+
+  it('carry the door money other holders paid, passed-on and cancelled tickets, and the fee kept (SPEC3-XI §11.2)', () => {
+    const venuePayment = {
+      dueCents: 9000,
+      paidCents: 0,
+      unpaidTickets: 0,
+      unpaidCents: 0,
+      paidTickets: 0,
+      paidByOthersTickets: 1,
+      paidByOthersCents: 4500,
+      passedOnUnpaidTickets: 0,
+      passedOnUnpaidCents: 0,
+      cancelledTickets: 1,
+      cancelledCents: 4500,
+      feeKeptCents: 364,
+      state: 'PAID',
+    }
+
+    expect(orderSchema.parse({ ...order, venuePayment }).venuePayment).toEqual(venuePayment)
+
+    for (const word of ['PASSED_ON', 'CANCELLED']) {
+      expect(
+        orderSchema.safeParse({ ...order, venuePayment: { ...venuePayment, state: word } }).success,
+      ).toBe(true)
+    }
+
+    // The state before SPEC3-XI, without the holder and cancellation figures, no longer parses.
+    const { paidByOthersTickets, cancelledTickets, feeKeptCents, ...before } = venuePayment
+
+    expect([paidByOthersTickets, cancelledTickets, feeKeptCents]).toEqual([1, 1, 364])
+    expect(orderSchema.safeParse({ ...order, venuePayment: before }).success).toBe(false)
+  })
+
+  it('carry an order’s cancellations of unpaid tickets, with a name only where one is given', () => {
+    const cancellation = {
+      at: NOW,
+      by: 'DESI_EVENT',
+      ticketCount: 1,
+      basisCents: 4500,
+      feeKeptCents: 364,
+      reason: 'Not paid before the doors opened.',
+    }
+    const parsed = orderSchema.parse({
+      ...order,
+      venueCancellations: [cancellation, { ...cancellation, by: 'ORGANISER', byName: 'Anil' }],
+    })
+
+    expect(parsed.venueCancellations[0]).toEqual(cancellation)
+    expect(parsed.venueCancellations[1].byName).toBe('Anil')
+    expect(orderSchema.safeParse({ ...order, venueCancellations: undefined }).success).toBe(true)
+    expect(
+      orderSchema.safeParse({ ...order, venueCancellations: [{ ...cancellation, by: 'FINANCE' }] })
+        .success,
+    ).toBe(false)
+    expect(
+      orderSchema.safeParse({ ...order, venueCancellations: [{ ...cancellation, ticketCount: 0 }] })
+        .success,
+    ).toBe(false)
   })
 
   it('never carry the referral code’s id, nor the terms’ raw columns', () => {
@@ -242,17 +310,60 @@ describe('orders, tickets and refunds', () => {
 
   it('carry what a ticket owes at the door, and never its payment’s id', () => {
     const ticket = { id: id(3), orderItemId: id(4), code: 'DE-ABCD-EFGH' }
+    const venuePayment = {
+      dueCents: 2500,
+      paid: false,
+      currency: 'USD',
+      cancelled: null,
+      paidAtDoorByYou: false,
+    }
     const parsed = ticketSchema.parse({
       ...ticket,
       venueDueCents: 2500,
       venuePaymentId: id(5),
-      venuePayment: { dueCents: 2500, paid: false, currency: 'USD' },
+      venueCancellationId: id(6),
+      venuePayment,
     })
 
-    expect(parsed.venuePayment).toEqual({ dueCents: 2500, paid: false, currency: 'USD' })
+    expect(parsed.venuePayment).toEqual(venuePayment)
     expect(parsed).not.toHaveProperty('venuePaymentId')
     expect(parsed).not.toHaveProperty('venueDueCents')
+    expect(parsed).not.toHaveProperty('venueCancellationId')
     expect(ticketSchema.safeParse({ ...ticket, venuePayment: null }).success).toBe(true)
+  })
+
+  it('carry a ticket cancelled unpaid, and whether its holder paid it at the door (SPEC3-XI §11.2)', () => {
+    const ticket = { id: id(3), orderItemId: id(4), code: 'DE-ABCD-EFGH' }
+    const cancelled = {
+      dueCents: 2500,
+      paid: false,
+      currency: 'USD',
+      cancelled: { at: NOW, by: 'ORGANISER' },
+      paidAtDoorByYou: false,
+    }
+
+    expect(ticketSchema.parse({ ...ticket, venuePayment: cancelled }).venuePayment).toEqual(
+      cancelled,
+    )
+    expect(
+      ticketSchema.safeParse({
+        ...ticket,
+        venuePayment: { ...cancelled, cancelled: null, paid: true, paidAtDoorByYou: true },
+      }).success,
+    ).toBe(true)
+    // A buyer or holder never reads who by name.
+    expect(
+      ticketSchema.parse({
+        ...ticket,
+        venuePayment: { ...cancelled, cancelled: { at: NOW, by: 'ORGANISER', byName: 'Anil' } },
+      }).venuePayment.cancelled,
+    ).toEqual({ at: NOW, by: 'ORGANISER' })
+    expect(
+      ticketSchema.safeParse({
+        ...ticket,
+        venuePayment: { dueCents: 2500, paid: false, currency: 'USD' },
+      }).success,
+    ).toBe(false)
   })
 
   it('let the pass and the group pass say what is still owed at the door', () => {
@@ -266,7 +377,16 @@ describe('orders, tickets and refunds', () => {
     expect(ticketPassResponseSchema.safeParse({ data: pass }).success).toBe(true)
     expect(
       ticketPassResponseSchema.safeParse({
-        data: { ...pass, venuePayment: { dueCents: 2500, paid: false, currency: 'USD' } },
+        data: {
+          ...pass,
+          venuePayment: {
+            dueCents: 2500,
+            paid: false,
+            currency: 'USD',
+            cancelled: null,
+            paidAtDoorByYou: false,
+          },
+        },
       }).success,
     ).toBe(true)
 
@@ -297,9 +417,18 @@ describe('the door answers', () => {
         dueCents: 2500,
         currency: 'USD',
         paid: false,
-        booking: { otherUnpaidTickets: 0, otherUnpaidCents: 0 },
+        booking: { otherUnpaidTickets: 0, otherUnpaidCents: 0, groupPass: false },
       }).success,
     ).toBe(true)
+    // The same holder's other tickets, and whether the group pass covers them (SPEC3-XI §9.3).
+    expect(
+      preview.safeParse({
+        dueCents: 2500,
+        currency: 'USD',
+        paid: false,
+        booking: { otherUnpaidTickets: 0, otherUnpaidCents: 0 },
+      }).success,
+    ).toBe(false)
 
     const result = checkInResponseSchema.shape.data.shape.payment
 
@@ -432,7 +561,8 @@ describe('referral code responses', () => {
     expiresAt: null,
     maxUses: 100,
     useCount: 3,
-    completedUses: 2,
+    usesPlaced: 4,
+    usesReturned: 1,
     waived: [{ currency: 'USD', cents: 1096 }],
     status: 'ON',
     active: true,
@@ -449,6 +579,18 @@ describe('referral code responses', () => {
     expect(adminReferralCodeSchema.safeParse({ ...code, referralCode: 'garba' }).success).toBe(
       false,
     )
+  })
+
+  it('counts uses placed, given back and now, and no longer completed uses (SPEC3-XI §8.4)', () => {
+    const parsed = adminReferralCodeSchema.parse({ ...code, completedUses: 2 })
+
+    expect(parsed).not.toHaveProperty('completedUses')
+    expect(parsed.usesPlaced - parsed.usesReturned).toBe(parsed.useCount)
+
+    const { usesPlaced, ...withoutPlaced } = code
+
+    expect(usesPlaced).toBe(4)
+    expect(adminReferralCodeSchema.safeParse(withoutPlaced).success).toBe(false)
   })
 
   it('shows at most three of the code’s events, and a former administrator as null', () => {
@@ -469,6 +611,7 @@ describe('referral code responses', () => {
       orderStatus: 'PAID',
       feeWaivedCents: 548,
       currency: 'USD',
+      useReturned: null,
     }
     const parsed = referralUseSchema.parse({
       ...use,
@@ -493,7 +636,53 @@ describe('referral code responses', () => {
     ).toBe(true)
   })
 
+  it('says when and why a use was given back, by a cause it knows', () => {
+    const use = {
+      orderReference: 'DE-ABCDEFGH',
+      eventId: id(2),
+      eventTitle: 'Garba Night',
+      placedAt: NOW,
+      paymentMethod: 'AT_VENUE',
+      orderStatus: 'PAID',
+      feeWaivedCents: 548,
+      currency: 'USD',
+    }
+
+    for (const cause of [
+      'PAYMENT_FAILED',
+      'NOT_COMPLETED',
+      'UNPAID_ORDER_CANCELLED',
+      'REFUNDED',
+      'VENUE_UNPAID_CANCELLED',
+      'EVENT_CANCELLED',
+      'EVENT_DELETED',
+      'SESSION_CANCELLED',
+      'TICKETS_REVOKED',
+    ]) {
+      expect(
+        referralUseSchema.safeParse({ ...use, useReturned: { at: NOW, cause } }).success,
+        cause,
+      ).toBe(true)
+    }
+
+    expect(
+      referralUseSchema.safeParse({ ...use, useReturned: { at: NOW, cause: 'EXPIRED' } }).success,
+    ).toBe(false)
+    expect(referralUseSchema.safeParse(use).success).toBe(false)
+  })
+
   it('sums a former administrator’s codes under null', () => {
+    expect(
+      referralAdministratorRowSchema.safeParse({
+        administrator: null,
+        codes: 2,
+        usesPlaced: 5,
+        usesReturned: 1,
+        currentUses: 4,
+        waived: [],
+      }).success,
+    ).toBe(true)
+    // Before SPEC3-XI the row said `uses` and `completedUses`; it no longer parses.
     expect(
       referralAdministratorRowSchema.safeParse({
         administrator: null,
@@ -502,7 +691,7 @@ describe('referral code responses', () => {
         completedUses: 4,
         waived: [],
       }).success,
-    ).toBe(true)
+    ).toBe(false)
   })
 })
 
@@ -519,6 +708,7 @@ describe('booking fee refund responses', () => {
     feeRefundedCents: 0,
     refundableFeeCents: 379,
     taxOnFeeCents: 44,
+    feeKeptCents: 0,
     disputed: false,
   }
 
@@ -526,6 +716,15 @@ describe('booking fee refund responses', () => {
     const parsed = platformFeePreviewSchema.parse({ ...preview, buyerName: 'A Buyer' })
 
     expect(parsed).not.toHaveProperty('buyerName')
+  })
+
+  it('names the share kept when unpaid tickets were cancelled (SPEC3-XI §7.4)', () => {
+    expect(platformFeePreviewSchema.parse({ ...preview, feeKeptCents: 269 }).feeKeptCents).toBe(269)
+
+    const { feeKeptCents, ...before } = preview
+
+    expect(feeKeptCents).toBe(0)
+    expect(platformFeePreviewSchema.safeParse(before).success).toBe(false)
   })
 
   it('answers a refund with the refund and the figures after it', () => {
@@ -550,6 +749,9 @@ describe('the organiser’s venue payments report', () => {
         notPaidByEndTickets: 0,
         notPaidByEndCents: 0,
         paidOnRefundedCents: 0,
+        cancelledUnpaidTickets: 1,
+        cancelledUnpaidCents: 4500,
+        feeKeptCents: 364,
       },
       payments: [
         {
@@ -572,6 +774,20 @@ describe('the organiser’s venue payments report', () => {
           unpaidCents: 2500,
         },
       ],
+      cancellations: [
+        {
+          id: id(3),
+          at: NOW,
+          by: 'DESI_EVENT',
+          byName: 'Platform Admin',
+          orderReference: 'DE-ABCDEFGH',
+          ticketCount: 1,
+          basisCents: 4500,
+          reason: 'Not paid before the doors opened.',
+        },
+      ],
+      cancellationsHasMore: false,
+      canCancelUnpaid: true,
       pagination: {
         page: 1,
         perPage: 50,
@@ -583,6 +799,17 @@ describe('the organiser’s venue payments report', () => {
     }
 
     expect(venuePaymentsReportResponseSchema.safeParse({ data: report }).success).toBe(true)
+    // The figures and the cancellations SPEC3-XI §9.8 adds are not optional.
+    expect(
+      venuePaymentsReportResponseSchema.safeParse({
+        data: { ...report, canCancelUnpaid: undefined },
+      }).success,
+    ).toBe(false)
+    expect(
+      venuePaymentsReportResponseSchema.safeParse({
+        data: { ...report, cancellations: Array(51).fill(report.cancellations[0]) },
+      }).success,
+    ).toBe(false)
     expect(
       venuePaymentsReportResponseSchema.safeParse({
         data: {
@@ -615,7 +842,12 @@ describe('the error envelope carries the details SPEC3 refusals name, and no oth
       { totalCents: 8578, venueDueCents: 8000, feesCents: 578 },
       { currentSequence: 3 },
       { dueCents: 4000, booking: { otherUnpaidTickets: 1, otherUnpaidCents: 4000 } },
+      {
+        dueCents: 4000,
+        booking: { otherUnpaidTickets: 1, otherUnpaidCents: 4000, groupPass: true },
+      },
       { eventIds: [id(1), id(2)] },
+      { ticketIds: [id(3)] },
     ]) {
       expect(
         errorResponseSchema.safeParse(envelope(details)).success,
@@ -630,11 +862,143 @@ describe('the error envelope carries the details SPEC3 refusals name, and no oth
       { totalCents: -1 },
       { booking: { otherUnpaidTickets: 1, otherUnpaidCents: 4000, buyerName: 'A' } },
       { eventIds: Array.from({ length: 51 }, (_, index) => id(index + 1)) },
+      { ticketIds: Array.from({ length: 101 }, (_, index) => id(index + 1)) },
+      { ticketIds: [] },
+      { booking: { otherUnpaidTickets: 1, otherUnpaidCents: 4000, groupPass: 'yes' } },
     ]) {
       expect(
         errorResponseSchema.safeParse(envelope(details)).success,
         JSON.stringify(details),
       ).toBe(false)
+    }
+  })
+})
+
+describe('unpaid pay-at-the-venue bookings (SPEC3-XI §11.2)', () => {
+  const pagination = {
+    page: 1,
+    perPage: 20,
+    total: 1,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPreviousPage: false,
+  }
+  const ticket = {
+    ticketId: id(2),
+    label: 'Ticket 1 of 2',
+    attendeeName: null,
+    nightLabel: null,
+    everyNight: true,
+    dueCents: 4500,
+    heldBy: 'BUYER',
+    offerPending: false,
+    cancellable: true,
+    notCancellable: null,
+  }
+  const list = {
+    eventId: id(1),
+    eventTitle: 'Garba Night',
+    currency: 'USD',
+    bookings: [
+      {
+        orderReference: 'DE-ABCDEFGH',
+        placedAt: NOW,
+        buyerName: null,
+        feesCents: 729,
+        unpaidTickets: 2,
+        unpaidCents: 9000,
+        tickets: [ticket, { ...ticket, ticketId: id(3), label: 'Ticket 2 of 2' }],
+      },
+    ],
+    pagination,
+  }
+
+  it('lists bookings with their tickets, names left out for a platform reader', () => {
+    expect(venueBookingsResponseSchema.safeParse({ data: list }).success).toBe(true)
+    expect(
+      venueBookingsResponseSchema.safeParse({
+        data: {
+          ...list,
+          bookings: [
+            {
+              ...list.bookings[0],
+              tickets: [{ ...ticket, notCancellable: 'NIGHT_OVER', cancellable: false }],
+            },
+          ],
+        },
+      }).success,
+    ).toBe(true)
+    expect(
+      venueBookingsResponseSchema.safeParse({
+        data: { ...list, bookings: [{ ...list.bookings[0], buyerName: 'buyer@example.com' }] },
+      }).success,
+    ).toBe(false)
+    expect(
+      venueBookingsResponseSchema.safeParse({
+        data: {
+          ...list,
+          bookings: [{ ...list.bookings[0], tickets: [{ ...ticket, heldBy: 'FRIEND' }] }],
+        },
+      }).success,
+    ).toBe(false)
+  })
+
+  const cancellation = {
+    cancellationId: id(4),
+    orderReference: 'DE-ABCDEFGH',
+    ticketCount: 1,
+    basisCents: 4500,
+    feeKeptCents: 364,
+    currency: 'USD',
+    cancelledAt: NOW,
+    by: 'ORGANISER',
+    byName: 'Anil',
+    reason: 'Not paid before the doors opened.',
+    seatsReturned: 0,
+    placesReturned: { [id(5)]: 1 },
+    placesOnSale: 'ALL',
+    eventSalesStopped: false,
+    replayed: false,
+  }
+
+  it('answers a cancellation with whether its places are on sale: all, some or none', () => {
+    for (const placesOnSale of ['ALL', 'SOME', 'NONE']) {
+      expect(
+        venueBookingCancellationResponseSchema.safeParse({
+          data: { ...cancellation, placesOnSale },
+        }).success,
+        placesOnSale,
+      ).toBe(true)
+    }
+
+    expect(
+      venueBookingCancellationResponseSchema.safeParse({
+        data: { ...cancellation, placesOnSale: true },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('keeps only the booking fee: no kept tax is ever answered', () => {
+    const parsed = venueBookingCancellationResponseSchema.parse({
+      data: { ...cancellation, taxKeptCents: 10, venueTaxKeptCents: 10 },
+    })
+
+    expect(parsed.data).not.toHaveProperty('taxKeptCents')
+    expect(parsed.data).not.toHaveProperty('venueTaxKeptCents')
+    expect(
+      Object.keys(venueBookingCancellationResponseSchema.shape.data.shape).filter((key) =>
+        /tax/i.test(key),
+      ),
+    ).toEqual([])
+  })
+
+  it('needs every figure, including whether the event’s sales are stopped and whether it was replayed', () => {
+    for (const key of ['eventSalesStopped', 'replayed', 'placesOnSale', 'feeKeptCents']) {
+      const { [key]: _left, ...without } = cancellation
+
+      expect(venueBookingCancellationResponseSchema.safeParse({ data: without }).success, key).toBe(
+        false,
+      )
     }
   })
 })

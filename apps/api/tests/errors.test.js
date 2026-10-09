@@ -8,6 +8,8 @@ import { ValidationError, errorResponseSchema } from '@desi-event/schemas'
 
 import {
   DATABASE_REFUSALS,
+  FEE_KEPT_SENTENCE,
+  ORDER_CHANGED_SENTENCE,
   ORDER_PRICE_RACE_SENTENCE,
   PAYMENT_DUE_SENTENCE,
   PAYMENT_NOT_RECORDED_SENTENCE,
@@ -16,6 +18,9 @@ import {
   PAYMENT_TERMS_SENTENCES,
   REFERRAL_CODE_RACE_SENTENCE,
   REFERRAL_NOT_ACCEPTED_SENTENCE,
+  TICKET_CHANGED_ON_ACCEPT_SENTENCE,
+  UNPAID_CANCELLED_SENTENCE,
+  VENUE_BOOKING_CHANGED_SENTENCE,
   OUT_OF_TIME_RETRY_AFTER_SECONDS,
   OUT_OF_TIME_SENTENCE,
   POSTING_ROLE_SENTENCE,
@@ -631,6 +636,16 @@ describe('SPEC3 refusals (§4.5)', () => {
       PAYMENT_NOT_RECORDED: 409,
       NO_FEE_TO_REFUND: 409,
       AMOUNT_REFUND_NOT_FOR_VENUE_ORDERS: 422,
+      // Cancelling unpaid tickets and giving referral uses back (SPEC3-XI §4.5).
+      NOT_A_VENUE_BOOKING: 409,
+      TICKET_NOT_IN_BOOKING: 422,
+      VENUE_CANCEL_NOT_LIVE: 409,
+      VENUE_NIGHT_OVER: 409,
+      VENUE_BOOKING_CHANGED: 409,
+      REFUND_IN_PROGRESS: 409,
+      VENUE_CANCEL_TAXED: 409,
+      FEE_KEPT: 409,
+      ORDER_CHANGED: 409,
     })
   })
 
@@ -731,6 +746,186 @@ describe('SPEC3 refusals (§4.5)', () => {
     )
 
     expect(stale.details).toBeUndefined()
+  })
+})
+
+describe('SPEC3-XI database refusals (§5.5)', () => {
+  /**
+   * A refusal as the pg adapter reports a CHECK or a trigger raising 23514.
+   *
+   * @param {string} constraint The constraint or trigger name.
+   * @returns {Error} The error.
+   */
+  function refused(constraint) {
+    return Object.assign(new Error('Invalid `prisma.ticket.update()` invocation'), {
+      code: 'P2010',
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: '23514',
+            originalMessage: `new row for relation violates check constraint "${constraint}"`,
+            detail:
+              'Failing row contains (cl0000000000000000000001, Asha Buyer, asha@example.test).',
+          },
+        },
+      },
+    })
+  }
+
+  /** Every constraint and trigger name SPEC3-XI adds, and the answer each must get. */
+  const EXPECTED = {
+    venue_booking_cancellation_shape: ['VENUE_BOOKING_CHANGED', VENUE_BOOKING_CHANGED_SENTENCE],
+    venue_booking_cancellation_sum: ['VENUE_BOOKING_CHANGED', VENUE_BOOKING_CHANGED_SENTENCE],
+    venue_booking_cancellation_append_only: [
+      'VENUE_BOOKING_CHANGED',
+      VENUE_BOOKING_CHANGED_SENTENCE,
+    ],
+    ticket_venue_cancellation_fixed: ['VENUE_BOOKING_CHANGED', VENUE_BOOKING_CHANGED_SENTENCE],
+    venue_cancellation_ticket: ['VENUE_BOOKING_CHANGED', VENUE_BOOKING_CHANGED_SENTENCE],
+    ticket_venue_cancellation_shape: ['VENUE_BOOKING_CHANGED', VENUE_BOOKING_CHANGED_SENTENCE],
+    order_venue_cancel_shape: ['VENUE_BOOKING_CHANGED', VENUE_BOOKING_CHANGED_SENTENCE],
+    order_item_venue_cancelled_within_line: [
+      'VENUE_BOOKING_CHANGED',
+      VENUE_BOOKING_CHANGED_SENTENCE,
+    ],
+    ticket_type_sold_not_negative: ['VENUE_BOOKING_CHANGED', VENUE_BOOKING_CHANGED_SENTENCE],
+    order_venue_kept_within_total: ['FEE_KEPT', FEE_KEPT_SENTENCE],
+    order_referral_return_shape: ['ORDER_CHANGED', ORDER_CHANGED_SENTENCE],
+    order_referral_return_once: ['ORDER_CHANGED', ORDER_CHANGED_SENTENCE],
+    order_referral_code_fixed: ['ORDER_CHANGED', ORDER_CHANGED_SENTENCE],
+  }
+
+  it.each(Object.entries(EXPECTED))('answers %s with 409 %s', (constraint, [code, message]) => {
+    expect(databaseRefusal(refused(constraint))).toMatchObject({ statusCode: 409, code, message })
+    expect(normaliseError(refused(constraint)).reason).toBeUndefined()
+  })
+
+  it.each(['ticket_venue_due_fixed', 'ticket_venue_due_successor', 'ticket_venue_insert_unpaid'])(
+    'answers %s as a transfer acceptance that raced a change: 409 CONFLICT, reason TICKET_CHANGED',
+    (constraint) => {
+      expect(databaseRefusal(refused(constraint))).toMatchObject({
+        statusCode: 409,
+        code: 'CONFLICT',
+        message: TICKET_CHANGED_ON_ACCEPT_SENTENCE,
+      })
+
+      const normalised = normaliseError(refused(constraint))
+
+      expect(normalised).toMatchObject({
+        statusCode: 409,
+        code: 'CONFLICT',
+        reason: 'TICKET_CHANGED',
+      })
+
+      const body = toErrorBody(normalised, 'req-1')
+
+      expect(body.error.reason).toBe('TICKET_CHANGED')
+      expect(errorResponseSchema.safeParse(body).success).toBe(true)
+    },
+  )
+
+  it('never lets a shorter name answer for a longer one', () => {
+    // `ticket_venue_due_shape` (F3-A) and the guard names differ; the longest
+    // match wins, so each keeps its own answer.
+    expect(databaseRefusal(refused('ticket_venue_due_shape'))?.code).toBe('PAYMENT_NOT_RECORDED')
+    expect(databaseRefusal(refused('ticket_venue_cancellation_shape'))?.code).toBe(
+      'VENUE_BOOKING_CHANGED',
+    )
+    expect(databaseRefusal(refused('venue_booking_cancellation_sum'))?.code).toBe(
+      'VENUE_BOOKING_CHANGED',
+    )
+  })
+
+  it('maps no tax-kept name: only the booking fee is ever kept (XU6)', () => {
+    const names = DATABASE_REFUSALS.map((refusal) => refusal.constraint)
+
+    for (const name of names) expect(name).not.toMatch(/tax_kept|taxkept/iu)
+  })
+
+  it('sends the sentence and never the failing row', () => {
+    const body = JSON.stringify(
+      toErrorBody(normaliseError(refused('venue_booking_cancellation_sum')), 'req-1'),
+    )
+
+    expect(body).toContain('VENUE_BOOKING_CHANGED')
+    expect(body).not.toMatch(/cl0000000000000000000001|Asha|Failing row|asha@example/u)
+  })
+})
+
+describe('SPEC3-XI refusals (§4.5)', () => {
+  it('carries the sentences word for word, honestly', () => {
+    expect(UNPAID_CANCELLED_SENTENCE).toBe('This ticket was cancelled because it was not paid for.')
+    expect(PAYMENT_TERMS_REFUSALS.VENUE_BOOKING_CHANGED.message).toBe(
+      VENUE_BOOKING_CHANGED_SENTENCE,
+    )
+    expect(VENUE_BOOKING_CHANGED_SENTENCE).toMatch(/Nothing was cancelled\./u)
+    expect(PAYMENT_TERMS_REFUSALS.FEE_KEPT.message).toBe(FEE_KEPT_SENTENCE)
+    expect(PAYMENT_TERMS_REFUSALS.ORDER_CHANGED.message).toBe(ORDER_CHANGED_SENTENCE)
+    expect(PAYMENT_TERMS_REFUSALS.VENUE_NIGHT_OVER.message).toBe(
+      'That night is over. Tickets not paid by then stay as they are, and the booking fee is kept.',
+    )
+    expect(PAYMENT_TERMS_SENTENCES.venueCancelTryAgain).toMatch(/nothing was cancelled/u)
+  })
+
+  it('keeps VENUE_CANCEL_TAXED although nothing reaches it in this build', () => {
+    // The online booking fee of a pay-at-the-venue booking carries no tax
+    // (open question 9), so no booking can be taxed; the refusal stands ready
+    // for the day it can (open question F).
+    expect(paymentTermsRefusal('VENUE_CANCEL_TAXED')).toMatchObject({
+      statusCode: 409,
+      code: 'VENUE_CANCEL_TAXED',
+      message: 'This booking carries tax on its booking fee. Refund its tickets instead.',
+    })
+  })
+
+  it('names the chosen tickets that changed, and nothing else', () => {
+    const ticketIds = ['cl00000000000000000000a1', 'cl00000000000000000000a2']
+    const changed = normaliseError(
+      paymentTermsRefusal('VENUE_BOOKING_CHANGED', {
+        details: { ticketIds, buyerEmail: 'asha@example.test' },
+      }),
+    )
+
+    expect(changed.details).toEqual({ ticketIds })
+    expect(errorResponseSchema.safeParse(toErrorBody(changed, 'r')).success).toBe(true)
+
+    for (const bad of [[], ['Not An Id'], Array.from({ length: 101 }, () => ticketIds[0])]) {
+      expect(
+        normaliseError(
+          paymentTermsRefusal('VENUE_BOOKING_CHANGED', { details: { ticketIds: bad } }),
+        ).details,
+      ).toBeUndefined()
+    }
+  })
+
+  it('tells the door whether the group pass covers the holder’s other unpaid tickets', () => {
+    const due = normaliseError(
+      paymentTermsRefusal('PAYMENT_DUE', {
+        values: { amount: '$40.00' },
+        details: {
+          dueCents: 4000,
+          booking: { otherUnpaidTickets: 2, otherUnpaidCents: 8000, groupPass: true },
+        },
+      }),
+    )
+
+    expect(due.details).toEqual({
+      dueCents: 4000,
+      booking: { otherUnpaidTickets: 2, otherUnpaidCents: 8000, groupPass: true },
+    })
+    expect(errorResponseSchema.safeParse(toErrorBody(due, 'r')).success).toBe(true)
+
+    const odd = normaliseError(
+      paymentTermsRefusal('PAYMENT_DUE', {
+        values: { amount: '$40.00' },
+        details: {
+          dueCents: 4000,
+          booking: { otherUnpaidTickets: 2, otherUnpaidCents: 8000, groupPass: 'yes' },
+        },
+      }),
+    )
+
+    expect(odd.details).toEqual({ dueCents: 4000 })
   })
 })
 

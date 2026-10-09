@@ -12,6 +12,12 @@
 -- apps/api/src/lib/referral-codes.js writes "ReferralCode" (except "useCount",
 -- written by apps/api/src/lib/referral-uses.js) and "ReferralCodeEvent".
 --
+-- A referral use goes back once when its order ends without being used (the
+-- owner's answer to open question 3, SPEC3-XI XR): the order records when and
+-- why ("referralUseReturnedAt", "referralUseReturnCause"), set once by
+-- apps/api/src/lib/referral-uses.js in the same transaction as the decrement.
+-- The code an order used never changes, and a set marker never changes (§6).
+--
 -- No BEGIN/COMMIT inside: Prisma wraps the file in one transaction. Every
 -- trigger raising 23514 also writes its constraint name into the message,
 -- because the driver adapter passes on the SQLSTATE and the message but not
@@ -19,6 +25,13 @@
 --
 -- Rollback (manual, in order, after 20261009110000_pay_at_the_venue is rolled
 -- back):
+--   DROP TRIGGER desi_order_referral_fixed ON "Order";
+--   DROP FUNCTION desi_order_referral_fixed();
+--   ALTER TABLE "Order" DROP CONSTRAINT "order_referral_return_shape";
+--   DROP INDEX "Order_referralCodeId_referralUseReturnedAt_idx";
+--   ALTER TABLE "Order" DROP COLUMN "referralUseReturnedAt",
+--     DROP COLUMN "referralUseReturnCause";
+--   DROP TYPE "ReferralUseReturnCause";
 --   DROP TRIGGER desi_event_fee_setting_append_only ON "EventFeeSetting";
 --   DROP FUNCTION desi_event_fee_setting_append_only();
 --   ALTER TABLE "Order" DROP CONSTRAINT "order_fee_parts",
@@ -58,6 +71,10 @@ CREATE TYPE "OrderPaymentMethod" AS ENUM ('CARD', 'AT_VENUE');
 -- CreateEnum
 CREATE TYPE "ReferralCodeScope" AS ENUM ('ALL_EVENTS', 'SELECTED_EVENTS');
 
+-- Why an order's referral use was given back (SPEC3-XI XR4).
+-- CreateEnum
+CREATE TYPE "ReferralUseReturnCause" AS ENUM ('PAYMENT_FAILED', 'NOT_COMPLETED', 'UNPAID_ORDER_CANCELLED', 'REFUNDED', 'VENUE_UNPAID_CANCELLED', 'EVENT_CANCELLED', 'EVENT_DELETED', 'SESSION_CANCELLED', 'TICKETS_REVOKED');
+
 -- ============================================================================
 -- 2. Columns and tables
 -- ============================================================================
@@ -82,7 +99,9 @@ ADD COLUMN     "feeSettingId" TEXT,
 ADD COLUMN     "feeSource" "FeeSource" NOT NULL DEFAULT 'SITE_DEFAULT',
 ADD COLUMN     "feeWaivedCents" INTEGER NOT NULL DEFAULT 0,
 ADD COLUMN     "paymentMethod" "OrderPaymentMethod" NOT NULL DEFAULT 'CARD',
-ADD COLUMN     "referralCodeId" TEXT;
+ADD COLUMN     "referralCodeId" TEXT,
+ADD COLUMN     "referralUseReturnCause" "ReferralUseReturnCause",
+ADD COLUMN     "referralUseReturnedAt" TIMESTAMP(3);
 
 -- CreateTable
 CREATE TABLE "EventFeeSetting" (
@@ -183,6 +202,10 @@ CREATE INDEX "Order_referralCodeId_status_idx" ON "Order"("referralCodeId", "sta
 -- CreateIndex
 CREATE INDEX "Order_eventId_paymentMethod_status_idx" ON "Order"("eventId", "paymentMethod", "status");
 
+-- The reports count a code's uses placed and given back (SPEC3-XI §8.4).
+-- CreateIndex
+CREATE INDEX "Order_referralCodeId_referralUseReturnedAt_idx" ON "Order"("referralCodeId", "referralUseReturnedAt");
+
 -- AddForeignKey
 ALTER TABLE "Event" ADD CONSTRAINT "Event_feeSettingId_fkey" FOREIGN KEY ("feeSettingId") REFERENCES "EventFeeSetting"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -232,7 +255,7 @@ ALTER TABLE "Order" ADD CONSTRAINT "Order_referralCodeId_fkey" FOREIGN KEY ("ref
 --    usable snapshot keeps both terms null ("terms not recorded").
 -- 3. Every order is CARD, SITE_DEFAULT, with no setting and no referral code,
 --    and every event is SITE_DEFAULT with the switch off and no limit: the
---    column defaults.
+--    column defaults. No order names a code yet, so none has a return marker.
 
 UPDATE "Order" SET "feeGrossCents" = "feesCents";
 
@@ -386,3 +409,45 @@ $$;
 CREATE TRIGGER desi_event_fee_setting_append_only
   BEFORE UPDATE OR DELETE ON "EventFeeSetting"
   FOR EACH ROW EXECUTE FUNCTION desi_event_fee_setting_append_only();
+
+-- ============================================================================
+-- 6. A referral use goes back once, and the code an order used never changes
+-- ============================================================================
+--
+-- The marker is the exactly-once decision (SPEC3-XI XR3): the returner sets it
+-- with a conditional UPDATE ... WHERE "referralUseReturnedAt" IS NULL under the
+-- order's row lock, and decrements the code's count only for the orders whose
+-- marker it set. A marker has its cause and a code to give the use back to.
+ALTER TABLE "Order" ADD CONSTRAINT "order_referral_return_shape" CHECK (
+  ("referralUseReturnedAt" IS NULL) = ("referralUseReturnCause" IS NULL)
+  AND ("referralUseReturnedAt" IS NULL OR "referralCodeId" IS NOT NULL)
+);
+
+-- Nothing can take a returned use back, return it a second time under another
+-- cause, or move an order's use to another code: the returner's one-read of
+-- "referralCodeId" before it locks the order (XR3 step 1) relies on the code
+-- never changing for the life of the row.
+CREATE OR REPLACE FUNCTION desi_order_referral_fixed() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW."referralCodeId" IS DISTINCT FROM OLD."referralCodeId" THEN
+    RAISE EXCEPTION 'order % keeps the referral code it was placed with (order_referral_code_fixed)',
+      OLD."id"
+      USING ERRCODE = '23514', CONSTRAINT = 'order_referral_code_fixed';
+  END IF;
+
+  IF OLD."referralUseReturnedAt" IS NOT NULL
+     AND (NEW."referralUseReturnedAt" IS DISTINCT FROM OLD."referralUseReturnedAt"
+          OR NEW."referralUseReturnCause" IS DISTINCT FROM OLD."referralUseReturnCause") THEN
+    RAISE EXCEPTION 'order % already gave its referral use back; that is never changed (order_referral_return_once)',
+      OLD."id"
+      USING ERRCODE = '23514', CONSTRAINT = 'order_referral_return_once';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER desi_order_referral_fixed
+  BEFORE UPDATE OF "referralCodeId", "referralUseReturnedAt", "referralUseReturnCause" ON "Order"
+  FOR EACH ROW EXECUTE FUNCTION desi_order_referral_fixed();

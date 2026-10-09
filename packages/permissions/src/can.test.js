@@ -196,7 +196,7 @@ const EXPECTED_PLATFORM_MATRIX = {
     'support:view_order',
   ],
   // Exactly PLATFORM_ADMINISTRATOR_CAPABILITIES, written out by hand: the ten
-  // of SPEC2-XI O1 and the three of SPEC3 §4.1.
+  // of SPEC2-XI O1, the three of SPEC3 §4.1 and the one of SPEC3-XI §4.1.
   ADMIN: [
     'analytics:view_all',
     'event:import',
@@ -210,6 +210,7 @@ const EXPECTED_PLATFORM_MATRIX = {
     'referral_code:manage',
     'report:view',
     'venue:manage',
+    'venue_booking:cancel',
     'website_redirect:manage',
   ],
   SUPER_ADMIN: null, // everything; asserted separately

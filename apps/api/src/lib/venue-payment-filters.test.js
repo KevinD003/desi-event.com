@@ -1,8 +1,9 @@
 /**
- * The filters every count of pay-at-the-venue orders uses, and the one state
- * a buyer reads (SPEC3 §9.10, §12.7). The filters are checked against the
- * stub's rows here and against PostgreSQL in
- * `tests/payment-terms-foundation-integration.test.js`.
+ * The filters every count of pay-at-the-venue orders uses, the one state a
+ * buyer reads (SPEC3 §9.10, §12.7, as SPEC3-XI §4.6 extends it with passed-on,
+ * paid-by-others and cancelled tickets), and how a cancellation of unpaid
+ * tickets reads. The filters are checked against the stub's rows here and
+ * against PostgreSQL in `tests/payment-terms-foundation-integration.test.js`.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -13,20 +14,34 @@ import {
   PAID_ORDER_WHERE,
   STANDING_TICKET_STATUSES,
   UNPAID_VENUE_TICKET_WHERE,
+  VENUE_CANCELLATION_READERS,
   isUnpaidVenueTicket,
+  toVenueCancellation,
   venuePaymentStateOf,
 } from './venue-payment-filters.js'
 
+/** The buyer of every order below. */
+const BUYER = 'buyer-1'
+
+/** Somebody the buyer passed a ticket to. */
+const OTHER = 'holder-2'
+
 /**
  * An order with one line and its tickets, in the shape a read with
- * `items: { include: { tickets: true } }` returns.
+ * `items: { include: { tickets: true } }` returns. Every ticket is the
+ * buyer's own unless it names another holder.
  *
  * @param {object} order Order columns.
  * @param {object[]} tickets Ticket columns.
  * @returns {object} The order.
  */
 function orderWith(order, tickets) {
-  return { venueDueCents: 0, ...order, items: [{ tickets }] }
+  return {
+    userId: BUYER,
+    venueDueCents: 0,
+    ...order,
+    items: [{ tickets: tickets.map((ticket) => ({ ownerUserId: BUYER, ...ticket })) }],
+  }
 }
 
 describe('the filters', () => {
@@ -153,6 +168,13 @@ describe('venuePaymentStateOf', () => {
       unpaidTickets: 1,
       unpaidCents: 4000,
       paidTickets: 1,
+      paidByOthersTickets: 0,
+      paidByOthersCents: 0,
+      passedOnUnpaidTickets: 0,
+      passedOnUnpaidCents: 0,
+      cancelledTickets: 0,
+      cancelledCents: 0,
+      feeKeptCents: 0,
       state: 'TO_PAY',
     })
   })
@@ -196,5 +218,231 @@ describe('venuePaymentStateOf', () => {
   it('refuses an order read without its lines or tickets', () => {
     expect(() => venuePaymentStateOf({ venueDueCents: 4000 })).toThrow(TypeError)
     expect(() => venuePaymentStateOf({ venueDueCents: 4000, items: [{}] })).toThrow(TypeError)
+  })
+
+  it('refuses an order read without its buyer, or a ticket without its holder', () => {
+    expect(() => venuePaymentStateOf({ venueDueCents: 4000, items: [{ tickets: [] }] })).toThrow(
+      /userId/u,
+    )
+    expect(() =>
+      venuePaymentStateOf({
+        userId: BUYER,
+        venueDueCents: 4000,
+        items: [{ tickets: [{ venueDueCents: 4000, venuePaymentId: null, status: 'VALID' }] }],
+      }),
+    ).toThrow(/ownerUserId/u)
+  })
+
+  it('counts passed-on tickets apart: the new holder pays, not the buyer (XT5, XT6)', () => {
+    expect(
+      venuePaymentStateOf(
+        orderWith({ paymentMethod: 'AT_VENUE', venueDueCents: 8000 }, [
+          { ownerUserId: OTHER, venueDueCents: 4000, venuePaymentId: null, status: 'VALID' },
+          {
+            ownerUserId: OTHER,
+            venueDueCents: 4000,
+            venuePaymentId: null,
+            status: 'TRANSFER_PENDING',
+          },
+          // The predecessor of an accepted hand-on no longer stands.
+          { venueDueCents: 4000, venuePaymentId: null, status: 'TRANSFERRED' },
+        ]),
+      ),
+    ).toMatchObject({
+      unpaidTickets: 0,
+      unpaidCents: 0,
+      passedOnUnpaidTickets: 2,
+      passedOnUnpaidCents: 8000,
+      state: 'PASSED_ON',
+    })
+  })
+
+  it('counts money paid at the door by people the buyer passed tickets to as theirs (XT7)', () => {
+    expect(
+      venuePaymentStateOf(
+        orderWith({ paymentMethod: 'AT_VENUE', venueDueCents: 12000 }, [
+          { ownerUserId: OTHER, venueDueCents: 4000, venuePaymentId: 'vp-1', status: 'CHECKED_IN' },
+          { venueDueCents: 4000, venuePaymentId: 'vp-2', status: 'CHECKED_IN' },
+          {
+            ownerUserId: 'holder-3',
+            venueDueCents: 4000,
+            venuePaymentId: 'vp-3',
+            status: 'REFUNDED',
+          },
+        ]),
+      ),
+    ).toMatchObject({
+      paidCents: 4000,
+      paidTickets: 1,
+      paidByOthersCents: 8000,
+      paidByOthersTickets: 2,
+      state: 'PAID',
+    })
+    expect(
+      venuePaymentStateOf(
+        orderWith({ paymentMethod: 'AT_VENUE', venueDueCents: 4000 }, [
+          { ownerUserId: OTHER, venueDueCents: 4000, venuePaymentId: 'vp-1', status: 'CHECKED_IN' },
+        ]),
+      ),
+    ).toMatchObject({ paidCents: 0, paidTickets: 0, paidByOthersTickets: 1, state: 'PAID' })
+  })
+
+  it('counts tickets cancelled unpaid and the booking fee kept for them', () => {
+    expect(
+      venuePaymentStateOf(
+        orderWith({ paymentMethod: 'AT_VENUE', venueDueCents: 8000, venueFeeKeptCents: 300 }, [
+          {
+            venueDueCents: 4000,
+            venuePaymentId: null,
+            venueCancellationId: 'c-1',
+            status: 'REVOKED',
+          },
+          {
+            ownerUserId: OTHER,
+            venueDueCents: 4000,
+            venuePaymentId: null,
+            venueCancellationId: 'c-1',
+            status: 'REVOKED',
+          },
+        ]),
+      ),
+    ).toEqual({
+      dueCents: 8000,
+      paidCents: 0,
+      unpaidTickets: 0,
+      unpaidCents: 0,
+      paidTickets: 0,
+      paidByOthersTickets: 0,
+      paidByOthersCents: 0,
+      passedOnUnpaidTickets: 0,
+      passedOnUnpaidCents: 0,
+      cancelledTickets: 2,
+      cancelledCents: 8000,
+      feeKeptCents: 300,
+      state: 'CANCELLED',
+    })
+  })
+
+  it('takes the states in order: own unpaid, then paid, then passed on, then cancelled', () => {
+    const own = { venueDueCents: 1000, venuePaymentId: null, status: 'VALID' }
+    const paid = { venueDueCents: 1000, venuePaymentId: 'vp', status: 'CHECKED_IN' }
+    const paidByOther = { ...paid, ownerUserId: OTHER }
+    const passedOn = { ...own, ownerUserId: OTHER }
+    const cancelled = {
+      venueDueCents: 1000,
+      venuePaymentId: null,
+      venueCancellationId: 'c',
+      status: 'REVOKED',
+    }
+    const stateOf = (tickets) =>
+      venuePaymentStateOf(orderWith({ paymentMethod: 'AT_VENUE', venueDueCents: 5000 }, tickets))
+        .state
+
+    expect(stateOf([own, paid, paidByOther, passedOn, cancelled])).toBe('TO_PAY')
+    expect(stateOf([paid, passedOn, cancelled])).toBe('PAID')
+    expect(stateOf([paidByOther, passedOn, cancelled])).toBe('PAID')
+    expect(stateOf([passedOn, cancelled])).toBe('PASSED_ON')
+    expect(stateOf([cancelled])).toBe('CANCELLED')
+    expect(stateOf([])).toBe('NONE')
+  })
+
+  it('says NONE for a card order, whatever its tickets', () => {
+    expect(
+      venuePaymentStateOf(
+        orderWith({ paymentMethod: 'CARD', venueDueCents: 0 }, [
+          { venueDueCents: 0, venuePaymentId: null, status: 'VALID' },
+          { ownerUserId: OTHER, venueDueCents: 0, venuePaymentId: null, status: 'VALID' },
+        ]),
+      ).state,
+    ).toBe('NONE')
+  })
+
+  it('counts a guest order’s tickets, held by nobody, as the buyer’s own', () => {
+    expect(
+      venuePaymentStateOf(
+        orderWith({ userId: null, paymentMethod: 'AT_VENUE', venueDueCents: 4000 }, [
+          { ownerUserId: null, venueDueCents: 4000, venuePaymentId: null, status: 'VALID' },
+        ]),
+      ),
+    ).toMatchObject({ unpaidTickets: 1, passedOnUnpaidTickets: 0, state: 'TO_PAY' })
+  })
+})
+
+describe('toVenueCancellation', () => {
+  const at = new Date('2026-10-09T18:30:00.000Z')
+  const row = (overrides = {}) => ({
+    id: 'c-1',
+    orderId: 'o-1',
+    createdAt: at,
+    authority: 'ORGANIZATION_ROLE',
+    role: 'OWNER',
+    cancelledById: 'u-1',
+    cancelledBy: { displayName: 'Priya Shah' },
+    ticketCount: 2,
+    basisCents: 8000,
+    feeKeptCents: 300,
+    reason: 'Not paid by the second night.',
+    ...overrides,
+  })
+
+  it('reads the same for buyers, holders and the platform: no name', () => {
+    for (const reader of ['BUYER', 'HOLDER', 'PLATFORM']) {
+      expect(toVenueCancellation(row(), { reader }), reader).toEqual({
+        at: '2026-10-09T18:30:00.000Z',
+        by: 'ORGANISER',
+        ticketCount: 2,
+        basisCents: 8000,
+        feeKeptCents: 300,
+        reason: 'Not paid by the second night.',
+      })
+    }
+
+    expect(toVenueCancellation(row({ authority: 'PLATFORM_ROLE' }), { reader: 'BUYER' }).by).toBe(
+      'DESI_EVENT',
+    )
+  })
+
+  it('names who cancelled for organisation readers only (SPEC2 W6)', () => {
+    expect(toVenueCancellation(row(), { reader: 'ORGANISATION' })).toMatchObject({
+      by: 'ORGANISER',
+      byName: 'Priya Shah',
+    })
+    expect(
+      toVenueCancellation(
+        row({ authority: 'PLATFORM_ROLE', cancelledBy: { displayName: 'Ravi' } }),
+        {
+          reader: 'ORGANISATION',
+        },
+      ),
+    ).toMatchObject({ by: 'DESI_EVENT', byName: 'Ravi' })
+  })
+
+  it('says "A Desi-Event administrator" once a Desi-Event canceller’s account is gone', () => {
+    expect(
+      toVenueCancellation(
+        row({ authority: 'PLATFORM_ROLE', cancelledById: null, cancelledBy: null }),
+        {
+          reader: 'ORGANISATION',
+        },
+      ).byName,
+    ).toBe('A Desi-Event administrator')
+    expect(
+      toVenueCancellation(row({ cancelledById: null, cancelledBy: null }), {
+        reader: 'ORGANISATION',
+      }).byName,
+    ).toBeNull()
+  })
+
+  it('refuses an unknown reader, and an organisation reader’s row read without its canceller', () => {
+    expect(VENUE_CANCELLATION_READERS).toEqual(['BUYER', 'HOLDER', 'ORGANISATION', 'PLATFORM'])
+    expect(() => toVenueCancellation(row(), { reader: 'ORGANISER' })).toThrow(TypeError)
+    expect(() => toVenueCancellation(row(), {})).toThrow(TypeError)
+
+    const { cancelledBy: _cancelledBy, ...withoutCanceller } = row()
+
+    expect(() => toVenueCancellation(withoutCanceller, { reader: 'ORGANISATION' })).toThrow(
+      /cancelledBy/u,
+    )
+    expect(toVenueCancellation(withoutCanceller, { reader: 'BUYER' }).by).toBe('ORGANISER')
   })
 })

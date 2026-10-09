@@ -39,6 +39,8 @@ export const REFUSAL_SENTENCES = Object.freeze({
   PREVIEW_MISMATCH: 'The pass confirmed is not the one looked up. Look it up again.',
   GROUP_CHANGED:
     'Some tickets in this group changed after it was looked up. Look it up again before admitting anyone.',
+  // SPEC3-XI §12.8: a ticket booked to pay at the venue, cancelled unpaid.
+  UNPAID_CANCELLED: "This ticket was cancelled because it had not been paid for. Don't let it in.",
 })
 
 /**

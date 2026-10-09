@@ -1222,10 +1222,17 @@ async function main() {
     // pay-at-the-venue order pays where, and the door's triggers — no admission
     // while a payment is due (a hand-on is not refused: open question 7), a
     // ticket's payment set once to its own order's, a payment never edited and
-    // equal to its tickets at commit and after it. Each runs in a rolled-back
+    // equal to its tickets at commit and after it. With SPEC3-XI §5.7: unpaid
+    // tickets cancelled (a cancellation's shape, its sum at commit and after
+    // it, set once to the ticket's own order, never edited, a cancelled ticket
+    // never paid or let in), kept fees within the fee and never refunded, a
+    // line's cancelled tickets within it, a tier's sold count never below 0,
+    // referral return markers set once and the code an order used fixed, and
+    // what is due staying with a ticket. Each runs in a rolled-back
     // transaction except the commit-time ones: one booking paid in part at the
-    // door is committed (nothing downstream counts its rows), and every other
-    // commit-time write must fail.
+    // door and one with a ticket cancelled unpaid are committed (nothing
+    // downstream counts their rows), and every other commit-time write must
+    // fail.
     ok = (await runPaymentTermsProbes(prisma, { probe, record })) && ok
 
     // Concurrency, against real transactions rather than a stub that agrees with
@@ -1345,6 +1352,14 @@ async function main() {
         // unpaid filters on PostgreSQL, the referral use's limit, and each
         // new constraint name answered as a 409.
         'tests/payment-terms-foundation-integration.test.js',
+        // Unpaid pay-at-the-venue tickets cancelled, and referral uses given
+        // back once (SPEC3-XI §14.3): every race of a cancellation against
+        // the door, transfers, refunds, night cancellation, deletion and
+        // checkout, and every returner against the others, with no deadlock.
+        // Written by Stage B1-V; named here from Stage AX3 so each runs from
+        // the moment it exists.
+        'tests/venue-booking-cancellation-integration.test.js',
+        'tests/referral-returns-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

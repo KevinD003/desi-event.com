@@ -178,10 +178,13 @@ const PHASE3_MIGRATIONS = Object.freeze([
   '20261009090000_refund_reason_booking_fee',
   // Per-event booking fees and referral codes: the Event and Order columns over
   // existing rows, the backfill of each order's fee terms from its snapshot,
-  // and the CHECKs every existing row must already satisfy.
+  // and the CHECKs every existing row must already satisfy; with SPEC3-XI, the
+  // referral return marker and its trigger.
   '20261009100000_payment_terms_and_referral_codes',
   // Paying at the venue: the order, line and ticket columns over existing rows,
-  // the door's payment table, and the admission trigger replaced.
+  // the door's payment table, and the admission trigger replaced; with
+  // SPEC3-XI, the unpaid-cancellation table, columns and triggers, and the
+  // sold-count CHECK validated over existing tiers.
   '20261009110000_pay_at_the_venue',
 ])
 
@@ -1719,6 +1722,10 @@ async function checkFullControlAndImportBackfills(prisma) {
  * its snapshot, every existing row a card order at the site default with
  * nothing due at the door, the new tables empty, the admission trigger
  * replaced with its old refusals kept, and the hand-on trigger unchanged.
+ * And what SPEC3-XI adds to the same two migrations: no order with a referral
+ * return marker, nothing cancelled unpaid and nothing kept, no kept-tax column
+ * anywhere, the sold-count CHECK validated over existing tiers, and the
+ * cancellation, due and referral triggers in place (the sums deferred).
  *
  * @param {object} prisma A client connected to the upgraded database.
  * @returns {Promise<boolean>} Whether every check passed.
@@ -1919,6 +1926,155 @@ async function checkPaymentTermsAndVenueBackfills(prisma) {
         },
       ) && ok
   }
+
+  ok = (await checkUnpaidCancellationAndReferralReturns(prisma)) && ok
+
+  return ok
+}
+
+/**
+ * Check what SPEC3-XI added to the payment-terms and pay-at-the-venue
+ * migrations, over a database that holds rows (SPEC3-XI §5.7): nothing
+ * cancelled unpaid, nothing kept and no referral use given back on any existing
+ * row; no kept-tax column; `ticket_type_sold_not_negative` validated over the
+ * existing tiers; the due, cancellation and referral triggers on their tables,
+ * the three cancellation sums deferred to commit; the payment guard refusing a
+ * cancelled ticket; and the hand-on trigger still silent about paying at the
+ * venue.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkUnpaidCancellationAndReferralReturns(prisma) {
+  let ok = true
+
+  const [orders] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS total, ' +
+      'count(*) FILTER (WHERE "venueCancelledBasisCents" <> 0 OR "venueFeeKeptCents" <> 0 ' +
+      'OR "referralUseReturnedAt" IS NOT NULL OR "referralUseReturnCause" IS NOT NULL)::int AS changed ' +
+      'FROM "Order"',
+  )
+  ok =
+    record(
+      'every existing order has nothing cancelled unpaid, nothing kept and no referral use given back',
+      orders.total > 0 && orders.changed === 0,
+      { note: `${orders.changed} of ${orders.total} orders otherwise` },
+    ) && ok
+
+  const keptTax = await prisma.$queryRawUnsafe(
+    "SELECT table_name || '.' || column_name AS name FROM information_schema.columns " +
+      "WHERE table_schema = 'public' AND column_name IN ('venueTaxKeptCents', 'taxKeptCents')",
+  )
+  ok =
+    record(
+      'no column keeps tax: only the booking fee is ever kept (no venueTaxKeptCents, no taxKeptCents)',
+      keptTax.length === 0,
+      { note: keptTax.map((row) => row.name).join(', ') || 'none' },
+    ) && ok
+
+  const [rows] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "OrderItem")::int AS lines, ' +
+      '(SELECT count(*) FROM "OrderItem" WHERE "venueCancelledQuantity" <> 0)::int AS "linesCancelled", ' +
+      '(SELECT count(*) FROM "Ticket")::int AS tickets, ' +
+      '(SELECT count(*) FROM "Ticket" WHERE "venueCancellationId" IS NOT NULL)::int AS "ticketsCancelled", ' +
+      '(SELECT count(*) FROM "VenueBookingCancellation")::int AS cancellations',
+  )
+  ok =
+    record(
+      'no existing line or ticket is cancelled unpaid, and the cancellation table starts empty',
+      rows.lines > 0 &&
+        rows.tickets > 0 &&
+        rows.linesCancelled === 0 &&
+        rows.ticketsCancelled === 0 &&
+        rows.cancellations === 0,
+      {
+        note:
+          `${rows.linesCancelled} of ${rows.lines} lines and ${rows.ticketsCancelled} of ` +
+          `${rows.tickets} tickets cancelled; ${rows.cancellations} cancellations`,
+      },
+    ) && ok
+
+  const [sold] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "TicketType")::int AS tiers, ' +
+      "(SELECT convalidated FROM pg_constraint WHERE conname = 'ticket_type_sold_not_negative' " +
+      'AND conrelid = \'"TicketType"\'::regclass) AS validated',
+  )
+  ok =
+    record(
+      'ticket_type_sold_not_negative is validated over the existing tiers',
+      sold.tiers > 0 && sold.validated === true,
+      { note: `${sold.tiers} tiers; validated=${sold.validated}` },
+    ) && ok
+
+  const names = [
+    'desi_order_referral_fixed',
+    'desi_ticket_venue_due_guard',
+    'desi_ticket_venue_cancellation_guard',
+    'desi_venue_booking_cancellation_append_only',
+    'desi_venue_booking_cancellation_sum',
+    'desi_ticket_venue_cancellation_sum',
+    'desi_ticket_venue_cancellation_sum_on_delete',
+  ]
+  const triggers = await prisma.$queryRawUnsafe(
+    'SELECT tgname, tgrelid::regclass::text AS relation, tgdeferrable, tginitdeferred, ' +
+      '(tgconstraint <> 0) AS "isConstraint" FROM pg_trigger WHERE NOT tgisinternal AND tgname IN (' +
+      names.map((name) => `'${name}'`).join(', ') +
+      ') ORDER BY tgname',
+  )
+  const on = (name) => triggers.find((trigger) => trigger.tgname === name)
+  ok =
+    record(
+      'the referral-return, due, cancellation guard, append-only and cancellation-sum triggers exist where they belong',
+      on('desi_order_referral_fixed')?.relation === '"Order"' &&
+        on('desi_ticket_venue_due_guard')?.relation === '"Ticket"' &&
+        on('desi_ticket_venue_cancellation_guard')?.relation === '"Ticket"' &&
+        on('desi_venue_booking_cancellation_append_only')?.relation ===
+          '"VenueBookingCancellation"' &&
+        on('desi_venue_booking_cancellation_sum')?.relation === '"VenueBookingCancellation"' &&
+        on('desi_ticket_venue_cancellation_sum')?.relation === '"Ticket"' &&
+        on('desi_ticket_venue_cancellation_sum_on_delete')?.relation === '"Ticket"',
+      { note: triggers.map((trigger) => `${trigger.tgname} on ${trigger.relation}`).join(', ') },
+    ) && ok
+
+  // A cancellation's own sum check, and the same check again for the
+  // cancellation a ticket joins or leaves, in any later transaction.
+  for (const name of [
+    'desi_venue_booking_cancellation_sum',
+    'desi_ticket_venue_cancellation_sum',
+    'desi_ticket_venue_cancellation_sum_on_delete',
+  ]) {
+    const sum = on(name)
+    ok =
+      record(
+        `${name} is a constraint trigger, DEFERRABLE INITIALLY DEFERRED`,
+        sum?.isConstraint === true && sum?.tgdeferrable === true && sum?.tginitdeferred === true,
+        {
+          note: sum
+            ? `constraint=${sum.isConstraint} deferrable=${sum.tgdeferrable} initially deferred=${sum.tginitdeferred}`
+            : 'missing',
+        },
+      ) && ok
+  }
+
+  const [guard] = await prisma.$queryRawUnsafe(
+    "SELECT pg_get_functiondef('desi_ticket_venue_payment_guard'::regproc) AS body",
+  )
+  ok =
+    record(
+      'the payment guard refuses paying a ticket cancelled unpaid (it reads venueCancellationId)',
+      (guard?.body ?? '').includes('venueCancellationId'),
+      { note: (guard?.body ?? '').includes('venueCancellationId') ? 'present' : 'missing' },
+    ) && ok
+
+  const [transition] = await prisma.$queryRawUnsafe(
+    "SELECT pg_get_functiondef('desi_ticket_status_transition'::regproc) AS body",
+  )
+  ok =
+    record(
+      'the hand-on trigger says nothing about tickets paid at the venue',
+      !/paid at the venue/i.test(transition?.body ?? ''),
+      { note: /paid at the venue/i.test(transition?.body ?? '') ? 'mentions it' : 'silent' },
+    ) && ok
 
   return ok
 }

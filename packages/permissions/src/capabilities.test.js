@@ -86,6 +86,8 @@ const REQUIRED_CAPABILITIES = [
   'payment_terms:manage',
   'referral_code:manage',
   'platform_fee:refund',
+  // Cancelling unpaid pay-at-the-venue tickets (SPEC3-XI §4.1)
+  'venue_booking:cancel',
   'platform:admin',
 ]
 
@@ -488,7 +490,7 @@ describe('privacy:redact', () => {
 })
 
 describe('the platform administrator (ADMIN)', () => {
-  it('holds exactly the thirteen of the allow-list: review, drafts, venues, invitations, reports, website links, visits, editing and deleting posted events, imports, payment terms, referral codes and booking-fee refunds', () => {
+  it('holds exactly the fourteen of the allow-list: review, drafts, venues, invitations, reports, website links, visits, editing and deleting posted events, imports, payment terms, referral codes, booking-fee refunds and cancelling unpaid tickets', () => {
     expect([...PLATFORM_ADMINISTRATOR_CAPABILITIES]).toEqual(
       [
         'analytics:view_all',
@@ -503,10 +505,11 @@ describe('the platform administrator (ADMIN)', () => {
         'referral_code:manage',
         'report:view',
         'venue:manage',
+        'venue_booking:cancel',
         'website_redirect:manage',
       ].sort(),
     )
-    expect(PLATFORM_ADMINISTRATOR_CAPABILITIES).toHaveLength(13)
+    expect(PLATFORM_ADMINISTRATOR_CAPABILITIES).toHaveLength(14)
     expect([...PLATFORM_ROLE_CAPABILITIES.ADMIN]).toEqual([...PLATFORM_ADMINISTRATOR_CAPABILITIES])
   })
 
@@ -518,6 +521,9 @@ describe('the platform administrator (ADMIN)', () => {
     // The one money capability it holds is Desi-Event's own: one order's
     // booking fee, refunded by hand (SPEC3 §7.4, A4).
     expect(PLATFORM_ROLE_CAPABILITIES.ADMIN).toContain('platform_fee:refund')
+    // Cancelling unpaid tickets keeps the booking fee and refunds nothing
+    // (SPEC3-XI XU6); the organisation's side of it stays `order:refund`.
+    expect(PLATFORM_ROLE_CAPABILITIES.ADMIN).toContain('venue_booking:cancel')
 
     for (const capability of [
       'platform:admin',
@@ -836,5 +842,56 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §4.1)', (
     }
 
     expect(() => assertPlatformAdministratorBounds(doctored)).toThrow(capability)
+  })
+})
+
+describe('cancelling unpaid pay-at-the-venue tickets (SPEC3-XI §4.1)', () => {
+  it('names the capability as a constant', () => {
+    expect(CAPABILITIES.VENUE_BOOKING_CANCEL).toBe('venue_booking:cancel')
+  })
+
+  it('makes it platform-only', () => {
+    expect(PLATFORM_ONLY_CAPABILITIES).toContain('venue_booking:cancel')
+  })
+
+  it('grants it through no organisation role: the organisation side is order:refund', () => {
+    for (const [role, capabilities] of Object.entries(ORG_ROLE_CAPABILITIES)) {
+      expect(capabilities, role).not.toContain('venue_booking:cancel')
+    }
+
+    // OWNER and ADMIN hold order:refund; FINANCE only asks for refunds.
+    expect(ORG_ROLE_CAPABILITIES.OWNER).toContain('order:refund')
+    expect(ORG_ROLE_CAPABILITIES.ADMIN).toContain('order:refund')
+    expect(ORG_ROLE_CAPABILITIES.FINANCE).not.toContain('order:refund')
+    expect(ORG_ROLE_CAPABILITIES.FINANCE).toContain('order:refund_request')
+  })
+
+  it('gives it to ADMIN and to SUPER_ADMIN through ALL_CAPABILITIES', () => {
+    expect(PLATFORM_ROLE_CAPABILITIES.ADMIN).toContain('venue_booking:cancel')
+    expect(PLATFORM_ROLE_CAPABILITIES.SUPER_ADMIN).toContain('venue_booking:cancel')
+  })
+
+  it('gives FINANCE_ADMIN, MODERATOR, SUPPORT, ORGANIZER and ATTENDEE none of it', () => {
+    for (const role of ['FINANCE_ADMIN', 'MODERATOR', 'SUPPORT', 'ORGANIZER', 'ATTENDEE']) {
+      expect(PLATFORM_ROLE_CAPABILITIES[role], role).not.toContain('venue_booking:cancel')
+    }
+  })
+
+  it('refuses a doctored table that takes it away from ADMIN', () => {
+    const doctored = {
+      ...PLATFORM_ROLE_CAPABILITIES,
+      ADMIN: PLATFORM_ROLE_CAPABILITIES.ADMIN.filter((held) => held !== 'venue_booking:cancel'),
+    }
+
+    expect(() => assertPlatformAdministratorBounds(doctored)).toThrow('venue_booking:cancel')
+  })
+
+  it('still refuses a doctored table that gives ADMIN order:refund beside it', () => {
+    const doctored = {
+      ...PLATFORM_ROLE_CAPABILITIES,
+      ADMIN: [...PLATFORM_ROLE_CAPABILITIES.ADMIN, 'order:refund'],
+    }
+
+    expect(() => assertPlatformAdministratorBounds(doctored)).toThrow('order:refund')
   })
 })

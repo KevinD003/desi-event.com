@@ -67,6 +67,12 @@ const RELATIONS = {
     },
     referralScopes: { kind: 'many', model: 'referralCodeEvent', from: 'id', to: 'eventId' },
     venuePayments: { kind: 'many', model: 'venuePayment', from: 'id', to: 'eventId' },
+    venueBookingCancellations: {
+      kind: 'many',
+      model: 'venueBookingCancellation',
+      from: 'id',
+      to: 'eventId',
+    },
   },
   eventFeeSetting: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
@@ -94,6 +100,14 @@ const RELATIONS = {
     eventSession: { kind: 'one', model: 'eventSession', from: 'eventSessionId', to: 'id' },
     recordedBy: { kind: 'one', model: 'user', from: 'recordedById', to: 'id' },
     tickets: { kind: 'many', model: 'ticket', from: 'id', to: 'venuePaymentId' },
+  },
+  // Unpaid pay-at-the-venue tickets cancelled, one row per cancellation
+  // (SPEC3-XI XU): the order, the event, who cancelled, and its tickets.
+  venueBookingCancellation: {
+    order: { kind: 'one', model: 'order', from: 'orderId', to: 'id' },
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    cancelledBy: { kind: 'one', model: 'user', from: 'cancelledById', to: 'id' },
+    tickets: { kind: 'many', model: 'ticket', from: 'id', to: 'venueCancellationId' },
   },
   eventPlatformEdit: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
@@ -172,6 +186,13 @@ const RELATIONS = {
     feeSetting: { kind: 'one', model: 'eventFeeSetting', from: 'feeSettingId', to: 'id' },
     referralCode: { kind: 'one', model: 'referralCode', from: 'referralCodeId', to: 'id' },
     venuePayments: { kind: 'many', model: 'venuePayment', from: 'id', to: 'orderId' },
+    // Its unpaid tickets cancelled, if any (SPEC3-XI XU).
+    venueCancellations: {
+      kind: 'many',
+      model: 'venueBookingCancellation',
+      from: 'id',
+      to: 'orderId',
+    },
   },
   orderItem: {
     tickets: { kind: 'many', model: 'ticket', from: 'id', to: 'orderItemId' },
@@ -191,6 +212,13 @@ const RELATIONS = {
     checkIns: { kind: 'many', model: 'checkIn', from: 'id', to: 'ticketId' },
     // The payment taken at the door that paid it, once there is one.
     venuePayment: { kind: 'one', model: 'venuePayment', from: 'venuePaymentId', to: 'id' },
+    // The cancellation that withdrew it unpaid, once there is one.
+    venueCancellation: {
+      kind: 'one',
+      model: 'venueBookingCancellation',
+      from: 'venueCancellationId',
+      to: 'id',
+    },
   },
   // "Is this person somebody this organisation holds data about?" is asked by
   // walking a waitlist entry to its event, which is how a subject who only ever
@@ -425,14 +453,32 @@ const ORDER_PAYMENT_TERMS_COLUMNS = Object.freeze({
   feeWaivedCents: 0,
   referralCodeId: null,
   venueDueCents: 0,
+  // SPEC3-XI: no referral use given back, nothing cancelled unpaid, no fee kept.
+  referralUseReturnedAt: null,
+  referralUseReturnCause: null,
+  venueCancelledBasisCents: 0,
+  venueFeeKeptCents: 0,
 })
 
 /**
- * A ticket's door columns (SPEC3 §5.3): nothing due, no payment.
+ * A ticket's door columns (SPEC3 §5.3, SPEC3-XI XU): nothing due, no payment,
+ * not cancelled unpaid.
  *
  * @type {Readonly<Record<string, unknown>>}
  */
-const TICKET_VENUE_COLUMNS = Object.freeze({ venueDueCents: 0, venuePaymentId: null })
+const TICKET_VENUE_COLUMNS = Object.freeze({
+  venueDueCents: 0,
+  venuePaymentId: null,
+  venueCancellationId: null,
+})
+
+/**
+ * An order line's door columns (SPEC3 §5.3, SPEC3-XI XU): nothing due at the
+ * door, nothing cancelled unpaid.
+ *
+ * @type {Readonly<Record<string, unknown>>}
+ */
+const ORDER_ITEM_VENUE_COLUMNS = Object.freeze({ venueDueCents: 0, venueCancelledQuantity: 0 })
 
 /**
  * A night's cancellation stamp and whether its end time was listed (SPEC2-XI X
@@ -468,7 +514,7 @@ const SEEDED_COLUMN_DEFAULTS = Object.freeze({
   // site default with nothing due at the door (and `feeGrossCents` follows the
   // order's own fee, as the backfill sets it).
   order: ORDER_PAYMENT_TERMS_COLUMNS,
-  orderItem: Object.freeze({ venueDueCents: 0 }),
+  orderItem: ORDER_ITEM_VENUE_COLUMNS,
   ticket: TICKET_VENUE_COLUMNS,
 })
 
@@ -595,7 +641,12 @@ const DEFAULTS = {
   },
   // Staged names for a general-admission line, cleared at settlement; nothing
   // refunded yet (`@default(0)`); nothing due at the door.
-  orderItem: { attendeeNames: [], refundedQuantity: 0, refundedCents: 0, venueDueCents: 0 },
+  orderItem: {
+    attendeeNames: [],
+    refundedQuantity: 0,
+    refundedCents: 0,
+    ...ORDER_ITEM_VENUE_COLUMNS,
+  },
   ticket: {
     status: 'VALID',
     checkedInAt: null,
@@ -1021,6 +1072,8 @@ const DEFAULTS = {
   },
   referralCodeEvent: {},
   venuePayment: { eventSessionId: null, recordedById: null, gate: null },
+  // Who cancelled, null once the account is gone (SPEC3-XI XU).
+  venueBookingCancellation: { cancelledById: null },
   connectedAccount: {
     providerMode: 'test',
     country: null,
@@ -1378,6 +1431,8 @@ const CREATED_ONLY = new Set([
   'eventImportRun',
   'eventFeeSetting',
   'eventVenuePaymentChange',
+  // Append-only (trigger `venue_booking_cancellation_append_only`).
+  'venueBookingCancellation',
 ])
 
 let idCounter = 0
@@ -1922,6 +1977,8 @@ export function createPrismaStub(seed = {}) {
   function updateRows(model, rows, data) {
     const before = rows.map((row) => ({ ...row }))
 
+    for (const row of rows) recordLock(tableNameOf(model), row.id, 'UPDATE', 'write')
+
     for (const row of rows) {
       applyData(row, data)
       if (TIMESTAMPED.has(model)) row.updatedAt = new Date()
@@ -2359,10 +2416,138 @@ export function createPrismaStub(seed = {}) {
   const rawStatements = []
 
   /**
+   * Every row lock a statement would take, in the order taken (SPEC3-XI
+   * §5.6): the raw locks (`SELECT … FOR …`), the rows a raw `UPDATE` changes,
+   * and the rows Prisma's `update`, `updateMany` and `upsert` change. Each
+   * entry names the table as PostgreSQL does (`Order`, `ReferralCode`), the
+   * row's id, the lock's mode, whether it was a lock or a write, and the
+   * transaction it was taken in (a number counted from 1, or null outside
+   * one), so a test can assert the lock law: the order rows before the codes,
+   * and the codes in ascending id order, last.
+   *
+   * @type {Array<{table: string, id: unknown, mode: string, kind: 'lock'|'write', transaction: number|null}>}
+   */
+  const lockLog = []
+
+  /** The transaction now running, counted from 1; null outside one. */
+  let currentTransaction = null
+  let transactionCount = 0
+
+  /**
+   * Record one row lock.
+   *
+   * @param {string} table The table, as PostgreSQL names it.
+   * @param {unknown} id The row's id.
+   * @param {string} mode The lock's mode (`UPDATE`, `KEY SHARE`, …).
+   * @param {'lock'|'write'} kind A `SELECT … FOR …`, or a write.
+   * @returns {void}
+   */
+  function recordLock(table, id, mode, kind) {
+    lockLog.push({ table, id, mode, kind, transaction: currentTransaction })
+  }
+
+  /**
+   * A model's table, as PostgreSQL names it: `order` → `Order`.
+   *
+   * @param {string} model The model.
+   * @returns {string} The table.
+   */
+  function tableNameOf(model) {
+    return model[0].toUpperCase() + model.slice(1)
+  }
+
+  /**
+   * A table's rows here, from its PostgreSQL name: `Order` → `order`.
+   *
+   * @param {string} table The table.
+   * @returns {object[]} Its rows (empty for a table the stub does not know).
+   */
+  function rowsOfTable(table) {
+    return tables[table[0].toLowerCase() + table.slice(1)] ?? []
+  }
+
+  /**
+   * A raw query's values with `Prisma.join(...)` lists spread out, as
+   * PostgreSQL receives them.
+   *
+   * @param {unknown[]} values The template's values.
+   * @returns {unknown[]} The flat values.
+   */
+  function flatValues(values) {
+    return values.flatMap((value) =>
+      value &&
+      typeof value === 'object' &&
+      Array.isArray(value.values) &&
+      Array.isArray(value.strings)
+        ? value.values
+        : [value],
+    )
+  }
+
+  /**
+   * Whether an order ended without being used (SPEC3-XI XR2), from the stub's
+   * own rows: the emulation of `orderEndedWithoutUse`'s one statement.
+   *
+   * @param {object} order The order row.
+   * @returns {boolean} True when it ended.
+   */
+  function orderEnded(order) {
+    if (['CANCELLED', 'EXPIRED', 'REFUNDED'].includes(order.status)) return true
+    if (order.status !== 'PAID') return false
+
+    const lineIds = new Set(
+      tables.orderItem.filter((line) => line.orderId === order.id).map((line) => line.id),
+    )
+    const tickets = tables.ticket.filter((ticket) => lineIds.has(ticket.orderItemId))
+    const ticketIds = new Set(tickets.map((ticket) => ticket.id))
+    const admitted = tables.checkIn.some((checkIn) => ticketIds.has(checkIn.ticketId))
+    const standing = tickets.some((ticket) =>
+      ['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'].includes(ticket.status),
+    )
+    const event = tables.event.find((candidate) => candidate.id === order.eventId)
+    const left =
+      (order.totalCents ?? 0) - (order.refundedCents ?? 0) - (order.venueFeeKeptCents ?? 0)
+
+    return (
+      !admitted &&
+      (order.refundPendingCents ?? 0) === 0 &&
+      left <= 0 &&
+      (!standing || event?.status === 'CANCELLED')
+    )
+  }
+
+  /**
+   * A CHECK refusal, shaped as the pg adapter reports one from a raw statement.
+   *
+   * @param {string} table The table.
+   * @param {string} constraint The constraint's name.
+   * @returns {Error} The error.
+   */
+  function rawCheckRefusal(table, constraint) {
+    const message = `new row for relation "${table}" violates check constraint "${constraint}"`
+
+    return Object.assign(new Error(`Raw query failed. Code: \`23514\`. Message: \`${message}\``), {
+      name: 'PrismaClientKnownRequestError',
+      code: 'P2010',
+      meta: {
+        driverAdapterError: { cause: { originalCode: '23514', originalMessage: message } },
+      },
+    })
+  }
+
+  /**
    * What a raw query answers here: a row-lock answers the row's id when the row
    * exists (as `SELECT "id" … FOR …` does), an advisory lock answers one row,
    * and the venue-booking count (SPEC3 §6.4) is computed from the stub's own
    * rows. Anything else answers no rows, as every raw query here used to.
+   *
+   * Referral returns (SPEC3-XI XR3) are emulated from the rows as well: the
+   * statement marked `referral-order-ended` answers the ids among its values
+   * whose order ended without being used (XR2); the order's conditional marker
+   * `UPDATE "Order" SET "referralUseReturnedAt" … RETURNING "referralCodeId"`
+   * sets it only when the order names a code and has no marker yet; and a
+   * code's `SELECT "useCount" … FOR UPDATE` answers its count. Every lock and
+   * every row a raw `UPDATE` changes is written to {@link lockLog}.
    *
    * The count is recognised by the marker `venue-booking-count` anywhere in its
    * text (a SQL comment), and takes the event's id as its only value; it
@@ -2385,9 +2570,66 @@ export function createPrismaStub(seed = {}) {
       )
 
     if (lock && values.length === 1) {
-      const rows = tables[lock[1][0].toLowerCase() + lock[1].slice(1)] ?? []
+      const rows = rowsOfTable(lock[1])
+
+      recordLock(lock[1], values[0], /FOR (.+)$/u.exec(text)[1], 'lock')
 
       return rows.some((row) => row.id === values[0]) ? [{ id: values[0] }] : []
+    }
+
+    const listLock =
+      /^SELECT "?id"? FROM "([A-Za-z]+)" WHERE "?id"? IN \(\?\) ORDER BY "?id"? FOR (UPDATE|NO KEY UPDATE|SHARE|KEY SHARE)$/u.exec(
+        text,
+      )
+
+    if (listLock) {
+      const ids = flatValues(values)
+      const rows = rowsOfTable(listLock[1])
+      const held = [...ids].sort().filter((id) => rows.some((row) => row.id === id))
+
+      for (const id of [...ids].sort()) recordLock(listLock[1], id, listLock[2], 'lock')
+
+      return held.map((id) => ({ id }))
+    }
+
+    const codeCount = /^SELECT "useCount" FROM "ReferralCode" WHERE "id" = \? FOR UPDATE$/u.exec(
+      text,
+    )
+
+    if (codeCount) {
+      recordLock('ReferralCode', values[0], 'UPDATE', 'lock')
+
+      const code = tables.referralCode.find((row) => row.id === values[0])
+
+      return code ? [{ useCount: code.useCount }] : []
+    }
+
+    if (text.includes('referral-order-ended')) {
+      const ids = new Set(flatValues(values))
+
+      return tables.order
+        .filter((order) => ids.has(order.id) && orderEnded(order))
+        .map((order) => order.id)
+        .sort()
+        .map((id) => ({ id }))
+    }
+
+    if (text.startsWith('UPDATE "Order" SET "referralUseReturnedAt" = ?')) {
+      const [now, cause, orderId] = values
+
+      recordLock('Order', orderId, 'UPDATE', 'write')
+
+      const order = tables.order.find((row) => row.id === orderId)
+
+      if (!order || order.referralCodeId === null || order.referralCodeId === undefined) return []
+      if (order.referralUseReturnedAt !== null && order.referralUseReturnedAt !== undefined) {
+        return []
+      }
+
+      order.referralUseReturnedAt = now
+      order.referralUseReturnCause = cause
+
+      return [{ referralCodeId: order.referralCodeId }]
     }
 
     if (text.includes('pg_advisory_xact_lock')) return [{ pg_advisory_xact_lock: '' }]
@@ -2429,11 +2671,13 @@ export function createPrismaStub(seed = {}) {
   }
 
   /**
-   * What a raw statement does here: the referral code's use count is taken and
-   * given back (`lib/referral-uses.js`, SPEC3 §8.2), with the database's
+   * What a raw statement does here: the referral code's use count is taken
+   * (`lib/referral-uses.js`, SPEC3 §8.2), with the database's
    * `referral_code_use_within_limit` refusal, shaped as the pg adapter reports
-   * it, for a count past the code's limit. Anything else changes nothing and
-   * reports no rows, as every raw statement here used to.
+   * it, for a count past the code's limit; and lowered by the uses a batch
+   * gives back (SPEC3-XI XR3 step 5), with `referral_code_shape`'s refusal
+   * below zero. Anything else changes nothing and reports no rows, as every
+   * raw statement here used to.
    *
    * @param {string} sql The statement, its values replaced by `?`.
    * @param {unknown[]} values The values.
@@ -2444,6 +2688,8 @@ export function createPrismaStub(seed = {}) {
     const text = sql.replace(/\s+/gu, ' ').trim()
 
     if (text.startsWith('UPDATE "ReferralCode" SET "useCount" = "useCount" + 1 WHERE "id" = ?')) {
+      recordLock('ReferralCode', values[0], 'UPDATE', 'write')
+
       const row = tables.referralCode.find((candidate) => candidate.id === values[0])
 
       if (!row) return 0
@@ -2469,16 +2715,19 @@ export function createPrismaStub(seed = {}) {
       return 1
     }
 
-    if (
-      text.startsWith(
-        'UPDATE "ReferralCode" SET "useCount" = "useCount" - 1 WHERE "id" = ? AND "useCount" > 0',
-      )
-    ) {
-      const row = tables.referralCode.find((candidate) => candidate.id === values[0])
+    if (text.startsWith('UPDATE "ReferralCode" SET "useCount" = "useCount" - ? WHERE "id" = ?')) {
+      const [lowered, codeId] = values
 
-      if (!row || row.useCount <= 0) return 0
+      recordLock('ReferralCode', codeId, 'UPDATE', 'write')
 
-      row.useCount -= 1
+      const row = tables.referralCode.find((candidate) => candidate.id === codeId)
+
+      if (!row) return 0
+
+      // CHECK `referral_code_shape`: never below zero.
+      if (row.useCount - lowered < 0) throw rawCheckRefusal('ReferralCode', 'referral_code_shape')
+
+      row.useCount -= lowered
 
       return 1
     }
@@ -2490,6 +2739,7 @@ export function createPrismaStub(seed = {}) {
     _store: tables,
     _rawQueries: rawQueries,
     _rawStatements: rawStatements,
+    lockLog,
 
     /**
      * Record a raw query. Real PostgreSQL takes the row lock here.
@@ -2546,6 +2796,9 @@ export function createPrismaStub(seed = {}) {
     $transaction: (fn) => {
       const body = Array.isArray(fn) ? async () => Promise.all(fn) : fn
       const run = async () => {
+        transactionCount += 1
+        currentTransaction = transactionCount
+
         const snapshot = {}
         for (const [model, rows] of Object.entries(tables)) {
           snapshot[model] = rows.map((row) => ({ ...row }))
@@ -2561,6 +2814,8 @@ export function createPrismaStub(seed = {}) {
             tables[model].push(...rows)
           }
           throw error
+        } finally {
+          currentTransaction = null
         }
       }
 

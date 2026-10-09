@@ -127,6 +127,7 @@ const MIRRORS = {
   OrderPaymentMethod: 'ORDER_PAYMENT_METHODS',
   ReferralCodeScope: 'REFERRAL_CODE_SCOPES',
   VenuePaymentVia: 'VENUE_PAYMENT_VIAS',
+  ReferralUseReturnCause: 'REFERRAL_USE_RETURN_CAUSES',
 }
 
 /**
@@ -204,6 +205,7 @@ const SCHEMAS = {
   ORDER_PAYMENT_METHODS: 'orderPaymentMethodSchema',
   REFERRAL_CODE_SCOPES: 'referralCodeScopeSchema',
   VENUE_PAYMENT_VIAS: 'venuePaymentViaSchema',
+  REFERRAL_USE_RETURN_CAUSES: 'referralUseReturnCauseSchema',
 }
 
 const prismaSource = readFileSync(schemaPath, 'utf8')

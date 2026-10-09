@@ -17,13 +17,18 @@
  * The tables a test may hold a row of. Named, because a table is an identifier.
  * `Event`, `Ticket` and `EventSession` are for SPEC3's races: the booking-fee
  * writers' `FOR NO KEY UPDATE` on the event, and the door's lock order (night
- * `FOR KEY SHARE`, order `FOR SHARE`, ticket `FOR UPDATE`).
+ * `FOR KEY SHARE`, order `FOR SHARE`, ticket `FOR UPDATE`). `Order`,
+ * `OrderItem`, `TicketType` and `ReferralCode` are for SPEC3-XI's: cancelling
+ * unpaid tickets (order, then lines, then tiers) and the referral returns,
+ * whose codes are every transaction's last locks.
  */
 export const TABLES = new Set([
   'Membership',
   'Invitation',
   'Order',
   'OrderItem',
+  'TicketType',
+  'ReferralCode',
   'Event',
   'Ticket',
   'EventSession',

@@ -6,6 +6,12 @@
  * right 409, every new constraint and trigger is answered by name rather than
  * as a 500, and the booking-fee writers' row lock does not block an order.
  *
+ * SPEC3-XI's addendum: a referral use goes back only when its order ended
+ * without being used, once, through `settleReferralUsesIfEnded` (SPEC3's
+ * `returnReferralUse` is gone); XR2's predicate is the statement PostgreSQL
+ * runs; and the fixtures for passed-on, paid-at-the-door, waived, cancelled
+ * and pending bookings write rows every new trigger accepts.
+ *
  * Every row carries this run's tag. Real PostgreSQL only.
  */
 
@@ -14,7 +20,11 @@ import { afterAll, beforeAll, expect, it } from 'vitest'
 
 import { databaseRefusal } from '../src/lib/errors.js'
 import { findImbalances } from '../src/lib/finance-reporting.js'
-import { consumeReferralUse, returnReferralUse } from '../src/lib/referral-uses.js'
+import {
+  consumeReferralUse,
+  orderEndedWithoutUse,
+  settleReferralUsesIfEnded,
+} from '../src/lib/referral-uses.js'
 import {
   BOOKED_UNPAID_ORDER_WHERE,
   PAID_ORDER_WHERE,
@@ -25,8 +35,10 @@ import { connectTestDatabase } from './helpers/database.js'
 import {
   FEE_ORDER_CURRENCY,
   atVenueOrder,
+  cancelledUnpaidFixture,
   createFeeEvent,
   createFeeOrder,
+  pendingZeroTotalOrder,
   referralCodeFixture,
   waivedOrder,
 } from './helpers/fee-orders.js'
@@ -46,6 +58,7 @@ const REASON = 'Checked by the SPEC3 foundation suite.'
 let sequence = 0
 let payments
 let buyer
+let holder
 let administrator
 
 /**
@@ -85,6 +98,13 @@ beforeAll(async () => {
       email: `foundation-buyer-${RUN}@example.test`,
       passwordHash: 'not-a-hash',
       displayName: 'Foundation Buyer',
+    },
+  })
+  holder = await prisma.user.create({
+    data: {
+      email: `foundation-holder-${RUN}@example.test`,
+      passwordHash: 'not-a-hash',
+      displayName: 'Foundation Holder',
     },
   })
   administrator = await prisma.user.create({
@@ -265,15 +285,26 @@ when()('SPEC3 foundation on PostgreSQL', () => {
     // payment would be let in with nothing recorded for it; a paid ticket's due
     // changed, a ticket inserted already pointing at it, or the paid ticket
     // removed, would leave the payment's amount naming other tickets than the
-    // ones it paid for. Each is refused at commit as a 409.
+    // ones it paid for. Each is refused as a 409.
     expect(
       await answer(
         prisma.ticket.update({ where: { id: unpaid.id }, data: { venuePaymentId: recorded.id } }),
       ),
     ).toBe('PAYMENT_NOT_RECORDED')
-    expect(
-      await answer(prisma.ticket.update({ where: { id: paid.id }, data: { venueDueCents: 1 } })),
-    ).toBe('PAYMENT_NOT_RECORDED')
+    // SPEC3-XI (open question 7): what is due stays with a ticket, so the
+    // guard `desi_ticket_venue_due_guard` refuses these two before the deferred
+    // payment sum is reached — a due never changes (`ticket_venue_due_fixed`)
+    // and a ticket is never inserted paid (`ticket_venue_insert_unpaid`) —
+    // and they answer as the transfer acceptance that could race them: 409
+    // CONFLICT, reason TICKET_CHANGED. The deferred sum still refuses both
+    // with the guard set aside (probe 16's commit-time cases,
+    // `payment-terms-probes.mjs`).
+    const dueChanged = await refusalOf(
+      prisma.ticket.update({ where: { id: paid.id }, data: { venueDueCents: 1 } }),
+    )
+
+    expect(databaseRefusal(dueChanged)).toMatchObject({ statusCode: 409, code: 'CONFLICT' })
+    expect(databaseRefusal(dueChanged).details).toEqual({ reason: 'TICKET_CHANGED' })
     expect(
       await answer(
         prisma.ticket.create({
@@ -285,7 +316,7 @@ when()('SPEC3 foundation on PostgreSQL', () => {
           },
         }),
       ),
-    ).toBe('PAYMENT_NOT_RECORDED')
+    ).toBe('CONFLICT')
     expect(await answer(prisma.ticket.delete({ where: { id: paid.id } }))).toBe(
       'PAYMENT_NOT_RECORDED',
     )
@@ -307,7 +338,7 @@ when()('SPEC3 foundation on PostgreSQL', () => {
     ).toBe('PAYMENT_DUE')
   })
 
-  it('counts a referral use against its limit at the database, and gives it back', async () => {
+  it('counts a referral use against its limit at the database, and gives it back once its order ended', async () => {
     const world = await createFeeEvent(prisma, { tag: tag('referral') })
     const { row } = await referralCodeFixture(prisma, {
       createdById: administrator.id,
@@ -315,7 +346,7 @@ when()('SPEC3 foundation on PostgreSQL', () => {
       scope: 'SELECTED_EVENTS',
       eventIds: [world.event.id],
     })
-    const { order, payment, totals } = await atVenueOrder(prisma, world, {
+    const { order, payment, totals, tickets } = await atVenueOrder(prisma, world, {
       tag: tag('referralorder'),
       payments,
       credentialSecret: SECRET,
@@ -342,9 +373,352 @@ when()('SPEC3 foundation on PostgreSQL', () => {
       code: 'REFERRAL_NOT_ACCEPTED',
     })
 
-    expect(await returnReferralUse(prisma, { referralCodeId: row.id })).toBe(1)
-    expect(await returnReferralUse(prisma, { referralCodeId: row.id })).toBe(0)
+    // SPEC3-XI §14.8: no use goes back while the booking stands.
+    const settle = (orderId, cause = 'VENUE_UNPAID_CANCELLED') =>
+      prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`
+
+        return settleReferralUsesIfEnded(tx, { entries: [{ orderId, cause }], requestId: 'r-1' })
+      })
+
+    expect(await settle(order.id)).toEqual([])
+    expect((await prisma.referralCode.findUnique({ where: { id: row.id } })).useCount).toBe(1)
+
+    // Its unpaid tickets all cancelled: nothing was paid online and nothing
+    // stands, so the order ended without being used. The first call sets the
+    // marker and lowers the count once; the second gives nothing back.
+    await prisma.$transaction((tx) => cancelledUnpaidFixture(tx, { order, tickets }))
+
+    expect(await settle(order.id)).toEqual([
+      { orderId: order.id, referralCodeId: row.id, cause: 'VENUE_UNPAID_CANCELLED' },
+    ])
+    expect(await prisma.order.findUnique({ where: { id: order.id } })).toMatchObject({
+      referralUseReturnCause: 'VENUE_UNPAID_CANCELLED',
+      referralUseReturnedAt: expect.any(Date),
+    })
+
+    const returned = await prisma.referralCode.findUnique({ where: { id: row.id } })
+
+    expect(returned.useCount).toBe(0)
+    // Lowered by a raw statement: the edit precondition does not move.
+    expect(returned.updatedAt.getTime()).toBe(row.updatedAt.getTime())
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'referral_code.use_returned', entityId: row.id },
+      }),
+    ).toBe(1)
+
+    expect(await settle(order.id, 'REFUNDED')).toEqual([])
     expect((await prisma.referralCode.findUnique({ where: { id: row.id } })).useCount).toBe(0)
+    expect(
+      (await prisma.order.findUnique({ where: { id: order.id } })).referralUseReturnCause,
+    ).toBe('VENUE_UNPAID_CANCELLED')
+
+    // A count zeroed by hand stays 0; the next ended order's marker is set.
+    const pending = await prisma.$transaction((tx) =>
+      pendingZeroTotalOrder(tx, { world, referralCode: row, tag: tag('zeroed'), userId: buyer.id }),
+    )
+
+    expect((await prisma.referralCode.findUnique({ where: { id: row.id } })).useCount).toBe(1)
+    await prisma.$executeRaw`UPDATE "ReferralCode" SET "useCount" = 0 WHERE "id" = ${row.id}`
+    await prisma.ticketHold.updateMany({
+      where: { orderId: pending.order.id },
+      data: { status: 'RELEASED', releasedAt: new Date() },
+    })
+    await prisma.order.update({
+      where: { id: pending.order.id },
+      data: { status: 'CANCELLED', cancelledAt: new Date() },
+    })
+
+    expect(await settle(pending.order.id, 'NOT_COMPLETED')).toHaveLength(1)
+    expect((await prisma.referralCode.findUnique({ where: { id: row.id } })).useCount).toBe(0)
+    expect(
+      (await prisma.order.findUnique({ where: { id: pending.order.id } })).referralUseReturnCause,
+    ).toBe('NOT_COMPLETED')
+
+    // An order that names no code gives nothing back.
+    const plain = await atVenueOrder(prisma, world, {
+      tag: tag('nocode'),
+      payments,
+      credentialSecret: SECRET,
+      userId: buyer.id,
+    })
+
+    expect(await settle(plain.order.id, 'REFUNDED')).toEqual([])
+
+    // Never below zero, whoever writes: CHECK referral_code_shape.
+    const below = await refusalOf(
+      prisma.$executeRaw`UPDATE "ReferralCode" SET "useCount" = -1 WHERE "id" = ${row.id}`,
+    )
+
+    expect(databaseRefusal(below)).toMatchObject({ statusCode: 409, code: 'REFERRAL_CODE_CHANGED' })
+    expect(String(below?.message ?? below)).toMatch(/referral_code_shape/u)
+    expect((await prisma.referralCode.findUnique({ where: { id: row.id } })).useCount).toBe(0)
+    await expect(consumeReferralUse(prisma, {})).rejects.toThrow(TypeError)
+  })
+
+  it('runs XR2 as one statement on PostgreSQL, one case per clause', async () => {
+    const world = await createFeeEvent(prisma, { tag: tag('ended') })
+    const booking = (label, options = {}) =>
+      atVenueOrder(prisma, world, {
+        tag: tag(label),
+        payments,
+        credentialSecret: SECRET,
+        userId: buyer.id,
+        ...options,
+      })
+
+    // Standing tickets, money left online: not ended.
+    const standing = await booking('standing')
+    // Every unpaid ticket cancelled: PAID, nothing standing, only the kept fee
+    // left: ended.
+    const cancelled = await booking('cancelled')
+
+    await prisma.$transaction((tx) =>
+      cancelledUnpaidFixture(tx, { order: cancelled.order, tickets: cancelled.tickets }),
+    )
+
+    // Waived, its tickets cancelled: nothing paid online, ended.
+    const waived = await booking('waived', { waived: true })
+
+    await prisma.$transaction((tx) =>
+      cancelledUnpaidFixture(tx, { order: waived.order, tickets: waived.tickets }),
+    )
+
+    // Waived, one ticket let in after paying at the door, the rest cancelled:
+    // used, so not ended.
+    const admitted = await booking('admitted', { waived: true, paidBy: [{ index: 0 }] })
+
+    await prisma.$transaction((tx) =>
+      cancelledUnpaidFixture(tx, { order: admitted.order, tickets: admitted.tickets.slice(1) }),
+    )
+
+    // Waived and still standing, one ticket passed on: not ended.
+    const passedOn = await booking('passedon', { waived: true, holders: [null, holder.id] })
+    // A pending waived booking: not ended until it is cancelled.
+    const pending = await prisma.$transaction((tx) =>
+      pendingZeroTotalOrder(tx, {
+        world,
+        referralCode: waived.referralCode,
+        tag: tag('pending'),
+        userId: buyer.id,
+      }),
+    )
+    const ids = [standing, cancelled, waived, admitted, passedOn].map((made) => made.order.id)
+
+    expect(await orderEndedWithoutUse(prisma, [...ids, pending.order.id])).toEqual(
+      [cancelled.order.id, waived.order.id].sort(),
+    )
+
+    // The event cancelled: an order with no money left whose tickets still
+    // stand ends (the passed-on booking); one with money left, or one ever let
+    // in, does not.
+    await prisma.event.update({ where: { id: world.event.id }, data: { status: 'CANCELLED' } })
+
+    expect(await orderEndedWithoutUse(prisma, [...ids, pending.order.id])).toEqual(
+      [cancelled.order.id, waived.order.id, passedOn.order.id].sort(),
+    )
+
+    // A cancelled order has ended, whatever else.
+    await prisma.order.update({
+      where: { id: pending.order.id },
+      data: { status: 'CANCELLED', cancelledAt: new Date() },
+    })
+
+    expect(await orderEndedWithoutUse(prisma, [pending.order.id])).toEqual([pending.order.id])
+  })
+
+  it('gives several orders’ uses back in one batch on PostgreSQL, each code lowered once', async () => {
+    const world = await createFeeEvent(prisma, { tag: tag('batch') })
+    const first = await referralCodeFixture(prisma, { createdById: administrator.id })
+    const second = await referralCodeFixture(prisma, { createdById: administrator.id })
+    const made = []
+
+    for (const code of [first.row, second.row, second.row]) {
+      made.push(
+        await atVenueOrder(prisma, world, {
+          tag: tag('batchorder'),
+          payments,
+          credentialSecret: SECRET,
+          userId: buyer.id,
+          referralCode: code,
+        }),
+      )
+    }
+
+    for (const booking of made) {
+      await prisma.$transaction((tx) =>
+        cancelledUnpaidFixture(tx, { order: booking.order, tickets: booking.tickets }),
+      )
+    }
+
+    const given = await prisma.$transaction(async (tx) => {
+      for (const id of made.map((booking) => booking.order.id).sort()) {
+        await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`
+      }
+
+      return settleReferralUsesIfEnded(tx, {
+        entries: made.map((booking) => ({ orderId: booking.order.id, cause: 'EVENT_DELETED' })),
+        actorId: administrator.id,
+        requestId: 'r-batch',
+      })
+    })
+
+    expect(given).toHaveLength(3)
+    expect(given.map((use) => use.orderId)).toEqual(made.map((b) => b.order.id).sort())
+
+    const counts = await prisma.referralCode.findMany({
+      where: { id: { in: [first.row.id, second.row.id] } },
+    })
+
+    expect(Object.fromEntries(counts.map((code) => [code.id, code.useCount]))).toEqual({
+      [first.row.id]: 0,
+      [second.row.id]: 0,
+    })
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'referral_code.use_returned', actorId: administrator.id },
+      }),
+    ).toBeGreaterThanOrEqual(3)
+  })
+
+  it('writes the SPEC3-XI fixtures every trigger accepts: passed on, paid at the door, cancelled', async () => {
+    const world = await createFeeEvent(prisma, { tag: tag('fixtures') })
+    const soldBefore = await prisma.ticketType.findMany({
+      where: { eventId: world.event.id },
+      orderBy: { id: 'asc' },
+    })
+    const { order, tickets, handedOn, venuePayments } = await atVenueOrder(prisma, world, {
+      tag: tag('fixturesorder'),
+      payments,
+      credentialSecret: SECRET,
+      userId: buyer.id,
+      holders: [null, holder.id],
+      paidBy: [{ index: 0, holderId: holder.id }],
+    })
+
+    // Both $50 tickets passed on (the first then paid at the door by its
+    // holder), the $20 one still the buyer's.
+    expect(handedOn.map((entry) => entry.index).sort()).toEqual([0, 1])
+    expect(tickets.map((ticket) => ticket.ownerUserId)).toEqual([holder.id, holder.id, buyer.id])
+    expect(tickets.map((ticket) => ticket.status)).toEqual(['CHECKED_IN', 'VALID', 'VALID'])
+    expect(tickets.map((ticket) => ticket.venueDueCents)).toEqual([5_000, 5_000, 2_000])
+    expect(venuePayments).toHaveLength(1)
+
+    const read = () =>
+      prisma.order.findUnique({
+        where: { id: order.id },
+        include: { items: { include: { tickets: true } } },
+      })
+
+    expect(venuePaymentStateOf(await read())).toMatchObject({
+      paidTickets: 0,
+      paidByOthersTickets: 1,
+      paidByOthersCents: 5_000,
+      passedOnUnpaidTickets: 1,
+      passedOnUnpaidCents: 5_000,
+      unpaidTickets: 1,
+      unpaidCents: 2_000,
+      state: 'TO_PAY',
+    })
+
+    // The buyer's own unpaid ticket cancelled, exactly as the service writes it.
+    const { cancellation } = await prisma.$transaction((tx) =>
+      cancelledUnpaidFixture(tx, {
+        order,
+        tickets: [tickets[2]],
+        actor: administrator,
+        authority: 'PLATFORM_ROLE',
+        role: 'ADMIN',
+      }),
+    )
+    const after = await read()
+
+    // 2000 of 12000 cancelled: 1005 × 2000 / 12000 = 167 of the fee kept.
+    expect(cancellation).toMatchObject({
+      ticketCount: 1,
+      basisCents: 2_000,
+      feeKeptCents: 167,
+      authority: 'PLATFORM_ROLE',
+      cancelledById: administrator.id,
+    })
+    expect(after).toMatchObject({ venueCancelledBasisCents: 2_000, venueFeeKeptCents: 167 })
+    expect(after.items.map((item) => item.venueCancelledQuantity).sort()).toEqual([0, 1])
+    expect(venuePaymentStateOf(after)).toMatchObject({
+      unpaidTickets: 0,
+      cancelledTickets: 1,
+      cancelledCents: 2_000,
+      feeKeptCents: 167,
+      state: 'PAID',
+    })
+
+    const soldAfter = await prisma.ticketType.findMany({
+      where: { eventId: world.event.id },
+      orderBy: { id: 'asc' },
+    })
+
+    expect(soldAfter.map((tier) => tier.quantitySold)).toEqual(
+      soldBefore.map((tier) => tier.quantitySold + (tier.id === world.tiers.floor.id ? 2 : 0)),
+    )
+  })
+
+  it('cancels a ticket offered to someone as the service does: the offer withdrawn, the pass dead', async () => {
+    const world = await createFeeEvent(prisma, { tag: tag('offered') })
+    const { order, tickets } = await atVenueOrder(prisma, world, {
+      tag: tag('offeredorder'),
+      payments,
+      credentialSecret: SECRET,
+      userId: buyer.id,
+    })
+    const [offered, kept] = tickets
+    const now = new Date()
+    const offer = (ticket, label) =>
+      prisma.$transaction(async (tx) => {
+        await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'TRANSFER_PENDING' } })
+
+        return tx.ticketTransfer.create({
+          data: {
+            ticketId: ticket.id,
+            fromUserId: buyer.id,
+            toEmail: `offered-${tag(label)}@example.test`,
+            tokenHash: `offer-hash-${tag(label)}`,
+            expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+          },
+        })
+      })
+    const withdrawn = await offer(offered, 'offerone')
+    // An offer on a ticket the cancellation leaves alone stays open.
+    const open = await offer(kept, 'offertwo')
+    const { cancellation, tickets: after } = await prisma.$transaction((tx) =>
+      cancelledUnpaidFixture(tx, { order, tickets: [offered], now }),
+    )
+
+    // XU1, SPEC3-XI §2.2 step 6: never a PENDING offer on a REVOKED ticket.
+    expect(await prisma.ticketTransfer.findUnique({ where: { id: withdrawn.id } })).toMatchObject({
+      status: 'CANCELLED',
+      cancelledAt: now,
+    })
+    expect(await prisma.ticketTransfer.findUnique({ where: { id: open.id } })).toMatchObject({
+      status: 'PENDING',
+      cancelledAt: null,
+    })
+    expect(
+      await prisma.ticketTransfer.count({
+        where: {
+          ticket: { status: 'REVOKED', orderItem: { orderId: order.id } },
+          status: 'PENDING',
+        },
+      }),
+    ).toBe(0)
+    expect(after).toEqual([
+      expect.objectContaining({
+        id: offered.id,
+        status: 'REVOKED',
+        credentialHash: null,
+        credentialVersion: offered.credentialVersion + 1,
+        venueCancellationId: cancellation.id,
+      }),
+    ])
   })
 
   it('settles a card order whose fee a referral code waived, tax charged on the tickets alone', async () => {

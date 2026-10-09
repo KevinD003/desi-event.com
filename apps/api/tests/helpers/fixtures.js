@@ -1311,3 +1311,85 @@ export function paymentTermsAccountsFixture(ids) {
     memberAdministrator,
   }
 }
+
+/**
+ * The accounts SPEC3-XI §4.7 needs for cancelling unpaid tickets (XU2), beside
+ * the default world's OWNER (allowed), MANAGER, VIEWER and STAFF (refused) and
+ * its platform ADMIN and SUPER_ADMIN (allowed as `PLATFORM_ROLE`):
+ *
+ *   - an EVENT_MANAGER and a FINANCE member of the first organisation, both
+ *     refused (open question B: they may not decide alone);
+ *   - an ADMIN member of the first organisation, allowed as
+ *     `ORGANIZATION_ROLE`;
+ *   - a platform ADMIN who is a STAFF member of the first organisation,
+ *     refused with 403 `CONFLICT_OF_INTEREST`;
+ *   - a platform ADMIN who is an ADMIN member of the first organisation,
+ *     allowed as `ORGANIZATION_ROLE` (the organisation's own authority).
+ *
+ * Its emails differ from {@link paymentTermsAccountsFixture}'s, so a suite may
+ * add both. The privileged accounts get a confirmed second factor from the
+ * harness (`enrolPrivilegedUsers`), like every other.
+ *
+ * @param {object} ids `makeWorld().ids`.
+ * @returns {{rows: Record<string, object[]>, eventManager: object, organizationFinance: object, organizationAdministrator: object, staffAdministrator: object, memberOrganizationAdministrator: object, manager: object, viewer: object, staff: object, owner: object}} The rows to add, and the accounts.
+ */
+export function venueCancellationAccountsFixture(ids) {
+  const createdAt = new Date('2025-01-02T00:00:00.000Z')
+  const user = (email, displayName, role) => ({
+    id: cuid(),
+    email,
+    passwordHash: ids.attendee.passwordHash,
+    displayName,
+    phone: null,
+    locale: 'en-IN',
+    role,
+    emailVerified: true,
+    createdAt,
+    updatedAt: createdAt,
+  })
+  const membership = (member, role) => ({
+    id: cuid(),
+    userId: member.id,
+    organizationId: ids.organization.id,
+    role,
+    createdAt,
+  })
+
+  const eventManager = user('esha-events@rangoli.example', 'Esha Events', 'ORGANIZER')
+  const organizationFinance = user('farid-finance@rangoli.example', 'Farid Finance', 'ORGANIZER')
+  const organizationAdministrator = user('arjun-admin@rangoli.example', 'Arjun Admin', 'ORGANIZER')
+  const staffAdministrator = user('sita-staff@desi-event.example', 'Sita Staff-Admin', 'ADMIN')
+  const memberOrganizationAdministrator = user(
+    'omar-orgadmin@desi-event.example',
+    'Omar Org-Admin',
+    'ADMIN',
+  )
+
+  return {
+    rows: {
+      user: [
+        eventManager,
+        organizationFinance,
+        organizationAdministrator,
+        staffAdministrator,
+        memberOrganizationAdministrator,
+      ],
+      membership: [
+        membership(eventManager, 'EVENT_MANAGER'),
+        membership(organizationFinance, 'FINANCE'),
+        membership(organizationAdministrator, 'ADMIN'),
+        membership(staffAdministrator, 'STAFF'),
+        membership(memberOrganizationAdministrator, 'ADMIN'),
+      ],
+    },
+    eventManager,
+    organizationFinance,
+    organizationAdministrator,
+    staffAdministrator,
+    memberOrganizationAdministrator,
+    manager: ids.manager,
+    viewer: ids.viewer,
+    staff: ids.staff,
+    owner: ids.owner,
+  }
+}

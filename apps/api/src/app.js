@@ -40,7 +40,7 @@ export const BODY_LIMIT_BYTES = 1_048_576
  * @property {object} [redis] An ioredis-compatible client, probed by `GET /health`.
  * @property {string} [version] Version string reported by the health endpoint and the OpenAPI document.
  * @property {boolean} [docs] Whether to mount `/docs` and `/openapi.json`. Defaults to `true`.
- * @property {{global?: object, auth?: object, pass?: object, admission?: object, mediaUpload?: object, mediaRead?: object, organizerInvite?: object, transferMail?: object, quote?: object, trafficBeacon?: object, websiteVisit?: object, eventImport?: object, paymentTerms?: object, referralAdmin?: object, feeRefund?: object, referralAttempt?: object}} [rateLimit] Rate-limit overrides. `paymentTerms`, `referralAdmin` and `feeRefund` take `max` and `timeWindow`; `referralAttempt` takes `actorMax`, `addressMax`, `sharedMax` and `timeWindow` (SPEC3 §4.4). `trafficBeacon` takes `max` (per visitor, from `TRAFFIC_BEACON_MAX_PER_MINUTE` in `server.js`), `sharedMax`, `timeWindow` and `processMax`; `websiteVisit` takes `max`, `sharedMax`, `timeWindow` and `eventMax` (counted visits per event a minute).
+ * @property {{global?: object, auth?: object, pass?: object, admission?: object, mediaUpload?: object, mediaRead?: object, organizerInvite?: object, transferMail?: object, quote?: object, trafficBeacon?: object, websiteVisit?: object, eventImport?: object, paymentTerms?: object, referralAdmin?: object, feeRefund?: object, referralAttempt?: object, venueCancel?: object}} [rateLimit] Rate-limit overrides. `paymentTerms`, `referralAdmin`, `feeRefund` and `venueCancel` (SPEC3-XI §4.4) take `max` and `timeWindow`; `referralAttempt` takes `actorMax`, `addressMax`, `sharedMax` and `timeWindow` (SPEC3 §4.4). `trafficBeacon` takes `max` (per visitor, from `TRAFFIC_BEACON_MAX_PER_MINUTE` in `server.js`), `sharedMax`, `timeWindow` and `processMax`; `websiteVisit` takes `max`, `sharedMax`, `timeWindow` and `eventMax` (counted visits per event a minute).
  * @property {object} [mediaStorage] Where picture bytes live. Defaults to the PostgreSQL adapter; see `lib/media-storage.js`.
  * @property {Record<string, string|undefined>} [processEnv] Environment the payment kill switch inspects. Defaults to the process environment; a test passes its own.
  * @property {Function} [fetchImportImage] How an import copies one picture; `lib/import-images.js`'s `fetchImportImage` by default. A test passes its own to hold a picture back or count calls.
@@ -172,6 +172,7 @@ export async function buildApp(options) {
     paymentTermsLimit: rateLimit.paymentTerms,
     referralAdminLimit: rateLimit.referralAdmin,
     feeRefundLimit: rateLimit.feeRefund,
+    venueCancelLimit: rateLimit.venueCancel,
     referralAttemptLimit: rateLimit.referralAttempt,
     fetchImportImage,
     processInline,

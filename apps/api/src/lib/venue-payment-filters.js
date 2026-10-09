@@ -16,11 +16,17 @@
  *   - a booked-and-unpaid order is a PAID pay-at-the-venue order with a
  *     standing ticket still waiting.
  *
- * Pure: Prisma `where` objects and one function of an order already read.
- * Nothing here queries the database.
+ * A ticket cancelled unpaid (SPEC3-XI XU, `venueCancellationId` set) is
+ * REVOKED, so it is outside every filter here: it no longer stands and owes
+ * nothing.
+ *
+ * Pure: Prisma `where` objects and functions of rows already read. Nothing
+ * here queries the database.
  *
  * @module @desi-event/api/lib/venue-payment-filters
  */
+
+import { FORMER_ADMINISTRATOR_NAME } from './website-redirect.js'
 
 /**
  * Freeze an object and everything in it.
@@ -95,29 +101,59 @@ export function isUnpaidVenueTicket(ticket) {
 
 /**
  * Where a pay-at-the-venue order stands at the door, from the order and its
- * tickets as read.
+ * tickets as read (SPEC3-XI §4.6).
+ *
+ * A ticket is the buyer's own while the buyer's account holds it
+ * (`ownerUserId` is the order's `userId`); one passed on is held by another
+ * account. A ticket paid at the door has been let in, so it can never be
+ * passed on again: whoever holds a paid ticket paid for it (XT7).
  *
  * - `dueCents`: the ticket price after the promo to be paid at the door, as
  *   the order recorded it when it was placed (0 on a card order).
- * - `paidCents`, `paidTickets`: what was taken at the door, and for how many
- *   tickets, whatever became of them since (money taken stays taken).
- * - `unpaidCents`, `unpaidTickets`: what the standing tickets still owe.
- * - `state`: `TO_PAY` while a standing ticket still owes, else `PAID` once
- *   anything was taken at the door, else `NONE`.
+ * - `paidCents`, `paidTickets`: what the buyer paid at the door for the
+ *   tickets they hold, whatever became of them since (money taken stays
+ *   taken).
+ * - `paidByOthersCents`, `paidByOthersTickets`: what people the buyer passed
+ *   tickets to paid at the door for them. Theirs, not the buyer's.
+ * - `unpaidCents`, `unpaidTickets`: what the buyer's own standing tickets
+ *   still owe.
+ * - `passedOnUnpaidCents`, `passedOnUnpaidTickets`: what standing tickets
+ *   another account holds still owe; whoever holds them pays.
+ * - `cancelledCents`, `cancelledTickets`: the door price no longer owed for
+ *   the tickets cancelled unpaid.
+ * - `feeKeptCents`: the booking fee Desi-Event kept for those tickets.
+ * - `state`, by precedence: `TO_PAY` while a ticket of the buyer's own still
+ *   owes; else `PAID` once anything was taken at the door, by the buyer or by
+ *   others; else `PASSED_ON` while a passed-on ticket still owes; else
+ *   `CANCELLED` when tickets were cancelled unpaid; else `NONE`. Always `NONE`
+ *   for a card order.
  *
- * @param {{venueDueCents?: number, items: Array<{tickets: Array<{venueDueCents?: number, venuePaymentId?: string|null, status?: string}>}>}} order An order with its lines and their tickets.
- * @returns {{dueCents: number, paidCents: number, unpaidTickets: number, unpaidCents: number, paidTickets: number, state: 'TO_PAY'|'PAID'|'NONE'}} The state.
- * @throws {TypeError} For an order read without its lines and tickets: counting none would say "nothing owed" of an order that owes.
+ * @param {{paymentMethod?: string, userId: string|null, venueDueCents?: number, venueFeeKeptCents?: number, items: Array<{tickets: Array<{ownerUserId: string|null, venueDueCents?: number, venuePaymentId?: string|null, venueCancellationId?: string|null, status?: string}>}>}} order An order with its buyer, its lines and their tickets.
+ * @returns {{dueCents: number, paidCents: number, paidTickets: number, paidByOthersCents: number, paidByOthersTickets: number, unpaidTickets: number, unpaidCents: number, passedOnUnpaidTickets: number, passedOnUnpaidCents: number, cancelledTickets: number, cancelledCents: number, feeKeptCents: number, state: 'TO_PAY'|'PAID'|'PASSED_ON'|'CANCELLED'|'NONE'}} The state.
+ * @throws {TypeError} For an order read without its buyer, lines or tickets, or a ticket read without its holder: counting none would say "nothing owed" of an order that owes, and guessing a holder would tell the buyer of money someone else paid.
  */
 export function venuePaymentStateOf(order) {
   if (!order || !Array.isArray(order.items)) {
     throw new TypeError('venuePaymentStateOf needs the order with its lines and their tickets')
   }
 
-  let paidCents = 0
-  let paidTickets = 0
-  let unpaidCents = 0
-  let unpaidTickets = 0
+  if (order.userId === undefined) {
+    throw new TypeError('venuePaymentStateOf needs the order with its buyer (userId)')
+  }
+
+  const buyer = order.userId ?? null
+  const counts = {
+    paidCents: 0,
+    paidTickets: 0,
+    paidByOthersCents: 0,
+    paidByOthersTickets: 0,
+    unpaidCents: 0,
+    unpaidTickets: 0,
+    passedOnUnpaidCents: 0,
+    passedOnUnpaidTickets: 0,
+    cancelledCents: 0,
+    cancelledTickets: 0,
+  }
 
   for (const item of order.items) {
     if (!Array.isArray(item.tickets)) {
@@ -125,26 +161,116 @@ export function venuePaymentStateOf(order) {
     }
 
     for (const ticket of item.tickets) {
+      if (ticket.ownerUserId === undefined) {
+        throw new TypeError('venuePaymentStateOf needs each ticket with its holder (ownerUserId)')
+      }
+
       const due = ticket.venueDueCents ?? 0
+      const own = (ticket.ownerUserId ?? null) === buyer
 
       if ((ticket.venuePaymentId ?? null) !== null) {
-        paidCents += due
-        paidTickets += 1
+        if (own) {
+          counts.paidCents += due
+          counts.paidTickets += 1
+        } else {
+          counts.paidByOthersCents += due
+          counts.paidByOthersTickets += 1
+        }
+      } else if ((ticket.venueCancellationId ?? null) !== null) {
+        counts.cancelledCents += due
+        counts.cancelledTickets += 1
       } else if (isUnpaidVenueTicket(ticket)) {
-        unpaidCents += due
-        unpaidTickets += 1
+        if (own) {
+          counts.unpaidCents += due
+          counts.unpaidTickets += 1
+        } else {
+          counts.passedOnUnpaidCents += due
+          counts.passedOnUnpaidTickets += 1
+        }
       }
     }
   }
 
-  const state = unpaidTickets > 0 ? 'TO_PAY' : paidTickets > 0 ? 'PAID' : 'NONE'
+  let state = 'NONE'
+
+  if (order.paymentMethod === 'CARD') state = 'NONE'
+  else if (counts.unpaidTickets > 0) state = 'TO_PAY'
+  else if (counts.paidTickets + counts.paidByOthersTickets > 0) state = 'PAID'
+  else if (counts.passedOnUnpaidTickets > 0) state = 'PASSED_ON'
+  else if (counts.cancelledTickets > 0) state = 'CANCELLED'
 
   return {
     dueCents: order.venueDueCents ?? 0,
-    paidCents,
-    unpaidTickets,
-    unpaidCents,
-    paidTickets,
+    paidCents: counts.paidCents,
+    unpaidTickets: counts.unpaidTickets,
+    unpaidCents: counts.unpaidCents,
+    paidTickets: counts.paidTickets,
+    paidByOthersTickets: counts.paidByOthersTickets,
+    paidByOthersCents: counts.paidByOthersCents,
+    passedOnUnpaidTickets: counts.passedOnUnpaidTickets,
+    passedOnUnpaidCents: counts.passedOnUnpaidCents,
+    cancelledTickets: counts.cancelledTickets,
+    cancelledCents: counts.cancelledCents,
+    feeKeptCents: order.venueFeeKeptCents ?? 0,
     state,
+  }
+}
+
+/** Who reads a cancellation of unpaid tickets (SPEC3-XI §4.6). */
+export const VENUE_CANCELLATION_READERS = deepFreeze([
+  'BUYER',
+  'HOLDER',
+  'ORGANISATION',
+  'PLATFORM',
+])
+
+/**
+ * One cancellation of unpaid tickets (a `VenueBookingCancellation` row), as
+ * the order presenters and the report show it (SPEC3-XI §4.6, §11.2): when,
+ * by the organiser or the Desi-Event team, how many tickets, the door price no
+ * longer owed, the booking fee kept, and the reason given.
+ *
+ * Only organisation readers get `byName` (SPEC2 W6): the canceller's display
+ * name, or "A Desi-Event administrator" for a Desi-Event cancellation whose
+ * administrator's account is gone (null for an organiser's account gone).
+ * Buyers, holders and the platform's own pages get no name.
+ *
+ * @param {{createdAt: Date|string, authority: string, cancelledById?: string|null, cancelledBy?: {displayName?: string|null}|null, ticketCount: number, basisCents: number, feeKeptCents: number, reason: string}} row The row; with `cancelledBy` included for an organisation reader.
+ * @param {{reader: 'BUYER'|'HOLDER'|'ORGANISATION'|'PLATFORM'}} options Who reads it.
+ * @returns {{at: string, by: 'ORGANISER'|'DESI_EVENT', byName?: string|null, ticketCount: number, basisCents: number, feeKeptCents: number, reason: string}} The cancellation.
+ * @throws {TypeError} For an unknown reader, or an organisation reader's row read without its canceller.
+ */
+export function toVenueCancellation(row, { reader } = {}) {
+  if (!VENUE_CANCELLATION_READERS.includes(reader)) {
+    throw new TypeError(
+      `toVenueCancellation reads for one of ${VENUE_CANCELLATION_READERS.join(', ')}`,
+    )
+  }
+
+  if (!row || typeof row !== 'object') {
+    throw new TypeError('toVenueCancellation needs a cancellation row')
+  }
+
+  const by = row.authority === 'PLATFORM_ROLE' ? 'DESI_EVENT' : 'ORGANISER'
+  const cancellation = {
+    at: new Date(row.createdAt).toISOString(),
+    by,
+    ticketCount: row.ticketCount,
+    basisCents: row.basisCents,
+    feeKeptCents: row.feeKeptCents,
+    reason: row.reason,
+  }
+
+  if (reader !== 'ORGANISATION') return cancellation
+
+  if (row.cancelledBy === undefined && (row.cancelledById ?? null) !== null) {
+    throw new TypeError('toVenueCancellation needs the row with its canceller (cancelledBy)')
+  }
+
+  const name = row.cancelledBy?.displayName ?? null
+
+  return {
+    ...cancellation,
+    byName: name ?? (by === 'DESI_EVENT' ? FORMER_ADMINISTRATOR_NAME : null),
   }
 }

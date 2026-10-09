@@ -306,6 +306,19 @@ export const CAPABILITIES = deepFreeze({
    * ADMIN and FINANCE_ADMIN, and by SUPER_ADMIN through ALL_CAPABILITIES.
    */
   PLATFORM_FEE_REFUND: 'platform_fee:refund',
+  /**
+   * Cancel unpaid pay-at-the-venue tickets of any event's booking, keeping
+   * their booking fee, and read the bookings waiting to be paid at the door
+   * (SPEC3-XI XU2). Nothing is refunded and no money moves.
+   *
+   * Platform-only, and not `order:refund`: the organisation side of the same
+   * decision is a membership granting `order:refund` (OWNER, ADMIN), checked
+   * on the membership alone. ADMIN cannot hold `order:refund` (its allow-list
+   * is an equality), so the Desi-Event team needs its own name for it. Held by
+   * ADMIN, and by SUPER_ADMIN through ALL_CAPABILITIES; not by FINANCE_ADMIN,
+   * MODERATOR or SUPPORT.
+   */
+  VENUE_BOOKING_CANCEL: 'venue_booking:cancel',
   PLATFORM_ADMIN: 'platform:admin',
 })
 
@@ -342,6 +355,7 @@ export const PLATFORM_ONLY_CAPABILITIES = deepFreeze([
   CAPABILITIES.PAYMENT_TERMS_MANAGE,
   CAPABILITIES.REFERRAL_CODE_MANAGE,
   CAPABILITIES.PLATFORM_FEE_REFUND,
+  CAPABILITIES.VENUE_BOOKING_CANCEL,
   CAPABILITIES.PLATFORM_ADMIN,
 ])
 
@@ -639,9 +653,10 @@ export const ORG_ROLE_CAPABILITIES = deepFreeze(resolveAll(ORG_ROLE_GRANTS, ORG_
  * that requires: no amount, recipient or order is chosen. It imports listed
  * events onto the platform-held organisation (`event:import`). It sets the
  * booking fee and pay-at-the-venue switch of any event, makes referral codes
- * that waive the fee (ADR 0016), and refunds one order's booking fee by hand
- * (A4); it moves no organiser's money, refunds no ticket price and holds no
- * posting capability.
+ * that waive the fee (ADR 0016), refunds one order's booking fee by hand
+ * (A4), and cancels unpaid pay-at-the-venue tickets of any event, keeping
+ * their booking fee (SPEC3-XI XU); it moves no organiser's money, refunds no
+ * ticket price and holds no posting capability.
  *
  * @type {ReadonlyArray<string>}
  */
@@ -660,6 +675,7 @@ export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
     CAPABILITIES.PAYMENT_TERMS_MANAGE,
     CAPABILITIES.REFERRAL_CODE_MANAGE,
     CAPABILITIES.PLATFORM_FEE_REFUND,
+    CAPABILITIES.VENUE_BOOKING_CANCEL,
   ].sort(),
 )
 
@@ -677,11 +693,12 @@ export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
  * approve an event; support can read an order and change nothing; a platform
  * administrator reviews, invites organisers, switches website links, edits and
  * deletes posted events and imports listed ones, sets booking fees and paying
- * at the venue and makes referral codes, and cannot change anybody's platform
- * role, move an organiser's money or admit anybody at a door. MODERATOR,
- * SUPPORT and FINANCE_ADMIN hold none of the three platform event capabilities
- * (`event:platform_edit`, `event:platform_delete`, `event:import`), and none of
- * `payment_terms:manage` or `referral_code:manage`; FINANCE_ADMIN refunds one
+ * at the venue, makes referral codes and cancels unpaid pay-at-the-venue
+ * tickets, and cannot change anybody's platform role, move an organiser's money
+ * or admit anybody at a door. MODERATOR, SUPPORT and FINANCE_ADMIN hold none of
+ * the three platform event capabilities (`event:platform_edit`,
+ * `event:platform_delete`, `event:import`), and none of `payment_terms:manage`,
+ * `referral_code:manage` or `venue_booking:cancel`; FINANCE_ADMIN refunds one
  * order's booking fee by hand (`platform_fee:refund`), as ADMIN does.
  *
  * @type {Readonly<Record<string, ReadonlyArray<string>>>}

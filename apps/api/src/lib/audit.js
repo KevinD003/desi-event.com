@@ -311,6 +311,26 @@ export const AUDIT_ACTIONS = Object.freeze({
    */
   VENUE_PAYMENT_RECORDED: 'venue_payment.recorded',
 
+  // --- Unpaid tickets cancelled and referral uses given back (SPEC3-XI §4.3) --
+  /**
+   * Unpaid pay-at-the-venue tickets of one booking were cancelled by an
+   * organiser or the Desi-Event team (`lib/venue-bookings.js`, the only
+   * writer), in the cancelling transaction. Metadata: `cancellationId`,
+   * `orderId`, `eventId`, `organizationId`, `ticketIds`, `ticketCount`,
+   * `basisCents`, `feeKeptCents`, `currency`, `seatsReturned`,
+   * `placesReturned` (`{ ticketTypeId: n }`), `placesOnSale`, `authority`,
+   * `role`, `reason`, `requestId`. No kept tax: only the booking fee is ever
+   * kept. Never the buyer.
+   */
+  VENUE_BOOKING_CANCELLED: 'venue_booking.cancelled',
+  /**
+   * An order that used a referral code ended without being used and gave its
+   * use back, once (`lib/referral-uses.js`, the only writer), one row per
+   * order. Metadata: `referralCodeId`, `orderId`, `cause`, `requestId`. Never
+   * a code's text or label.
+   */
+  REFERRAL_USE_RETURNED: 'referral_code.use_returned',
+
   // Commerce. Promo code writes carry ids, the discount's terms and its
   // window, never the code's text; a hold reclaimed on the way to a new seat
   // hold carries the seats' count, never who held them.

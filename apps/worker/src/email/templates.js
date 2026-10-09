@@ -252,6 +252,53 @@ function nightOutcomeLine(data) {
 }
 
 /**
+ * What a notice of unpaid tickets cancelled says (SPEC3-XI §9.9), for the buyer
+ * (`recipient: 'BUYER'`) or for another account holding some of the tickets
+ * (`'HOLDER'`). Who cancelled is "The organiser" or "The Desi-Event team",
+ * never a person. Nothing here says a place is back on sale: whether it is
+ * depends on sales the notice cannot see.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string[]} The body lines.
+ */
+function venueCancellationLines(data) {
+  const count = Number.isInteger(data?.ticketCount) && data.ticketCount > 0 ? data.ticketCount : 1
+  const several = count > 1
+  const them = several ? 'them' : 'it'
+  const theyWere = several ? 'they were' : 'it was'
+  const tickets = `${count} ${several ? 'tickets' : 'ticket'}`
+  const currency = field(data, 'currency', 'INR')
+  const due = formatCents(data?.dueCents, currency) ?? 'the price'
+  const by = data?.by === 'DESI_EVENT' ? 'The Desi-Event team' : 'The organiser'
+  const reason = field(data, 'reason', '')
+  const reasonLine = reason === '' ? '' : `Reason given: ${reason}`
+
+  if (data?.recipient === 'HOLDER') {
+    return [
+      'Hello,',
+      `${by} cancelled ${tickets} you hold for ${field(data, 'eventTitle', 'your event')} because ${theyWere} not paid for at the door. You no longer owe ${due} for ${them}.`,
+      reasonLine,
+    ]
+  }
+
+  const reference = field(data, 'orderReference', '')
+  const feeKept =
+    Number.isInteger(data?.feeKeptCents) && data.feeKeptCents > 0
+      ? formatCents(data.feeKeptCents, currency)
+      : null
+
+  return [
+    'Hello,',
+    `${by} cancelled ${tickets} on your order${reference === '' ? '' : ` ${reference}`} because ${theyWere} not paid for at the door. You no longer owe ${due} for ${them}.`,
+    feeKept === null
+      ? `Nothing was paid online for ${them}.`
+      : `The booking fee you paid online for ${them}, ${feeKept}, is kept by Desi-Event and is not refunded.`,
+    reasonLine,
+    data?.othersRemain === true ? 'Your other tickets on this order are not affected.' : '',
+  ]
+}
+
+/**
  * One renderer per template in `EMAIL_TEMPLATES`.
  *
  * @type {Readonly<Record<string, TemplateRenderer>>}
@@ -448,6 +495,12 @@ export const TEMPLATES = Object.freeze({
     ],
   }),
 
+  'venue_booking.cancelled': (data) => ({
+    subject: `Unpaid tickets cancelled: ${field(data, 'eventTitle', 'your event')}`,
+    heading: 'Unpaid tickets cancelled',
+    lines: venueCancellationLines(data),
+  }),
+
   'security.alert': (data) => ({
     subject: `A security change on your ${BRAND_NAME} account`,
     heading: 'Something changed on your account',
@@ -483,6 +536,8 @@ export const DEMO_NOTICE_BY_TEMPLATE = Object.freeze({
   'ticket.transfer.completed': DEMO_TICKET_NOTICE,
   'ticket.revoked': DEMO_TICKET_NOTICE,
   'refund.settled': DEMO_PAYMENT_NOTICE,
+  // It names a booking fee paid online and kept: no money moved for it either.
+  'venue_booking.cancelled': DEMO_PAYMENT_NOTICE,
 })
 
 /**
