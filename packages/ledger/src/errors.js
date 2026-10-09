@@ -36,6 +36,8 @@ export const LEDGER_ERROR_CODES = Object.freeze({
   BAD_CURRENCY: 'BAD_CURRENCY',
   /** Two currencies in one batch. */
   MIXED_CURRENCY: 'MIXED_CURRENCY',
+  /** A dispute held from an account other than the organiser's payable or the fee revenue. */
+  BAD_DISPUTE_ACCOUNT: 'BAD_DISPUTE_ACCOUNT',
   /** A batch for a source event that has already posted one. */
   ALREADY_POSTED: 'ALREADY_POSTED',
   /** An attempt to change a posted batch. */

@@ -355,3 +355,52 @@ describe('SMTP credentials and visit-counting values', () => {
     expect(output).toContain('"kind":"PAGE_VIEW"')
   })
 })
+
+describe('referral codes (SPEC3 §13)', () => {
+  const CODE = 'WAIVE-12345'
+
+  /**
+   * What a logger writes for one object.
+   *
+   * @param {object} fields The log object.
+   * @returns {Promise<string>} The serialised line.
+   */
+  async function line(fields) {
+    const chunks = []
+    const logger = createLogger({
+      name: 'referral-redaction',
+      level: 'info',
+      pretty: false,
+      destination: { write: (chunk) => chunks.push(String(chunk)) },
+    })
+    logger.info(fields, 'referral')
+    logger.flush?.()
+    return chunks.join('')
+  }
+
+  it('is on both lists by name, at the root, one level down and in a request body', () => {
+    expect(SENSITIVE_FIELD_KEYS).toContain('referralCode')
+    expect(WILDCARD_KEYS).toContain('referralCode')
+    expect(REDACT_PATHS).toContain('referralCode')
+    expect(REDACT_PATHS).toContain('*.referralCode')
+    expect(REDACT_PATHS).toContain('req.body.referralCode')
+  })
+
+  it('never writes the text, wherever a handler puts it', async () => {
+    const output = await line({
+      referralCode: CODE,
+      data: { referralCode: CODE, useCount: 4 },
+      req: { body: { referralCode: CODE, paymentMethod: 'AT_VENUE' } },
+    })
+
+    expect(output).not.toContain(CODE)
+    expect(output).toContain('"useCount":4')
+    expect(output).toContain('"paymentMethod":"AT_VENUE"')
+  })
+
+  it('leaves an error code alone: only the name referralCode is redacted, not code', async () => {
+    const output = await line({ code: 'REFERRAL_NOT_ACCEPTED', statusCode: 409 })
+
+    expect(output).toContain('"code":"REFERRAL_NOT_ACCEPTED"')
+  })
+})

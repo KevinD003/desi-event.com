@@ -8,7 +8,9 @@
  * decimal string instead of dividing by 100.
  *
  * The canonical order of operations for an order is documented in `totals.js`:
- * subtotal → discount → fees on the discounted subtotal → tax → total.
+ * subtotal → discount → fees on the discounted subtotal → waiver of the whole
+ * fee by a referral code → tax → total paid online, and what is paid at the
+ * door when the order is paid at the venue.
  *
  * @module @desi-event/pricing
  */
@@ -51,10 +53,19 @@ export {
   toDate,
 } from './discount.js'
 
-export { allocateProportionally, computeOrderTotals } from './totals.js'
+export {
+  AT_VENUE_TAXES_BOOKING_FEE,
+  PAYMENT_METHODS,
+  TAX_APPLIED_TO,
+  allocateProportionally,
+  computeOrderTotals,
+  splitAcrossTickets,
+  unitsWithShare,
+} from './totals.js'
 
 export {
   DEMO_TAX_POLICIES,
+  PRICING_SNAPSHOT_VERSION,
   TAX_POLICY_STATUS,
   TAX_POLICY_VERSION,
   TAX_TREATMENT,

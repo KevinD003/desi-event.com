@@ -218,6 +218,18 @@ describe('AUDIT_ACTIONS', () => {
     expect(AUDIT_ACTIONS.EVENT_WEBSITE_REDIRECT_CHANGED).toBe('event.website_redirect_changed')
   })
 
+  it('names the booking fee, referral code and door payment actions exactly as SPEC3 §4.3 does', () => {
+    expect(AUDIT_ACTIONS).toMatchObject({
+      EVENT_PLATFORM_FEE_CHANGED: 'event.platform_fee_changed',
+      EVENT_VENUE_PAYMENT_CHANGED: 'event.venue_payment_changed',
+      REFERRAL_CODE_CREATED: 'referral_code.created',
+      REFERRAL_CODE_UPDATED: 'referral_code.updated',
+      REFERRAL_CODE_SWITCHED_OFF: 'referral_code.switched_off',
+      REFERRAL_CODE_SWITCHED_ON: 'referral_code.switched_on',
+      VENUE_PAYMENT_RECORDED: 'venue_payment.recorded',
+    })
+  })
+
   it('has no two names sharing one action string', () => {
     const values = Object.values(AUDIT_ACTIONS)
 

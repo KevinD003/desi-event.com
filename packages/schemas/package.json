@@ -19,6 +19,7 @@
     "./code-letters": "./src/code-letters.js",
     "./event-control": "./src/event-control.js",
     "./imports": "./src/imports.js",
+    "./payment-terms": "./src/payment-terms.js",
     "./package.json": "./package.json"
   },
   "files": [

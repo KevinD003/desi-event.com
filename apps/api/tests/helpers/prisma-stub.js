@@ -48,6 +48,52 @@ const RELATIONS = {
     changeNotices: { kind: 'many', model: 'eventChangeNotice', from: 'id', to: 'eventId' },
     // Where it was imported from, when it was (SPEC2-XI I).
     importItem: { kind: 'one', model: 'eventImportItem', from: 'id', to: 'eventId' },
+    // Booking fees and paying at the venue (SPEC3 §5): the current fee
+    // decision, its history, the switch's history and who last changed it,
+    // the referral codes naming it, and the payments taken at its door.
+    feeSetting: { kind: 'one', model: 'eventFeeSetting', from: 'feeSettingId', to: 'id' },
+    venuePaymentChangedBy: {
+      kind: 'one',
+      model: 'user',
+      from: 'venuePaymentChangedById',
+      to: 'id',
+    },
+    feeSettings: { kind: 'many', model: 'eventFeeSetting', from: 'id', to: 'eventId' },
+    venuePaymentChanges: {
+      kind: 'many',
+      model: 'eventVenuePaymentChange',
+      from: 'id',
+      to: 'eventId',
+    },
+    referralScopes: { kind: 'many', model: 'referralCodeEvent', from: 'id', to: 'eventId' },
+    venuePayments: { kind: 'many', model: 'venuePayment', from: 'id', to: 'eventId' },
+  },
+  eventFeeSetting: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    setBy: { kind: 'one', model: 'user', from: 'setById', to: 'id' },
+    current: { kind: 'one', model: 'event', from: 'id', to: 'feeSettingId' },
+    orders: { kind: 'many', model: 'order', from: 'id', to: 'feeSettingId' },
+  },
+  eventVenuePaymentChange: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    changedBy: { kind: 'one', model: 'user', from: 'changedById', to: 'id' },
+  },
+  referralCode: {
+    createdBy: { kind: 'one', model: 'user', from: 'createdById', to: 'id' },
+    updatedBy: { kind: 'one', model: 'user', from: 'updatedById', to: 'id' },
+    events: { kind: 'many', model: 'referralCodeEvent', from: 'id', to: 'referralCodeId' },
+    orders: { kind: 'many', model: 'order', from: 'id', to: 'referralCodeId' },
+  },
+  referralCodeEvent: {
+    referralCode: { kind: 'one', model: 'referralCode', from: 'referralCodeId', to: 'id' },
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+  },
+  venuePayment: {
+    order: { kind: 'one', model: 'order', from: 'orderId', to: 'id' },
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    eventSession: { kind: 'one', model: 'eventSession', from: 'eventSessionId', to: 'id' },
+    recordedBy: { kind: 'one', model: 'user', from: 'recordedById', to: 'id' },
+    tickets: { kind: 'many', model: 'ticket', from: 'id', to: 'venuePaymentId' },
   },
   eventPlatformEdit: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
@@ -121,6 +167,11 @@ const RELATIONS = {
     payments: { kind: 'many', model: 'payment', from: 'id', to: 'orderId' },
     // Created lazily on the holder's first retrieval, so usually absent.
     groupPass: { kind: 'one', model: 'groupPass', from: 'id', to: 'orderId' },
+    // The fee decision and the referral code it was priced with, and the
+    // payments taken at the door for its tickets (SPEC3 §5).
+    feeSetting: { kind: 'one', model: 'eventFeeSetting', from: 'feeSettingId', to: 'id' },
+    referralCode: { kind: 'one', model: 'referralCode', from: 'referralCodeId', to: 'id' },
+    venuePayments: { kind: 'many', model: 'venuePayment', from: 'id', to: 'orderId' },
   },
   orderItem: {
     tickets: { kind: 'many', model: 'ticket', from: 'id', to: 'orderItemId' },
@@ -138,6 +189,8 @@ const RELATIONS = {
     // how: one for a ticket that admits once, one per night for a ticket good
     // for every night.
     checkIns: { kind: 'many', model: 'checkIn', from: 'id', to: 'ticketId' },
+    // The payment taken at the door that paid it, once there is one.
+    venuePayment: { kind: 'one', model: 'venuePayment', from: 'venuePaymentId', to: 'id' },
   },
   // "Is this person somebody this organisation holds data about?" is asked by
   // walking a waitlist entry to its event, which is how a subject who only ever
@@ -280,6 +333,7 @@ const RELATIONS = {
       from: 'id',
       to: 'eventSessionId',
     },
+    venuePayments: { kind: 'many', model: 'venuePayment', from: 'id', to: 'eventSessionId' },
   },
   seat: {
     section: { kind: 'one', model: 'section', from: 'sectionId', to: 'id' },
@@ -335,6 +389,52 @@ const EVENT_DELETION_COLUMNS = Object.freeze({
 })
 
 /**
+ * An event's booking fee and pay-at-the-venue columns (SPEC3 §5.2): the site
+ * default, the switch off and no limit, as the migration leaves every event.
+ *
+ * @type {Readonly<Record<string, unknown>>}
+ */
+const EVENT_PAYMENT_TERMS_COLUMNS = Object.freeze({
+  feeSource: 'SITE_DEFAULT',
+  feePercentageBps: null,
+  feeFlatCentsPerTicket: null,
+  feeCurrency: null,
+  feeSettingId: null,
+  venuePaymentEnabled: false,
+  venuePaymentLimit: null,
+  venuePaymentChangedAt: null,
+  venuePaymentChangedById: null,
+  venuePaymentReason: null,
+})
+
+/**
+ * An order's payment and booking-fee columns (SPEC3 §5.2, §5.3): a card order
+ * at the site default with no waiver and nothing due at the door. A seeded
+ * order without them gets `feeGrossCents` equal to its fee, as the migration's
+ * backfill gives every order already there (see `seededOrderColumns`).
+ *
+ * @type {Readonly<Record<string, unknown>>}
+ */
+const ORDER_PAYMENT_TERMS_COLUMNS = Object.freeze({
+  paymentMethod: 'CARD',
+  feeSource: 'SITE_DEFAULT',
+  feeSettingId: null,
+  feePercentageBps: null,
+  feeFlatCentsPerTicket: null,
+  feeGrossCents: 0,
+  feeWaivedCents: 0,
+  referralCodeId: null,
+  venueDueCents: 0,
+})
+
+/**
+ * A ticket's door columns (SPEC3 §5.3): nothing due, no payment.
+ *
+ * @type {Readonly<Record<string, unknown>>}
+ */
+const TICKET_VENUE_COLUMNS = Object.freeze({ venueDueCents: 0, venuePaymentId: null })
+
+/**
  * A night's cancellation stamp and whether its end time was listed (SPEC2-XI X
  * and I): not cancelled, and listed, as every night before them.
  *
@@ -360,10 +460,27 @@ const EVENT_SESSION_CONTROL_COLUMNS = Object.freeze({
  * @type {Readonly<Record<string, Readonly<Record<string, unknown>>>>}
  */
 const SEEDED_COLUMN_DEFAULTS = Object.freeze({
-  event: EVENT_DELETION_COLUMNS,
+  event: Object.freeze({ ...EVENT_DELETION_COLUMNS, ...EVENT_PAYMENT_TERMS_COLUMNS }),
   eventSession: EVENT_SESSION_CONTROL_COLUMNS,
   mediaAsset: Object.freeze({ replacesMediaId: null }),
   organization: Object.freeze({ platformHeldSource: null }),
+  // SPEC3: every order, line and ticket already there is a card order at the
+  // site default with nothing due at the door (and `feeGrossCents` follows the
+  // order's own fee, as the backfill sets it).
+  order: ORDER_PAYMENT_TERMS_COLUMNS,
+  orderItem: Object.freeze({ venueDueCents: 0 }),
+  ticket: TICKET_VENUE_COLUMNS,
+})
+
+/**
+ * Seeded columns that the migration derives from the row itself rather than
+ * filling with a constant: an order's gross booking fee is the fee it charged
+ * (`UPDATE "Order" SET "feeGrossCents" = "feesCents"`, SPEC3 §5.2).
+ *
+ * @type {Readonly<Record<string, function(object): object>>}
+ */
+const SEEDED_DERIVED_COLUMNS = Object.freeze({
+  order: (row) => ('feeGrossCents' in row ? {} : { feeGrossCents: row.feesCents ?? 0 }),
 })
 
 /** Columns the database fills in, mirrored so rows look like real rows. */
@@ -436,6 +553,7 @@ const DEFAULTS = {
     websiteRedirectChangedById: null,
     websiteRedirectReason: null,
     ...EVENT_DELETION_COLUMNS,
+    ...EVENT_PAYMENT_TERMS_COLUMNS,
   },
   ticketType: {
     currency: 'INR',
@@ -473,10 +591,11 @@ const DEFAULTS = {
     // nothing refunded and nothing reserved, as it does on PostgreSQL.
     refundedCents: 0,
     refundPendingCents: 0,
+    ...ORDER_PAYMENT_TERMS_COLUMNS,
   },
   // Staged names for a general-admission line, cleared at settlement; nothing
-  // refunded yet (`@default(0)`).
-  orderItem: { attendeeNames: [], refundedQuantity: 0, refundedCents: 0 },
+  // refunded yet (`@default(0)`); nothing due at the door.
+  orderItem: { attendeeNames: [], refundedQuantity: 0, refundedCents: 0, venueDueCents: 0 },
   ticket: {
     status: 'VALID',
     checkedInAt: null,
@@ -489,6 +608,7 @@ const DEFAULTS = {
     revokedAt: null,
     revokedReason: null,
     supersedesTicketId: null,
+    ...TICKET_VENUE_COLUMNS,
   },
   ticketTransfer: {
     fromUserId: null,
@@ -886,6 +1006,21 @@ const DEFAULTS = {
     postedAt: null,
   },
   ledgerEntry: { memo: null, organizationId: null },
+  // Booking fees, referral codes and paying at the venue (SPEC3 §5).
+  eventFeeSetting: { percentageBps: null, flatCentsPerTicket: null, currency: null, setById: null },
+  eventVenuePaymentChange: { limit: null, changedById: null },
+  referralCode: {
+    label: null,
+    expiresAt: null,
+    maxUses: null,
+    useCount: 0,
+    active: true,
+    switchedOffAt: null,
+    createdById: null,
+    updatedById: null,
+  },
+  referralCodeEvent: {},
+  venuePayment: { eventSessionId: null, recordedById: null, gate: null },
   connectedAccount: {
     providerMode: 'test',
     country: null,
@@ -951,6 +1086,8 @@ const UNIQUE_FIELDS = {
   organization: ['platformHeldSource'],
   // One import record per event.
   eventImportItem: ['eventId'],
+  // A referral code's text is unique across the platform (SPEC3 DR4).
+  referralCode: ['code'],
 }
 
 /**
@@ -988,6 +1125,10 @@ const COMPOUND_UNIQUE = {
   // listing names each picture once.
   eventImportItem: [['source', 'sourceId']],
   eventImportImage: [['itemId', 'url']],
+  // One fee decision per sequence number per event: the booking fee's
+  // compare-and-set. And a code names an event in its scope once.
+  eventFeeSetting: [['eventId', 'sequence']],
+  referralCodeEvent: [['referralCodeId', 'eventId']],
 }
 
 /** Ticket states that still admit, or may again: the rows the seat index counts. */
@@ -1101,6 +1242,7 @@ const PARTIAL_UNIQUE = {
  */
 const NATURAL_KEYS = {
   mediaBlob: 'storageKey',
+  referralCodeEvent: ['referralCodeId', 'eventId'],
   trafficDaily: ['eventId', 'day'],
   trafficSalt: 'day',
 }
@@ -1168,6 +1310,7 @@ const TIMESTAMPED = new Set([
   'retentionSweep',
   'groupPass',
   'mediaAsset',
+  'referralCode',
 ])
 
 /**
@@ -1233,6 +1376,8 @@ const CREATED_ONLY = new Set([
   'mediaBlob',
   'eventChangeNotice',
   'eventImportRun',
+  'eventFeeSetting',
+  'eventVenuePaymentChange',
 ])
 
 let idCounter = 0
@@ -1391,7 +1536,7 @@ export function createPrismaStub(seed = {}) {
     const added = SEEDED_COLUMN_DEFAULTS[model] ?? {}
 
     tables[model] = rows.map((row) => {
-      const copy = { ...row }
+      const copy = { ...row, ...(SEEDED_DERIVED_COLUMNS[model]?.(row) ?? {}) }
 
       for (const [column, value] of Object.entries(added)) {
         if (!(column in copy)) copy[column] = value
@@ -1938,6 +2083,8 @@ export function createPrismaStub(seed = {}) {
           ...(model === 'exportArtifact' ? { generatedAt: now } : {}),
           ...(model === 'eventPlatformEdit' ? { openedAt: now } : {}),
           ...(model === 'eventImportItem' ? { importedAt: now, lastSyncedAt: now } : {}),
+          ...(model === 'referralCodeEvent' ? { addedAt: now } : {}),
+          ...(model === 'venuePayment' ? { recordedAt: now } : {}),
           ...scalarData,
         }
 
@@ -2211,6 +2358,134 @@ export function createPrismaStub(seed = {}) {
   /** @type {Array<{sql: string, values: unknown[]}>} */
   const rawStatements = []
 
+  /**
+   * What a raw query answers here: a row-lock answers the row's id when the row
+   * exists (as `SELECT "id" … FOR …` does), an advisory lock answers one row,
+   * and the venue-booking count (SPEC3 §6.4) is computed from the stub's own
+   * rows. Anything else answers no rows, as every raw query here used to.
+   *
+   * The count is recognised by the marker `venue-booking-count` anywhere in its
+   * text (a SQL comment), and takes the event's id as its only value; it
+   * answers `{ eventUnpaid }` as a number, so the statement should cast its sum
+   * `::int`. It counts the event's pay-at-the-venue orders in PENDING or PAID:
+   * a PENDING order by `min(quantity, venueDueCents)` per line, a PAID one by
+   * its tickets that owe at the door, have no payment and still stand. Nothing
+   * is counted per account (the owner's answer to open question 1: only the
+   * event's own limit exists). No trigger is emulated.
+   *
+   * @param {string} sql The statement, its values replaced by `?`.
+   * @param {unknown[]} values The values.
+   * @returns {object[]} The rows.
+   */
+  function rawQueryResult(sql, values) {
+    const text = sql.replace(/\s+/gu, ' ').trim()
+    const lock =
+      /^SELECT "?id"? FROM "([A-Za-z]+)" WHERE "?id"? = \? FOR (?:UPDATE|NO KEY UPDATE|SHARE|KEY SHARE)$/u.exec(
+        text,
+      )
+
+    if (lock && values.length === 1) {
+      const rows = tables[lock[1][0].toLowerCase() + lock[1].slice(1)] ?? []
+
+      return rows.some((row) => row.id === values[0]) ? [{ id: values[0] }] : []
+    }
+
+    if (text.includes('pg_advisory_xact_lock')) return [{ pg_advisory_xact_lock: '' }]
+
+    if (text.includes('venue-booking-count')) {
+      const [eventId] = values
+      const standing = new Set(['VALID', 'TRANSFER_PENDING'])
+      const unpaidOf = (order) => {
+        const lines = tables.orderItem.filter((line) => line.orderId === order.id)
+
+        if (order.status === 'PENDING') {
+          return lines.reduce(
+            (sum, line) => sum + Math.min(line.quantity ?? 0, line.venueDueCents ?? 0),
+            0,
+          )
+        }
+
+        const lineIds = new Set(lines.map((line) => line.id))
+
+        return tables.ticket.filter(
+          (ticket) =>
+            lineIds.has(ticket.orderItemId) &&
+            (ticket.venueDueCents ?? 0) > 0 &&
+            (ticket.venuePaymentId ?? null) === null &&
+            standing.has(ticket.status),
+        ).length
+      }
+      const counted = tables.order.filter(
+        (order) =>
+          order.eventId === eventId &&
+          order.paymentMethod === 'AT_VENUE' &&
+          (order.status === 'PENDING' || order.status === 'PAID'),
+      )
+
+      return [{ eventUnpaid: counted.reduce((sum, order) => sum + unpaidOf(order), 0) }]
+    }
+
+    return []
+  }
+
+  /**
+   * What a raw statement does here: the referral code's use count is taken and
+   * given back (`lib/referral-uses.js`, SPEC3 §8.2), with the database's
+   * `referral_code_use_within_limit` refusal, shaped as the pg adapter reports
+   * it, for a count past the code's limit. Anything else changes nothing and
+   * reports no rows, as every raw statement here used to.
+   *
+   * @param {string} sql The statement, its values replaced by `?`.
+   * @param {unknown[]} values The values.
+   * @returns {number} Rows affected.
+   * @throws {Error} The CHECK refusal, for a use past the limit.
+   */
+  function rawStatementResult(sql, values) {
+    const text = sql.replace(/\s+/gu, ' ').trim()
+
+    if (text.startsWith('UPDATE "ReferralCode" SET "useCount" = "useCount" + 1 WHERE "id" = ?')) {
+      const row = tables.referralCode.find((candidate) => candidate.id === values[0])
+
+      if (!row) return 0
+
+      if (row.maxUses !== null && row.maxUses !== undefined && row.useCount + 1 > row.maxUses) {
+        const message =
+          'new row for relation "ReferralCode" violates check constraint "referral_code_use_within_limit"'
+
+        throw Object.assign(
+          new Error(`Raw query failed. Code: \`23514\`. Message: \`${message}\``),
+          {
+            name: 'PrismaClientKnownRequestError',
+            code: 'P2010',
+            meta: {
+              driverAdapterError: { cause: { originalCode: '23514', originalMessage: message } },
+            },
+          },
+        )
+      }
+
+      row.useCount += 1
+
+      return 1
+    }
+
+    if (
+      text.startsWith(
+        'UPDATE "ReferralCode" SET "useCount" = "useCount" - 1 WHERE "id" = ? AND "useCount" > 0',
+      )
+    ) {
+      const row = tables.referralCode.find((candidate) => candidate.id === values[0])
+
+      if (!row || row.useCount <= 0) return 0
+
+      row.useCount -= 1
+
+      return 1
+    }
+
+    return 0
+  }
+
   const client = {
     _store: tables,
     _rawQueries: rawQueries,
@@ -2221,26 +2496,33 @@ export function createPrismaStub(seed = {}) {
      *
      * @param {TemplateStringsArray|string[]} strings Template literal chunks.
      * @param {...unknown} values Interpolated values.
-     * @returns {Promise<object[]>} An empty result set.
+     * @returns {Promise<object[]>} What {@link rawQueryResult} answers: usually nothing.
      */
     $queryRaw: async (strings, ...values) => {
-      rawQueries.push({ sql: Array.from(strings).join('?'), values })
-      return []
+      const sql = Array.from(strings).join('?')
+
+      rawQueries.push({ sql, values })
+
+      return rawQueryResult(sql, values)
     },
 
     /**
-     * Record a raw statement, which changes nothing here.
+     * Record a raw statement, which changes nothing here except a referral
+     * code's use count (see {@link rawStatementResult}).
      *
      * Kept apart from `$queryRaw`'s record, so a test can tell a statement that
      * would have written from a query that only locked.
      *
      * @param {TemplateStringsArray|string[]} strings Template literal chunks.
      * @param {...unknown} values Interpolated values.
-     * @returns {Promise<number>} Zero rows affected.
+     * @returns {Promise<number>} Rows affected: zero, but for a referral use.
      */
     $executeRaw: async (strings, ...values) => {
-      rawStatements.push({ sql: Array.from(strings).join('?'), values })
-      return 0
+      const sql = Array.from(strings).join('?')
+
+      rawStatements.push({ sql, values })
+
+      return rawStatementResult(sql, values)
     },
 
     /**

@@ -176,7 +176,8 @@ const EXPECTED_ORG_MATRIX = {
  * The narrow staff roles exist so that the common platform jobs do not need
  * SUPER_ADMIN, and the interesting assertions are the absences — a moderator
  * cannot refund, a finance administrator cannot approve an event, a platform
- * administrator cannot publish, refund, admit at a door or change a role.
+ * administrator cannot publish, refund a ticket price, admit at a door or
+ * change a role.
  */
 const EXPECTED_PLATFORM_MATRIX = {
   ATTENDEE: [],
@@ -190,11 +191,12 @@ const EXPECTED_PLATFORM_MATRIX = {
     'order:refund_approve',
     'order:view',
     'payout:manage',
+    'platform_fee:refund',
     'reconciliation:manage',
     'support:view_order',
   ],
   // Exactly PLATFORM_ADMINISTRATOR_CAPABILITIES, written out by hand: the ten
-  // of SPEC2-XI O1.
+  // of SPEC2-XI O1 and the three of SPEC3 §4.1.
   ADMIN: [
     'analytics:view_all',
     'event:import',
@@ -203,6 +205,9 @@ const EXPECTED_PLATFORM_MATRIX = {
     'event:view_draft',
     'moderation:review',
     'organizer:invite',
+    'payment_terms:manage',
+    'platform_fee:refund',
+    'referral_code:manage',
     'report:view',
     'venue:manage',
     'website_redirect:manage',

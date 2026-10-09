@@ -294,7 +294,25 @@ export const REFUND_REASONS = Object.freeze([
   'ORGANIZER_GOODWILL',
   'FRAUDULENT',
   'OTHER',
+  /** A booking fee refunded by hand by the Desi-Event team (SPEC3 §7.4). */
+  'BOOKING_FEE',
 ])
+
+/** Where an event's or an order's booking fee terms come from (SPEC3 §3.1). */
+export const FEE_SOURCES = Object.freeze(['SITE_DEFAULT', 'EVENT'])
+
+/**
+ * How an order's ticket price is paid: online by card, or at the door. The
+ * browser-safe `PAYMENT_METHODS` of `@desi-event/schemas/payment-terms` names
+ * the same two values (a test holds them equal).
+ */
+export const ORDER_PAYMENT_METHODS = Object.freeze(['CARD', 'AT_VENUE'])
+
+/** Which events a referral code applies to. */
+export const REFERRAL_CODE_SCOPES = Object.freeze(['ALL_EVENTS', 'SELECTED_EVENTS'])
+
+/** How a payment at the door was recorded: with one ticket, or through a group pass. */
+export const VENUE_PAYMENT_VIAS = Object.freeze(['DOOR_TICKET', 'DOOR_GROUP'])
 
 export const DISPUTE_STATUSES = Object.freeze([
   'OPENED',
@@ -635,6 +653,18 @@ export const refundStatusSchema = z.enum([...REFUND_STATUSES])
 
 /** `REFUND_REASONS` as a Zod enum. */
 export const refundReasonSchema = z.enum([...REFUND_REASONS])
+
+/** `FEE_SOURCES` as a Zod enum. */
+export const feeSourceSchema = z.enum([...FEE_SOURCES])
+
+/** `ORDER_PAYMENT_METHODS` as a Zod enum. */
+export const orderPaymentMethodSchema = z.enum([...ORDER_PAYMENT_METHODS])
+
+/** `REFERRAL_CODE_SCOPES` as a Zod enum. */
+export const referralCodeScopeSchema = z.enum([...REFERRAL_CODE_SCOPES])
+
+/** `VENUE_PAYMENT_VIAS` as a Zod enum. */
+export const venuePaymentViaSchema = z.enum([...VENUE_PAYMENT_VIAS])
 
 /** `DISPUTE_STATUSES` as a Zod enum. */
 export const disputeStatusSchema = z.enum([...DISPUTE_STATUSES])

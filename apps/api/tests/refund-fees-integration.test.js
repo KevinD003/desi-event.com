@@ -933,6 +933,7 @@ when()('11. a payment that succeeds after its order was cancelled', () => {
         subtotalCents: totals.subtotalCents,
         discountCents: totals.discountCents,
         feesCents: totals.feesCents,
+        feeGrossCents: totals.feeGrossCents,
         taxCents: totals.taxCents,
         totalCents: totals.totalCents,
         items: {
@@ -1513,6 +1514,7 @@ when()('19. a refund of money taken on an order that had already closed', () => 
         subtotalCents: totals.subtotalCents,
         discountCents: totals.discountCents,
         feesCents: totals.feesCents,
+        feeGrossCents: totals.feeGrossCents,
         taxCents: totals.taxCents,
         totalCents: totals.totalCents,
         items: {

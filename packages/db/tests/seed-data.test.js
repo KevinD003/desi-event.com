@@ -1245,6 +1245,14 @@ describe('seeded orders', () => {
     }
   })
 
+  it('records each order as a card order whose gross booking fee is the fee it charged (CHECK order_fee_parts)', () => {
+    for (const order of data.orders) {
+      expect(order.feeGrossCents).toBe(order.feesCents)
+      expect(order.feeWaivedCents ?? 0).toBe(0)
+      expect(order.venueDueCents ?? 0).toBe(0)
+    }
+  })
+
   it('computes each order item subtotal as quantity times unit price', () => {
     for (const order of data.orders) {
       for (const item of order.items) {

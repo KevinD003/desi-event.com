@@ -173,6 +173,16 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // tier's or a night's deletion stops reading every order line, hold line and
   // order. Building them over tables that already hold rows is the upgrade case.
   '20261008090000_foreign_key_indexes',
+  // SPEC3: the refund reason for a booking fee refunded by hand, alone (a new
+  // enum label is not used in the transaction that adds it).
+  '20261009090000_refund_reason_booking_fee',
+  // Per-event booking fees and referral codes: the Event and Order columns over
+  // existing rows, the backfill of each order's fee terms from its snapshot,
+  // and the CHECKs every existing row must already satisfy.
+  '20261009100000_payment_terms_and_referral_codes',
+  // Paying at the venue: the order, line and ticket columns over existing rows,
+  // the door's payment table, and the admission trigger replaced.
+  '20261009110000_pay_at_the_venue',
 ])
 
 /**
@@ -283,7 +293,90 @@ const BEFORE_MIGRATION_FIXTURES = Object.freeze({
 
     return { EventSession: 1 }
   },
+  // Orders placed before the payment-terms migration, each cloned from the
+  // filler's: one whose snapshot carries the site default's terms (5.90% +
+  // $0.99, a $3.35 fee on $40), one with no snapshot and no fee, and one whose
+  // snapshot carries a percentage that is not a whole number, which the
+  // backfill must leave unrecorded rather than fail on.
+  '20261009100000_payment_terms_and_referral_codes': async (prisma) => {
+    const columns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'Order' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+
+    for (const legacy of LEGACY_FEE_ORDERS) {
+      const literal = (text) => `'${text.replaceAll("'", "''")}'`
+      const values = columns.map((column) => {
+        if (column === 'id' || column === 'reference') return literal(legacy.id)
+        if (column === 'idempotencyKey') return 'NULL'
+        if (column === 'pricingSnapshot') {
+          return legacy.snapshot === null
+            ? 'NULL'
+            : `${literal(JSON.stringify(legacy.snapshot))}::jsonb`
+        }
+        if (column === 'subtotalCents') return String(legacy.subtotalCents)
+        if (column === 'feesCents') return String(legacy.feesCents)
+        if (column === 'totalCents') return String(legacy.subtotalCents + legacy.feesCents)
+
+        return `"${column}"`
+      })
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Order" (${columns.map((column) => `"${column}"`).join(', ')}) ` +
+          `SELECT ${values.join(', ')} FROM "Order" WHERE "id" = 'upgrade-fixture-Order'`,
+      )
+    }
+
+    const [{ n }] = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM "Order" WHERE "id" LIKE 'legacy-fee-order-%'`,
+    )
+    if (n !== LEGACY_FEE_ORDERS.length) {
+      throw new Error(`expected ${LEGACY_FEE_ORDERS.length} cloned orders, found ${n}`)
+    }
+
+    return { Order: LEGACY_FEE_ORDERS.length }
+  },
 })
+
+/**
+ * Orders cloned before the payment-terms migration, and the fee terms its
+ * backfill must record for each (null when the snapshot carries none usable).
+ */
+const LEGACY_FEE_ORDERS = Object.freeze([
+  {
+    id: 'legacy-fee-order-snapshot',
+    snapshot: {
+      currency: 'USD',
+      feeConfig: { percentageBps: 590, flatCents: 99, currency: 'USD' },
+      tax: { jurisdiction: 'US', rateBps: 0, source: 'DEMO' },
+    },
+    subtotalCents: 4000,
+    feesCents: 335,
+    percentageBps: 590,
+    flatCentsPerTicket: 99,
+  },
+  {
+    id: 'legacy-fee-order-none',
+    snapshot: null,
+    subtotalCents: 4000,
+    feesCents: 0,
+    percentageBps: null,
+    flatCentsPerTicket: null,
+  },
+  {
+    id: 'legacy-fee-order-fractional',
+    snapshot: {
+      currency: 'USD',
+      feeConfig: { percentageBps: 590.5, flatCents: 99, currency: 'USD' },
+    },
+    subtotalCents: 4000,
+    feesCents: 335,
+    percentageBps: null,
+    flatCentsPerTicket: null,
+  },
+])
 
 /**
  * The night cloned before the full-control migration with status CANCELLED, and
@@ -1621,6 +1714,216 @@ async function checkFullControlAndImportBackfills(prisma) {
 }
 
 /**
+ * Check what the SPEC3 migrations (booking fees, referral codes, paying at the
+ * venue) made of a database that holds rows: each order's fee terms read from
+ * its snapshot, every existing row a card order at the site default with
+ * nothing due at the door, the new tables empty, the admission trigger
+ * replaced with its old refusals kept, and the hand-on trigger unchanged.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkPaymentTermsAndVenueBackfills(prisma) {
+  let ok = true
+
+  const reasons = (
+    await prisma.$queryRawUnsafe(
+      'SELECT label.enumlabel AS label FROM pg_enum label JOIN pg_type type ON type.oid = label.enumtypid ' +
+        `WHERE type.typname = 'RefundReason' ORDER BY label.enumsortorder`,
+    )
+  ).map((row) => row.label)
+  ok =
+    record('RefundReason names BOOKING_FEE', reasons.at(-1) === 'BOOKING_FEE', {
+      note: reasons.join(', '),
+    }) && ok
+
+  const legacyOrders = await prisma.$queryRawUnsafe(
+    'SELECT "id", "feesCents", "feeGrossCents", "feePercentageBps", "feeFlatCentsPerTicket" ' +
+      `FROM "Order" WHERE "id" LIKE 'legacy-fee-order-%'`,
+  )
+  const wrongTerms = LEGACY_FEE_ORDERS.filter((legacy) => {
+    const row = legacyOrders.find((order) => order.id === legacy.id)
+
+    return (
+      !row ||
+      row.feeGrossCents !== legacy.feesCents ||
+      row.feePercentageBps !== legacy.percentageBps ||
+      row.feeFlatCentsPerTicket !== legacy.flatCentsPerTicket
+    )
+  })
+  ok =
+    record(
+      "each order's gross fee is the fee it charged, and its terms are read from a usable snapshot only",
+      wrongTerms.length === 0,
+      {
+        note:
+          legacyOrders
+            .map(
+              (row) =>
+                `${row.id}: gross ${row.feeGrossCents}, ` +
+                `${row.feePercentageBps ?? 'null'} bps + ${row.feeFlatCentsPerTicket ?? 'null'}`,
+            )
+            .join('; ') || 'no legacy orders',
+      },
+    ) && ok
+
+  const [orders] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS total, ' +
+      `count(*) FILTER (WHERE "paymentMethod" <> 'CARD' OR "feeSource" <> 'SITE_DEFAULT' ` +
+      'OR "feeWaivedCents" <> 0 OR "feeGrossCents" <> "feesCents" OR "feeSettingId" IS NOT NULL ' +
+      'OR "referralCodeId" IS NOT NULL OR "venueDueCents" <> 0)::int AS changed FROM "Order"',
+  )
+  ok =
+    record(
+      'every existing order is a card order at the site default, with no waiver and nothing due at the door',
+      orders.total > 0 && orders.changed === 0,
+      { note: `${orders.changed} of ${orders.total} orders otherwise` },
+    ) && ok
+
+  const [events] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS total, ' +
+      `count(*) FILTER (WHERE "feeSource" <> 'SITE_DEFAULT' OR "feePercentageBps" IS NOT NULL ` +
+      'OR "feeFlatCentsPerTicket" IS NOT NULL OR "feeCurrency" IS NOT NULL OR "feeSettingId" IS NOT NULL ' +
+      'OR "venuePaymentEnabled" OR "venuePaymentLimit" IS NOT NULL OR "venuePaymentChangedAt" IS NOT NULL ' +
+      'OR "venuePaymentChangedById" IS NOT NULL OR "venuePaymentReason" IS NOT NULL)::int AS changed ' +
+      'FROM "Event"',
+  )
+  ok =
+    record(
+      'every existing event takes the site default fee, with paying at the venue off and no limit',
+      events.total > 0 && events.changed === 0,
+      { note: `${events.changed} of ${events.total} events otherwise` },
+    ) && ok
+
+  const [lines] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "OrderItem")::int AS lines, ' +
+      '(SELECT count(*) FROM "OrderItem" WHERE "venueDueCents" <> 0)::int AS "linesDue", ' +
+      '(SELECT count(*) FROM "Ticket")::int AS tickets, ' +
+      '(SELECT count(*) FROM "Ticket" WHERE "venueDueCents" <> 0 OR "venuePaymentId" IS NOT NULL)::int AS "ticketsDue"',
+  )
+  ok =
+    record(
+      'every existing order line and ticket owes nothing at the door and has no door payment',
+      lines.lines > 0 && lines.tickets > 0 && lines.linesDue === 0 && lines.ticketsDue === 0,
+      {
+        note:
+          `${lines.linesDue} of ${lines.lines} lines and ${lines.ticketsDue} of ` +
+          `${lines.tickets} tickets otherwise`,
+      },
+    ) && ok
+
+  const [tables] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "ReferralCode")::int AS codes, ' +
+      '(SELECT count(*) FROM "ReferralCodeEvent")::int AS scopes, ' +
+      '(SELECT count(*) FROM "EventFeeSetting")::int AS settings, ' +
+      '(SELECT count(*) FROM "EventVenuePaymentChange")::int AS changes, ' +
+      '(SELECT count(*) FROM "VenuePayment")::int AS payments',
+  )
+  ok =
+    record(
+      'the referral code, fee decision, switch change and door payment tables start empty',
+      tables.codes === 0 &&
+        tables.scopes === 0 &&
+        tables.settings === 0 &&
+        tables.changes === 0 &&
+        tables.payments === 0,
+      {
+        note:
+          `${tables.codes} codes, ${tables.scopes} scope rows, ${tables.settings} fee decisions, ` +
+          `${tables.changes} switch changes, ${tables.payments} door payments`,
+      },
+    ) && ok
+
+  const [admission] = await prisma.$queryRawUnsafe(
+    "SELECT pg_get_functiondef('desi_check_in_ticket_admissible'::regproc) AS body",
+  )
+  const admissionPhrases = [
+    'paid at the venue and its payment is not recorded',
+    'which does not admit',
+    'is for another night',
+    'is good for every night, so its admission names the night',
+    'admits once and was already admitted',
+  ]
+  const admissionBody = admission?.body ?? ''
+  ok =
+    record(
+      'the admission trigger refuses an unpaid ticket and keeps every per-night refusal',
+      admissionPhrases.every((phrase) => admissionBody.includes(phrase)),
+      {
+        note: admissionPhrases
+          .map((phrase) => `${phrase}: ${admissionBody.includes(phrase) ? 'present' : 'missing'}`)
+          .join('; '),
+      },
+    ) && ok
+
+  const [transition] = await prisma.$queryRawUnsafe(
+    "SELECT pg_get_functiondef('desi_ticket_status_transition'::regproc) AS body",
+  )
+  const transitionKept = ['has been let in on a night; it cannot be handed on', 'which is terminal']
+  const transitionBody = transition?.body ?? ''
+  // A ticket that owes a payment at the door is handed on like any other (open
+  // question 7): the hand-on trigger keeps its earlier refusals and gains none
+  // about the door.
+  ok =
+    record(
+      'the hand-on trigger keeps its earlier refusals and does not refuse a ticket owing at the door',
+      transitionKept.every((phrase) => transitionBody.includes(phrase)) &&
+        !/venue|venueDueCents/i.test(transitionBody),
+      {
+        note:
+          transitionKept
+            .map(
+              (phrase) => `${phrase}: ${transitionBody.includes(phrase) ? 'present' : 'missing'}`,
+            )
+            .join('; ') +
+          `; mentions the venue: ${/venue|venueDueCents/i.test(transitionBody) ? 'yes' : 'no'}`,
+      },
+    ) && ok
+
+  const triggers = await prisma.$queryRawUnsafe(
+    'SELECT tgname, tgrelid::regclass::text AS relation, tgdeferrable, tginitdeferred, ' +
+      '(tgconstraint <> 0) AS "isConstraint" FROM pg_trigger WHERE NOT tgisinternal AND tgname IN (' +
+      "'desi_event_fee_setting_append_only', 'desi_ticket_venue_payment_guard', " +
+      "'desi_venue_payment_append_only', 'desi_venue_payment_sum', " +
+      "'desi_ticket_venue_payment_sum', 'desi_ticket_venue_payment_sum_on_delete') ORDER BY tgname",
+  )
+  const on = (name) => triggers.find((trigger) => trigger.tgname === name)
+  ok =
+    record(
+      'the fee-decision, ticket-payment, payment append-only and payment-sum triggers exist where they belong',
+      on('desi_event_fee_setting_append_only')?.relation === '"EventFeeSetting"' &&
+        on('desi_ticket_venue_payment_guard')?.relation === '"Ticket"' &&
+        on('desi_venue_payment_append_only')?.relation === '"VenuePayment"' &&
+        on('desi_venue_payment_sum')?.relation === '"VenuePayment"' &&
+        on('desi_ticket_venue_payment_sum')?.relation === '"Ticket"' &&
+        on('desi_ticket_venue_payment_sum_on_delete')?.relation === '"Ticket"',
+      { note: triggers.map((trigger) => `${trigger.tgname} on ${trigger.relation}`).join(', ') },
+    ) && ok
+
+  // The payment's own sum check, and the same check again for the payment a
+  // ticket joins, changes its due under or leaves, in any later transaction.
+  for (const name of [
+    'desi_venue_payment_sum',
+    'desi_ticket_venue_payment_sum',
+    'desi_ticket_venue_payment_sum_on_delete',
+  ]) {
+    const sum = on(name)
+    ok =
+      record(
+        `${name} is a constraint trigger, DEFERRABLE INITIALLY DEFERRED`,
+        sum?.isConstraint === true && sum?.tgdeferrable === true && sum?.tginitdeferred === true,
+        {
+          note: sum
+            ? `constraint=${sum.isConstraint} deferrable=${sum.tgdeferrable} initially deferred=${sum.tginitdeferred}`
+            : 'missing',
+        },
+      ) && ok
+  }
+
+  return ok
+}
+
+/**
  * Everything about a database's structure, and nothing about its contents.
  *
  * Six catalogues, because a migration can go wrong in six different places: a
@@ -1962,6 +2265,7 @@ async function main() {
 
     ok = (await checkSpec2Backfills(prisma)) && ok
     ok = (await checkFullControlAndImportBackfills(prisma)) && ok
+    ok = (await checkPaymentTermsAndVenueBackfills(prisma)) && ok
 
     const [adminAfter] = await prisma.$queryRawUnsafe(
       `SELECT "role"::text AS role FROM "User" WHERE id = 'upgrade-fixture-User'`,

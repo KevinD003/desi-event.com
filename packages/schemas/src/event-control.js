@@ -27,6 +27,7 @@ import {
 import { DELETION_OUTCOMES } from './lifecycle.js'
 import {
   cuidSchema,
+  currencySchema,
   revisionPreconditionSchema,
   slugSchema,
   timestampSchema,
@@ -146,6 +147,17 @@ export const deletionCountsSchema = z.object({
   partlyRefundedOrders: countSchema,
 })
 
+/**
+ * What a deletion, an event cancellation or a night cancellation touches of
+ * pay-at-the-venue bookings: how many such orders, and what was taken at the
+ * door, which stays with the organiser.
+ */
+export const atVenueFactsSchema = z.object({
+  orders: countSchema,
+  ticketsPaidAtDoor: countSchema,
+  paidAtDoorCents: amountSchema,
+})
+
 /** `GET /v1/events/:id/deletion`: what deleting the event would do now. */
 export const eventDeletionPreviewSchema = z.object({
   eventId: cuidSchema,
@@ -163,6 +175,12 @@ export const eventDeletionPreviewSchema = z.object({
   counts: deletionCountsSchema,
   slug: z.object({ value: slugSchema, keptRetired: z.boolean() }),
   paymentMode: z.enum(CONTROL_PAYMENT_MODES),
+  /**
+   * Pay-at-the-venue bookings the deletion refunds (SPEC3 §9.7): only their
+   * booking fee paid online is refunded, and money taken at the door stays with
+   * the organiser. Optional until the preview reads it.
+   */
+  atVenue: atVenueFactsSchema.optional(),
 })
 
 /** `GET /v1/events/:id/deletion` response. */
@@ -218,6 +236,11 @@ export const sessionCancellationPreviewSchema = z.object({
   refundableCents: amountSchema,
   currency: currencyOrNullSchema,
   paymentMode: z.enum(CONTROL_PAYMENT_MODES),
+  /**
+   * The night's pay-at-the-venue bookings (SPEC3 §9.7), as on the deletion
+   * preview. Optional until the preview reads it.
+   */
+  atVenue: atVenueFactsSchema.optional(),
 })
 
 /** `GET /v1/events/:id/sessions/:sessionId/cancellation` response. */
@@ -302,6 +325,17 @@ export const platformEventRowSchema = z.object({
   picturesWaiting: countSchema,
   imported: z.boolean(),
   deletion: platformEventDeletionSchema.nullable(),
+  /**
+   * The event's booking fee (the platform fee) and pay-at-the-venue switch, for
+   * the list's two columns (SPEC3 §7.3). `feeSource` SITE_DEFAULT leaves the
+   * three numbers null. Optional until the list reads them.
+   */
+  feeSource: z.enum(['SITE_DEFAULT', 'EVENT']).optional(),
+  feePercentageBps: z.int().min(0).max(10_000).nullable().optional(),
+  feeFlatCentsPerTicket: z.int().min(0).max(100_000).nullable().optional(),
+  feeCurrency: currencySchema.nullable().optional(),
+  venuePaymentEnabled: z.boolean().optional(),
+  venuePaymentLimit: z.int().min(1).max(100_000).nullable().optional(),
 })
 
 /** What changed about an event since an order was placed, as its holder reads it. */

@@ -36,7 +36,11 @@ import {
   eventImportSourceSchema,
   eventSessionStatusSchema,
   eventStatusSchema,
+  feeSourceSchema,
   mediaModerationStatusSchema,
+  orderStatusSchema,
+  referralCodeScopeSchema,
+  venuePaymentViaSchema,
   verificationStatusSchema,
   logLevelSchema,
   promoQuoteReasonSchema,
@@ -56,6 +60,21 @@ import {
   refundDriveSummarySchema,
 } from './event-control.js'
 import { mediaQueueItemSchema, publicMediaSchema } from './media.js'
+import {
+  REFERRAL_CODE_PATTERN,
+  REFERRAL_LIMITS,
+  REFERRAL_STATUSES,
+  admissionPaymentSchema,
+  checkInPaymentResultSchema,
+  groupAdmissionPaymentSchema,
+  orderFeeTermsSchema,
+  orderTaxViewSchema,
+  paymentMethodSchema,
+  paymentTermsViewSchema,
+  publicVenuePaymentSchema,
+  quoteReferralSchema,
+  ticketVenuePaymentSchema,
+} from './payment-terms.js'
 import { IMPORT_LIMITS, IMPORT_PLAN_ACTIONS, importSourceIdSchema } from './imports.js'
 import {
   eventSummarySchema,
@@ -162,13 +181,29 @@ export const errorResponseSchema = z.object({
      * What a few refusals name so the caller can act without reading the page
      * again, from a closed list: the address stored now, on 409
      * `WEBSITE_CHANGED` (null when the organiser removed it), and where the
-     * website link's switch stands, on 409 `WEBSITE_REDIRECT_UNCHANGED`. No
-     * other refusal carries it, and no other key exists.
+     * website link's switch stands, on 409 `WEBSITE_REDIRECT_UNCHANGED`.
+     * SPEC3 adds: the order's new figures on 409 `PRICE_CHANGED` (`totalCents`,
+     * `venueDueCents`, `feesCents`), the newest booking-fee decision's sequence
+     * on 409 `PAYMENT_TERMS_CHANGED` (`currentSequence`), what a ticket owes
+     * and what else its booking owes on 409 `PAYMENT_DUE` (`dueCents`,
+     * `booking`), and the events a referral code cannot name on 422
+     * `REFERRAL_EVENT_NOT_ELIGIBLE` (`eventIds`). No other refusal carries it,
+     * and no other key exists.
      */
     details: z
       .object({
         currentWebsiteUrl: z.string().min(1).max(WEBSITE_LIMITS.url).nullable().optional(),
         enabled: z.boolean().optional(),
+        totalCents: centsSchema.optional(),
+        venueDueCents: centsSchema.optional(),
+        feesCents: centsSchema.optional(),
+        currentSequence: z.int().min(0).optional(),
+        dueCents: centsSchema.optional(),
+        booking: z
+          .object({ otherUnpaidTickets: z.int().min(0), otherUnpaidCents: centsSchema })
+          .strict()
+          .optional(),
+        eventIds: z.array(cuidSchema).max(50).optional(),
       })
       .strict()
       .optional(),
@@ -304,6 +339,13 @@ export const admissionPreviewResponseSchema = z.object({
     checkedInAt: timestampSchema.nullable(),
     previewReference: z.string().nullable(),
     previewExpiresAt: timestampSchema.nullable(),
+    /**
+     * What the ticket owes at the door (SPEC3 §9.3): null when nothing is due,
+     * what to take and what else its booking owes when unpaid, or `paid: true`
+     * when it was paid at the door on an earlier night. Never a refusal: the
+     * confirmation takes the payment.
+     */
+    payment: admissionPaymentSchema.nullable().optional(),
   }),
 })
 
@@ -335,6 +377,12 @@ export const checkInResponseSchema = z.object({
     session: admissionSessionSchema.optional(),
     // Never an address: the presenter replaces one, and this refuses one it missed.
     attendeeName: addressFree(z.string()).nullable(),
+    /**
+     * The payment taken at the door with this admission, or found already
+     * recorded for the ticket (`byThisRequest: false`); null when the ticket
+     * owed nothing there (SPEC3 §9.3).
+     */
+    payment: checkInPaymentResultSchema.nullable().optional(),
   }),
 })
 
@@ -408,6 +456,9 @@ export const groupAdmissionTicketSchema = z.object({
   // Never an address: the presenter replaces one, and this refuses one it missed.
   attendeeName: addressFree(z.string()).nullable(),
   checkedInAt: timestampSchema.nullable(),
+  /** What this ticket owes at the door (0 when nothing), and whether it was paid (SPEC3 §9.5). */
+  dueCents: centsSchema.optional(),
+  paid: z.boolean().optional(),
 })
 
 /**
@@ -433,6 +484,12 @@ export const groupAdmissionPreviewResponseSchema = z.object({
     handedOn: z.int().min(0),
     previewReference: z.string().nullable(),
     previewExpiresAt: timestampSchema.nullable(),
+    /**
+     * What the admissible tickets still owe at the door in all, which the
+     * confirmation sends back as `paymentCents` for the tickets it names
+     * (SPEC3 §9.5); null when none owes anything.
+     */
+    payment: groupAdmissionPaymentSchema.nullable().optional(),
   }),
 })
 
@@ -465,6 +522,8 @@ export const groupCheckInResponseSchema = z.object({
         }),
       )
       .max(GROUP_PASS_MAX_TICKETS),
+    /** The one payment taken at the door for the named unpaid tickets, or null. */
+    payment: checkInPaymentResultSchema.nullable().optional(),
   }),
 })
 
@@ -498,6 +557,11 @@ export const groupPassResponseSchema = z.object({
         }),
       )
       .max(GROUP_PASS_MAX_TICKETS),
+    /**
+     * What the tickets on the pass still owe at the door in all (SPEC3 §11.3),
+     * 0 when nothing: the card says so, and the door takes it.
+     */
+    unpaidCents: centsSchema.optional(),
   }),
 })
 
@@ -802,6 +866,11 @@ export const ticketPassResponseSchema = z.object({
     credentialVersion: z.int().min(1),
     /** When this version was first issued. */
     issuedAt: timestampSchema.nullable(),
+    /**
+     * What the ticket owes at the door and whether it was paid, or null when
+     * nothing (SPEC3 §11.3). A ticket that owes a payment still gets its pass.
+     */
+    venuePayment: ticketVenuePaymentSchema.nullable().optional(),
   }),
 })
 
@@ -1511,7 +1580,24 @@ export const analyticsSummaryResponseSchema = z.object({
       steps: z.array(z.object({ key: z.string(), label: z.string(), count: z.number().int() })),
       /** What this system does not count, named so nobody reads the funnel as complete. */
       missing: z.array(z.string()),
+      /**
+       * Orders booked to pay at the venue still waiting for a payment at the
+       * door: not counted as paid until it is taken (SPEC3 §9.10).
+       */
+      atVenue: z.object({ bookedUnpaid: countSchema }).optional(),
     }),
+    /**
+     * Tickets booked to pay at the venue in the scope and currency: those still
+     * unpaid and what they owe, and what was taken at the door — by the
+     * organiser, so outside the ledger's money figures (SPEC3 §9.10).
+     */
+    venuePayments: z
+      .object({
+        ticketsUnpaid: countSchema,
+        unpaidCents: centsSchema,
+        paidAtDoorCents: centsSchema,
+      })
+      .optional(),
     limits: z.object({ breakdownRows: z.number().int() }),
   }),
 })
@@ -1703,6 +1789,13 @@ export const promoCodeListResponseSchema = z.object({
  * `promo` is null when no code was sent; otherwise `applied` says whether it
  * took, and `reason` why not. An unknown code is a reason here (`UNKNOWN`),
  * not an error, so a buyer can correct a typo.
+ *
+ * The booking fee is this event's (its own, or the site default), shown as
+ * numbers and never by where they came from. `totalCents` is what is paid
+ * online; a pay-at-the-venue quote also says what is paid at the door
+ * (`venueDueCents`). `referral` is null when no referral code was sent, and
+ * never echoes the code: an unknown, expired, used-up or out-of-scope code all
+ * read `NOT_ACCEPTED` (SPEC3 §8.2).
  */
 export const orderQuoteResponseSchema = z.object({
   data: z.object({
@@ -1712,6 +1805,14 @@ export const orderQuoteResponseSchema = z.object({
     feesCents: centsSchema,
     taxCents: centsSchema,
     totalCents: centsSchema,
+    paymentMethod: paymentMethodSchema.optional(),
+    feeGrossCents: centsSchema.optional(),
+    feeWaivedCents: centsSchema.optional(),
+    venueDueCents: centsSchema.optional(),
+    fee: orderFeeTermsSchema.optional(),
+    tax: orderTaxViewSchema.optional(),
+    referral: quoteReferralSchema.nullable().optional(),
+    venuePayment: publicVenuePaymentSchema.optional(),
     lines: z.array(
       z.object({
         ticketTypeId: cuidSchema,
@@ -1721,6 +1822,8 @@ export const orderQuoteResponseSchema = z.object({
         unitPriceCents: centsSchema,
         subtotalCents: centsSchema,
         discountCents: centsSchema,
+        /** What this line's tickets owe at the door (0 on a card quote). */
+        venueDueCents: centsSchema.optional(),
       }),
     ),
     promo: z
@@ -1765,6 +1868,230 @@ export const platformEventListResponseSchema = z.object({
   data: z.array(platformEventRowSchema),
   pagination: paginationMetaSchema,
 })
+
+// --- Booking fees, referral codes and paying at the venue (SPEC3) -------------
+//
+// Administrators' and the organiser's own reads. A referral code's text travels
+// only as `referralCode`, and only in `referral_code:manage` responses.
+
+/** How many history entries `paymentTerms.get` returns at once. */
+export const PAYMENT_TERMS_HISTORY_PAGE = 50
+
+/** A decision on the booking fee, as the history lists it. */
+const feeHistoryEntrySchema = z.object({
+  kind: z.literal('FEE'),
+  at: timestampSchema,
+  /** The administrator's display name; null once the account is gone. */
+  byName: z.string().nullable(),
+  reason: z.string(),
+  source: feeSourceSchema,
+  /** The event's own numbers; null for a return to the site default. */
+  percentageBps: z.int().min(0).max(10_000).nullable(),
+  flatCentsPerTicket: z.int().min(0).max(100_000).nullable(),
+  currency: z
+    .string()
+    .regex(/^[A-Z]{3}$/u)
+    .nullable(),
+  sequence: z.int().min(1),
+})
+
+/** A change to the pay-at-the-venue switch or its limit, as the history lists it. */
+const venuePaymentHistoryEntrySchema = z.object({
+  kind: z.literal('VENUE_PAYMENT'),
+  at: timestampSchema,
+  byName: z.string().nullable(),
+  reason: z.string(),
+  enabled: z.boolean(),
+  limit: z.int().min(1).max(100_000).nullable(),
+})
+
+/**
+ * `paymentTerms.get`, `.setFee` and `.setVenuePayment`: an event's booking fee
+ * (the platform fee) and pay-at-the-venue switch as administrators read them,
+ * with what decides whether they may be changed, and the newest
+ * {@link PAYMENT_TERMS_HISTORY_PAGE} decisions of both kinds, newest first.
+ * `historyHasMore` says older ones exist (`?before=` the oldest `at` shown).
+ */
+export const paymentTermsAdminResponseSchema = z.object({
+  data: paymentTermsViewSchema.extend({
+    eventId: cuidSchema,
+    eventStatus: eventStatusSchema,
+    isOnline: z.boolean(),
+    /** Tickets are sold on the listing's own site: no booking fee here, nothing to switch on. */
+    soldOnSource: z.boolean(),
+    /** Whether the event was ever posted (left DRAFT). */
+    posted: z.boolean(),
+    history: z
+      .array(z.discriminatedUnion('kind', [feeHistoryEntrySchema, venuePaymentHistoryEntrySchema]))
+      .max(PAYMENT_TERMS_HISTORY_PAGE),
+    historyHasMore: z.boolean(),
+  }),
+})
+
+/** An amount of waived booking fees in one currency. */
+const waivedInCurrencySchema = z.object({ currency: z.string().length(3), cents: centsSchema })
+
+/** The administrator who made a code, or null once the account is gone. */
+const referralCreatorSchema = z.object({ id: cuidSchema, displayName: z.string() }).nullable()
+
+/**
+ * A referral code as platform administrators manage it (SPEC3 §8.4): its text
+ * (`referralCode`, never `code`), label, scope with up to three of its events
+ * and how many, expiry and limit, how often it was used, the fees it waived per
+ * currency, and who made it. `useCount` includes orders still waiting for
+ * payment; `completedUses` and `waived` count PAID and REFUNDED orders.
+ */
+export const adminReferralCodeSchema = z.object({
+  id: cuidSchema,
+  referralCode: z.string().regex(REFERRAL_CODE_PATTERN),
+  label: z.string().max(REFERRAL_LIMITS.labelMax).nullable(),
+  scope: referralCodeScopeSchema,
+  events: z
+    .array(
+      z.object({ id: cuidSchema, title: z.string(), slug: z.string(), status: eventStatusSchema }),
+    )
+    .max(3),
+  eventCount: z.int().min(0).max(REFERRAL_LIMITS.maxEvents),
+  expiresAt: timestampSchema.nullable(),
+  maxUses: z.int().min(1).max(REFERRAL_LIMITS.maxUses).nullable(),
+  useCount: z.int().min(0),
+  completedUses: z.int().min(0),
+  waived: z.array(waivedInCurrencySchema),
+  status: z.enum([...REFERRAL_STATUSES]),
+  active: z.boolean(),
+  createdBy: referralCreatorSchema,
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema,
+})
+
+/** `referralCodes.create` (201), `.update`, `.switchOff`, `.switchOn`. */
+export const referralCodeResponseSchema = z.object({ data: adminReferralCodeSchema })
+
+/** `referralCodes.list`: 50 a page, newest first. */
+export const referralCodeListResponseSchema = z.object({
+  data: z.array(adminReferralCodeSchema),
+  pagination: paginationMetaSchema,
+})
+
+/**
+ * One order placed with a referral code, as its detail lists it. Never the
+ * buyer's name, address or account (SPEC3 §8.4).
+ */
+export const referralUseSchema = z.object({
+  orderReference: orderReferenceSchema,
+  eventId: cuidSchema,
+  eventTitle: z.string(),
+  placedAt: timestampSchema,
+  paymentMethod: paymentMethodSchema,
+  orderStatus: orderStatusSchema,
+  feeWaivedCents: centsSchema,
+  currency: z.string().length(3),
+})
+
+/** `referralCodes.get`: the code and a page of its uses, newest first. */
+export const referralCodeDetailResponseSchema = z.object({
+  data: adminReferralCodeSchema.extend({ uses: z.array(referralUseSchema).max(50) }),
+  pagination: paginationMetaSchema,
+})
+
+/** One row of `referralCodes.byAdministrator`: what one administrator's codes came to. */
+export const referralAdministratorRowSchema = z.object({
+  /** Null for codes whose maker's account is gone ("A former administrator"). */
+  administrator: referralCreatorSchema,
+  codes: z.int().min(0),
+  uses: z.int().min(0),
+  completedUses: z.int().min(0),
+  waived: z.array(waivedInCurrencySchema),
+})
+
+/** `referralCodes.byAdministrator`. */
+export const referralAdministratorListResponseSchema = z.object({
+  data: z.array(referralAdministratorRowSchema),
+})
+
+/**
+ * One order's booking-fee figures, read by reference to refund that fee by
+ * hand (SPEC3 §7.4). No buyer name or address. `refundableFeeCents` is the
+ * fee left plus the tax charged on it; an order with nothing to refund still
+ * previews, at 0.
+ */
+export const platformFeePreviewSchema = z.object({
+  reference: orderReferenceSchema,
+  eventId: cuidSchema,
+  eventTitle: z.string(),
+  status: orderStatusSchema,
+  paymentMethod: paymentMethodSchema,
+  currency: z.string().length(3),
+  feesCents: centsSchema,
+  feeWaivedCents: centsSchema,
+  feeRefundedCents: centsSchema,
+  refundableFeeCents: centsSchema,
+  taxOnFeeCents: centsSchema,
+  disputed: z.boolean(),
+})
+
+/** `platformFees.preview`. */
+export const platformFeePreviewResponseSchema = z.object({ data: platformFeePreviewSchema })
+
+/** `platformFees.refund`: the refund, and the order's booking-fee figures after it. */
+export const platformFeeRefundResponseSchema = z.object({
+  data: z.object({ refund: refundSchema, fee: platformFeePreviewSchema }),
+})
+
+/**
+ * `venuePayments.report`: an event's payments taken at the door and its
+ * bookings still unpaid there, for the organiser's "Payments at the venue"
+ * page (SPEC3 §9.8). Money taken at the door is the organiser's, outside the
+ * ledger. Attendee names as the door shows them; buyers' names as organiser
+ * order reads show them; no addresses.
+ */
+export const venuePaymentsReportSchema = z.object({
+  currency: z.string().length(3),
+  summary: z.object({
+    unpaidTickets: z.int().min(0),
+    unpaidCents: centsSchema,
+    paidAtDoorTickets: z.int().min(0),
+    paidAtDoorCents: centsSchema,
+    payments: z.int().min(0),
+    /** Whether the event's last night is over, so "not paid by the end" applies. */
+    eventEnded: z.boolean(),
+    notPaidByEndTickets: z.int().min(0),
+    notPaidByEndCents: centsSchema,
+    /** Taken at the door on bookings later refunded or cancelled: still with the organiser. */
+    paidOnRefundedCents: centsSchema,
+  }),
+  payments: z.array(
+    z.object({
+      id: cuidSchema,
+      recordedAt: timestampSchema,
+      nightLabel: z.string().nullable(),
+      recordedByName: z.string().nullable(),
+      orderReference: orderReferenceSchema,
+      ticketCount: z.int().min(1),
+      amountCents: centsSchema,
+      via: venuePaymentViaSchema,
+      tickets: z.array(
+        z.object({
+          ticketId: cuidSchema,
+          attendeeName: addressFree(z.string()).nullable(),
+          amountCents: centsSchema,
+        }),
+      ),
+    }),
+  ),
+  unpaidOrders: z.array(
+    z.object({
+      orderReference: orderReferenceSchema,
+      buyerName: addressFree(z.string()),
+      unpaidTickets: z.int().min(1),
+      unpaidCents: centsSchema,
+    }),
+  ),
+  pagination: paginationMetaSchema,
+})
+
+/** `venuePayments.report` response. */
+export const venuePaymentsReportResponseSchema = z.object({ data: venuePaymentsReportSchema })
 
 /** `GET /v1/moderation/media`: a page of pictures waiting, oldest first. */
 export const mediaQueueResponseSchema = z.object({

@@ -85,6 +85,16 @@ const JWT_ERROR_CODES = new Set([
  */
 
 /**
+ * Whether a value is a whole, non-negative number a database integer holds.
+ *
+ * @param {unknown} value A detail.
+ * @returns {boolean} True for 0 to 2,147,483,647.
+ */
+function isCount(value) {
+  return Number.isSafeInteger(value) && value >= 0 && value <= 2_147_483_647
+}
+
+/**
  * The few refusals whose `details` reach the caller, and which keys of them.
  *
  * `details` is otherwise context for whoever reads the code, never sent. These
@@ -102,6 +112,33 @@ const EXPOSED_DETAILS = Object.freeze({
   }),
   WEBSITE_REDIRECT_UNCHANGED: Object.freeze({
     enabled: (value) => typeof value === 'boolean',
+  }),
+  // SPEC3: what a checkout, an administrator's booking-fee form and a door
+  // need to act on a refusal without reading the page again. Amounts are the
+  // caller's own order's or ticket's; the sequence is the administrators'
+  // own history; the ids are the events the administrator named.
+  PRICE_CHANGED: Object.freeze({
+    totalCents: isCount,
+    venueDueCents: isCount,
+    feesCents: isCount,
+  }),
+  PAYMENT_TERMS_CHANGED: Object.freeze({ currentSequence: isCount }),
+  PAYMENT_DUE: Object.freeze({
+    dueCents: isCount,
+    booking: (value) =>
+      Boolean(value) &&
+      typeof value === 'object' &&
+      Object.keys(value).every(
+        (key) => key === 'otherUnpaidTickets' || key === 'otherUnpaidCents',
+      ) &&
+      isCount(value.otherUnpaidTickets) &&
+      isCount(value.otherUnpaidCents),
+  }),
+  REFERRAL_EVENT_NOT_ELIGIBLE: Object.freeze({
+    eventIds: (value) =>
+      Array.isArray(value) &&
+      value.length <= 50 &&
+      value.every((id) => typeof id === 'string' && /^[a-z0-9]{20,40}$/u.test(id)),
   }),
 })
 
@@ -256,6 +293,228 @@ export const EVENT_CONTROL_CONFLICT_SENTENCE =
 export const PLATFORM_HELD_ORGANIZATION_SENTENCE =
   "This organisation holds imported events for the Desi-Event team and has no members. Move the event to the organiser's own organisation instead."
 
+// --- Booking fees, referral codes and paying at the venue (SPEC3 §4.5, §5.5) --
+
+/**
+ * What an administrator is told when a database guard on an event's booking
+ * fee or pay-at-the-venue setting refuses a write: another change was saved at
+ * the same moment (SPEC3 §5.5).
+ *
+ * @type {string}
+ */
+export const PAYMENT_TERMS_RACE_SENTENCE =
+  "This event's booking fee or payment settings changed at the same moment. Reload to see them; nothing was changed."
+
+/**
+ * What an administrator is told when a referral code's own CHECK refuses a
+ * write another change raced (SPEC3 §5.5).
+ *
+ * @type {string}
+ */
+export const REFERRAL_CODE_RACE_SENTENCE = 'This code changed at the same moment. Reload to see it.'
+
+/**
+ * What a buyer is told when the order names a referral code that cannot be
+ * used for this booking — it expired, was switched off, ran out or left the
+ * event's scope since the quote, or the database refused its last use: the
+ * buyer's sentence of SPEC3 §6.5, which §5.5 names for the database refusal
+ * too. One sentence for every cause, so a guesser learns nothing from it
+ * (SPEC3 DR10).
+ *
+ * @type {string}
+ */
+export const REFERRAL_NOT_ACCEPTED_SENTENCE =
+  'Your referral code can no longer be used for this booking, so the booking fee is back. Nothing has been charged. Check the new total, then pay.'
+
+/**
+ * What a buyer is told when a database guard on an order's money refuses the
+ * order being written (SPEC3 §5.5).
+ *
+ * @type {string}
+ */
+export const ORDER_PRICE_RACE_SENTENCE =
+  'The price changed while this order was being placed. Nothing was charged. Check the total and try again.'
+
+/**
+ * What a steward is told when the database refuses to let in a ticket whose
+ * payment at the door is not recorded (SPEC3 §5.5).
+ *
+ * @type {string}
+ */
+export const PAYMENT_DUE_SENTENCE = 'Take the payment for this ticket before letting it in.'
+
+/**
+ * What a steward is told when a payment at the door could not be recorded
+ * because the booking changed at the same moment (SPEC3 §5.5).
+ *
+ * @type {string}
+ */
+export const PAYMENT_NOT_RECORDED_SENTENCE =
+  'The payment was not recorded because the booking changed at the same moment. Look the ticket up again; nothing was recorded and nobody was let in.'
+
+/**
+ * Every refusal SPEC3 adds (§4.5), with its status and the sentence the
+ * caller reads. A sentence with `{…}` is completed by the service that raises
+ * it, which knows the amount, the currency or the count; the rest are used as
+ * they stand. Only a sentence written here is sent: the services pick one by
+ * code (`paymentTermsRefusal`).
+ *
+ * There is deliberately no per-account limit on unpaid pay-at-the-venue
+ * tickets (the owner's answer to open question 1): only the event's own limit,
+ * `VENUE_PAYMENT_FULL`. And a ticket booked to pay at the venue may be handed
+ * on (open question 7), so no refusal exists for that either.
+ *
+ * @type {Readonly<Record<string, {statusCode: number, message: string}>>}
+ */
+export const PAYMENT_TERMS_REFUSALS = Object.freeze({
+  SIGN_IN_REQUIRED: Object.freeze({
+    statusCode: 401,
+    message: 'Sign in to pay at the venue or to use a referral code.',
+  }),
+  VENUE_PAYMENT_OFF: Object.freeze({
+    statusCode: 409,
+    message:
+      'Paying at the venue is switched off for this event. Nothing has been charged. You can pay by card.',
+  }),
+  VENUE_PAYMENT_UNAVAILABLE: Object.freeze({
+    statusCode: 409,
+    message: "Paying at the venue isn't offered for this event.",
+  }),
+  NOTHING_TO_PAY_AT_VENUE: Object.freeze({
+    statusCode: 422,
+    message:
+      'These tickets have no ticket price to pay at the door, so there is nothing to pay at the venue. Book them without choosing to pay at the venue. Nothing has been charged.',
+  }),
+  VENUE_PAYMENT_FULL: Object.freeze({
+    statusCode: 409,
+    message: 'Paying at the venue is full for this event. You can still pay by card.',
+  }),
+  VENUE_PAYMENT_ONLINE_EVENT: Object.freeze({
+    statusCode: 422,
+    message: 'This is an online event, so there is no venue to pay at.',
+  }),
+  VENUE_PAYMENT_UNCHANGED: Object.freeze({
+    statusCode: 409,
+    message: 'Paying at the venue is already set like that. Nothing was changed.',
+  }),
+  VENUE_LIMIT_REQUIRED: Object.freeze({
+    statusCode: 422,
+    message: 'Set the most tickets that can be waiting to be paid at the door.',
+  }),
+  PAYMENT_TERMS_CHANGED: Object.freeze({
+    statusCode: 409,
+    message:
+      "Another administrator changed this event's booking fee after you opened the page. Reload to see it. Nothing was changed.",
+  }),
+  PLATFORM_FEE_UNCHANGED: Object.freeze({
+    statusCode: 409,
+    message: 'The booking fee is already set to that. Nothing was changed.',
+  }),
+  FEE_TERMS_CURRENCY: Object.freeze({
+    statusCode: 409,
+    message:
+      "The Desi-Event team set this event's booking fee in {currency}. Ask them to change it before pricing tickets in another currency.",
+  }),
+  REFERRAL_NOT_ACCEPTED: Object.freeze({
+    statusCode: 409,
+    message: REFERRAL_NOT_ACCEPTED_SENTENCE,
+  }),
+  REFERRAL_CODE_TAKEN: Object.freeze({
+    statusCode: 409,
+    message: 'That code is already in use. Choose another, or generate one.',
+  }),
+  REFERRAL_CODE_EXPIRED: Object.freeze({
+    statusCode: 409,
+    message: "This code's expiry has passed. Change its expiry first, or make a new code.",
+  }),
+  REFERRAL_LIMIT_BELOW_USES: Object.freeze({
+    statusCode: 422,
+    message: "It has been used {n} times already, so its limit can't be lower than that.",
+  }),
+  REFERRAL_EVENT_NOT_ELIGIBLE: Object.freeze({
+    statusCode: 422,
+    message:
+      "A referral code can't name a deleted event, or one that does not exist. Remove it and try again.",
+  }),
+  REFERRAL_CODE_CHANGED: Object.freeze({
+    statusCode: 409,
+    message: 'Another administrator changed this code after you opened it. Reload to see it.',
+  }),
+  PAYMENT_DUE: Object.freeze({
+    statusCode: 409,
+    message: 'Take {amount} for this ticket before letting it in.',
+  }),
+  PAYMENT_AMOUNT_MISMATCH: Object.freeze({
+    statusCode: 422,
+    message: "The amount doesn't match what this ticket owes ({amount}). Look the ticket up again.",
+  }),
+  PAYMENT_NOT_RECORDED: Object.freeze({
+    statusCode: 409,
+    message: PAYMENT_NOT_RECORDED_SENTENCE,
+  }),
+  NO_FEE_TO_REFUND: Object.freeze({
+    statusCode: 409,
+    message: 'Only a booking fee that was paid online can be refunded.',
+  }),
+  AMOUNT_REFUND_NOT_FOR_VENUE_ORDERS: Object.freeze({
+    statusCode: 422,
+    message:
+      'Refund tickets by choosing them, or the whole order. A booking fee on its own is refunded by the Desi-Event team.',
+  }),
+})
+
+/**
+ * The other sentences SPEC3's services send under codes that already exist
+ * (§4.5, §7.1, §7.4, §9.1): the same codes, worded for what was refused here.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const PAYMENT_TERMS_SENTENCES = Object.freeze({
+  /** 403 `CONFLICT_OF_INTEREST`, on the booking fee, the switch and a fee refund. */
+  conflictOfInterest:
+    "You belong to this event's organisation, so another administrator has to make this change.",
+  /** 409 `NOT_EDITABLE`, on a deleted event's booking fee or switch. */
+  deletedEvent: 'This event was deleted. Restore it first; its booking fee comes back as it was.',
+  /** 409 `SOLD_ON_SOURCE`, on an event sold on its listing's own site. */
+  soldOnSource: 'Tickets for this event are sold on Sulekha, so it has no booking fee here.',
+  /** 503 `TRY_AGAIN`, when a change to the booking fee waited too long. */
+  feeTryAgain:
+    'Another change to this event was being saved at the same moment, so the booking fee was not changed. Try again in a moment.',
+  /** 409 `NO_FEE_TO_REFUND`, when the fee was paid online and nothing of it is left. */
+  noFeeLeft: 'There is no booking fee left to refund on this order.',
+  /** 429, when the wrong referral codes budget is spent (SPEC3 §4.4). */
+  referralRateLimited: 'Too many referral codes were tried. Wait a few minutes, then try again.',
+  /** 409 `PAYMENT_TERMS_CHANGED`, when the switch or its limit moved since it was read. */
+  venuePaymentChanged:
+    "Another administrator changed this event's payment settings after you opened the page. Reload to see them. Nothing was changed.",
+})
+
+/**
+ * One of {@link PAYMENT_TERMS_REFUSALS} as an error to throw.
+ *
+ * @param {string} code A key of {@link PAYMENT_TERMS_REFUSALS}.
+ * @param {object} [options] What the service knows.
+ * @param {Record<string, string|number>} [options.values] Values for the sentence's `{…}` places.
+ * @param {object} [options.details] Details; only the keys `EXPOSED_DETAILS` names reach the caller.
+ * @returns {Error} The error, with the catalogue's status and the completed sentence.
+ * @throws {TypeError} For a code the catalogue does not have, or a place left empty.
+ */
+export function paymentTermsRefusal(code, { values = {}, details } = {}) {
+  const refusal = Object.hasOwn(PAYMENT_TERMS_REFUSALS, code) ? PAYMENT_TERMS_REFUSALS[code] : null
+
+  if (!refusal) throw new TypeError(`No SPEC3 refusal is called ${JSON.stringify(code)}`)
+
+  const message = refusal.message.replace(/\{([a-z]+)\}/gu, (_place, name) => {
+    if (!Object.hasOwn(values, name)) {
+      throw new TypeError(`The ${code} sentence needs a value for {${name}}`)
+    }
+
+    return String(values[name])
+  })
+
+  return httpError(refusal.statusCode, code, message, details)
+}
+
 /**
  * Database refusals the API answers with a sentence instead of a 500.
  *
@@ -312,6 +571,73 @@ export const DATABASE_REFUSALS = Object.freeze([
     code: 'MEDIA_CHANGED',
     message: MEDIA_CHANGED_SENTENCE,
   }),
+  // SPEC3 §5.5: every CHECK and trigger the booking fee, referral codes and
+  // paying at the venue add, so none can reach a 500 (and the refused row is
+  // never logged). Several names contain others (`event_venue_payment_shape`
+  // contains `venue_payment_shape`): `databaseRefusal` takes the longest name
+  // the error carries, so the order here does not decide.
+  ...[
+    'event_fee_shape',
+    'event_fee_setting_shape',
+    'event_venue_payment_shape',
+    'event_venue_payment_change_shape',
+    'event_fee_setting_append_only',
+  ].map((constraint) =>
+    Object.freeze({
+      constraint,
+      statusCode: 409,
+      code: 'PAYMENT_TERMS_CHANGED',
+      message: PAYMENT_TERMS_RACE_SENTENCE,
+    }),
+  ),
+  Object.freeze({
+    constraint: 'referral_code_shape',
+    statusCode: 409,
+    code: 'REFERRAL_CODE_CHANGED',
+    message: REFERRAL_CODE_RACE_SENTENCE,
+  }),
+  // A count past the code's limit, whatever path got there: the buyer's answer.
+  Object.freeze({
+    constraint: 'referral_code_use_within_limit',
+    statusCode: 409,
+    code: 'REFERRAL_NOT_ACCEPTED',
+    message: REFERRAL_NOT_ACCEPTED_SENTENCE,
+  }),
+  ...[
+    'order_fee_parts',
+    'order_fee_waiver_whole',
+    'order_fee_terms_shape',
+    'order_venue_payment_shape',
+    'order_item_venue_due_shape',
+  ].map((constraint) =>
+    Object.freeze({
+      constraint,
+      statusCode: 409,
+      code: 'PRICE_CHANGED',
+      message: ORDER_PRICE_RACE_SENTENCE,
+    }),
+  ),
+  Object.freeze({
+    constraint: 'check_in_payment_due',
+    statusCode: 409,
+    code: 'PAYMENT_DUE',
+    message: PAYMENT_DUE_SENTENCE,
+  }),
+  ...[
+    'ticket_venue_due_shape',
+    'venue_payment_shape',
+    'ticket_venue_payment_fixed',
+    'venue_payment_order',
+    'venue_payment_append_only',
+    'venue_payment_sum',
+  ].map((constraint) =>
+    Object.freeze({
+      constraint,
+      statusCode: 409,
+      code: 'PAYMENT_NOT_RECORDED',
+      message: PAYMENT_NOT_RECORDED_SENTENCE,
+    }),
+  ),
 ])
 
 /**
@@ -436,7 +762,12 @@ export function databaseRefusal(error) {
 
   if (!codes.has('23514') && !codes.has('P2004')) return null
 
-  const refusal = DATABASE_REFUSALS.find((candidate) => text.includes(candidate.constraint))
+  // The longest name the error carries wins: `event_venue_payment_shape`
+  // contains `venue_payment_shape`, and `order_venue_payment_shape` does too,
+  // and each means something different to the caller.
+  const refusal = DATABASE_REFUSALS.filter((candidate) => text.includes(candidate.constraint)).sort(
+    (left, right) => right.constraint.length - left.constraint.length,
+  )[0]
 
   return refusal ? httpError(refusal.statusCode, refusal.code, refusal.message) : null
 }

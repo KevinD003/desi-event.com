@@ -300,26 +300,34 @@ budget.
 
 ## Endpoints
 
-**193 operations across 24 tags.** This page describes the ones whose behaviour
+**206 operations across 25 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
 validates with, and CI fails on a difference.
 
-| Tag           | Ops | Tag            | Ops |
-| ------------- | --- | -------------- | --- |
-| `events`      | 44  | `auth`         | 18  |
-| `tickets`     | 15  | `finance`      | 12  |
-| `operations`  | 12  | `venues`       | 12  |
-| `privacy`     | 10  | `organizers`   | 9   |
-| `imports`     | 8   | `platform`     | 8   |
-| `teams`       | 8   | `refunds`      | 7   |
-| `orders`      | 6   | `ticket-types` | 6   |
-| `promo-codes` | 5   | `holds`        | 3   |
-| `traffic`     | 3   | `analytics`    | 2   |
-| `sessions`    | 2   | `webhooks`     | 2   |
-| `health`      | 1   | `media`        | 1   |
-| `payments`    | 1   | `waitlist`     | 1   |
+| Tag              | Ops | Tag           | Ops |
+| ---------------- | --- | ------------- | --- |
+| `events`         | 48  | `auth`        | 18  |
+| `tickets`        | 15  | `finance`     | 12  |
+| `operations`     | 12  | `venues`      | 12  |
+| `privacy`        | 10  | `organizers`  | 9   |
+| `imports`        | 8   | `orders`      | 8   |
+| `platform`       | 8   | `teams`       | 8   |
+| `referral-codes` | 7   | `refunds`     | 7   |
+| `ticket-types`   | 6   | `promo-codes` | 5   |
+| `holds`          | 3   | `traffic`     | 3   |
+| `analytics`      | 2   | `sessions`    | 2   |
+| `webhooks`       | 2   | `health`      | 1   |
+| `media`          | 1   | `payments`    | 1   |
+| `waitlist`       | 1   |               |     |
+
+> **Correction — 2026-10-09.** The total read "193 operations across 24
+> tags". Booking fees, referral codes and paying at the venue add thirteen
+> operations and one tag, so the total is **206** across **184** paths: the
+> three `paymentTerms.*` routes and `venuePayments.report` on `events`, the
+> seven `referralCodes.*` routes on the new `referral-codes` tag, and the two
+> `platformFees.*` routes on `orders`.
 
 > **Correction — 2026-10-06.** The total read "164 operations across 22
 > tags". Three pieces of work added twenty-nine operations and two tags, so the

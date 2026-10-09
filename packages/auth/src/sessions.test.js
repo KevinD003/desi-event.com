@@ -347,6 +347,22 @@ describe('step-up policies', () => {
     expect(STEP_UP_POLICIES.PRIVACY_ERASURE).toBe(2 * 60 * 1000)
     expect(STEP_UP_POLICIES.MEMBER_EMAIL_VIEW).toBe(10 * 60 * 1000)
     expect(STEP_UP_POLICIES.PROMO_ACTION).toBe(10 * 60 * 1000)
+    expect(STEP_UP_POLICIES.PAYMENT_TERMS).toBe(10 * 60 * 1000)
+  })
+
+  it('names a payment-terms policy for booking fees, paying at the venue and referral codes (SPEC3 §4.2)', () => {
+    expect(STEP_UP_POLICY_NAMES).toContain('PAYMENT_TERMS')
+    expect(stepUpWindowFor('PAYMENT_TERMS')).toBe(10 * 60 * 1000)
+    // Ten minutes, like a discount going live, and no longer than reading money.
+    expect(STEP_UP_POLICIES.PAYMENT_TERMS).toBe(STEP_UP_POLICIES.PROMO_ACTION)
+    expect(STEP_UP_POLICIES.PAYMENT_TERMS).toBeLessThan(STEP_UP_POLICIES.FINANCE_VIEW)
+
+    const now = new Date('2026-10-09T12:00:00Z')
+    const stale = { mfaSatisfiedAt: new Date(now.getTime() - 11 * 60 * 1000) }
+    const fresh = { mfaSatisfiedAt: new Date(now.getTime() - 9 * 60 * 1000) }
+
+    expect(stepUpSatisfied(stale, { now, windowMs: stepUpWindowFor('PAYMENT_TERMS') })).toBe(false)
+    expect(stepUpSatisfied(fresh, { now, windowMs: stepUpWindowFor('PAYMENT_TERMS') })).toBe(true)
   })
 
   it('names the promo policy so a discount going live asks for a recent factor', () => {

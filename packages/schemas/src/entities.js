@@ -43,6 +43,15 @@ import { venueAccessibilitySchema } from './venues.js'
 import { publicMediaSchema } from './media.js'
 import { WEBSITE_LIMITS, publicWebsiteLinkSchema, websiteRedirectStateSchema } from './website.js'
 import { eventChangeNoticeSchema } from './event-control.js'
+import {
+  orderFeeTermsSchema,
+  orderVenuePaymentSchema,
+  paymentMethodSchema,
+  paymentTermsViewSchema,
+  publicVenuePaymentSchema,
+  TAX_APPLIED_TO,
+  ticketVenuePaymentSchema,
+} from './payment-terms.js'
 import { DELETION_OUTCOMES } from './lifecycle.js'
 import {
   eventFaqSchema,
@@ -423,6 +432,31 @@ export const orderSchema = z.object({
   expiresAt: timestampSchema.nullish(),
   paidAt: timestampSchema.nullish(),
   cancelledAt: timestampSchema.nullish(),
+  /**
+   * How the ticket price is paid (SPEC3): by card online, or at the door with
+   * only the booking fee paid online. Optional on payloads built before it.
+   */
+  paymentMethod: paymentMethodSchema.optional(),
+  /**
+   * The booking fee before a referral code, and what the code removed;
+   * `feesCents` is what was charged (`feeGrossCents − feeWaivedCents`).
+   */
+  feeGrossCents: centsSchema.optional(),
+  feeWaivedCents: centsSchema.optional(),
+  /**
+   * Where the booking fee's terms came from. For organisation readers
+   * (`order:view`) and administrators only: a buyer's own read never carries it
+   * (SPEC3 §7.2), so the presenter leaves it out for them.
+   */
+  feeSource: z.enum(['SITE_DEFAULT', 'EVENT']).optional(),
+  /** Whether a referral code removed the booking fee. Never the code, never its id. */
+  referralApplied: z.boolean().optional(),
+  /** The booking fee's numbers the order was priced with; null when they were not recorded. */
+  fee: orderFeeTermsSchema.nullable().optional(),
+  /** What the order's tax was charged on. */
+  tax: z.object({ applied: z.boolean(), appliedTo: z.enum([...TAX_APPLIED_TO]) }).optional(),
+  /** A pay-at-the-venue order's state at the door; null for a card order. */
+  venuePayment: orderVenuePaymentSchema.nullable().optional(),
   ...auditColumns,
 })
 
@@ -434,6 +468,12 @@ export const ticketSchema = z.object({
   attendeeName: nonEmptyStringSchema.nullish(),
   status: ticketStatusSchema.default('VALID'),
   checkedInAt: timestampSchema.nullish(),
+  /**
+   * What this ticket owes at the door and whether it was paid (SPEC3 §11.3);
+   * null for a ticket that owes nothing there. A ticket that owes a payment
+   * still gets its pass: the door has to scan it to take the payment.
+   */
+  venuePayment: ticketVenuePaymentSchema.nullable().optional(),
   ...auditColumns,
 })
 
@@ -620,8 +660,10 @@ export const eventWithRelationsSchema = eventSchema.extend({
    */
   importedFrom: importedFromSchema.nullable().default(null),
   /**
-   * The platform fee terms checkout charges with, one entry per currency this
-   * event's tiers are priced in.
+   * The booking fee terms checkout charges this event's buyers with, one entry
+   * per currency its tiers are priced in: the event's own when the Desi-Event
+   * team set them (SPEC3 §7), else the site default. Never where they came
+   * from.
    *
    * Public because they are the price: a booking fee is part of what a buyer
    * pays, and quoting a total without the terms that produce it is guessing.
@@ -639,6 +681,17 @@ export const eventWithRelationsSchema = eventSchema.extend({
       }),
     )
     .nullish(),
+  /**
+   * Whether buyers are offered paying at the door now (SPEC3 §9.2). The public
+   * detail carries this and nothing else about the switch.
+   */
+  venuePayment: publicVenuePaymentSchema.optional(),
+  /**
+   * The event's booking fee and pay-at-the-venue switch, read-only, for its
+   * own team and platform administrators (SPEC3 §7.2); absent for everybody
+   * else.
+   */
+  paymentTerms: paymentTermsViewSchema.optional(),
   /**
    * Optimistic-concurrency counter, echoed so the organiser's editor can send
    * it back as a precondition. Not sensitive — it counts edits, and an edit
@@ -878,6 +931,13 @@ export const refundSchema = z.object({
   settledAt: timestampSchema.nullable(),
   createdAt: timestampSchema,
   updatedAt: timestampSchema.optional(),
+  /**
+   * How the order's ticket price was paid (SPEC3 §9.7). For a pay-at-the-venue
+   * order only the booking fee paid online comes back, and what was taken at
+   * the door (`paidAtDoorCents`) stays with the organiser: the detail says so.
+   */
+  paymentMethod: paymentMethodSchema.optional(),
+  paidAtDoorCents: centsSchema.optional(),
 })
 
 /**

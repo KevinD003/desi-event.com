@@ -88,39 +88,45 @@ model User {
   devices                  Device[]
   mfaFactors               MfaFactor[]
   authTokens               AuthToken[]
-  invitesSent              Invitation[]             @relation("InvitationInvitedBy")
-  invitesAccepted          Invitation[]             @relation("InvitationAcceptedBy")
-  ticketsOwned             Ticket[]                 @relation("TicketOwner")
-  transfersSent            TicketTransfer[]         @relation("TicketTransferFrom")
-  transfersReceived        TicketTransfer[]         @relation("TicketTransferTo")
+  invitesSent              Invitation[]              @relation("InvitationInvitedBy")
+  invitesAccepted          Invitation[]              @relation("InvitationAcceptedBy")
+  ticketsOwned             Ticket[]                  @relation("TicketOwner")
+  transfersSent            TicketTransfer[]          @relation("TicketTransferFrom")
+  transfersReceived        TicketTransfer[]          @relation("TicketTransferTo")
   checkInsPerformed        CheckIn[]
-  refundsRequested         Refund[]                 @relation("RefundRequestedBy")
-  refundsApproved          Refund[]                 @relation("RefundApprovedBy")
+  refundsRequested         Refund[]                  @relation("RefundRequestedBy")
+  refundsApproved          Refund[]                  @relation("RefundApprovedBy")
   ledgerBatches            LedgerBatch[]
   moderationActions        EventModerationAction[]
   notificationPreferences  NotificationPreference[]
-  mediaUploaded            MediaAsset[]             @relation("MediaUploadedBy")
-  mediaModerated           MediaAsset[]             @relation("MediaModeratedBy")
+  mediaUploaded            MediaAsset[]              @relation("MediaUploadedBy")
+  mediaModerated           MediaAsset[]              @relation("MediaModeratedBy")
   reconciliationTasks      ReconciliationTask[]
-  privacyRequestsAsSubject PrivacyRequest[]         @relation("PrivacyRequestSubject")
-  privacyRequestsRaised    PrivacyRequest[]         @relation("PrivacyRequestRequestedBy")
-  privacyHoldsAsSubject    PrivacyHold[]            @relation("PrivacyHoldSubject")
-  privacyHoldsPlaced       PrivacyHold[]            @relation("PrivacyHoldPlacedBy")
-  privacyHoldsReleased     PrivacyHold[]            @relation("PrivacyHoldReleasedBy")
+  privacyRequestsAsSubject PrivacyRequest[]          @relation("PrivacyRequestSubject")
+  privacyRequestsRaised    PrivacyRequest[]          @relation("PrivacyRequestRequestedBy")
+  privacyHoldsAsSubject    PrivacyHold[]             @relation("PrivacyHoldSubject")
+  privacyHoldsPlaced       PrivacyHold[]             @relation("PrivacyHoldPlacedBy")
+  privacyHoldsReleased     PrivacyHold[]             @relation("PrivacyHoldReleasedBy")
   exportArtifactsRequested ExportArtifact[]
   exportArtifactSubjects   ExportArtifactSubject[]
-  organizationsCreated     Organization[]           @relation("OrganizationCreatedBy")
-  organizerInvitesSent     OrganizerInvitation[]    @relation("OrganizerInvitationInvitedBy")
-  organizerInvitesAccepted OrganizerInvitation[]    @relation("OrganizerInvitationAcceptedBy")
-  organizerInvitesRevoked  OrganizerInvitation[]    @relation("OrganizerInvitationRevokedBy")
-  eventWebsiteDecisions    Event[]                  @relation("EventWebsiteRedirectChangedBy")
-  eventsDeleted            Event[]                  @relation("EventDeletedBy")
-  platformEdits            EventPlatformEdit[]      @relation("EventPlatformEditActor")
-  eventImportRunsCreated   EventImportRun[]         @relation("EventImportRunCreatedBy")
-  eventImportRunsApplied   EventImportRun[]         @relation("EventImportRunAppliedBy")
-  eventImportsImported     EventImportItem[]        @relation("EventImportItemImportedBy")
-  eventImportsApproved     EventImportItem[]        @relation("EventImportItemApprovedBy")
-  eventImportsReassigned   EventImportItem[]        @relation("EventImportItemReassignedBy")
+  organizationsCreated     Organization[]            @relation("OrganizationCreatedBy")
+  organizerInvitesSent     OrganizerInvitation[]     @relation("OrganizerInvitationInvitedBy")
+  organizerInvitesAccepted OrganizerInvitation[]     @relation("OrganizerInvitationAcceptedBy")
+  organizerInvitesRevoked  OrganizerInvitation[]     @relation("OrganizerInvitationRevokedBy")
+  eventWebsiteDecisions    Event[]                   @relation("EventWebsiteRedirectChangedBy")
+  eventsDeleted            Event[]                   @relation("EventDeletedBy")
+  platformEdits            EventPlatformEdit[]       @relation("EventPlatformEditActor")
+  eventImportRunsCreated   EventImportRun[]          @relation("EventImportRunCreatedBy")
+  eventImportRunsApplied   EventImportRun[]          @relation("EventImportRunAppliedBy")
+  eventImportsImported     EventImportItem[]         @relation("EventImportItemImportedBy")
+  eventImportsApproved     EventImportItem[]         @relation("EventImportItemApprovedBy")
+  eventImportsReassigned   EventImportItem[]         @relation("EventImportItemReassignedBy")
+  venuePaymentDecisions    Event[]                   @relation("EventVenuePaymentChangedBy")
+  eventFeeSettings         EventFeeSetting[]         @relation("EventFeeSetBy")
+  venuePaymentChanges      EventVenuePaymentChange[] @relation("VenuePaymentChangedBy")
+  referralCodesCreated     ReferralCode[]            @relation("ReferralCodeCreatedBy")
+  referralCodesUpdated     ReferralCode[]            @relation("ReferralCodeUpdatedBy")
+  venuePaymentsRecorded    VenuePayment[]            @relation("VenuePaymentRecordedBy")
 
   @@index([role])
   @@index([suspendedAt])
@@ -422,6 +428,14 @@ model Venue {
 // same function in the review gate's restore clause
 // (`desi_event_status_requires_review`, replaced there); and the partial index
 // `Event_deleted_idx` ("deletedAt") WHERE "status" = 'DELETED'.
+//
+// Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECKs
+// `event_fee_shape` (SITE_DEFAULT stores no numbers; EVENT stores 0-3000 basis
+// points, 0-10000 minor units per ticket and the currency it sells in) and
+// `event_venue_payment_shape` (a reason of 10-500 characters, a limit of
+// 1-100000, and a switch that is on has a limit and a time). Only
+// `apps/api/src/lib/payment-terms.js` writes the fee and pay-at-the-venue
+// columns (source scan).
 model Event {
   id             String        @id @default(cuid())
   organizationId String
@@ -549,8 +563,37 @@ model Event {
   /// with the administrator's name.
   websiteRedirectReason      String?
 
-  organization             Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  venue                    Venue?                  @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  // Payment terms, set by the Desi-Event team (SPEC3, ADRs 0016 and 0017).
+  // Only `apps/api/src/lib/payment-terms.js` writes these (source scan).
+  // CHECKs `event_fee_shape` and `event_venue_payment_shape`. A change does not
+  // move `revision`.
+
+  /// SITE_DEFAULT: the site's fee for the order's currency decides at pricing
+  /// time. EVENT: the three columns below.
+  feeSource               FeeSource @default(SITE_DEFAULT)
+  /// The event's own percentage, 0-3000 basis points. Null for SITE_DEFAULT.
+  feePercentageBps        Int?
+  /// The event's own amount per ticket, 0-10000 minor units. Null for SITE_DEFAULT.
+  feeFlatCentsPerTicket   Int?
+  /// The currency the event sold in when its own terms were set.
+  feeCurrency             String?
+  /// The decision the current EVENT terms came from. Null for SITE_DEFAULT
+  /// (its row is in the history; the pointer exists only for EVENT terms).
+  feeSettingId            String?   @unique
+  /// Whether buyers may book and pay the ticket price at the door.
+  venuePaymentEnabled     Boolean   @default(false)
+  /// The most pay-at-the-venue tickets all buyers together may hold unpaid,
+  /// 1-100000. Required while the switch is on; kept when it is turned off.
+  venuePaymentLimit       Int?
+  /// When an administrator last changed the switch or the limit.
+  venuePaymentChangedAt   DateTime?
+  /// Who did. Null once the account is gone.
+  venuePaymentChangedById String?
+  /// Their reason, 10-500 characters. Shown to the organiser with their name.
+  venuePaymentReason      String?
+
+  organization             Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  venue                    Venue?                    @relation(fields: [venueId], references: [id], onDelete: SetNull)
   ticketTypes              TicketType[]
   orders                   Order[]
   promoCodes               PromoCode[]
@@ -561,19 +604,31 @@ model Event {
   /// The door scanners whose authority names this event.
   scannerScopes            ScannerScope[]
   /// The administrator who last decided the website link.
-  websiteRedirectChangedBy User?                   @relation("EventWebsiteRedirectChangedBy", fields: [websiteRedirectChangedById], references: [id], onDelete: SetNull)
+  websiteRedirectChangedBy User?                     @relation("EventWebsiteRedirectChangedBy", fields: [websiteRedirectChangedById], references: [id], onDelete: SetNull)
   /// Counted visits, kept for two days after their day. See `TrafficEvent`.
   trafficEvents            TrafficEvent[]
   /// Daily visit totals. See `TrafficDaily`.
   trafficDaily             TrafficDaily[]
   /// Who deleted it, while it is deleted.
-  deletedBy                User?                   @relation("EventDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  deletedBy                User?                     @relation("EventDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
   /// The Desi-Event team's editing sittings on it.
   platformEdits            EventPlatformEdit[]
   /// What ticket holders are shown changed about it.
   changeNotices            EventChangeNotice[]
   /// Where it was imported from, when it was.
   importItem               EventImportItem?
+  /// The fee decision the current EVENT terms came from.
+  feeSetting               EventFeeSetting?          @relation("EventCurrentFee", fields: [feeSettingId], references: [id], onDelete: SetNull)
+  /// The administrator who last changed the pay-at-the-venue switch or limit.
+  venuePaymentChangedBy    User?                     @relation("EventVenuePaymentChangedBy", fields: [venuePaymentChangedById], references: [id], onDelete: SetNull)
+  /// Every fee decision about it, oldest first by `sequence`.
+  feeSettings              EventFeeSetting[]         @relation("EventFeeHistory")
+  /// Every change of its pay-at-the-venue switch or limit.
+  venuePaymentChanges      EventVenuePaymentChange[]
+  /// The referral codes whose scope names it.
+  referralScopes           ReferralCodeEvent[]
+  /// Payments taken at its door. Not platform money.
+  venuePayments            VenuePayment[]
 
   @@index([status, startsAt])
   @@index([category, startsAt])
@@ -593,6 +648,189 @@ model Event {
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_description_trgm_idx")
   @@index([websiteRedirectChangedById])
   @@index([deletedById])
+  @@index([venuePaymentChangedById])
+}
+
+/// Where an event's booking fee comes from: the site's default for the order's
+/// currency, or the event's own terms.
+enum FeeSource {
+  SITE_DEFAULT
+  EVENT
+}
+
+/// How an order's ticket price is paid: online by card, or at the door.
+enum OrderPaymentMethod {
+  CARD
+  AT_VENUE
+}
+
+/// Which events a referral code applies to.
+enum ReferralCodeScope {
+  ALL_EVENTS
+  SELECTED_EVENTS
+}
+
+/// How a payment at the door was recorded: with one ticket's admission, or
+/// with several through the order's group pass.
+enum VenuePaymentVia {
+  DOOR_TICKET
+  DOOR_GROUP
+}
+
+// Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECK
+// `event_fee_setting_shape` (sequence from 1, a reason of 10-500 characters,
+// and the source/value rule of `event_fee_shape`) and the trigger
+// `desi_event_fee_setting_append_only` (constraint
+// `event_fee_setting_append_only`), which refuses every UPDATE except clearing
+// `setById` and every DELETE except the cascade from the event row.
+/// One fee decision about one event, never edited. Orders point at the row
+/// they were priced with. Only `apps/api/src/lib/payment-terms.js` writes it.
+model EventFeeSetting {
+  id                 String    @id @default(cuid())
+  eventId            String
+  /// 1, 2, 3 ... per event: the compare-and-set token of `paymentTerms.setFee`.
+  sequence           Int
+  source             FeeSource
+  percentageBps      Int?
+  flatCentsPerTicket Int?
+  currency           String?
+  /// Why, 10-500 characters. Shown with the event's history.
+  reason             String
+  /// Who decided. Null once the account is gone.
+  setById            String?
+  createdAt          DateTime  @default(now())
+
+  event   Event   @relation("EventFeeHistory", fields: [eventId], references: [id], onDelete: Cascade)
+  setBy   User?   @relation("EventFeeSetBy", fields: [setById], references: [id], onDelete: SetNull)
+  current Event?  @relation("EventCurrentFee")
+  orders  Order[]
+
+  @@unique([eventId, sequence])
+  @@index([setById])
+}
+
+// Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECK
+// `event_venue_payment_change_shape` (a reason of 10-500 characters, a limit of
+// 1-100000, and a limit whenever the switch is on).
+/// One change of an event's pay-at-the-venue switch or limit. Only
+/// `apps/api/src/lib/payment-terms.js` writes it.
+model EventVenuePaymentChange {
+  id          String   @id @default(cuid())
+  eventId     String
+  enabled     Boolean
+  limit       Int?
+  /// Why, 10-500 characters. Shown with the event's history.
+  reason      String
+  changedById String?
+  createdAt   DateTime @default(now())
+
+  event     Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  changedBy User? @relation("VenuePaymentChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([eventId, createdAt])
+  @@index([changedById])
+}
+
+// Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECKs
+// `referral_code_shape` (the code's pattern: 6-32 of A-Z, 0-9 and '-', starting
+// and ending with a letter or digit, no '--'; a label of 1-120 characters; a
+// limit of 1-1000000; an expiry after creation; a switched-off code stamped)
+// and `referral_code_use_within_limit` (`useCount` never above `maxUses`).
+/// A code the Desi-Event team hands out that waives an order's whole booking fee.
+/// Only apps/api/src/lib/referral-codes.js writes it, except useCount
+/// (apps/api/src/lib/referral-uses.js). Plain text, like PromoCode (ADR 0016):
+/// never in a URL, a log line, an audit row or an outbox row.
+model ReferralCode {
+  id            String            @id @default(cuid())
+  /// The text buyers type, upper case. Shown only to platform administrators.
+  code          String            @unique
+  /// A note for administrators, 1-120 characters. Never copied into an audit row.
+  label         String?
+  scope         ReferralCodeScope
+  /// Exclusive: the code stops working at this instant.
+  expiresAt     DateTime?
+  /// The most orders that may use it, 1-1000000. Null for no limit.
+  maxUses       Int?
+  /// Orders placed with it that have not given their use back.
+  useCount      Int               @default(0)
+  active        Boolean           @default(true)
+  switchedOffAt DateTime?
+  createdById   String?
+  updatedById   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  createdBy User?               @relation("ReferralCodeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User?               @relation("ReferralCodeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  events    ReferralCodeEvent[]
+  orders    Order[]
+
+  @@index([active, expiresAt])
+  @@index([createdById])
+  @@index([updatedById])
+}
+
+/// One event in a SELECTED_EVENTS referral code's scope. Only
+/// `apps/api/src/lib/referral-codes.js` writes it.
+model ReferralCodeEvent {
+  referralCodeId String
+  eventId        String
+  addedAt        DateTime @default(now())
+
+  referralCode ReferralCode @relation(fields: [referralCodeId], references: [id], onDelete: Cascade)
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([referralCodeId, eventId])
+  @@index([eventId])
+}
+
+// Hand-written in `20261009110000_pay_at_the_venue`: the CHECK
+// `venue_payment_shape` (amount above 0, 1-100 tickets, a currency code, an
+// authority from the door's closed list, a role of 1-40 characters, a gate of
+// 1-60), the trigger `desi_venue_payment_append_only` (constraint
+// `venue_payment_append_only`: no UPDATE except clearing `recordedById` or
+// `eventSessionId`, no DELETE) and the deferred constraint trigger
+// `desi_venue_payment_sum` (constraint `venue_payment_sum`: at commit the
+// tickets it paid number `ticketCount` and their dues sum to `amountCents`),
+// checked again at commit by `desi_ticket_venue_payment_sum` and
+// `desi_ticket_venue_payment_sum_on_delete` on `Ticket` whenever a ticket
+// joins a payment, changes its due once paid, or is removed, in any later
+// transaction.
+/// A payment taken at the door for one or more tickets of one order, recorded in the
+/// same transaction that let those tickets in. Not platform money: nothing here is
+/// posted to the ledger. Only apps/api/src/lib/venue-payments.js writes it. Never
+/// edited (trigger desi_venue_payment_append_only).
+model VenuePayment {
+  id             String          @id @default(cuid())
+  orderId        String
+  eventId        String
+  /// The night it was taken on. Null for an event with no nights.
+  eventSessionId String?
+  /// Copied from the event; a plain column, so organisation deletion rules are untouched.
+  organizationId String
+  amountCents    Int
+  currency       String
+  ticketCount    Int
+  via            VenuePaymentVia
+  /// ORGANIZATION_ROLE | EVENT_SCOPE | PLATFORM_ROLE, as the admission's
+  /// authority (`packages/permissions/src/admission.js`).
+  authority      String
+  /// The door role, as the admission's audit records it.
+  role           String
+  recordedById   String?
+  recordedAt     DateTime        @default(now())
+  gate           String?
+
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
+  recordedBy   User?         @relation("VenuePaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  tickets      Ticket[]
+
+  @@index([eventId, recordedAt])
+  @@index([orderId])
+  @@index([recordedById])
+  @@index([eventSessionId])
 }
 
 // ---------------------------------------------------------------------------
@@ -747,6 +985,17 @@ enum OrderStatus {
   EXPIRED
 }
 
+// Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECKs
+// `order_fee_parts` (`feesCents` = gross - waived), `order_fee_waiver_whole` (a
+// referral code waives the whole fee or there is no waiver) and
+// `order_fee_terms_shape` (both terms or neither, within the environment's
+// bounds; an EVENT order keeps its setting or its numbers). Hand-written in
+// `20261009110000_pay_at_the_venue`: the CHECK `order_venue_payment_shape` (a
+// CARD order owes nothing at the door; an AT_VENUE order owes the ticket price
+// after the promo there and pays only the booking fee and its tax online).
+// The payment and fee columns are written only when the order is placed
+// (`apps/api/src/routes/orders.js`); `referralCodeId` names a code only an
+// administrator reads.
 model Order {
   id              String      @id @default(cuid())
   reference       String      @unique
@@ -788,10 +1037,37 @@ model Order {
   /// request cannot race the first into over-refunding.
   refundPendingCents Int     @default(0)
 
-  event         Event         @relation(fields: [eventId], references: [id], onDelete: Restrict)
-  user          User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
-  promoCode     PromoCode?    @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
-  eventSession  EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
+  // How it is paid and the booking fee it was priced with (SPEC3 §5.4). Written
+  // only when the order is placed (`apps/api/src/routes/orders.js`); never
+  // repriced. CHECKs `order_fee_parts`, `order_fee_waiver_whole`,
+  // `order_fee_terms_shape` and `order_venue_payment_shape`.
+
+  /// CARD: everything online. AT_VENUE: the booking fee (and any tax on it)
+  /// online, the ticket price at the door.
+  paymentMethod         OrderPaymentMethod @default(CARD)
+  /// Whose terms priced the booking fee.
+  feeSource             FeeSource          @default(SITE_DEFAULT)
+  /// The event's fee decision used, for EVENT terms. Null for SITE_DEFAULT.
+  feeSettingId          String?
+  /// The percentage used, in basis points. Null when the terms were not
+  /// recorded (orders placed before 9 October 2026 without a usable snapshot).
+  feePercentageBps      Int?
+  /// The amount per ticket used. Null exactly when `feePercentageBps` is.
+  feeFlatCentsPerTicket Int?
+  /// The booking fee the terms came to, before any waiver.
+  feeGrossCents         Int                @default(0)
+  /// The booking fee a referral code waived: all of it, or nothing.
+  feeWaivedCents        Int                @default(0)
+  /// The referral code that waived it. Administrators only.
+  referralCodeId        String?
+  /// The ticket price after the promo, to be paid at the door. 0 on a card
+  /// order. Never changes.
+  venueDueCents         Int                @default(0)
+
+  event         Event            @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user          User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  promoCode     PromoCode?       @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
+  eventSession  EventSession?    @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
   refunds       Refund[]
   transfers     Transfer[]
   ledgerBatches LedgerBatch[]
@@ -800,6 +1076,10 @@ model Order {
   payments      Payment[]
   /// The order's group pass, created lazily on the holder's first retrieval.
   groupPass     GroupPass?
+  feeSetting    EventFeeSetting? @relation(fields: [feeSettingId], references: [id], onDelete: SetNull)
+  referralCode  ReferralCode?    @relation(fields: [referralCodeId], references: [id], onDelete: Restrict)
+  /// Payments taken at the door for its tickets. Not platform money.
+  venuePayments VenuePayment[]
 
   @@index([status, createdAt])
   @@index([eventId, status])
@@ -807,6 +1087,9 @@ model Order {
   // The foreign key from a night: deleting one, and cancelling one, find its
   // orders by it.
   @@index([eventSessionId])
+  @@index([feeSettingId])
+  @@index([referralCodeId, status])
+  @@index([eventId, paymentMethod, status])
 }
 
 model OrderItem {
@@ -825,6 +1108,9 @@ model OrderItem {
   /// settlement issues the tickets, then cleared. Positional; never longer
   /// than quantity (CHECK order_item_attendee_names_within_quantity).
   attendeeNames    String[] @default([])
+  /// The line's ticket price after its promo share, to be paid at the door. 0
+  /// on a card order (CHECK `order_item_venue_due_shape`).
+  venueDueCents    Int      @default(0)
 
   order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
   ticketType  TicketType   @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
@@ -868,6 +1154,18 @@ enum TicketStatus {
 // `Ticket_eventSeatId_live_key` on ("eventSeatId") WHERE the status is VALID,
 // TRANSFER_PENDING or CHECKED_IN. One live ticket per seat; the plain
 // `@@index([eventSeatId])` below serves the foreign key and history lookups.
+//
+// Hand-written in `20261009110000_pay_at_the_venue`: the CHECK
+// `ticket_venue_due_shape` (no payment without an amount due); the trigger
+// `desi_ticket_venue_payment_guard` (constraints `ticket_venue_payment_fixed` and
+// `venue_payment_order`: a payment, once set, never changes, and names the
+// ticket's own order); the deferred constraint triggers
+// `desi_ticket_venue_payment_sum` and `desi_ticket_venue_payment_sum_on_delete`
+// (constraint `venue_payment_sum`: at commit, the payment a written or removed
+// ticket names still equals its tickets); and
+// `desi_check_in_ticket_admissible` refusing an admission while the amount due
+// is unpaid (`check_in_payment_due`). A ticket with an amount due is handed on
+// like any other (open question 7).
 /// One admission.
 ///
 /// Two identifiers, deliberately. `code` is the human-readable reference a
@@ -909,6 +1207,13 @@ model Ticket {
   supersedesTicketId String?      @unique
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
+  /// This ticket's share of its line's door price; 0 unless paid at the venue.
+  /// Never changes. Written only at settlement (`apps/api/src/lib/checkout.js`).
+  venueDueCents      Int          @default(0)
+  /// The door payment that paid it, or null while unpaid. Once set, never changes
+  /// (trigger desi_ticket_venue_payment_guard). Only
+  /// `apps/api/src/lib/venue-payments.js` writes it.
+  venuePaymentId     String?
 
   orderItem    OrderItem        @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   owner        User?            @relation("TicketOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
@@ -920,11 +1225,13 @@ model Ticket {
   /// every night. See `CheckIn`.
   checkIns     CheckIn[]
   refundItems  RefundItem[]
+  venuePayment VenuePayment?    @relation(fields: [venuePaymentId], references: [id], onDelete: Restrict)
 
   @@index([orderItemId])
   @@index([status])
   @@index([ownerUserId])
   @@index([eventSeatId])
+  @@index([venuePaymentId])
 }
 
 enum PaymentStatus {
@@ -1710,6 +2017,7 @@ model EventSession {
   orders          Order[]
   checkIns        CheckIn[]
   changeNotices   EventChangeNotice[]
+  venuePayments   VenuePayment[]
 
   @@index([eventId, startsAt])
   @@index([status, startsAt])
@@ -2354,6 +2662,8 @@ enum RefundReason {
   ORGANIZER_GOODWILL
   FRAUDULENT
   OTHER
+  /// A booking fee refunded by hand by the Desi-Event team (`platformFees.refund`).
+  BOOKING_FEE
 }
 
 /// One refund against one payment.

@@ -13,8 +13,27 @@
  * @module @desi-event/api/tests/helpers/row-locks
  */
 
-/** The tables a test may hold a row of. Named, because a table is an identifier. */
-const TABLES = new Set(['Membership', 'Invitation', 'Order', 'OrderItem'])
+/**
+ * The tables a test may hold a row of. Named, because a table is an identifier.
+ * `Event`, `Ticket` and `EventSession` are for SPEC3's races: the booking-fee
+ * writers' `FOR NO KEY UPDATE` on the event, and the door's lock order (night
+ * `FOR KEY SHARE`, order `FOR SHARE`, ticket `FOR UPDATE`).
+ */
+export const TABLES = new Set([
+  'Membership',
+  'Invitation',
+  'Order',
+  'OrderItem',
+  'Event',
+  'Ticket',
+  'EventSession',
+])
+
+/**
+ * The row-lock strengths a test may hold, strongest first. Named, because the
+ * clause is SQL.
+ */
+export const LOCK_MODES = new Set(['FOR UPDATE', 'FOR NO KEY UPDATE', 'FOR SHARE', 'FOR KEY SHARE'])
 
 /**
  * Hold one row locked until told to let go.
@@ -22,10 +41,13 @@ const TABLES = new Set(['Membership', 'Invitation', 'Order', 'OrderItem'])
  * @param {object} prisma The Prisma client.
  * @param {string} table The table, one of {@link TABLES}.
  * @param {string} id The row's id.
+ * @param {object} [options] How to hold it.
+ * @param {string} [options.mode] One of {@link LOCK_MODES}; `FOR UPDATE` unless told otherwise.
  * @returns {Promise<{release: function(): void, done: Promise<void>, pid: number}>} Resolves once held.
  */
-export async function holdRow(prisma, table, id) {
+export async function holdRow(prisma, table, id, { mode = 'FOR UPDATE' } = {}) {
   if (!TABLES.has(table)) throw new Error(`No lock helper for the table ${table}.`)
+  if (!LOCK_MODES.has(mode)) throw new Error(`No lock mode called ${mode}.`)
 
   let release
   const gate = new Promise((resolve) => {
@@ -40,7 +62,7 @@ export async function holdRow(prisma, table, id) {
     async (tx) => {
       const [{ pid }] = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`
 
-      await tx.$queryRawUnsafe(`SELECT "id" FROM "${table}" WHERE "id" = $1 FOR UPDATE`, id)
+      await tx.$queryRawUnsafe(`SELECT "id" FROM "${table}" WHERE "id" = $1 ${mode}`, id)
       held(pid)
       await gate
     },

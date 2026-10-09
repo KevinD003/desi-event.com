@@ -9,9 +9,11 @@
  * @module @desi-event/api/plugins/rate-limit
  */
 
+import { createHmac, randomBytes } from 'node:crypto'
+
 import rateLimit from '@fastify/rate-limit'
 
-import { visitorRateKey } from '../lib/traffic.js'
+import { clientAddressOf, visitorRateKey } from '../lib/traffic.js'
 
 /** Global budget: enough for a busy browsing session, far below a scraper. */
 export const DEFAULT_GLOBAL_LIMIT = Object.freeze({ max: 300, timeWindow: '1 minute' })
@@ -463,6 +465,229 @@ export function eventImportRateLimit(overrides = {}) {
 
     bucket.count += 1
     buckets.set(key, bucket)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Booking fees, referral codes and paying at the venue (SPEC3 §4.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * A 429 thrown by one of the shared budgets below, with `Retry-After`.
+ *
+ * @param {string} message The sentence.
+ * @param {number} retryInSeconds When the caller may try again.
+ * @returns {Error} The error.
+ */
+function budgetSpent(message, retryInSeconds) {
+  return Object.assign(new Error(message), {
+    statusCode: 429,
+    code: 'RATE_LIMITED',
+    retryAfterSeconds: Math.max(1, Math.ceil(retryInSeconds)),
+  })
+}
+
+/**
+ * Wrong referral codes, per account and per address (SPEC3 §4.4, DR10).
+ *
+ * Only answers whose referral outcome is `NOT_ACCEPTED` are counted, so
+ * applying and re-quoting a valid code costs nothing and only guesses are
+ * rationed: ten wrong codes an account and thirty an address in ten minutes.
+ * When no address can be believed (a trusted web server forwarded none) every
+ * such request shares one bucket of three hundred, which is never skipped.
+ *
+ * @type {Readonly<{actorMax: number, addressMax: number, sharedMax: number, timeWindow: string}>}
+ */
+export const DEFAULT_REFERRAL_ATTEMPT_LIMIT = Object.freeze({
+  actorMax: 10,
+  addressMax: 30,
+  sharedMax: 300,
+  timeWindow: '10 minutes',
+})
+
+/** The sentence a buyer reads once the wrong referral codes budget is spent. */
+export const REFERRAL_ATTEMPTS_SENTENCE =
+  'Too many referral codes were tried. Wait a few minutes, then try again.'
+
+/**
+ * Made when the process starts and never persisted: keys the address bucket of
+ * the referral budget, so the address itself is never a key. Its own key rather
+ * than `lib/traffic.js`'s, which that module keeps to itself; it has the same
+ * properties (random, per process, never stored).
+ */
+const REFERRAL_ADDRESS_KEY = randomBytes(32)
+
+/**
+ * The buckets one request draws on: its account's, and its address's (an HMAC
+ * of the address alone, never the browser) or, with no address, the shared one.
+ *
+ * @param {object} request A Fastify request.
+ * @param {{actorMax: number, addressMax: number, sharedMax: number}} limit The limits.
+ * @returns {Array<{key: string, max: number}>} The buckets.
+ */
+export function referralAttemptBuckets(request, limit = DEFAULT_REFERRAL_ATTEMPT_LIMIT) {
+  /** @type {Array<{key: string, max: number}>} */
+  const buckets = []
+
+  if (request.actor?.id)
+    buckets.push({ key: `referral:actor:${request.actor.id}`, max: limit.actorMax })
+
+  const address = clientAddressOf(request)
+
+  if (address) {
+    const digest = createHmac('sha256', REFERRAL_ADDRESS_KEY).update(address).digest('hex')
+
+    buckets.push({ key: `referral:addr:${digest.slice(0, 32)}`, max: limit.addressMax })
+  } else {
+    buckets.push({ key: 'referral:shared', max: limit.sharedMax })
+  }
+
+  return buckets
+}
+
+/**
+ * Build the wrong referral codes budget, shared by `orders.quote` and
+ * `orders.create`: one instance for both routes, so a guess made through
+ * either counts once (`@fastify/rate-limit` would keep a store per route).
+ *
+ * `hook` is a `preHandler`, run after the session, capability and step-up
+ * guards: it refuses with 429 only a request that names a referral code while
+ * one of its buckets is already full, and counts nothing. The handler calls
+ * `recordRefusal(request)` after deciding, only when the referral outcome was
+ * `NOT_ACCEPTED`.
+ *
+ * @param {{actorMax?: number, addressMax?: number, sharedMax?: number, timeWindow?: string|number}} [overrides] Limit overrides, for tests.
+ * @returns {{hook: function(object): Promise<void>, recordRefusal: function(object): void}} The budget.
+ */
+export function referralAttemptBudget(overrides = {}) {
+  const limit = { ...DEFAULT_REFERRAL_ATTEMPT_LIMIT, ...overrides }
+  const span = windowMs(limit.timeWindow)
+  /** @type {Map<string, {count: number, startedAt: number}>} */
+  const buckets = new Map()
+
+  /**
+   * Drop the windows that have ended.
+   *
+   * @param {number} now The current instant.
+   * @returns {void} Nothing.
+   */
+  function prune(now) {
+    for (const [key, bucket] of buckets) {
+      if (bucket.startedAt + span <= now) buckets.delete(key)
+    }
+  }
+
+  return {
+    async hook(request) {
+      if (typeof request.body?.referralCode !== 'string') return
+
+      const now = Date.now()
+
+      prune(now)
+
+      for (const { key, max } of referralAttemptBuckets(request, limit)) {
+        const bucket = buckets.get(key)
+
+        if (bucket && bucket.count >= max) {
+          throw budgetSpent(REFERRAL_ATTEMPTS_SENTENCE, (bucket.startedAt + span - now) / 1000)
+        }
+      }
+    },
+    recordRefusal(request) {
+      const now = Date.now()
+
+      prune(now)
+
+      for (const { key } of referralAttemptBuckets(request, limit)) {
+        const bucket = buckets.get(key) ?? { count: 0, startedAt: now }
+
+        bucket.count += 1
+        buckets.set(key, bucket)
+      }
+    },
+  }
+}
+
+/**
+ * Booking-fee and pay-at-the-venue changes, per administrator: sixty an hour
+ * across `paymentTerms.setFee` and `.setVenuePayment` (`payment-terms:actor:<id>`).
+ *
+ * @type {Readonly<{max: number, timeWindow: string}>}
+ */
+export const DEFAULT_PAYMENT_TERMS_LIMIT = Object.freeze({ max: 60, timeWindow: '1 hour' })
+
+/**
+ * Referral-code changes, per administrator: sixty an hour across
+ * `referralCodes.create`, `.update`, `.switchOn` and `.switchOff`
+ * (`referral-admin:actor:<id>`).
+ *
+ * @type {Readonly<{max: number, timeWindow: string}>}
+ */
+export const DEFAULT_REFERRAL_ADMIN_LIMIT = Object.freeze({ max: 60, timeWindow: '1 hour' })
+
+/**
+ * Build a budget shared by several routes, per account: one `preHandler`,
+ * keyed `<name>:actor:<id>`, counting every request that reaches it. Run after
+ * the session, capability and step-up guards (the contract's preHandlers come
+ * first), so a caller about to be refused spends nothing. One instance per
+ * budget is given to every route it covers: `@fastify/rate-limit` keeps a store
+ * per route, so a key shared by two routes would count twice.
+ *
+ * @param {{name: string, max: number, timeWindow: string|number}} options The budget's name and limit.
+ * @returns {function(object): Promise<void>} The hook. Throws a 429 past the budget.
+ * @throws {TypeError} For a budget with no name.
+ */
+export function actorBudget({ name, max, timeWindow }) {
+  if (typeof name !== 'string' || !/^[a-z][a-z-]*$/u.test(name)) {
+    throw new TypeError(`A shared budget needs a lower-case name, not ${JSON.stringify(name)}`)
+  }
+
+  const span = windowMs(timeWindow)
+  /** @type {Map<string, {count: number, startedAt: number}>} */
+  const buckets = new Map()
+
+  return async function sharedActorBudget(request) {
+    const now = Date.now()
+    const key = `${name}:actor:${request.actor?.id ?? `ip:${request.ip}`}`
+
+    for (const [bucketKey, bucket] of buckets) {
+      if (bucket.startedAt + span <= now) buckets.delete(bucketKey)
+    }
+
+    const bucket = buckets.get(key) ?? { count: 0, startedAt: now }
+
+    if (bucket.count >= max) {
+      const retryInSeconds = Math.max(1, Math.ceil((bucket.startedAt + span - now) / 1000))
+
+      throw budgetSpent(`Too many requests. Retry in ${retryInSeconds} seconds.`, retryInSeconds)
+    }
+
+    bucket.count += 1
+    buckets.set(key, bucket)
+  }
+}
+
+/**
+ * Booking-fee refunds by hand, per administrator: thirty an hour
+ * (`fee-refund:actor:<id>`, SPEC3 DF8). One route, so a plain per-route limit.
+ *
+ * @type {Readonly<{max: number, timeWindow: string}>}
+ */
+export const DEFAULT_FEE_REFUND_LIMIT = Object.freeze({ max: 30, timeWindow: '1 hour' })
+
+/**
+ * Build the per-route `config.rateLimit` object for `platformFees.refund`.
+ *
+ * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, for tests.
+ * @returns {object} The effective limit.
+ */
+export function feeRefundRateLimit(overrides = {}) {
+  return {
+    ...DEFAULT_FEE_REFUND_LIMIT,
+    ...overrides,
+    hook: 'preHandler',
+    keyGenerator: (request) =>
+      request.actor?.id ? `fee-refund:actor:${request.actor.id}` : `fee-refund:ip:${request.ip}`,
   }
 }
 

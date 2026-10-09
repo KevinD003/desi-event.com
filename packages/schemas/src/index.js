@@ -39,6 +39,7 @@ export * from './website.js'
 export * from './traffic.js'
 export * from './event-control.js'
 export * from './imports.js'
+export * from './payment-terms.js'
 
 // `env.js` and `jobs.js` are deliberately NOT re-exported here — finding NF-16.
 //

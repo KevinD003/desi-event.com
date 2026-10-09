@@ -47,6 +47,7 @@ import {
 } from './disposable-database.mjs'
 import { runEventControlProbes } from './event-control-probes.mjs'
 import { runMediaProbes } from './media-probes.mjs'
+import { runPaymentTermsProbes } from './payment-terms-probes.mjs'
 import { runPhase2Probes } from './phase2-probes.mjs'
 import { runPlatformFeatureProbes } from './platform-feature-probes.mjs'
 import { runSeatConcurrencyProbes } from './seat-concurrency.mjs'
@@ -1215,6 +1216,18 @@ async function main() {
     // in a rolled-back transaction.
     ok = (await runEventControlProbes(prisma, { probe, record })) && ok
 
+    // Per-event booking fees, referral codes and paying at the venue (SPEC3
+    // §5.7): the fee and switch CHECKs, the append-only fee decisions, the
+    // referral code's pattern and use limit, each order's fee parts and what a
+    // pay-at-the-venue order pays where, and the door's triggers — no admission
+    // while a payment is due (a hand-on is not refused: open question 7), a
+    // ticket's payment set once to its own order's, a payment never edited and
+    // equal to its tickets at commit and after it. Each runs in a rolled-back
+    // transaction except the commit-time ones: one booking paid in part at the
+    // door is committed (nothing downstream counts its rows), and every other
+    // commit-time write must fail.
+    ok = (await runPaymentTermsProbes(prisma, { probe, record })) && ok
+
     // Concurrency, against real transactions rather than a stub that agrees with
     // whoever wrote it. These commit, so they run last among the probes and
     // before the row comparison is done with.
@@ -1316,6 +1329,22 @@ async function main() {
         // filter matches anything).
         'tests/event-full-control-integration.test.js',
         'tests/event-import-integration.test.js',
+        // Booking fees, referral codes and paying at the venue (SPEC3 §14.3):
+        // a fee change racing a checkout, the referral code's last use under
+        // two buyers, the per-event venue limit against concurrent orders and
+        // against settlement, and the door's payment against
+        // refunds, night cancellation and deletion, with every trigger answered
+        // as a 409 through buildApp. Written by Stages B1-T and B1-V; named
+        // here from Stage A so each runs from the moment it exists.
+        'tests/payment-terms-integration.test.js',
+        'tests/referral-codes-integration.test.js',
+        'tests/venue-booking-integration.test.js',
+        'tests/venue-payment-integration.test.js',
+        // Stage A's own proof of what the four above build on: the
+        // pay-at-the-venue order helper against every CHECK, the paid and
+        // unpaid filters on PostgreSQL, the referral use's limit, and each
+        // new constraint name answered as a 409.
+        'tests/payment-terms-foundation-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

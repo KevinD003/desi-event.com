@@ -8,6 +8,14 @@ import { ValidationError, errorResponseSchema } from '@desi-event/schemas'
 
 import {
   DATABASE_REFUSALS,
+  ORDER_PRICE_RACE_SENTENCE,
+  PAYMENT_DUE_SENTENCE,
+  PAYMENT_NOT_RECORDED_SENTENCE,
+  PAYMENT_TERMS_RACE_SENTENCE,
+  PAYMENT_TERMS_REFUSALS,
+  PAYMENT_TERMS_SENTENCES,
+  REFERRAL_CODE_RACE_SENTENCE,
+  REFERRAL_NOT_ACCEPTED_SENTENCE,
   OUT_OF_TIME_RETRY_AFTER_SECONDS,
   OUT_OF_TIME_SENTENCE,
   POSTING_ROLE_SENTENCE,
@@ -19,6 +27,7 @@ import {
   httpError,
   isOutOfTime,
   normaliseError,
+  paymentTermsRefusal,
   toErrorBody,
 } from '../src/lib/errors.js'
 import { bearer, createTestApp, signIn } from './helpers/app.js'
@@ -511,6 +520,217 @@ describe('databaseRefusal', () => {
       expect(refusal.statusCode).toBeGreaterThanOrEqual(400)
       expect(refusal.statusCode).toBeLessThan(500)
     }
+  })
+})
+
+describe('SPEC3 database refusals (§5.5)', () => {
+  /**
+   * A refusal as the pg adapter reports a CHECK or a trigger raising 23514:
+   * the constraint named in the message, the failing row in `detail`.
+   *
+   * @param {string} constraint The constraint or trigger name.
+   * @returns {Error} The error.
+   */
+  function refused(constraint) {
+    return Object.assign(new Error('Invalid `prisma.order.create()` invocation'), {
+      code: 'P2010',
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: '23514',
+            originalMessage: `new row for relation violates check constraint "${constraint}"`,
+            detail: 'Failing row contains (WAIVE-12345, Asha Buyer, asha@example.test).',
+          },
+        },
+      },
+    })
+  }
+
+  /** Every constraint and trigger name SPEC3 adds, and the answer each must get. */
+  const EXPECTED = {
+    event_fee_shape: ['PAYMENT_TERMS_CHANGED', PAYMENT_TERMS_RACE_SENTENCE],
+    event_fee_setting_shape: ['PAYMENT_TERMS_CHANGED', PAYMENT_TERMS_RACE_SENTENCE],
+    event_venue_payment_shape: ['PAYMENT_TERMS_CHANGED', PAYMENT_TERMS_RACE_SENTENCE],
+    event_venue_payment_change_shape: ['PAYMENT_TERMS_CHANGED', PAYMENT_TERMS_RACE_SENTENCE],
+    event_fee_setting_append_only: ['PAYMENT_TERMS_CHANGED', PAYMENT_TERMS_RACE_SENTENCE],
+    referral_code_shape: ['REFERRAL_CODE_CHANGED', REFERRAL_CODE_RACE_SENTENCE],
+    referral_code_use_within_limit: ['REFERRAL_NOT_ACCEPTED', REFERRAL_NOT_ACCEPTED_SENTENCE],
+    order_fee_parts: ['PRICE_CHANGED', ORDER_PRICE_RACE_SENTENCE],
+    order_fee_waiver_whole: ['PRICE_CHANGED', ORDER_PRICE_RACE_SENTENCE],
+    order_fee_terms_shape: ['PRICE_CHANGED', ORDER_PRICE_RACE_SENTENCE],
+    order_venue_payment_shape: ['PRICE_CHANGED', ORDER_PRICE_RACE_SENTENCE],
+    order_item_venue_due_shape: ['PRICE_CHANGED', ORDER_PRICE_RACE_SENTENCE],
+    check_in_payment_due: ['PAYMENT_DUE', PAYMENT_DUE_SENTENCE],
+    ticket_venue_due_shape: ['PAYMENT_NOT_RECORDED', PAYMENT_NOT_RECORDED_SENTENCE],
+    venue_payment_shape: ['PAYMENT_NOT_RECORDED', PAYMENT_NOT_RECORDED_SENTENCE],
+    ticket_venue_payment_fixed: ['PAYMENT_NOT_RECORDED', PAYMENT_NOT_RECORDED_SENTENCE],
+    venue_payment_order: ['PAYMENT_NOT_RECORDED', PAYMENT_NOT_RECORDED_SENTENCE],
+    venue_payment_append_only: ['PAYMENT_NOT_RECORDED', PAYMENT_NOT_RECORDED_SENTENCE],
+    venue_payment_sum: ['PAYMENT_NOT_RECORDED', PAYMENT_NOT_RECORDED_SENTENCE],
+  }
+
+  it.each(Object.entries(EXPECTED))('answers %s with 409 %s', (constraint, [code, message]) => {
+    expect(databaseRefusal(refused(constraint))).toMatchObject({ statusCode: 409, code, message })
+  })
+
+  it('takes the longest name, so a name inside another one never answers for it', () => {
+    // `event_venue_payment_shape` and `order_venue_payment_shape` both contain
+    // `venue_payment_shape`, whose answer is the door's, not the fee's or the
+    // order's.
+    expect(databaseRefusal(refused('event_venue_payment_shape'))?.code).toBe(
+      'PAYMENT_TERMS_CHANGED',
+    )
+    expect(databaseRefusal(refused('order_venue_payment_shape'))?.code).toBe('PRICE_CHANGED')
+    expect(databaseRefusal(refused('venue_payment_shape'))?.code).toBe('PAYMENT_NOT_RECORDED')
+  })
+
+  it("maps no refusal the owner's answers removed: no per-account limit, and handing on is allowed", () => {
+    expect(DATABASE_REFUSALS.map((refusal) => refusal.constraint)).not.toContain(
+      'ticket_paid_at_venue_not_transferable',
+    )
+    expect(Object.keys(PAYMENT_TERMS_REFUSALS)).not.toContain('PAID_AT_VENUE_NOT_TRANSFERABLE')
+    expect(Object.keys(PAYMENT_TERMS_REFUSALS)).not.toContain('VENUE_PAYMENT_LIMIT')
+  })
+
+  it('sends the sentence and never the failing row', () => {
+    const body = JSON.stringify(
+      toErrorBody(normaliseError(refused('referral_code_use_within_limit')), 'req-1'),
+    )
+
+    expect(body).toContain('REFERRAL_NOT_ACCEPTED')
+    expect(body).not.toMatch(/WAIVE-12345|Asha|Failing row|asha@example/u)
+  })
+})
+
+describe('SPEC3 refusals (§4.5)', () => {
+  it('holds every new code with its status, and 409 unless marked', () => {
+    const statuses = Object.fromEntries(
+      Object.entries(PAYMENT_TERMS_REFUSALS).map(([code, refusal]) => [code, refusal.statusCode]),
+    )
+
+    expect(statuses).toEqual({
+      SIGN_IN_REQUIRED: 401,
+      VENUE_PAYMENT_OFF: 409,
+      VENUE_PAYMENT_UNAVAILABLE: 409,
+      NOTHING_TO_PAY_AT_VENUE: 422,
+      VENUE_PAYMENT_FULL: 409,
+      VENUE_PAYMENT_ONLINE_EVENT: 422,
+      VENUE_PAYMENT_UNCHANGED: 409,
+      VENUE_LIMIT_REQUIRED: 422,
+      PAYMENT_TERMS_CHANGED: 409,
+      PLATFORM_FEE_UNCHANGED: 409,
+      FEE_TERMS_CURRENCY: 409,
+      REFERRAL_NOT_ACCEPTED: 409,
+      REFERRAL_CODE_TAKEN: 409,
+      REFERRAL_CODE_EXPIRED: 409,
+      REFERRAL_LIMIT_BELOW_USES: 422,
+      REFERRAL_EVENT_NOT_ELIGIBLE: 422,
+      REFERRAL_CODE_CHANGED: 409,
+      PAYMENT_DUE: 409,
+      PAYMENT_AMOUNT_MISMATCH: 422,
+      PAYMENT_NOT_RECORDED: 409,
+      NO_FEE_TO_REFUND: 409,
+      AMOUNT_REFUND_NOT_FOR_VENUE_ORDERS: 422,
+    })
+  })
+
+  it('carries the spec’s sentences word for word', () => {
+    expect(PAYMENT_TERMS_REFUSALS.VENUE_PAYMENT_FULL.message).toBe(
+      'Paying at the venue is full for this event. You can still pay by card.',
+    )
+    expect(PAYMENT_TERMS_REFUSALS.PLATFORM_FEE_UNCHANGED.message).toBe(
+      'The booking fee is already set to that. Nothing was changed.',
+    )
+    expect(PAYMENT_TERMS_REFUSALS.REFERRAL_CODE_TAKEN.message).toBe(
+      'That code is already in use. Choose another, or generate one.',
+    )
+    expect(PAYMENT_TERMS_SENTENCES.conflictOfInterest).toBe(
+      "You belong to this event's organisation, so another administrator has to make this change.",
+    )
+    expect(PAYMENT_TERMS_SENTENCES.referralRateLimited).toBe(
+      'Too many referral codes were tried. Wait a few minutes, then try again.',
+    )
+  })
+
+  it('tells a buyer whose referral code was not accepted the sentence of §6.5, which §5.5 names for the database too', () => {
+    const sentence =
+      'Your referral code can no longer be used for this booking, so the booking fee is back. Nothing has been charged. Check the new total, then pay.'
+
+    expect(REFERRAL_NOT_ACCEPTED_SENTENCE).toBe(sentence)
+    // The database's refusal answers with the same constant (the §5.5 table above).
+    expect(PAYMENT_TERMS_REFUSALS.REFERRAL_NOT_ACCEPTED.message).toBe(sentence)
+  })
+
+  it('says a booking with nothing to pay at the door was not booked, and nothing was charged', () => {
+    expect(PAYMENT_TERMS_REFUSALS.NOTHING_TO_PAY_AT_VENUE.message).toBe(
+      'These tickets have no ticket price to pay at the door, so there is nothing to pay at the venue. Book them without choosing to pay at the venue. Nothing has been charged.',
+    )
+  })
+
+  it('never claims that a refused request booked anything', () => {
+    for (const message of [
+      ...Object.values(PAYMENT_TERMS_REFUSALS).map((refusal) => refusal.message),
+      ...Object.values(PAYMENT_TERMS_SENTENCES),
+    ]) {
+      expect(message).not.toMatch(/\b(?:is|are|was|were|been) booked\b/iu)
+    }
+  })
+
+  it('never says "soon", "yet" or "planned", and never names a code', () => {
+    for (const message of [
+      ...Object.values(PAYMENT_TERMS_REFUSALS).map((refusal) => refusal.message),
+      ...Object.values(PAYMENT_TERMS_SENTENCES),
+    ]) {
+      expect(message).not.toMatch(/\b(soon|yet|planned)\b/iu)
+      expect(message).not.toMatch(/\bcash\b/iu)
+    }
+  })
+
+  it('completes a sentence from the values the service knows, and refuses a missing one', () => {
+    const error = paymentTermsRefusal('FEE_TERMS_CURRENCY', { values: { currency: 'USD' } })
+
+    expect(error).toMatchObject({ statusCode: 409, code: 'FEE_TERMS_CURRENCY' })
+    expect(error.message).toBe(
+      "The Desi-Event team set this event's booking fee in USD. Ask them to change it before pricing tickets in another currency.",
+    )
+    expect(() => paymentTermsRefusal('FEE_TERMS_CURRENCY')).toThrow(TypeError)
+    expect(() => paymentTermsRefusal('MADE_UP')).toThrow(TypeError)
+  })
+
+  it('tells the caller the details a refusal names, and nothing else', () => {
+    const due = normaliseError(
+      paymentTermsRefusal('PAYMENT_DUE', {
+        values: { amount: '$40.00' },
+        details: {
+          dueCents: 4000,
+          booking: { otherUnpaidTickets: 1, otherUnpaidCents: 4000 },
+          ticketId: 'secret-ish',
+        },
+      }),
+    )
+
+    expect(due.details).toEqual({
+      dueCents: 4000,
+      booking: { otherUnpaidTickets: 1, otherUnpaidCents: 4000 },
+    })
+    expect(errorResponseSchema.safeParse(toErrorBody(due, 'r')).success).toBe(true)
+
+    const moved = normaliseError(
+      httpError(409, 'PRICE_CHANGED', 'The total changed since it was shown.', {
+        totalCents: 8578,
+        venueDueCents: 8000,
+        feesCents: 578,
+        discountCents: 0,
+      }),
+    )
+
+    expect(moved.details).toEqual({ totalCents: 8578, venueDueCents: 8000, feesCents: 578 })
+
+    const stale = normaliseError(
+      paymentTermsRefusal('PAYMENT_TERMS_CHANGED', { details: { currentSequence: -1 } }),
+    )
+
+    expect(stale.details).toBeUndefined()
   })
 })
 

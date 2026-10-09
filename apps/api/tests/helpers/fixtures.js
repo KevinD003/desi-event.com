@@ -1225,3 +1225,89 @@ export function platformHeldImportFixture(
     image,
   }
 }
+
+// ---------------------------------------------------------------------------
+// SPEC3 §4.7: booking fees, referral codes and paying at the venue.
+//
+// Not in the default world, for the reason SPEC2-XI's builders are not: the
+// suites that count the team, the door's people or the platform's staff see
+// the world they were written for, and the ones about the booking fee, the
+// referral codes and the door opt in (`addRows(seed, fixture.rows)`).
+// ---------------------------------------------------------------------------
+
+/**
+ * The accounts SPEC3's suites need beside the default world's ADMIN
+ * (`anil@desi-event.example`) and SUPER_ADMIN (`ops@desi-event.example`):
+ *
+ *   - a FINANCE_ADMIN, `farah-finance@desi-event.example`, who refunds a
+ *     booking fee by hand (`platform_fee:refund`) and sets nothing;
+ *   - a FINANCE member of the first organisation, who reads its payments at
+ *     the venue (`finance:view`);
+ *   - a SCANNER of the first organisation with a scope on the published event,
+ *     who takes payments at its door (authority `EVENT_SCOPE`);
+ *   - a platform ADMIN who is also a member of the first organisation, whom
+ *     the booking fee, the switch and a fee refund refuse with 403
+ *     `CONFLICT_OF_INTEREST`.
+ *
+ * The staff accounts are privileged, so the harness gives them a confirmed
+ * second factor like every other (`enrolPrivilegedUsers`).
+ *
+ * @param {object} ids `makeWorld().ids`.
+ * @returns {{rows: Record<string, object[]>, financeAdministrator: object, organizationFinance: object, scanner: object, scannerMembership: object, memberAdministrator: object}} The rows to add, and the accounts.
+ */
+export function paymentTermsAccountsFixture(ids) {
+  const createdAt = new Date('2025-01-02T00:00:00.000Z')
+  const user = (email, displayName, role) => ({
+    id: cuid(),
+    email,
+    passwordHash: ids.attendee.passwordHash,
+    displayName,
+    phone: null,
+    locale: 'en-IN',
+    role,
+    emailVerified: true,
+    createdAt,
+    updatedAt: createdAt,
+  })
+  const membership = (member, role) => ({
+    id: cuid(),
+    userId: member.id,
+    organizationId: ids.organization.id,
+    role,
+    createdAt,
+  })
+
+  const financeAdministrator = user(
+    'farah-finance@desi-event.example',
+    'Farah Finance',
+    'FINANCE_ADMIN',
+  )
+  const organizationFinance = user('fatima-finance@rangoli.example', 'Fatima Finance', 'ORGANIZER')
+  const scanner = user('sam-scanner@rangoli.example', 'Sam Scanner', 'ORGANIZER')
+  const memberAdministrator = user('neha-admin@desi-event.example', 'Neha Administrator', 'ADMIN')
+  const scannerMembership = membership(scanner, 'SCANNER')
+
+  return {
+    rows: {
+      user: [financeAdministrator, organizationFinance, scanner, memberAdministrator],
+      membership: [
+        membership(organizationFinance, 'FINANCE'),
+        scannerMembership,
+        membership(memberAdministrator, 'VIEWER'),
+      ],
+      scannerScope: [
+        {
+          id: cuid(),
+          membershipId: scannerMembership.id,
+          eventId: ids.publishedEvent.id,
+          createdAt,
+        },
+      ],
+    },
+    financeAdministrator,
+    organizationFinance,
+    scanner,
+    scannerMembership,
+    memberAdministrator,
+  }
+}

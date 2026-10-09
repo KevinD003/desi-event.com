@@ -3254,6 +3254,9 @@ export function buildSeedData(now = new Date()) {
       subtotalCents: totals.subtotalCents,
       discountCents: totals.discountCents,
       feesCents: totals.feesCents,
+      // No demo order here has a waiver, so the fee the terms came to is the
+      // fee charged (CHECK `order_fee_parts`).
+      feeGrossCents: totals.feesCents,
       taxCents: totals.taxCents,
       totalCents: totals.totalCents,
       promoCodeId: promo ? promo.id : null,
@@ -4163,6 +4166,7 @@ export async function writeSeedData(prisma, data) {
       subtotalCents: order.subtotalCents,
       discountCents: order.discountCents,
       feesCents: order.feesCents,
+      feeGrossCents: order.feeGrossCents,
       taxCents: order.taxCents,
       totalCents: order.totalCents,
       promoCodeId: real(order.promoCodeId),

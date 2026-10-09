@@ -329,6 +329,10 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
               subtotalCents: totals.subtotalCents,
               discountCents: totals.discountCents,
               feesCents: totals.feesCents,
+              // The booking fee the terms came to, before any waiver: the same
+              // as the fee charged until referral codes are applied here (CHECK
+              // \`order_fee_parts\`, SPEC3 §5.2).
+              feeGrossCents: totals.feeGrossCents,
               taxCents: totals.taxCents,
               totalCents: totals.totalCents,
               promoCodeId: promoApplied ? promoCode.id : null,

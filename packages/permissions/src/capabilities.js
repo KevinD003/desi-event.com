@@ -277,6 +277,35 @@ export const CAPABILITIES = deepFreeze({
    * administrators (ADMIN, and SUPER_ADMIN through ALL_CAPABILITIES).
    */
   WEBSITE_REDIRECT_MANAGE: 'website_redirect:manage',
+  /**
+   * Set an event's own booking fee (the platform fee) or return it to the site
+   * default, and switch paying at the venue on or off with its limit on unpaid
+   * places, in any status but DELETED (SPEC3 §3.1, §3.3).
+   *
+   * Platform-only: the fee is Desi-Event's revenue, and how a buyer may pay is
+   * the Desi-Event team's decision, never an organiser's. Held by ADMIN, and by
+   * SUPER_ADMIN through ALL_CAPABILITIES (ADR 0016).
+   */
+  PAYMENT_TERMS_MANAGE: 'payment_terms:manage',
+  /**
+   * Make, change, switch on or off, list and report the referral codes that
+   * waive an order's whole booking fee (SPEC3 §3.2).
+   *
+   * Platform-only: a code removes Desi-Event's own fee, and its text is shown
+   * only to platform administrators. Held by ADMIN, and by SUPER_ADMIN through
+   * ALL_CAPABILITIES (ADR 0016).
+   */
+  REFERRAL_CODE_MANAGE: 'referral_code:manage',
+  /**
+   * Refund what is left of one past order's booking fee, and the tax it
+   * carried, by hand: request, approve and submit in one step, nothing else of
+   * the order (SPEC3 §7.4, the owner's A4). It reads that one order's
+   * booking-fee figures by reference to do so.
+   *
+   * Platform-only: the fee is Desi-Event's money, not an organiser's. Held by
+   * ADMIN and FINANCE_ADMIN, and by SUPER_ADMIN through ALL_CAPABILITIES.
+   */
+  PLATFORM_FEE_REFUND: 'platform_fee:refund',
   PLATFORM_ADMIN: 'platform:admin',
 })
 
@@ -310,6 +339,9 @@ export const PLATFORM_ONLY_CAPABILITIES = deepFreeze([
   CAPABILITIES.EVENT_PLATFORM_EDIT,
   CAPABILITIES.EVENT_PLATFORM_DELETE,
   CAPABILITIES.EVENT_IMPORT,
+  CAPABILITIES.PAYMENT_TERMS_MANAGE,
+  CAPABILITIES.REFERRAL_CODE_MANAGE,
+  CAPABILITIES.PLATFORM_FEE_REFUND,
   CAPABILITIES.PLATFORM_ADMIN,
 ])
 
@@ -589,22 +621,27 @@ export const ORG_ROLE_CAPABILITIES = deepFreeze(resolveAll(ORG_ROLE_GRANTS, ORG_
  * An allow-list rather than a list of exclusions: the role reviews events,
  * pictures and organisations, invites organisers, switches an event's website
  * link, and reads every event's figures, and a later edit that hands it one
- * more capability — a door, a refund, an event of its own to publish — has to
- * change this list and its test on purpose. A reviewer who could also write
- * and publish events would be the self-review hole the review gate exists to
- * close, and one who could move money or change platform roles would be a
- * second SUPER_ADMIN. {@link assertPlatformAdministratorBounds} holds the role
- * table to exactly this list when the module loads.
+ * more capability — a door, a ticket refund, an event of its own to publish —
+ * has to change this list and its test on purpose. A reviewer who could also
+ * write and publish events would be the self-review hole the review gate exists
+ * to close, and one who could move an organiser's money or change platform
+ * roles would be a second SUPER_ADMIN. {@link assertPlatformAdministratorBounds}
+ * holds the role table to exactly this list when the module loads.
  *
  * `report:view` is platform-wide here, so `can(admin, 'report:view',
  * {organizationId})` answers yes for every organisation; the money on those
- * reports stays behind `finance:view`, which ADMIN does not hold.
+ * reports stays behind `finance:view`, which ADMIN does not hold, except one
+ * order's booking-fee figures, read by reference to refund that fee
+ * (`platform_fee:refund`).
  *
  * ADMIN edits posted events only, in audited sittings (`event:platform_edit`),
  * and deletes events (`event:platform_delete`), with the whole-order refunds
  * that requires: no amount, recipient or order is chosen. It imports listed
- * events onto the platform-held organisation (`event:import`). It still holds
- * no discretionary money capability and no posting capability.
+ * events onto the platform-held organisation (`event:import`). It sets the
+ * booking fee and pay-at-the-venue switch of any event, makes referral codes
+ * that waive the fee (ADR 0016), and refunds one order's booking fee by hand
+ * (A4); it moves no organiser's money, refunds no ticket price and holds no
+ * posting capability.
  *
  * @type {ReadonlyArray<string>}
  */
@@ -620,6 +657,9 @@ export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
     CAPABILITIES.EVENT_PLATFORM_EDIT,
     CAPABILITIES.EVENT_PLATFORM_DELETE,
     CAPABILITIES.EVENT_IMPORT,
+    CAPABILITIES.PAYMENT_TERMS_MANAGE,
+    CAPABILITIES.REFERRAL_CODE_MANAGE,
+    CAPABILITIES.PLATFORM_FEE_REFUND,
   ].sort(),
 )
 
@@ -636,10 +676,13 @@ export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
  * `SUPER_ADMIN`. A moderator cannot refund; a finance administrator cannot
  * approve an event; support can read an order and change nothing; a platform
  * administrator reviews, invites organisers, switches website links, edits and
- * deletes posted events and imports listed ones, and cannot change anybody's
- * platform role, move money at its own discretion or admit anybody at a door.
- * MODERATOR, SUPPORT and FINANCE_ADMIN hold none of the three platform event
- * capabilities (`event:platform_edit`, `event:platform_delete`, `event:import`).
+ * deletes posted events and imports listed ones, sets booking fees and paying
+ * at the venue and makes referral codes, and cannot change anybody's platform
+ * role, move an organiser's money or admit anybody at a door. MODERATOR,
+ * SUPPORT and FINANCE_ADMIN hold none of the three platform event capabilities
+ * (`event:platform_edit`, `event:platform_delete`, `event:import`), and none of
+ * `payment_terms:manage` or `referral_code:manage`; FINANCE_ADMIN refunds one
+ * order's booking fee by hand (`platform_fee:refund`), as ADMIN does.
  *
  * @type {Readonly<Record<string, ReadonlyArray<string>>>}
  */
@@ -661,6 +704,7 @@ export const PLATFORM_ROLE_CAPABILITIES = deepFreeze({
     CAPABILITIES.RECONCILIATION_MANAGE,
     CAPABILITIES.LEDGER_MANAGE,
     CAPABILITIES.SUPPORT_VIEW_ORDER,
+    CAPABILITIES.PLATFORM_FEE_REFUND,
   ].sort(),
   ADMIN: [...PLATFORM_ADMINISTRATOR_CAPABILITIES],
   SUPER_ADMIN: [...ALL_CAPABILITIES],

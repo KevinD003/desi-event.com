@@ -583,3 +583,201 @@ describe('importing listed events (SPEC2-XI I)', () => {
     expect(body.safeParse({ planDigest: 'not-a-digest' }).success).toBe(false)
   })
 })
+
+describe('booking fees, referral codes and paying at the venue (SPEC3 §11)', () => {
+  /** id → [method, path, capability, step-up, success status, tag]. */
+  const EXPECTED = {
+    'paymentTerms.get': [
+      'GET',
+      '/v1/platform/events/:id/payment-terms',
+      'payment_terms:manage',
+      undefined,
+      200,
+      'events',
+    ],
+    'paymentTerms.setFee': [
+      'POST',
+      '/v1/platform/events/:id/platform-fee',
+      'payment_terms:manage',
+      'PAYMENT_TERMS',
+      200,
+      'events',
+    ],
+    'paymentTerms.setVenuePayment': [
+      'POST',
+      '/v1/platform/events/:id/venue-payment',
+      'payment_terms:manage',
+      'PAYMENT_TERMS',
+      200,
+      'events',
+    ],
+    'referralCodes.list': [
+      'GET',
+      '/v1/platform/referral-codes',
+      'referral_code:manage',
+      undefined,
+      200,
+      'referral-codes',
+    ],
+    'referralCodes.byAdministrator': [
+      'GET',
+      '/v1/platform/referral-codes/by-administrator',
+      'referral_code:manage',
+      undefined,
+      200,
+      'referral-codes',
+    ],
+    'referralCodes.create': [
+      'POST',
+      '/v1/platform/referral-codes',
+      'referral_code:manage',
+      'PAYMENT_TERMS',
+      201,
+      'referral-codes',
+    ],
+    'referralCodes.get': [
+      'GET',
+      '/v1/platform/referral-codes/:id',
+      'referral_code:manage',
+      undefined,
+      200,
+      'referral-codes',
+    ],
+    'referralCodes.update': [
+      'PATCH',
+      '/v1/platform/referral-codes/:id',
+      'referral_code:manage',
+      'PAYMENT_TERMS',
+      200,
+      'referral-codes',
+    ],
+    'referralCodes.switchOff': [
+      'POST',
+      '/v1/platform/referral-codes/:id/switch-off',
+      'referral_code:manage',
+      undefined,
+      200,
+      'referral-codes',
+    ],
+    'referralCodes.switchOn': [
+      'POST',
+      '/v1/platform/referral-codes/:id/switch-on',
+      'referral_code:manage',
+      'PAYMENT_TERMS',
+      200,
+      'referral-codes',
+    ],
+    'platformFees.preview': [
+      'GET',
+      '/v1/platform/orders/:reference/fee',
+      'platform_fee:refund',
+      undefined,
+      200,
+      'orders',
+    ],
+    'platformFees.refund': [
+      'POST',
+      '/v1/platform/orders/:reference/fee-refund',
+      'platform_fee:refund',
+      'FINANCE_ACTION',
+      200,
+      'orders',
+    ],
+    'venuePayments.report': [
+      'GET',
+      '/v1/events/:id/venue-payments',
+      undefined,
+      'FINANCE_VIEW',
+      200,
+      'events',
+    ],
+  }
+
+  it('places the thirteen routes at their method and path, with their capability, step-up and status', () => {
+    expect(Object.keys(EXPECTED)).toHaveLength(13)
+
+    for (const [id, [method, path, capability, stepUp, status, tag]] of Object.entries(EXPECTED)) {
+      const route = routeById(id)
+
+      expect(routeKey(route), id).toBe(`${method} ${path}`)
+      expect(route.auth, id).toBe('session')
+      expect(route.capability ?? undefined, id).toBe(capability)
+      expect(route.capabilityScope ?? undefined, id).toBeUndefined()
+      expect(route.stepUp ?? undefined, id).toBe(stepUp)
+      expect(route.successStatus, id).toBe(status)
+      expect(route.tags, id).toEqual([tag])
+    }
+  })
+
+  it('declares the referral-codes tag and tags none of the routes `platform`', () => {
+    expect(API_TAGS.find((tag) => tag.name === 'referral-codes')?.description).toBe(
+      'Codes the Desi-Event team hands out that remove the booking fee from an order. Made, changed and reported by platform administrators.',
+    )
+
+    for (const id of Object.keys(EXPECTED)) {
+      expect(routeById(id).tags, id).not.toContain('platform')
+    }
+  })
+
+  it('never takes a referral code in a path or a query', () => {
+    // A code is a bearer discount on the booking fee: it travels only in the
+    // POST bodies of a quote and an order, never in a URL (SPEC3 §8.3).
+    for (const route of apiRoutes) {
+      expect(route.path, route.id).not.toMatch(/referralCode|:code\b/u)
+
+      const query = route.query?.shape ?? {}
+
+      expect(Object.keys(query), route.id).not.toContain('referralCode')
+      expect(Object.keys(query), route.id).not.toContain('code')
+    }
+  })
+
+  it('documents 503 on the writes that wait behind a row, and 429 on every budgeted write', () => {
+    const statuses = (id) => routeById(id).errors.map((error) => error.status)
+
+    for (const id of [
+      'paymentTerms.setFee',
+      'paymentTerms.setVenuePayment',
+      'platformFees.refund',
+    ]) {
+      expect(statuses(id), id).toContain(503)
+    }
+
+    for (const id of [
+      'paymentTerms.setFee',
+      'paymentTerms.setVenuePayment',
+      'referralCodes.create',
+      'referralCodes.update',
+      'referralCodes.switchOff',
+      'referralCodes.switchOn',
+      'platformFees.refund',
+    ]) {
+      expect(statuses(id), id).toContain(429)
+    }
+  })
+
+  it('takes the payment method and the referral code in the quote and order bodies', () => {
+    const quote = routeById('orders.quote').body.shape
+    const order = routeById('orders.create').body.shape
+
+    expect(Object.keys(quote)).toEqual(expect.arrayContaining(['paymentMethod', 'referralCode']))
+    expect(Object.keys(order)).toEqual(
+      expect.arrayContaining(['paymentMethod', 'referralCode', 'expectedVenueDueCents']),
+    )
+    expect(routeById('orders.create').errors.map((error) => error.status)).toContain(401)
+  })
+
+  it('takes a payment with the door confirmations and documents the amount refusal', () => {
+    expect(Object.keys(routeById('tickets.checkIn').body.shape ?? {})).toContain('payment')
+    expect(Object.keys(routeById('tickets.checkInGroup').body.shape ?? {})).toContain(
+      'paymentCents',
+    )
+
+    for (const id of ['tickets.checkIn', 'tickets.checkInGroup']) {
+      expect(
+        routeById(id).errors.map((error) => error.status),
+        id,
+      ).toEqual(expect.arrayContaining([409, 422]))
+    }
+  })
+})

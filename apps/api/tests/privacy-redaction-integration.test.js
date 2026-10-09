@@ -192,6 +192,8 @@ async function paidOrder({ graph, buyer, quantity = 1, ticketStatus = 'VALID' })
       currency: 'INR',
       subtotalCents: subtotal,
       feesCents: 1_000,
+      // The fee before any waiver: no referral code, so all of it (SPEC3 §5).
+      feeGrossCents: 1_000,
       taxCents: 2_500,
       discountCents: 0,
       totalCents: subtotal + 3_500,

@@ -29,6 +29,9 @@ import { registerOrganizerInvitationRoutes } from './organizer-invitations.js'
 import { registerPlatformRoutes } from './platform.js'
 import { registerPublicVenueRoutes, registerVenueMapRoutes, registerVenueRoutes } from './venues.js'
 import { registerOrderRoutes } from './orders.js'
+import { registerPaymentTermsRoutes } from './payment-terms.js'
+import { registerPlatformFeeRoutes } from './platform-fees.js'
+import { registerReferralCodeRoutes } from './referral-codes.js'
 import { registerOperationsRoutes } from './operations.js'
 import { registerPaymentRoutes } from './payments.js'
 import { registerPrivacyRoutes } from './privacy.js'
@@ -39,6 +42,7 @@ import { registerRefundRoutes } from './refunds.js'
 import { registerTicketRoutes } from './tickets.js'
 import { registerTicketTypeRoutes } from './ticket-types.js'
 import { registerTrafficRoutes } from './traffic.js'
+import { registerVenuePaymentRoutes } from './venue-payments.js'
 import { registerWaitlistRoutes } from './waitlist.js'
 import { registerWebsiteRedirectRoutes } from './website-redirect.js'
 
@@ -70,6 +74,10 @@ import { registerWebsiteRedirectRoutes } from './website-redirect.js'
  * @param {{max?: number, timeWindow?: string|number}} [deps.quoteLimit] Overrides for the checkout-quote rate limit.
  * @param {{max?: number, sharedMax?: number, timeWindow?: string|number, processMax?: number}} [deps.trafficBeaconLimit] Overrides for the visit-beacon limits.
  * @param {{max?: number, sharedMax?: number, timeWindow?: string|number, eventMax?: number}} [deps.websiteVisitLimit] Overrides for the website-link lookup's limits.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.paymentTermsLimit] Overrides for the booking fee and pay-at-the-venue budget (SPEC3 §4.4).
+ * @param {{max?: number, timeWindow?: string|number}} [deps.referralAdminLimit] Overrides for the referral-code administration budget.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.feeRefundLimit] Overrides for the booking-fee refund limit.
+ * @param {{actorMax?: number, addressMax?: number, sharedMax?: number, timeWindow?: string|number}} [deps.referralAttemptLimit] Overrides for the wrong referral codes budget the checkout routes share.
  * @returns {void} Nothing.
  */
 export function registerRoutes(app, deps) {
@@ -97,6 +105,11 @@ export function registerRoutes(app, deps) {
   registerSessionRoutes(app, deps)
   registerHoldRoutes(app, deps)
   registerOrderRoutes(app, deps)
+  // Booking fees, referral codes and paying at the venue (SPEC3 §11.1).
+  registerPaymentTermsRoutes(app, deps)
+  registerReferralCodeRoutes(app, deps)
+  registerPlatformFeeRoutes(app, deps)
+  registerVenuePaymentRoutes(app, deps)
   registerPromoCodeRoutes(app, deps)
   registerOperationsRoutes(app, deps)
   registerPaymentRoutes(app, deps)

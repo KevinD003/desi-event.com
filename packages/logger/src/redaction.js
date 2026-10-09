@@ -111,6 +111,11 @@ export const SENSITIVE_FIELD_KEYS = Object.freeze([
   // A promo code is a bearer discount: whoever reads it can use it. Checkout
   // takes it in the body, and no handler logs it; this is the net.
   'promoCode',
+  // A referral code waives an order's whole booking fee for whoever types it
+  // (SPEC3 §0.2, §8.3). The quote and the order take it in the body, and the
+  // administrators' responses name its text `referralCode` — never `code` —
+  // precisely so it can be redacted by name, as `invitationCode` is.
+  'referralCode',
   // Guests' names typed at checkout, and the columns that stage and print
   // them. Personal data about people who never signed up to anything here.
   'attendees',
@@ -169,6 +174,9 @@ export const WILDCARD_KEYS = Object.freeze([
   // `req.body.promoCode` and `req.body.attendees`, from checkout and the
   // quote; `{ ticket: { attendeeName } }`, a ticket row logged whole.
   'promoCode',
+  // `req.body.referralCode`, from checkout and the quote; `{ data: { referralCode } }`,
+  // the shape of an administrators' referral-code response.
+  'referralCode',
   'attendees',
   'attendeeName',
   'attendeeNames',

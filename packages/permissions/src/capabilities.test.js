@@ -82,6 +82,10 @@ const REQUIRED_CAPABILITIES = [
   'retention:view',
   'organizer:invite',
   'website_redirect:manage',
+  // Booking fees, referral codes and paying at the venue (SPEC3 §4.1)
+  'payment_terms:manage',
+  'referral_code:manage',
+  'platform_fee:refund',
   'platform:admin',
 ]
 
@@ -484,7 +488,7 @@ describe('privacy:redact', () => {
 })
 
 describe('the platform administrator (ADMIN)', () => {
-  it('holds exactly the ten of the allow-list: review, drafts, venues, invitations, reports, website links, visits, editing and deleting posted events, imports', () => {
+  it('holds exactly the thirteen of the allow-list: review, drafts, venues, invitations, reports, website links, visits, editing and deleting posted events, imports, payment terms, referral codes and booking-fee refunds', () => {
     expect([...PLATFORM_ADMINISTRATOR_CAPABILITIES]).toEqual(
       [
         'analytics:view_all',
@@ -494,19 +498,26 @@ describe('the platform administrator (ADMIN)', () => {
         'event:view_draft',
         'moderation:review',
         'organizer:invite',
+        'payment_terms:manage',
+        'platform_fee:refund',
+        'referral_code:manage',
         'report:view',
         'venue:manage',
         'website_redirect:manage',
       ].sort(),
     )
-    expect(PLATFORM_ADMINISTRATOR_CAPABILITIES).toHaveLength(10)
+    expect(PLATFORM_ADMINISTRATOR_CAPABILITIES).toHaveLength(13)
     expect([...PLATFORM_ROLE_CAPABILITIES.ADMIN]).toEqual([...PLATFORM_ADMINISTRATOR_CAPABILITIES])
   })
 
-  it('is a superset of the moderator and holds nothing that posts events, moves money or admits', () => {
+  it("is a superset of the moderator and holds nothing that posts events, moves an organiser's money or admits", () => {
     for (const capability of PLATFORM_ROLE_CAPABILITIES.MODERATOR) {
       expect(PLATFORM_ROLE_CAPABILITIES.ADMIN).toContain(capability)
     }
+
+    // The one money capability it holds is Desi-Event's own: one order's
+    // booking fee, refunded by hand (SPEC3 §7.4, A4).
+    expect(PLATFORM_ROLE_CAPABILITIES.ADMIN).toContain('platform_fee:refund')
 
     for (const capability of [
       'platform:admin',
@@ -542,7 +553,7 @@ describe('the platform administrator (ADMIN)', () => {
     )
   })
 
-  it.each(['platform:admin', 'event:publish', 'attendee:export', 'promo:manage'])(
+  it.each(['platform:admin', 'event:publish', 'attendee:export', 'promo:manage', 'order:refund'])(
     'refuses a doctored table that gives ADMIN %s',
     (capability) => {
       const doctored = {
@@ -771,5 +782,59 @@ describe('canMoveOrgRole', () => {
         }
       }
     }
+  })
+})
+
+describe('booking fees, referral codes and paying at the venue (SPEC3 §4.1)', () => {
+  const SPEC3 = ['payment_terms:manage', 'referral_code:manage', 'platform_fee:refund']
+
+  it('names the three capabilities as constants', () => {
+    expect(CAPABILITIES.PAYMENT_TERMS_MANAGE).toBe('payment_terms:manage')
+    expect(CAPABILITIES.REFERRAL_CODE_MANAGE).toBe('referral_code:manage')
+    expect(CAPABILITIES.PLATFORM_FEE_REFUND).toBe('platform_fee:refund')
+  })
+
+  it('makes all three platform-only', () => {
+    for (const capability of SPEC3) {
+      expect(PLATFORM_ONLY_CAPABILITIES, capability).toContain(capability)
+    }
+  })
+
+  it('grants none of them through any organisation role', () => {
+    for (const [role, capabilities] of Object.entries(ORG_ROLE_CAPABILITIES)) {
+      for (const capability of SPEC3) {
+        expect(capabilities, `${role} ${capability}`).not.toContain(capability)
+      }
+    }
+  })
+
+  it('gives ADMIN all three and SUPER_ADMIN all three through ALL_CAPABILITIES', () => {
+    for (const capability of SPEC3) {
+      expect(PLATFORM_ROLE_CAPABILITIES.ADMIN, capability).toContain(capability)
+      expect(PLATFORM_ROLE_CAPABILITIES.SUPER_ADMIN, capability).toContain(capability)
+    }
+  })
+
+  it('gives FINANCE_ADMIN the booking-fee refund and neither of the other two', () => {
+    expect(PLATFORM_ROLE_CAPABILITIES.FINANCE_ADMIN).toContain('platform_fee:refund')
+    expect(PLATFORM_ROLE_CAPABILITIES.FINANCE_ADMIN).not.toContain('payment_terms:manage')
+    expect(PLATFORM_ROLE_CAPABILITIES.FINANCE_ADMIN).not.toContain('referral_code:manage')
+  })
+
+  it('gives MODERATOR, SUPPORT, ORGANIZER and ATTENDEE none of them', () => {
+    for (const role of ['MODERATOR', 'SUPPORT', 'ORGANIZER', 'ATTENDEE']) {
+      for (const capability of SPEC3) {
+        expect(PLATFORM_ROLE_CAPABILITIES[role], `${role} ${capability}`).not.toContain(capability)
+      }
+    }
+  })
+
+  it.each(SPEC3)('refuses a doctored table that takes %s away from ADMIN', (capability) => {
+    const doctored = {
+      ...PLATFORM_ROLE_CAPABILITIES,
+      ADMIN: PLATFORM_ROLE_CAPABILITIES.ADMIN.filter((held) => held !== capability),
+    }
+
+    expect(() => assertPlatformAdministratorBounds(doctored)).toThrow(capability)
   })
 })

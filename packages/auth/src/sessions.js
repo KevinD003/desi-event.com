@@ -163,6 +163,16 @@ export const STEP_UP_POLICIES = Object.freeze({
    * need no fresh factor.
    */
   PROMO_ACTION: 10 * 60 * 1000,
+  /**
+   * Changing what buyers pay for an event, or how they may pay: an event's
+   * booking fee, its pay-at-the-venue switch and limit, and referral codes that
+   * waive the fee.
+   *
+   * Ten minutes, like publishing and promo codes: an administrator works
+   * through several events in a sitting. Switching a referral code off only
+   * reduces what is on offer and needs none.
+   */
+  PAYMENT_TERMS: 10 * 60 * 1000,
 })
 
 /** Every policy name, for contract validation. */

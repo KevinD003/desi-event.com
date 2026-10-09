@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  PRICING_SNAPSHOT_VERSION,
   TAX_POLICY_STATUS,
   TAX_POLICY_VERSION,
   assertTaxPolicyUsable,
@@ -156,6 +157,149 @@ describe('pricing snapshot', () => {
       feeConfig: { percentageBps: 250, flatCents: 500, currency: 'CAD' },
       taxPolicy: resolveTaxPolicy({ country: 'CA', region: 'ON' }),
       currency: 'CAD',
+    })
+
+    expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot)
+  })
+})
+
+describe('pricing snapshot, version 2 (SPEC3 §4.6)', () => {
+  const ontario = resolveTaxPolicy({ country: 'CA', region: 'ON' })
+  const siteDefault = { percentageBps: 590, flatCents: 99, currency: 'USD' }
+
+  it('records a card order at the site default, with today’s callers unchanged', () => {
+    const snapshot = buildPricingSnapshot({
+      feeConfig: siteDefault,
+      taxPolicy: ontario,
+      currency: 'USD',
+    })
+
+    expect(snapshot.snapshotVersion).toBe(PRICING_SNAPSHOT_VERSION)
+    expect(PRICING_SNAPSHOT_VERSION).toBe(2)
+    expect(snapshot.paymentMethod).toBe('CARD')
+    expect(snapshot.feeConfig).toEqual({ percentageBps: 590, flatCents: 99, currency: 'USD' })
+    expect(snapshot.fee).toEqual({
+      source: 'SITE_DEFAULT',
+      settingId: null,
+      percentageBps: 590,
+      flatCentsPerTicket: 99,
+      grossCents: null,
+      waivedCents: null,
+      chargedCents: null,
+    })
+    expect(snapshot.tax).toMatchObject({
+      jurisdiction: 'CA-ON',
+      rateBps: 1_300,
+      applied: true,
+      appliedTo: 'TICKETS_AND_FEE',
+      notAppliedReason: null,
+    })
+  })
+
+  it('records an event’s own terms, the decision they came from and what they came to', () => {
+    const snapshot = buildPricingSnapshot({
+      feeConfig: {
+        percentageBps: 300,
+        flatCents: 149,
+        currency: 'USD',
+        source: 'EVENT',
+        settingId: 'setting_1',
+      },
+      taxPolicy: resolveTaxPolicy({ country: 'US' }),
+      currency: 'USD',
+      fee: { grossCents: 538, waivedCents: 538, chargedCents: 0 },
+    })
+
+    expect(snapshot.fee).toEqual({
+      source: 'EVENT',
+      settingId: 'setting_1',
+      percentageBps: 300,
+      flatCentsPerTicket: 149,
+      grossCents: 538,
+      waivedCents: 538,
+      chargedCents: 0,
+    })
+  })
+
+  it('records a pay-at-the-venue order as taxing nothing, because it is paid at the venue', () => {
+    const snapshot = buildPricingSnapshot({
+      feeConfig: siteDefault,
+      taxPolicy: ontario,
+      currency: 'USD',
+      paymentMethod: 'AT_VENUE',
+      taxAppliedTo: 'NOTHING',
+      fee: { source: 'SITE_DEFAULT', grossCents: 335, waivedCents: 0, chargedCents: 335 },
+    })
+
+    expect(snapshot.paymentMethod).toBe('AT_VENUE')
+    expect(snapshot.tax).toMatchObject({
+      rateBps: 1_300,
+      applied: false,
+      appliedTo: 'NOTHING',
+      notAppliedReason: 'PAID_AT_VENUE',
+    })
+  })
+
+  it('records tax on the booking fee alone when question 9 is answered "yes"', () => {
+    const snapshot = buildPricingSnapshot({
+      feeConfig: siteDefault,
+      taxPolicy: ontario,
+      currency: 'USD',
+      paymentMethod: 'AT_VENUE',
+      taxAppliedTo: 'BOOKING_FEE',
+    })
+
+    expect(snapshot.tax).toMatchObject({
+      applied: true,
+      appliedTo: 'BOOKING_FEE',
+      notAppliedReason: 'PAID_AT_VENUE',
+    })
+  })
+
+  it.each([
+    ['CARD', 'NOTHING'],
+    ['CARD', 'BOOKING_FEE'],
+    ['AT_VENUE', 'TICKETS_AND_FEE'],
+    ['CASH', 'NOTHING'],
+  ])('refuses a %s order with tax applied to %s', (paymentMethod, taxAppliedTo) => {
+    expect(() =>
+      buildPricingSnapshot({
+        feeConfig: siteDefault,
+        taxPolicy: ontario,
+        currency: 'USD',
+        paymentMethod,
+        taxAppliedTo,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_PRICING_SNAPSHOT' }))
+  })
+
+  it('refuses an unknown fee source and a negative amount', () => {
+    expect(() =>
+      buildPricingSnapshot({
+        feeConfig: siteDefault,
+        taxPolicy: ontario,
+        currency: 'USD',
+        fee: { source: 'ORGANISER' },
+      }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_PRICING_SNAPSHOT' }))
+    expect(() =>
+      buildPricingSnapshot({
+        feeConfig: siteDefault,
+        taxPolicy: ontario,
+        currency: 'USD',
+        fee: { grossCents: -1 },
+      }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_PRICING_SNAPSHOT' }))
+  })
+
+  it('survives a JSON round trip', () => {
+    const snapshot = buildPricingSnapshot({
+      feeConfig: siteDefault,
+      taxPolicy: ontario,
+      currency: 'USD',
+      paymentMethod: 'AT_VENUE',
+      taxAppliedTo: 'NOTHING',
+      fee: { grossCents: 335, waivedCents: 0, chargedCents: 335 },
     })
 
     expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot)

@@ -123,6 +123,10 @@ const MIRRORS = {
   EventImportRunStatus: 'EVENT_IMPORT_RUN_STATUSES',
   EventImportImageStatus: 'EVENT_IMPORT_IMAGE_STATUSES',
   EventImportImageRole: 'EVENT_IMPORT_IMAGE_ROLES',
+  FeeSource: 'FEE_SOURCES',
+  OrderPaymentMethod: 'ORDER_PAYMENT_METHODS',
+  ReferralCodeScope: 'REFERRAL_CODE_SCOPES',
+  VenuePaymentVia: 'VENUE_PAYMENT_VIAS',
 }
 
 /**
@@ -196,6 +200,10 @@ const SCHEMAS = {
   EVENT_IMPORT_RUN_STATUSES: 'eventImportRunStatusSchema',
   EVENT_IMPORT_IMAGE_STATUSES: 'eventImportImageStatusSchema',
   EVENT_IMPORT_IMAGE_ROLES: 'eventImportImageRoleSchema',
+  FEE_SOURCES: 'feeSourceSchema',
+  ORDER_PAYMENT_METHODS: 'orderPaymentMethodSchema',
+  REFERRAL_CODE_SCOPES: 'referralCodeScopeSchema',
+  VENUE_PAYMENT_VIAS: 'venuePaymentViaSchema',
 }
 
 const prismaSource = readFileSync(schemaPath, 'utf8')

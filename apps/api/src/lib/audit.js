@@ -266,6 +266,51 @@ export const AUDIT_ACTIONS = Object.freeze({
    */
   EVENT_WEBSITE_REDIRECT_CHANGED: 'event.website_redirect_changed',
 
+  // --- Booking fees, referral codes and paying at the venue (SPEC3 §4.3) -----
+  //
+  // Each written inside the transaction that made the change. Never a referral
+  // code's text and never its label's text: a label is recorded only as
+  // `labelSet` or `labelChanged` (the label is free text an administrator
+  // typed, and an audit row is kept for good).
+  /**
+   * An administrator set an event's own booking fee or returned it to the
+   * site default (`lib/payment-terms.js`, the only writer). Metadata:
+   * `sequence`, `source`, `percentageBps`, `flatCentsPerTicket`, `currency`,
+   * `previous` (the same keys, or null), `reason`, `eventStatus`,
+   * `platformRole`.
+   */
+  EVENT_PLATFORM_FEE_CHANGED: 'event.platform_fee_changed',
+  /**
+   * An administrator switched paying at the venue on or off, or changed its
+   * limit (`lib/payment-terms.js`). Metadata: `enabled`, `limit`,
+   * `previousEnabled`, `previousLimit`, `reason`, `eventStatus`,
+   * `platformRole`.
+   */
+  EVENT_VENUE_PAYMENT_CHANGED: 'event.venue_payment_changed',
+  /**
+   * A referral code was made (`lib/referral-codes.js`). Metadata:
+   * `referralCodeId`, `generated`, `scope`, `eventIds`, `expiresAt`,
+   * `maxUses`, `labelSet`, `requestId`.
+   */
+  REFERRAL_CODE_CREATED: 'referral_code.created',
+  /**
+   * A referral code's scope, expiry, limit or label changed. Metadata:
+   * `referralCodeId`, `changes: {field: {from, to}}` for `scope`, `eventIds`,
+   * `expiresAt` and `maxUses`, and `labelChanged: true` when the label did.
+   */
+  REFERRAL_CODE_UPDATED: 'referral_code.updated',
+  /** A referral code was switched off. Metadata: `referralCodeId`, `reason` (nullable). */
+  REFERRAL_CODE_SWITCHED_OFF: 'referral_code.switched_off',
+  /** A referral code was switched back on. Metadata: `referralCodeId`. */
+  REFERRAL_CODE_SWITCHED_ON: 'referral_code.switched_on',
+  /**
+   * A payment taken at the door, recorded with the admission it paid for
+   * (`lib/venue-payments.js`). Metadata: `venuePaymentId`, `orderId`,
+   * `eventId`, `eventSessionId`, `ticketCount`, `amountCents`, `currency`,
+   * `via`, `authority`, `role`, `organizationId`. Never the buyer.
+   */
+  VENUE_PAYMENT_RECORDED: 'venue_payment.recorded',
+
   // Commerce. Promo code writes carry ids, the discount's terms and its
   // window, never the code's text; a hold reclaimed on the way to a new seat
   // hold carries the seats' count, never who held them.

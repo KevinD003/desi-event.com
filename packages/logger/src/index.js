@@ -25,7 +25,9 @@ export {
   resetDefaultLogger,
   buildLoggerOptions,
   isPrettyEnabled,
+  serializeError,
   DEFAULT_LOGGER_NAME,
+  ERROR_DETAIL_DEPTH,
 } from './create-logger.js'
 
 export {

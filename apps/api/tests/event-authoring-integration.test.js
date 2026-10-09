@@ -229,6 +229,8 @@ async function paidOrder(event, label) {
       currency: 'INR',
       subtotalCents: 149_900,
       feesCents: 8_100,
+      // The fee before any waiver: no referral code, so all of it (SPEC3 §5).
+      feeGrossCents: 8_100,
       totalCents: 158_000,
       policySnapshot: { refund: 'Refundable up to 48 hours before.' },
     },

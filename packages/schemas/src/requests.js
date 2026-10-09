@@ -38,6 +38,11 @@ import {
   withoutControlCharacters,
 } from './primitives.js'
 import {
+  doorPaymentRequestSchema,
+  paymentMethodSchema,
+  referralCodeEntrySchema,
+} from './payment-terms.js'
+import {
   eventCategorySchema,
   eventStatusSchema,
   notificationStatusSchema,
@@ -548,6 +553,13 @@ function attendeesFitTheOrder(value, ctx) {
  * named carries the buyer's name. `expectedTotalCents` is a precondition, never
  * a price — it can only refuse an order whose total moved since it was shown
  * (409 `PRICE_CHANGED`), never lower what is charged.
+ *
+ * `paymentMethod` is CARD unless the buyer chose to pay the ticket price at the
+ * door (AT_VENUE, signed in only), when `expectedVenueDueCents` is the amount
+ * they were shown for the door, a precondition like `expectedTotalCents`.
+ * `referralCode` is a code from the Desi-Event team that removes the booking
+ * fee (signed in only); it is deliberately loose, so a malformed code gets the
+ * same answer as an unknown one (SPEC3 §8.2).
  */
 export const createOrderRequestSchema = z
   .object({
@@ -560,6 +572,9 @@ export const createOrderRequestSchema = z
     holdIds: z.array(cuidSchema).max(20).optional(),
     attendees: z.array(orderAttendeeRequestSchema).max(100).optional(),
     expectedTotalCents: centsSchema.optional(),
+    paymentMethod: paymentMethodSchema.optional(),
+    referralCode: referralCodeEntrySchema.optional(),
+    expectedVenueDueCents: centsSchema.optional(),
   })
   .superRefine((value, ctx) => {
     eachTicketTypeOnce(value, ctx)
@@ -569,9 +584,9 @@ export const createOrderRequestSchema = z
 /**
  * Price a basket without buying it.
  *
- * The same lines, holds and promo code an order would carry, and nothing about
- * the buyer: a quote is computed by the same function as the charge, and
- * writes nothing.
+ * The same lines, holds, promo code, payment method and referral code an order
+ * would carry, and nothing about the buyer: a quote is computed by the same
+ * function as the charge, and writes nothing. `paymentMethod` defaults to CARD.
  */
 export const quoteOrderRequestSchema = z
   .object({
@@ -579,6 +594,8 @@ export const quoteOrderRequestSchema = z
     items: z.array(orderItemRequestSchema).min(1, 'A quote needs at least one item').max(20),
     promoCode: promoCodeStringSchema.optional(),
     holdIds: z.array(cuidSchema).max(20).optional(),
+    paymentMethod: paymentMethodSchema.optional(),
+    referralCode: referralCodeEntrySchema.optional(),
   })
   .superRefine(eachTicketTypeOnce)
 
@@ -688,6 +705,10 @@ export const admissionPreviewRequestSchema = z
  * There is no `checkedInAt`: the recorded instant is the server's. There is no
  * `method`: it follows from what was presented. `eventSessionId` is the night
  * the door is admitting to, and must be the one the preview was for.
+ *
+ * `payment` is the amount taken at the door for a ticket booked to pay at the
+ * venue (SPEC3 §9.3): it must equal what the ticket owes, and is ignored for a
+ * ticket that owes nothing or was already paid.
  */
 export const checkInRequestSchema = z
   .object({
@@ -706,6 +727,7 @@ export const checkInRequestSchema = z
     gate: doorGateSchema.optional(),
     /** What the scanner calls itself. Audit only, and labelled self-reported. */
     deviceId: scannerNameSchema.optional(),
+    payment: doorPaymentRequestSchema.optional(),
   })
   .strict()
   .superRefine(exactlyOnePresentation)
@@ -766,6 +788,10 @@ export const groupAdmissionPreviewRequestSchema = z
  *
  * The same presentation again, the preview's reference, and the tickets being
  * admitted now — which must all have been admissible in that preview.
+ *
+ * `paymentCents` is what was taken at the door for the named tickets booked to
+ * pay at the venue and not yet paid (SPEC3 §9.5): required when any owes a
+ * payment, and equal to the sum of their shares.
  */
 export const groupCheckInRequestSchema = z
   .object({
@@ -783,6 +809,7 @@ export const groupCheckInRequestSchema = z
     ticketIds: groupTicketIdsSchema,
     gate: doorGateSchema.optional(),
     deviceId: scannerNameSchema.optional(),
+    paymentCents: centsSchema.min(1).optional(),
   })
   .strict()
   .superRefine(exactlyOnePresentation)
