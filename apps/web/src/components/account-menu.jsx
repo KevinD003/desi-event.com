@@ -1,11 +1,15 @@
 'use client'
 
 /**
- * The header's account control: sign in, or who you are and where you can go.
+ * The header's account control: sign in or sign up, or who you are and where
+ * you can go.
  *
- * Signed out, a sign-in link that brings you back to the page you were on.
- * Before Phase 4 it carried no `next`, so everybody who signed in from the
- * header landed on the organiser's event list, whatever they had been doing.
+ * Signed out, two links that bring you back to the page you were on: "Sign
+ * in", outlined, and "Sign up", filled, because somebody who has never been
+ * here has no other way to find account creation from the header. Before
+ * Phase 4 the sign-in link carried no `next`, so everybody who signed in from
+ * the header landed on the organiser's event list, whatever they had been
+ * doing.
  *
  * Signed in, a disclosure: the account's own pages, the workspace when the
  * account has one, and sign out — which did not exist anywhere in the web
@@ -30,16 +34,50 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { initialOf } from '../lib/initial.js'
-import { signInHref } from '../lib/next-path.js'
+import { registerHref, signInHref } from '../lib/next-path.js'
 import { PersonIcon } from './icons.jsx'
 import { SignOutButton } from './sign-out-button.jsx'
+
+/**
+ * What the header's two signed-out links share: a 44px target, the radius and
+ * weight of the site's buttons, and a 1.5px border so the outlined one and the
+ * filled one are exactly the same height side by side.
+ *
+ * Below 480px they are set at 13px with 8px of padding, so that the wordmark,
+ * both links and Menu share one line at 320px (`site-header.jsx`, "Two links
+ * on a phone"); they never wrap their words, and never drop below 44px tall.
+ */
+const ACCOUNT_LINK =
+  'inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-control border-[1.5px] px-2 text-[0.8125rem] font-bold whitespace-nowrap transition duration-(--duration-fast) ease-standard motion-safe:active:scale-[0.98] min-[480px]:px-3.5 min-[480px]:text-sm sm:px-4.5 sm:text-[0.9375rem]'
 
 /**
  * The header's sign-in link: outlined in ink on the white bar, with a person
  * icon beside the words on a screen wide enough for both.
  */
-const SIGN_IN =
-  'inline-flex min-h-11 items-center gap-2 rounded-control border-[1.5px] border-ink bg-surface px-3.5 text-sm font-bold text-ink transition duration-(--duration-fast) ease-standard hover:bg-surface-subtle motion-safe:active:scale-[0.98] sm:px-4.5 sm:text-[0.9375rem]'
+const SIGN_IN = `${ACCOUNT_LINK} border-ink bg-surface text-ink hover:bg-surface-subtle`
+
+/**
+ * The header's sign-up link: the filled primary action, the colours of every
+ * other primary on the site (`PRIMARY_LINK_SMALL`), its border the fill's own
+ * colour by being transparent over it.
+ */
+const SIGN_UP = `${ACCOUNT_LINK} border-transparent bg-action-primary text-action-primary-ink shadow-control hover:bg-action-primary-hover`
+
+/**
+ * The page the router says we are on, query and all.
+ *
+ * Read from the router rather than passed in, so a server component can place
+ * the links without knowing which page it is on.
+ *
+ * @returns {string|null} The path, or null before the router knows it.
+ */
+function useCurrentPath() {
+  const pathname = usePathname()
+  const search = useSearchParams()
+  const query = search?.toString()
+
+  return pathname ? `${pathname}${query ? `?${query}` : ''}` : null
+}
 
 /**
  * @typedef {object} SignInLinkProps
@@ -50,22 +88,34 @@ const SIGN_IN =
 /**
  * The sign-in link, carrying the current page as `next`.
  *
- * Read from the router rather than passed in, so a server component can place
- * it without knowing which page it is on.
- *
  * @param {SignInLinkProps} props Component props.
  * @returns {JSX.Element} The link.
  */
 export function SignInLink({ label = 'Sign in', className = SIGN_IN }) {
-  const pathname = usePathname()
-  const search = useSearchParams()
-  const query = search?.toString()
-  const href = signInHref(pathname ? `${pathname}${query ? `?${query}` : ''}` : null)
+  const href = signInHref(useCurrentPath())
 
   return (
     <Link href={href} className={className}>
       {className === SIGN_IN ? <PersonIcon className="hidden h-4.5 w-4.5 sm:block" /> : null}
       {label}
+    </Link>
+  )
+}
+
+/**
+ * The header's sign-up link, to account creation, carrying the current page as
+ * `next` under the same rules as sign-in (`registerHref`): on the sign-in page
+ * it carries the same `next` as that page's own "Create an account" link.
+ *
+ * Its name is its words, "Sign up", so a speech-input user can say what they
+ * see; the page it opens is titled "Create an account".
+ *
+ * @returns {JSX.Element} The link.
+ */
+export function SignUpLink() {
+  return (
+    <Link href={registerHref(useCurrentPath())} className={SIGN_UP}>
+      Sign up
     </Link>
   )
 }

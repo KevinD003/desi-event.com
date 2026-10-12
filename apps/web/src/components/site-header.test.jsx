@@ -1,7 +1,8 @@
 /**
  * The header's contract: the brand leads home, the four ways into the
  * catalogue sit in one row, and the account control says who is signed in —
- * or offers sign-in — without the header deciding anything about access.
+ * or offers sign-in and sign-up — without the header deciding anything about
+ * access.
  *
  * @module components/site-header.test
  */
@@ -63,12 +64,52 @@ describe('SiteHeader', () => {
     )
   })
 
+  it('offers sign-up beside it, after it, also bringing them back', async () => {
+    readSession.mockResolvedValue(null)
+    render(await SiteHeader())
+
+    const banner = screen.getByRole('banner')
+    const signIn = within(banner).getByRole('link', { name: 'Sign in' })
+    const signUp = within(banner).getByRole('link', { name: 'Sign up' })
+
+    expect(signUp).toHaveAttribute('href', '/register?next=%2Fevents')
+    // Sign in first, then Sign up: the order they are read and tabbed in.
+    expect(signIn.compareDocumentPosition(signUp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Side by side in the one account control, not one of them in the sheet.
+    expect(signIn.parentElement).toBe(signUp.parentElement)
+  })
+
+  it('compacts the wordmark on a phone for a visitor, and only for a visitor', async () => {
+    // Below 480px the row holds the wordmark, both links and Menu only if the
+    // wordmark drops its diamond and sets its name smaller. Those classes
+    // reach into `Wordmark`, so the shape they rely on is held here too: a
+    // change to it fails this test rather than quietly wrapping the row.
+    readSession.mockResolvedValue(null)
+    const { unmount } = render(await SiteHeader())
+    const brand = screen.getByRole('link', { name: 'Desi-Event' })
+
+    expect(brand.querySelector(':scope > svg')).not.toBeNull()
+    expect(brand.querySelector('.font-display')).toHaveTextContent('Desi-Event')
+    expect(brand.className).toContain('max-[480px]:[&>svg]:hidden')
+    expect(brand.className).toContain('max-[480px]:[&_.font-display]:text-base')
+    unmount()
+
+    // Signed in, the brand link is exactly what it was.
+    readSession.mockResolvedValue({ user: { displayName: 'Priya' }, capabilities: [] })
+    render(await SiteHeader())
+
+    expect(screen.getByRole('link', { name: 'Desi-Event' }).className).toBe(
+      'flex min-h-11 items-center gap-2.5 rounded-control sm:gap-3',
+    )
+  })
+
   it('shows who is signed in instead, by display name', async () => {
     readSession.mockResolvedValue({ user: { displayName: 'Priya' }, capabilities: [] })
     render(await SiteHeader())
 
     expect(screen.getByRole('button', { name: 'Priya, account' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Sign in' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Sign up' })).toBeNull()
   })
 
   it('is the page’s banner, and the Menu button is a 44px target', async () => {
@@ -83,11 +124,18 @@ describe('SiteHeader', () => {
   })
 
   it.each([
-    ['a visitor', null, { role: 'link', name: 'Sign in' }],
+    [
+      'a visitor',
+      null,
+      [
+        { role: 'link', name: 'Sign in' },
+        { role: 'link', name: 'Sign up' },
+      ],
+    ],
     [
       'somebody signed in',
       { user: { displayName: 'Priya' }, capabilities: [] },
-      { role: 'button', name: 'Priya, account' },
+      [{ role: 'button', name: 'Priya, account' }],
     ],
   ])(
     'puts the controls in the DOM in the order the eye reads them, for %s',
@@ -101,7 +149,7 @@ describe('SiteHeader', () => {
       const banner = screen.getByRole('banner')
       const sequence = [
         within(banner).getByRole('link', { name: 'Desi-Event' }),
-        within(banner).getByRole(account.role, { name: account.name }),
+        ...account.map((control) => within(banner).getByRole(control.role, { name: control.name })),
         within(banner).getByRole('button', { name: /menu/i }),
       ]
 

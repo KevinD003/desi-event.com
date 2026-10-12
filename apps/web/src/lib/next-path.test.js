@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_NEXT_PATH, safeNextPath, signInHref } from './next-path.js'
+import { DEFAULT_NEXT_PATH, registerHref, safeNextPath, signInHref } from './next-path.js'
 
 describe('safeNextPath', () => {
   it.each([
@@ -71,5 +71,56 @@ describe('signInHref', () => {
     expect(signInHref('/')).toBe('/sign-in')
     expect(signInHref(null)).toBe('/sign-in')
     expect(signInHref('//evil.example')).toBe('/sign-in')
+  })
+
+  it('from sign-in or account creation, carries the destination that page already has', () => {
+    // The header's "Sign in" is drawn on both pages. Wrapping the page itself
+    // in `next` would send somebody back to an auth page they had finished
+    // with; dropping it would lose the checkout they came from.
+    expect(signInHref('/sign-in?next=%2Ftickets')).toBe('/sign-in?next=%2Ftickets')
+    expect(signInHref('/register?next=%2Fevents%2Fqawwali%2Fcheckout')).toBe(
+      '/sign-in?next=%2Fevents%2Fqawwali%2Fcheckout',
+    )
+    expect(signInHref('/register')).toBe('/sign-in')
+  })
+
+  it('drops an auth page’s own next when it would leave the site or loop', () => {
+    expect(signInHref('/register?next=%2F%2Fevil.example')).toBe('/sign-in')
+    expect(signInHref('/sign-in?next=%2Fregister%3Fnext%3D%252Ftickets')).toBe('/sign-in')
+  })
+})
+
+describe('registerHref', () => {
+  it('carries the page somebody was on, the way sign-in does', () => {
+    expect(registerHref('/tickets/abc')).toBe('/register?next=%2Ftickets%2Fabc')
+  })
+
+  it('keeps the query, encoded', () => {
+    expect(registerHref('/events?city=Toronto')).toBe('/register?next=%2Fevents%3Fcity%3DToronto')
+  })
+
+  it('adds nothing for the home page or an unusable path', () => {
+    expect(registerHref('/')).toBe('/register')
+    expect(registerHref(null)).toBe('/register')
+    expect(registerHref(undefined)).toBe('/register')
+    expect(registerHref('//evil.example')).toBe('/register')
+    expect(registerHref('/\\evil.example')).toBe('/register')
+    expect(registerHref('https://evil.example/')).toBe('/register')
+  })
+
+  it('from sign-in or account creation, carries the destination that page already has', () => {
+    // The same `next` the sign-in page's own "Create an account" link carries.
+    expect(registerHref('/sign-in?next=%2Fevents%2Fqawwali%2Fcheckout')).toBe(
+      '/register?next=%2Fevents%2Fqawwali%2Fcheckout',
+    )
+    expect(registerHref('/register?next=%2Ftickets')).toBe('/register?next=%2Ftickets')
+    expect(registerHref('/sign-in')).toBe('/register')
+    expect(registerHref('/register/')).toBe('/register')
+  })
+
+  it('never nests an auth page, or an off-site one, inside next', () => {
+    expect(registerHref('/sign-in?next=%2F%2Fevil.example')).toBe('/register')
+    expect(registerHref('/register?next=%2Fsign-in')).toBe('/register')
+    expect(registerHref('/sign-in?next=%2Fregister%3Fnext%3D%252Ftickets')).toBe('/register')
   })
 })
