@@ -16,6 +16,9 @@
  *   URL parser treats a backslash as a slash in an http(s) path.
  * - `/\t/evil.example` and `/\n/evil.example` become `//evil.example`, because
  *   the parser strips tabs and newlines before it reads the URL.
+ * - `/.//evil.example`, `/%2e%2e//evil.example` and `/a/..//evil.example`
+ *   become `//evil.example`, because the parser collapses dot segments, plain
+ *   or percent-encoded. Only the resolved path shows it.
  *
  * The check before Phase 4 caught the first and let the others through.
  *
@@ -77,7 +80,13 @@ function sameSite(value) {
     return null
   }
 
-  return resolved.origin === ORIGIN ? resolved : null
+  if (resolved.origin !== ORIGIN) return null
+
+  // The origin cannot move, but the path still can: dot segments collapse
+  // `/.//evil.example` to `//evil.example`, which is what would be handed on.
+  if (resolved.pathname.startsWith('//')) return null
+
+  return resolved
 }
 
 /**

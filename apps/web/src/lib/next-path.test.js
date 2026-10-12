@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_NEXT_PATH, registerHref, safeNextPath, signInHref } from './next-path.js'
 
+/**
+ * Paths that start with one slash but resolve to two: the URL parser collapses
+ * the dot segments, plain or percent-encoded, and leaves `//evil.example`,
+ * which a browser reads as another host.
+ */
+const DOT_SEGMENT_ESCAPES = [
+  '/.//evil.example',
+  '/..//evil.example',
+  '/%2e//evil.example',
+  '/%2E%2E//evil.example',
+  '/a/..//evil.example',
+]
+
 describe('safeNextPath', () => {
   it.each([
     '/tickets',
@@ -27,6 +40,10 @@ describe('safeNextPath', () => {
     ['a path too long to be one', `/${'a'.repeat(600)}`],
     ['a NUL byte', '/tickets\u0000'],
   ])('refuses %s', (_name, value) => {
+    expect(safeNextPath(value)).toBe(DEFAULT_NEXT_PATH)
+  })
+
+  it.each(DOT_SEGMENT_ESCAPES)('refuses %s, which resolves to another host', (value) => {
     expect(safeNextPath(value)).toBe(DEFAULT_NEXT_PATH)
   })
 
@@ -88,6 +105,14 @@ describe('signInHref', () => {
     expect(signInHref('/register?next=%2F%2Fevil.example')).toBe('/sign-in')
     expect(signInHref('/sign-in?next=%2Fregister%3Fnext%3D%252Ftickets')).toBe('/sign-in')
   })
+
+  it.each(DOT_SEGMENT_ESCAPES)(
+    'carries nothing for %s, which resolves to another host',
+    (value) => {
+      expect(signInHref(value)).toBe('/sign-in')
+      expect(signInHref(`/register?next=${encodeURIComponent(value)}`)).toBe('/sign-in')
+    },
+  )
 })
 
 describe('registerHref', () => {
@@ -123,4 +148,12 @@ describe('registerHref', () => {
     expect(registerHref('/register?next=%2Fsign-in')).toBe('/register')
     expect(registerHref('/sign-in?next=%2Fregister%3Fnext%3D%252Ftickets')).toBe('/register')
   })
+
+  it.each(DOT_SEGMENT_ESCAPES)(
+    'carries nothing for %s, which resolves to another host',
+    (value) => {
+      expect(registerHref(value)).toBe('/register')
+      expect(registerHref(`/sign-in?next=${encodeURIComponent(value)}`)).toBe('/register')
+    },
+  )
 })
