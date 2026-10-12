@@ -46,6 +46,7 @@ import {
   REFUND_STATES,
   approveRefund,
   cancelRefund,
+  lineQuantityLeft,
   loadRefundContext,
   pendingQuantitiesByLine,
   refundableCents,
@@ -66,7 +67,13 @@ const REFUND_INCLUDE = Object.freeze({
   // refuses every organiser and passes every platform admin. That is NF-05,
   // and it is cheaper to carry one field than to re-find it correctly at four
   // call sites.
-  order: { select: { reference: true, event: { select: { organizationId: true } } } },
+  order: {
+    select: {
+      reference: true,
+      paymentMethod: true,
+      event: { select: { organizationId: true } },
+    },
+  },
 })
 
 /** The order, its lines, and the organisation that owns its event. */
@@ -133,7 +140,50 @@ async function present(prisma, id) {
 
   if (!row) throw notFound('No such refund.')
 
-  return toRefund(row)
+  const [presented] = await withDoorFacts(prisma, [row])
+
+  return presented
+}
+
+/**
+ * Refunds as the refund screens read them. A pay-at-the-venue order's carry
+ * how its ticket price was paid and what was taken at the door for its
+ * tickets (SPEC3 §9.7, §11.3): only the booking fee paid online comes back,
+ * and the door money stays with the organiser, which the detail says.
+ *
+ * @param {object} prisma A Prisma client.
+ * @param {Array<object>} rows Refund rows with {@link REFUND_INCLUDE}.
+ * @returns {Promise<Array<object>>} Payloads satisfying `refundSchema`, in the same order.
+ */
+async function withDoorFacts(prisma, rows) {
+  const venueOrderIds = [
+    ...new Set(
+      rows.filter((row) => row.order?.paymentMethod === 'AT_VENUE').map((row) => row.orderId),
+    ),
+  ]
+  const taken = new Map()
+
+  if (venueOrderIds.length > 0) {
+    const sums = await prisma.venuePayment.groupBy({
+      by: ['orderId'],
+      where: { orderId: { in: venueOrderIds } },
+      _sum: { amountCents: true },
+    })
+
+    for (const sum of sums) taken.set(sum.orderId, sum._sum?.amountCents ?? 0)
+  }
+
+  // Said only of a pay-at-the-venue order: a card order's refund reads as it
+  // always did.
+  return rows.map((row) =>
+    row.order?.paymentMethod === 'AT_VENUE'
+      ? {
+          ...toRefund(row),
+          paymentMethod: 'AT_VENUE',
+          paidAtDoorCents: taken.get(row.orderId) ?? 0,
+        }
+      : toRefund(row),
+  )
 }
 
 /**
@@ -221,13 +271,13 @@ export function registerRefundRoutes(app, { prisma, providers }) {
               unitPriceCents: item.unitPriceCents,
               refundedQuantity: item.refundedQuantity,
               pendingQuantity,
-              refundableQuantity: Math.max(
-                0,
-                item.quantity - item.refundedQuantity - pendingQuantity,
-              ),
+              // Tickets cancelled unpaid are gone, never refunded (SPEC3-XI
+              // §10.2): the dialog never offers one.
+              cancelledQuantity: item.venueCancelledQuantity ?? 0,
+              refundableQuantity: Math.max(0, lineQuantityLeft(item, pendingQuantity)),
             }
           }),
-          refunds: refunds.map(toRefund),
+          refunds: await withDoorFacts(prisma, refunds),
         },
       }
     },
@@ -323,7 +373,7 @@ export function registerRefundRoutes(app, { prisma, providers }) {
       ])
 
       return {
-        data: rows.map(toRefund),
+        data: await withDoorFacts(prisma, rows),
         pagination: buildPaginationMeta({ page, perPage, total }),
       }
     },
@@ -342,7 +392,9 @@ export function registerRefundRoutes(app, { prisma, providers }) {
 
       assertCan(request.actor, CAPABILITIES.FINANCE_VIEW, { organizationId })
 
-      return { data: toRefund(row) }
+      const [presented] = await withDoorFacts(prisma, [row])
+
+      return { data: presented }
     },
   })
 

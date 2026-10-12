@@ -45,6 +45,8 @@ import { publicWebsiteLink, websiteRedirectState } from './website-redirect.js'
 import { websiteHost } from '@desi-event/schemas/website'
 import { agingBand } from './reconciliation.js'
 import { admissionRefusal } from './tickets.js'
+import { venuePaymentAvailable } from './venue-booking-limits.js'
+import { toVenueCancellation, venuePaymentStateOf } from './venue-payment-filters.js'
 import { BADGED_STATES } from './verification.js'
 
 /** `TicketTypeStatus.ON_SALE`, inlined to avoid importing the database client. */
@@ -302,6 +304,13 @@ export const EVENT_SUMMARY_SELECT = Object.freeze({
   importItem: IMPORTED_FROM_SELECT,
   websiteRedirectEnabled: true,
   websiteDecidedUrl: true,
+  // The event's own booking fee, when the Desi-Event team set one: the card's
+  // "from" price is priced with the terms checkout charges (SPEC3 §7.2).
+  feeSource: true,
+  feePercentageBps: true,
+  feeFlatCentsPerTicket: true,
+  feeCurrency: true,
+  feeSettingId: true,
   // What the price, "sold out" and "on sale" are worked out from.
   ticketTypes: {
     select: {
@@ -420,14 +429,15 @@ export function importedFromView(event) {
  * The lean event shape used by listings and cards.
  *
  * With `feeConfigFor`, the summary also carries `minTotalCents`: one ticket of
- * the cheapest tier priced exactly as `orders.create` prices it — the same
- * `computeOrderTotals`, the deployment's fee terms, and the tax rule of the
- * venue's jurisdiction at `now`. A seat's `priceCentsOverride` is not
- * consulted; no route writes one, and checkout reads it only at the seat.
+ * the cheapest tier priced exactly as `orders.create` prices it by card — the
+ * same `computeOrderTotals`, the event's own booking fee when the Desi-Event
+ * team set one (else the site default), and the tax rule of the venue's
+ * jurisdiction at `now`. A seat's `priceCentsOverride` is not consulted; no
+ * route writes one, and checkout reads it only at the seat.
  *
  * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`; {@link EVENT_SUMMARY_SELECT} is enough.
  * @param {object} [options] Options.
- * @param {function(string): object} [options.feeConfigFor] The fee terms for a currency, as checkout uses them.
+ * @param {function(string, object): object} [options.feeConfigFor] The fee terms for a currency and this event, as checkout uses them (`eventFeeConfig`).
  * @param {Date} [options.now] When the price is being quoted.
  * @returns {object} A payload satisfying `eventSummarySchema`.
  */
@@ -476,7 +486,7 @@ export function toEventSummary(event, { feeConfigFor = null, now = new Date() } 
 
     summary.minTotalCents = computeOrderTotals({
       items: [{ ticketTypeId: cheapest.id, quantity: 1, unitPriceCents: minPriceCents }],
-      feeConfig: feeConfigFor(summary.currency),
+      feeConfig: feeConfigFor(summary.currency, event),
       taxRateBps: taxPolicy.rateBps,
       currency: summary.currency,
       now,
@@ -654,7 +664,8 @@ export function joinUrlFor(ticket, order, event) {
  * @param {boolean} [options.includeOnlineUrl] Whether the caller may see the online joining link: the organisation and staff only.
  * @param {Map<string, number>} [options.sessionsAvailability] Seats available now, per seated session id.
  * @param {Map<string, number>} [options.tierSeatsAvailable] Free seats per reserved tier id, for the tiers shown; each carries its own as `availableQuantity`.
- * @param {function(string): object} [options.feeConfigFor] The fee terms for a currency, as checkout uses them; when given, the detail carries `feeTerms`.
+ * @param {function(string, object): object} [options.feeConfigFor] The fee terms for a currency and this event, as checkout uses them (`eventFeeConfig`); when given, the detail carries `feeTerms`: the event's own when the Desi-Event team set them, else the site default, never saying which.
+ * @param {object} [options.paymentTerms] The event's booking fee and pay-at-the-venue switch as its own team and administrators read them (`eventPaymentTerms`); the route passes them only to such a reader, and for everybody else the key is absent.
  * @param {'public'|'insider'|'administrator'} [options.website] The caller's view of the website link, from `websiteViewFor`. Everybody gets `websiteLink` (a host or null); an insider or administrator also gets `websiteUrl` and the switch's state, and for everybody else both keys are absent.
  * @param {{platformReader: boolean}|null} [options.deletion] For a deleted event read by its team or the Desi-Event team: the record of its deletion is added as `deletion`, naming who deleted it only to a platform reader.
  * @returns {object} A payload satisfying `eventWithRelationsSchema`.
@@ -669,6 +680,7 @@ export function toEventDetail(
     feeConfigFor = null,
     website = 'public',
     deletion = null,
+    paymentTerms = undefined,
   } = {},
 ) {
   const { venue = null, organization = null, ticketTypes = [], sessions = [] } = event
@@ -765,11 +777,19 @@ export function toEventDetail(
     const currencies = [...new Set(visibleTiers.map((tier) => tier.currency ?? 'INR'))].sort()
 
     detail.feeTerms = currencies.map((currency) => {
-      const terms = feeConfigFor(currency)
+      const terms = feeConfigFor(currency, event)
 
       return { currency, percentageBps: terms.percentageBps, flatCents: terms.flatCents }
     })
   }
+
+  // Whether buyers may pay the ticket price at the door now, and nothing else
+  // about the switch (SPEC3 §9.2).
+  detail.venuePayment = { available: venuePaymentAvailable(event) }
+
+  // The fee's source, who set it and the switch's figures are for the event's
+  // own team and administrators only; the route decides who.
+  if (paymentTerms) detail.paymentTerms = paymentTerms
 
   return detail
 }
@@ -825,6 +845,50 @@ export function toTicketType(ticketType, availability) {
   }
 }
 
+/** What an order's tax may have been charged on (`TAX_APPLIED_TO`). */
+const TAX_TARGETS = new Set(['TICKETS_AND_FEE', 'BOOKING_FEE', 'NOTHING'])
+
+/**
+ * What an order's tax was charged on: as its pricing snapshot recorded it, or,
+ * for an order priced before the snapshot said so, as its payment method
+ * implies (a card order's tax is on its tickets and fee, at whatever rate).
+ *
+ * @param {object} order An `Order` row.
+ * @returns {{applied: boolean, appliedTo: string}} The view.
+ */
+function orderTaxView(order) {
+  const recorded = order.pricingSnapshot?.tax
+
+  if (typeof recorded?.applied === 'boolean' && TAX_TARGETS.has(recorded.appliedTo)) {
+    return { applied: recorded.applied, appliedTo: recorded.appliedTo }
+  }
+
+  if (order.paymentMethod === 'AT_VENUE') {
+    return (order.taxCents ?? 0) > 0
+      ? { applied: true, appliedTo: 'BOOKING_FEE' }
+      : { applied: false, appliedTo: 'NOTHING' }
+  }
+
+  return { applied: true, appliedTo: 'TICKETS_AND_FEE' }
+}
+
+/**
+ * The booking fee's numbers an order was priced with, or null for an order
+ * whose terms were not recorded (placed before 9 October 2026). Never where
+ * they came from (SPEC3 §7.2).
+ *
+ * @param {object} order An `Order` row.
+ * @returns {{percentageBps: number, flatCentsPerTicket: number}|null} The terms.
+ */
+function orderFeeTerms(order) {
+  return Number.isInteger(order.feePercentageBps) && Number.isInteger(order.feeFlatCentsPerTicket)
+    ? { percentageBps: order.feePercentageBps, flatCentsPerTicket: order.feeFlatCentsPerTicket }
+    : null
+}
+
+/** Who reads an order, for what it says about cancellations and the fee's source. */
+const ORDER_READERS = new Set(['BUYER', 'ORGANISATION', 'PLATFORM'])
+
 /**
  * An order with its line items, its tickets and a summary of its event.
  *
@@ -832,14 +896,46 @@ export function toTicketType(ticketType, availability) {
  * its tier. The names typed at checkout are staged on the line until the
  * tickets carry them, and never leave from here.
  *
- * @param {object} order An `Order` row including `items` (each with `tickets`) and optionally `event`.
+ * How it is paid and what its booking fee came to (SPEC3 §11.3): the payment
+ * method, the fee before and after a referral code, whether one was applied
+ * (never which: `referralCodeId` and the return marker never leave here), the
+ * fee's numbers, what its tax was charged on, and, for a booking to pay at the
+ * venue, where it stands at the door (`venuePaymentStateOf`) and its unpaid
+ * tickets cancelled (`toVenueCancellation`, named only to the organisation).
+ * The fee's source goes to organisation and platform readers only.
+ *
+ * @param {object} order An `Order` row including `items` (each with `tickets`), optionally `event`, and `venueCancellations` (each with `cancelledBy`).
  * @param {object} [options] Options.
  * @param {boolean} [options.buyerAddress] Whether the reader may see the buyer's address: true for the buyer.
  * @param {boolean} [options.joinUrl] Whether the reader may have an online event's joining link: the buyer only.
+ * @param {'BUYER'|'ORGANISATION'|'PLATFORM'} [options.reader] Who reads it: the buyer, a member of the event's organisation holding `order:view`, or a platform reader.
  * @returns {object} A payload satisfying `orderWithItemsSchema`.
+ * @throws {TypeError} For an unknown reader.
  */
-export function toOrder(order, { buyerAddress = true, joinUrl = false } = {}) {
-  const { items = [], event = null, buyerEmail, ...rest } = order
+export function toOrder(order, { buyerAddress = true, joinUrl = false, reader = 'BUYER' } = {}) {
+  if (!ORDER_READERS.has(reader)) {
+    throw new TypeError(`toOrder reads for one of ${[...ORDER_READERS].join(', ')}`)
+  }
+
+  const {
+    items = [],
+    event = null,
+    buyerEmail,
+    // Administrators' business only (SPEC3 §5.4, SPEC3-XI §11.3): which code
+    // waived the fee, whether and why its use was given back, which decision
+    // the fee came from and its numbers (sent below as `fee`), and where it
+    // came from (sent below to organisation readers).
+    referralCodeId,
+    referralUseReturnedAt: _returnedAt,
+    referralUseReturnCause: _returnCause,
+    feeSettingId: _feeSettingId,
+    feePercentageBps: _feePercentageBps,
+    feeFlatCentsPerTicket: _feeFlatCentsPerTicket,
+    feeSource,
+    venueCancellations = [],
+    ...rest
+  } = order
+  const atVenue = order.paymentMethod === 'AT_VENUE'
 
   const lineItems = items.map(
     ({ tickets: _tickets, ticketType, attendeeNames: _staged, ...item }) => ({
@@ -868,7 +964,14 @@ export function toOrder(order, { buyerAddress = true, joinUrl = false } = {}) {
   const superseded = new Set(onThisOrder.map((ticket) => ticket.supersedesTicketId).filter(Boolean))
 
   const held = onThisOrder.filter((ticket) => heldByTheBuyer(ticket, order))
-  const tickets = held.map((ticket) => toOrderTicket(ticket, superseded))
+  const cancellations = new Map(venueCancellations.map((row) => [row.id, row]))
+  const tickets = held.map((ticket) =>
+    toOrderTicket(ticket, superseded, {
+      viewerUserId: order.userId ?? null,
+      currency: order.currency,
+      cancellations,
+    }),
+  )
 
   // For the buyer, of a paid order, while one of the tickets they hold still
   // admits. Nobody else, and never in a list.
@@ -887,6 +990,17 @@ export function toOrder(order, { buyerAddress = true, joinUrl = false } = {}) {
     items: lineItems,
     tickets,
     event: event ? toEventSummary(event) : null,
+    paymentMethod: order.paymentMethod ?? 'CARD',
+    feeGrossCents: order.feeGrossCents ?? order.feesCents ?? 0,
+    feeWaivedCents: order.feeWaivedCents ?? 0,
+    referralApplied: Boolean(referralCodeId) && (order.feeWaivedCents ?? 0) > 0,
+    fee: orderFeeTerms(order),
+    tax: orderTaxView(order),
+    venuePayment: atVenue ? venuePaymentStateOf(order) : null,
+    venueCancellations: venueCancellations.map((row) =>
+      toVenueCancellation(row, { reader: reader === 'BUYER' ? 'BUYER' : reader }),
+    ),
+    ...(reader === 'BUYER' ? {} : { feeSource: feeSource ?? 'SITE_DEFAULT' }),
   }
 }
 
@@ -935,6 +1049,9 @@ export const WALLET_INCLUDE = Object.freeze({
           userId: true,
           reference: true,
           status: true,
+          // What its ticket owes at the door is in the order's currency.
+          currency: true,
+          paymentMethod: true,
           event: {
             select: {
               id: true,
@@ -985,7 +1102,53 @@ export const WALLET_INCLUDE = Object.freeze({
     take: 1,
     select: { id: true, status: true, toEmail: true, expiresAt: true },
   },
+  // When and by whom a ticket was cancelled because it was not paid at the
+  // door (SPEC3-XI XU): never the reason's author's name on the wallet.
+  venueCancellation: { select: { createdAt: true, authority: true } },
 })
+
+/**
+ * What a ticket owes at the door, as its holder reads it (SPEC3 §11.3,
+ * SPEC3-XI §11.2): the amount, whether it was paid, when and by whom it was
+ * cancelled because it was not paid, and whether the reader paid it at the
+ * door themselves. A ticket paid at the door has been let in and can never be
+ * handed on again, so whoever holds a paid ticket paid for it (XT7). Null for
+ * a ticket that owes nothing there (a card order's, or a $0 share).
+ *
+ * @param {object} ticket A `Ticket` row with `venueDueCents`, `venuePaymentId`, `venueCancellationId` and `ownerUserId`.
+ * @param {object} options Options.
+ * @param {string|null} options.viewerUserId The account reading it.
+ * @param {string} options.currency The order's currency.
+ * @param {{createdAt: Date|string, authority: string}|null} [options.cancellation] The cancellation that cancelled it, when it was; the ticket's own `venueCancellation` when not given.
+ * @returns {object|null} A `ticketVenuePaymentSchema` payload, or null.
+ * @throws {TypeError} For a cancelled ticket read without its cancellation: guessing who cancelled it would tell a holder something untrue.
+ */
+export function ticketVenuePayment(ticket, { viewerUserId, currency, cancellation }) {
+  const dueCents = ticket.venueDueCents ?? 0
+
+  if (dueCents <= 0) return null
+
+  const cancelledBy = cancellation ?? ticket.venueCancellation ?? null
+
+  if ((ticket.venueCancellationId ?? null) !== null && !cancelledBy) {
+    throw new TypeError('ticketVenuePayment needs a cancelled ticket with its cancellation')
+  }
+
+  const paid = (ticket.venuePaymentId ?? null) !== null
+
+  return {
+    dueCents,
+    paid,
+    currency,
+    cancelled: cancelledBy
+      ? {
+          at: new Date(cancelledBy.createdAt).toISOString(),
+          by: cancelledBy.authority === 'PLATFORM_ROLE' ? 'DESI_EVENT' : 'ORGANISER',
+        }
+      : null,
+    paidAtDoorByYou: paid && Boolean(viewerUserId) && ticket.ownerUserId === viewerUserId,
+  }
+}
 
 /**
  * One row of somebody's ticket wallet.
@@ -1026,6 +1189,11 @@ export function toWalletTicket(ticket, { viewerUserId }) {
     credentialIssuedAt: _credentialIssuedAt,
     ownerUserId: _ownerUserId,
     supersedesTicketId: _supersedesTicketId,
+    // Sent as `venuePayment` below, never as columns.
+    venueDueCents: _venueDueCents,
+    venuePaymentId: _venuePaymentId,
+    venueCancellationId: _venueCancellationId,
+    venueCancellation: _venueCancellation,
     orderItem = null,
     eventSeat = null,
     transfers = [],
@@ -1104,6 +1272,12 @@ export function toWalletTicket(ticket, { viewerUserId }) {
     revokedReason: ticket.revokedReason ?? null,
     session: ticketSession(ticket),
     onlineJoinUrl: joinUrlFor(ticket, order, event),
+    // What it owes at the door, whether it was paid or cancelled unpaid, and
+    // whether this holder paid it (SPEC3 §11.3, SPEC3-XI §11.2).
+    venuePayment: ticketVenuePayment(ticket, {
+      viewerUserId,
+      currency: order?.currency ?? 'USD',
+    }),
   }
 }
 
@@ -1152,9 +1326,13 @@ export function heldByTheBuyer(ticket, order) {
  *
  * @param {object} ticket A `Ticket` row belonging to the order's buyer.
  * @param {Set<string>} superseded Ids that a later ticket on the same order replaced.
+ * @param {object} venue What its door payment is read with.
+ * @param {string|null} venue.viewerUserId The buyer's account.
+ * @param {string} venue.currency The order's currency.
+ * @param {Map<string, object>} venue.cancellations The order's cancellations of unpaid tickets, by id.
  * @returns {object} A payload satisfying `orderTicketSchema`.
  */
-function toOrderTicket(ticket, superseded) {
+function toOrderTicket(ticket, superseded, { viewerUserId, currency, cancellations }) {
   const {
     // Never outbound. The response schema would strip them anyway; naming them
     // here means a reader of this function can see that it was deliberate
@@ -1164,11 +1342,20 @@ function toOrderTicket(ticket, superseded) {
     credentialIssuedAt: _credentialIssuedAt,
     ownerUserId: _ownerUserId,
     supersedesTicketId: _supersedesTicketId,
+    // Sent as `venuePayment` below, never as columns.
+    venueDueCents: _venueDueCents,
+    venuePaymentId: _venuePaymentId,
+    venueCancellationId,
     ...rest
   } = ticket
 
   return {
     ...rest,
+    venuePayment: ticketVenuePayment(ticket, {
+      viewerUserId,
+      currency,
+      cancellation: venueCancellationId ? (cancellations.get(venueCancellationId) ?? null) : null,
+    }),
     // From the status, and deliberately not from `ownerUserId !== order.userId`.
     // `acceptTransfer` never rewrites the old row's owner, so the owner columns
     // are *equal* on a ticket the buyer has given away — the predicate that

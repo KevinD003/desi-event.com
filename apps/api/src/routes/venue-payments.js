@@ -1,45 +1,68 @@
 /**
  * An event's payments taken at the door and its bookings still unpaid there,
- * for the organiser's "Payments at the venue" page (SPEC3 §9.8):
- * `venuePayments.report`.
+ * for the organiser's "Payments at the venue" page (SPEC3 §9.8, SPEC3-XI
+ * §9.8): `venuePayments.report`.
  *
- * Registered by SPEC3's foundation stage so the contract and the FINANCE_VIEW
- * step-up are in place from the start; who may read it (`finance:view` in the
- * event's organisation, or platform `finance:view`; anybody else 404) is the
- * handler's, because the organisation is known only once the event is read.
- * The handler answers 501 `NOT_BUILT` until the next stage replaces it with
- * `lib/venue-payments.js`'s (SPEC3 §0.7).
+ * The contract runs the session and the FINANCE_VIEW step-up first. Who may
+ * read it is decided here, once the event is read, because the organisation is
+ * known only then: a member whose role holds `finance:view` in the event's
+ * organisation, or a platform role holding `finance:view`. Anybody else gets
+ * the same 404 as an event that does not exist. The money taken at the door is
+ * the organiser's; the report is what Desi-Event recorded of it
+ * (`lib/venue-payments.js`).
  *
  * @module @desi-event/api/routes/venue-payments
  */
 
-import { exposedServerError } from '../lib/errors.js'
+import { notFound } from '../lib/errors.js'
 import { defineRoute } from '../lib/register.js'
+import { venuePaymentReader, venuePaymentsReport } from '../lib/venue-payments.js'
 
-/** What a route answers until its handler is built. */
-const NOT_BUILT = 'NOT_BUILT'
-
-/**
- * The handler of a route registered before it was built: never cached, and a
- * 501 that says so.
- *
- * @param {object} _request The request.
- * @param {object} reply The reply.
- * @returns {Promise<never>} Never resolves.
- * @throws {Error} Always: 501 `NOT_BUILT`.
- */
-async function notBuilt(_request, reply) {
-  reply.header('cache-control', 'no-store, private')
-
-  throw exposedServerError(501, NOT_BUILT, 'This route has no handler in this build.')
-}
+/** The one answer for an event that does not exist and one the reader may not see. */
+const NO_SUCH_EVENT = 'No such event.'
 
 /**
  * Register the payments-at-the-venue report route.
  *
  * @param {object} app The Fastify instance.
+ * @param {object} deps Injected dependencies.
+ * @param {object} deps.prisma The Prisma client.
  * @returns {void} Nothing.
  */
-export function registerVenuePaymentRoutes(app) {
-  defineRoute(app, 'venuePayments.report', { handler: notBuilt })
+export function registerVenuePaymentRoutes(app, { prisma }) {
+  defineRoute(app, 'venuePayments.report', {
+    handler: async (request, reply) => {
+      // Who paid what at the door, and buyers' names: never cached anywhere.
+      reply.header('cache-control', 'no-store, private')
+
+      const event = await prisma.event.findUnique({
+        where: { id: request.params.id },
+        select: {
+          id: true,
+          organizationId: true,
+          status: true,
+          endsAt: true,
+          sessions: { select: { id: true, status: true, endsAt: true } },
+        },
+      })
+
+      if (!event) throw notFound(NO_SUCH_EVENT)
+
+      const reader = venuePaymentReader(request.actor, event.organizationId)
+
+      if (!reader) throw notFound(NO_SUCH_EVENT)
+
+      const { page, perPage } = request.query ?? {}
+
+      return {
+        data: await venuePaymentsReport(prisma, {
+          event,
+          actor: request.actor,
+          reader,
+          page,
+          perPage,
+        }),
+      }
+    },
+  })
 }

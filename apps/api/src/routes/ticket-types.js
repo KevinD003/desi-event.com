@@ -10,6 +10,8 @@ import { httpError } from '../lib/errors.js'
 import {
   AUTHORING_MODES,
   assertAuthorable,
+  assertFeeTermsCurrency,
+  assertHeldFeeTermsCurrency,
   authorChange,
   defaultTierCurrency,
   loadForAuthoring,
@@ -134,6 +136,9 @@ export function registerTicketTypeRoutes(app, { prisma }) {
         currency: request.body.currency ?? defaultTierCurrency(event),
       }
 
+      // The event's own booking fee is in one currency (SPEC3 DF3).
+      assertFeeTermsCurrency(event, body.currency)
+
       refuseProblems(
         tierCurrencyProblems(body, event.ticketTypes),
         'That ticket type is not coherent.',
@@ -170,6 +175,10 @@ export function registerTicketTypeRoutes(app, { prisma }) {
          * @returns {Promise<void>} Resolves when written.
          */
         write: async (tx) => {
+          // Again under the event's row: a fee saved since the read above
+          // does not move the revision (SPEC3 DF3, DF7).
+          await assertHeldFeeTermsCurrency(tx, event.id, body.currency)
+
           ticketType = await tx.ticketType.create({
             data: {
               ...body,

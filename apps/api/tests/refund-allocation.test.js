@@ -24,14 +24,19 @@ import {
   allocateNamedLines,
   canTransition,
   capNamedFace,
+  feeRefundQuote,
   isUnreservedLegacyRefund,
+  lineQuantityLeft,
+  orderBasis,
   orderParts,
   partsLeft,
+  partsSpokenFor,
   priceNamedLines,
   quoteNamedLines,
   refundPartsFor,
   refundableCents,
   seatPolicyFor,
+  shareBasisOf,
   splitRefund,
 } from '../src/lib/refunds.js'
 
@@ -707,5 +712,335 @@ describe('quoteNamedLines after a sum refunded without tickets', () => {
     expect(() =>
       allocateNamedLines({ items: free, lines: [{ orderItemId: 'kids', quantity: 1 }] }),
     ).toThrow(/worth nothing/u)
+  })
+})
+
+/**
+ * A pay-at-the-venue order (SPEC3 §10.2): two $40 tickets owed at the door,
+ * $6 of booking fee and no tax paid online.
+ */
+const VENUE_ORDER = Object.freeze({
+  id: 'venue-order',
+  paymentMethod: 'AT_VENUE',
+  subtotalCents: 8_000,
+  discountCents: 0,
+  venueDueCents: 8_000,
+  feesCents: 600,
+  taxCents: 0,
+  totalCents: 600,
+})
+
+/** Its one line of two tickets. */
+const VENUE_LINES = Object.freeze([
+  line({ id: 'door', quantity: 2, unitPriceCents: 4_000, subtotalCents: 8_000 }),
+])
+
+/** No refund in flight on any line. */
+const NOTHING_PENDING = Object.freeze({ quantities: new Map(), cents: new Map() })
+
+/**
+ * A transaction client that holds some refund rows and no refund lines.
+ *
+ * @param {Array<object>} rows `Refund` rows.
+ * @returns {object} Enough of a client for {@link partsSpokenFor}.
+ */
+const holding = (rows) => ({
+  refund: { findMany: async () => rows },
+  refundItem: { findMany: async () => [] },
+})
+
+describe('orders paid at the venue (SPEC3 §10.2)', () => {
+  it('has no face value online: the parts are its booking fee and tax, and its basis is the net ticket price', () => {
+    expect(orderParts(VENUE_ORDER)).toEqual({ faceValueCents: 0, feeCents: 600, taxCents: 0 })
+    expect(orderBasis(VENUE_ORDER)).toBe(8_000)
+    // A card order's basis is its face value, so card orders compute as before.
+    expect(orderBasis(FEE_ORDER)).toBe(orderParts(FEE_ORDER).faceValueCents)
+  })
+
+  it('splits a sum with face value 0: all of it fee and tax', () => {
+    expect(splitRefund(VENUE_ORDER, 600)).toEqual({ faceValueCents: 0, feeCents: 600, taxCents: 0 })
+    expect(splitRefund(VENUE_ORDER, 250)).toEqual({ faceValueCents: 0, feeCents: 250, taxCents: 0 })
+  })
+
+  it('gives a ticket back its share of the fee by its basis, and nothing of a face value it never paid online', () => {
+    const parts = orderParts(VENUE_ORDER)
+    const share = shareBasisOf(VENUE_ORDER, { faceValueCents: 0, feeCents: 0, taxCents: 0 })
+    const quoted = quoteNamedLines({
+      items: VENUE_LINES,
+      lines: [{ orderItemId: 'door', quantity: 1 }],
+      pending: NOTHING_PENDING,
+      discountCents: 0,
+      parts,
+      left: parts,
+      share,
+    })
+
+    expect(quoted.basis).toBe(4_000)
+    // Every RefundItem of it is worth 0 online.
+    expect(quoted.named).toEqual({
+      allocation: [{ orderItemId: 'door', amountCents: 0, quantity: 1 }],
+      amountCents: 0,
+    })
+    expect(quoted.split).toEqual({ faceValueCents: 0, feeCents: 300, taxCents: 0 })
+    expect(quoted.amountCents).toBe(300)
+  })
+
+  it('shares the rest exactly once one ticket was refunded, by the basis that refund spoke for', async () => {
+    const parts = orderParts(VENUE_ORDER)
+    const first = {
+      id: 'first',
+      status: 'SUCCEEDED',
+      amountCents: 300,
+      allocation: {
+        faceValueCents: 0,
+        feeCents: 300,
+        taxCents: 0,
+        basisCents: 4_000,
+        form: 'lines',
+      },
+    }
+    const spoken = await partsSpokenFor(holding([first]), VENUE_ORDER)
+
+    expect(spoken).toMatchObject({ faceValueCents: 0, feeCents: 300, basisCents: 4_000 })
+
+    const quoted = quoteNamedLines({
+      items: [{ ...VENUE_LINES[0], refundedQuantity: 1 }],
+      lines: [{ orderItemId: 'door', quantity: 1 }],
+      pending: NOTHING_PENDING,
+      discountCents: 0,
+      parts,
+      left: partsLeft(parts, spoken),
+      share: shareBasisOf(VENUE_ORDER, spoken),
+    })
+
+    // 300 and 300: the two refunds sum to the fee exactly.
+    expect(quoted.split).toEqual({ faceValueCents: 0, feeCents: 300, taxCents: 0 })
+  })
+
+  it('reads an allocation stored without a basis as its face value (every refund before this build)', async () => {
+    const legacy = {
+      id: 'legacy',
+      status: 'SUCCEEDED',
+      amountCents: 1_199,
+      allocation: { faceValueCents: 1_000, feeCents: 108, taxCents: 91, form: 'lines' },
+    }
+    const stamped = {
+      id: 'stamped',
+      status: 'SUCCEEDED',
+      amountCents: 1_199,
+      allocation: {
+        faceValueCents: 1_000,
+        feeCents: 108,
+        taxCents: 91,
+        basisCents: 1_000,
+        form: 'lines',
+      },
+    }
+
+    expect((await partsSpokenFor(holding([legacy]), FEE_ORDER)).basisCents).toBe(1_000)
+    expect(await partsSpokenFor(holding([legacy]), FEE_ORDER)).toEqual(
+      await partsSpokenFor(holding([stamped]), FEE_ORDER),
+    )
+  })
+
+  it('does not share out again the tax a booking-fee refund gave back (2 × $40 at 825 bps: 330 and 330, not 357 and 303)', async () => {
+    // A card order: N = 8,000, F = 667, T = applyBps(8,667, 825) = 715. The
+    // booking fee refunded on its own took 667 and its tax share, 55.
+    const order = {
+      id: 'taxed-card',
+      subtotalCents: 8_000,
+      discountCents: 0,
+      feesCents: 667,
+      taxCents: 715,
+      totalCents: 9_382,
+    }
+    const items = [line({ id: 'pair', quantity: 2, unitPriceCents: 4_000, subtotalCents: 8_000 })]
+    const parts = orderParts(order)
+    const feeRefund = {
+      id: 'fee',
+      status: 'SUCCEEDED',
+      amountCents: 722,
+      allocation: { faceValueCents: 0, feeCents: 667, taxCents: 55, basisCents: 0, form: 'fee' },
+    }
+    const ask = async (rows, refunded) => {
+      const spoken = await partsSpokenFor(holding(rows), order)
+
+      return quoteNamedLines({
+        items: [{ ...items[0], refundedQuantity: refunded }],
+        lines: [{ orderItemId: 'pair', quantity: 1 }],
+        pending: NOTHING_PENDING,
+        discountCents: 0,
+        parts,
+        left: partsLeft(parts, spoken),
+        share: shareBasisOf(order, spoken),
+      })
+    }
+
+    const first = await ask([feeRefund], 0)
+
+    expect(first.split).toEqual({ faceValueCents: 4_000, feeCents: 0, taxCents: 330 })
+
+    const second = await ask(
+      [
+        feeRefund,
+        {
+          id: 'one',
+          status: 'SUCCEEDED',
+          amountCents: 4_330,
+          allocation: { ...first.split, basisCents: 4_000, form: 'lines' },
+        },
+      ],
+      1,
+    )
+
+    expect(second.split).toEqual({ faceValueCents: 4_000, feeCents: 0, taxCents: 330 })
+    // Every cent of tax given back, exactly once.
+    expect(55 + first.split.taxCents + second.split.taxCents).toBe(715)
+  })
+
+  it('leaves a card order’s line refund exactly as it was', () => {
+    const parts = orderParts(FEE_ORDER)
+    const before = quoteNamedLines({
+      items: FEE_LINES,
+      lines: [{ orderItemId: 'balcony', quantity: 1 }],
+      pending: NOTHING_PENDING,
+      discountCents: FEE_ORDER.discountCents,
+      parts,
+      left: parts,
+    })
+    const after = quoteNamedLines({
+      items: FEE_LINES,
+      lines: [{ orderItemId: 'balcony', quantity: 1 }],
+      pending: NOTHING_PENDING,
+      discountCents: FEE_ORDER.discountCents,
+      parts,
+      left: parts,
+      share: shareBasisOf(FEE_ORDER, { faceValueCents: 0, feeCents: 0, taxCents: 0 }),
+    })
+
+    expect(after.split).toEqual(before.split)
+    expect(after.named).toEqual(before.named)
+  })
+})
+
+describe('a booking fee kept when unpaid tickets were cancelled (SPEC3-XI §10.2)', () => {
+  // 2 × $45 at the site default: N = 9,000, F = 531 + 198 = 729. One ticket
+  // was cancelled unpaid: its basis 4,500, its share of the fee kept, 364.
+  const KEPT_ORDER = Object.freeze({
+    id: 'kept-order',
+    paymentMethod: 'AT_VENUE',
+    subtotalCents: 9_000,
+    discountCents: 0,
+    venueDueCents: 9_000,
+    feesCents: 729,
+    taxCents: 0,
+    totalCents: 729,
+    refundedCents: 0,
+    refundPendingCents: 0,
+    venueCancelledBasisCents: 4_500,
+    venueFeeKeptCents: 364,
+  })
+  const KEPT_LINES = Object.freeze([
+    line({
+      id: 'pair',
+      quantity: 2,
+      unitPriceCents: 4_500,
+      subtotalCents: 9_000,
+      venueCancelledQuantity: 1,
+    }),
+  ])
+
+  it('is never refundable: what is left excludes it, and a card order computes as before', () => {
+    expect(refundableCents(KEPT_ORDER)).toBe(365)
+    expect(refundableCents({ ...KEPT_ORDER, refundPendingCents: 365 })).toBe(0)
+    // Every kept column is 0 on a card order.
+    expect(
+      refundableCents({ totalCents: 7_200, refundedCents: 1_000, refundPendingCents: 0 }),
+    ).toBe(6_200)
+  })
+
+  it('is spoken for, with the cancelled tickets’ basis, by every form', async () => {
+    const spoken = await partsSpokenFor(holding([]), KEPT_ORDER)
+
+    expect(spoken).toMatchObject({
+      faceValueCents: 0,
+      feeCents: 364,
+      taxCents: 0,
+      basisCents: 4_500,
+    })
+    expect(partsLeft(orderParts(KEPT_ORDER), spoken)).toEqual({
+      faceValueCents: 0,
+      feeCents: 365,
+      taxCents: 0,
+    })
+    // A card order speaks for nothing it did not refund.
+    expect(await partsSpokenFor(holding([]), FEE_ORDER)).toMatchObject({
+      faceValueCents: 0,
+      feeCents: 0,
+      taxCents: 0,
+      basisCents: 0,
+    })
+  })
+
+  it('leaves the other ticket exactly the rest: its refund by name is 365 (729 = 364 + 365)', async () => {
+    const parts = orderParts(KEPT_ORDER)
+    const spoken = await partsSpokenFor(holding([]), KEPT_ORDER)
+    const quoted = quoteNamedLines({
+      items: KEPT_LINES,
+      lines: [{ orderItemId: 'pair', quantity: 1 }],
+      pending: NOTHING_PENDING,
+      discountCents: 0,
+      parts,
+      left: partsLeft(parts, spoken),
+      share: shareBasisOf(KEPT_ORDER, spoken),
+    })
+
+    expect(quoted.split).toEqual({ faceValueCents: 0, feeCents: 365, taxCents: 0 })
+    expect(364 + quoted.amountCents).toBe(729)
+  })
+
+  it('refunds exactly what is left on a whole refund', async () => {
+    const parts = orderParts(KEPT_ORDER)
+    const left = partsLeft(parts, await partsSpokenFor(holding([]), KEPT_ORDER))
+
+    expect(
+      refundPartsFor({ parts, left, form: 'whole', amountCents: refundableCents(KEPT_ORDER) }),
+    ).toEqual({ faceValueCents: 0, feeCents: 365, taxCents: 0 })
+  })
+
+  it('leaves the booking fee on its own only what is not kept, and nothing once all of it is', async () => {
+    expect(await feeRefundQuote(holding([]), KEPT_ORDER)).toMatchObject({
+      feeCents: 365,
+      taxCents: 0,
+      amountCents: 365,
+    })
+    expect(
+      await feeRefundQuote(holding([]), {
+        ...KEPT_ORDER,
+        venueCancelledBasisCents: 9_000,
+        venueFeeKeptCents: 729,
+      }),
+    ).toMatchObject({ feeCents: 0, amountCents: 0 })
+  })
+
+  it('counts a cancelled ticket as gone at every quantity-left site: never offered, never refunded', () => {
+    expect(lineQuantityLeft(KEPT_LINES[0])).toBe(1)
+    expect(lineQuantityLeft(KEPT_LINES[0], 1)).toBe(0)
+    // A card order's line, which has no cancelled tickets, computes as before.
+    expect(lineQuantityLeft(line({ refundedQuantity: 1 }))).toBe(1)
+
+    expect(() =>
+      priceNamedLines({
+        items: KEPT_LINES,
+        lines: [{ orderItemId: 'pair', quantity: 2 }],
+        pendingByLine: new Map(),
+        discountCents: 0,
+        roomByLine: new Map([['pair', 9_000]]),
+      }),
+    ).toThrowError(expect.objectContaining({ statusCode: 422 }))
+
+    const whole = allocateAcrossLines({ items: KEPT_LINES, amountCents: 0, whole: true })
+
+    expect(whole.reduce((sum, row) => sum + row.quantity, 0)).toBe(1)
   })
 })

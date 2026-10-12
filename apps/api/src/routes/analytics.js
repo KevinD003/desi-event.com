@@ -268,7 +268,9 @@ function exportRows(view) {
         quantity: group.quantity,
         amountCents: group.lineValueCents,
         currency: group.currency,
-        note: `${group.refundedQuantity} refunded`,
+        // Places cancelled unpaid went back to stock and are not in the
+        // quantity (SPEC3-XI §9.10); the note says how many.
+        note: `${group.refundedQuantity} refunded, ${group.cancelledQuantity ?? 0} cancelled unpaid`,
       })
     }
   }
@@ -318,6 +320,57 @@ function exportRows(view) {
 
   for (const missing of view.funnel.missing) {
     rows.push({ section: 'Funnel', label: 'Not counted', note: missing })
+  }
+
+  // Paying at the venue (SPEC3 §9.10), in the screen's own words, when the
+  // scope has any of it.
+  const bookedUnpaid = view.funnel.atVenue?.bookedUnpaid ?? 0
+  const venue = view.venuePayments ?? null
+
+  if (bookedUnpaid > 0) {
+    rows.push({
+      section: 'Paying at the venue',
+      label: 'Orders waiting for payment at the door',
+      code: 'bookedUnpaid',
+      quantity: bookedUnpaid,
+      note: `${bookedUnpaid} orders booked to pay at the venue are waiting for payment at the door and are not counted as paid.`,
+    })
+  }
+
+  if (venue && (venue.ticketsUnpaid > 0 || venue.paidAtDoorCents > 0)) {
+    rows.push({
+      section: 'Paying at the venue',
+      label: 'Tickets booked to pay at the venue, not paid',
+      code: 'ticketsUnpaid',
+      quantity: venue.ticketsUnpaid,
+      amountCents: venue.unpaidCents,
+      currency: view.currency,
+      note: 'Tickets booked to pay at the venue are in the ticket counts.',
+    })
+    rows.push({
+      section: 'Paying at the venue',
+      label: 'Paid at the door',
+      code: 'paidAtDoor',
+      amountCents: venue.paidAtDoorCents,
+      currency: view.currency,
+      note: 'What is paid at the door is taken by the organiser and is not in the money figures, which come from the ledger.',
+    })
+  }
+
+  // Unpaid tickets cancelled (SPEC3-XI §9.10): freed, which is not the same
+  // as back on sale, so the row says freed.
+  const cancelled = venue?.cancelledUnpaidTickets ?? 0
+
+  if (cancelled > 0) {
+    const one = cancelled === 1
+
+    rows.push({
+      section: 'Paying at the venue',
+      label: 'Unpaid tickets cancelled',
+      code: 'cancelledUnpaidTickets',
+      quantity: cancelled,
+      note: `${cancelled} unpaid ${one ? 'ticket' : 'tickets'} booked to pay at the venue ${one ? 'was' : 'were'} cancelled, and ${one ? 'its place was' : 'their places were'} freed.`,
+    })
   }
 
   return rows
@@ -374,7 +427,7 @@ export function registerAnalyticsRoutes(app, { prisma, providers }) {
       prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } }),
     ])
 
-    const { money, sales, ...rest } = analytics
+    const { money, sales, venuePayments, ...rest } = analytics
 
     return {
       organizationId,
@@ -405,6 +458,9 @@ export function registerAnalyticsRoutes(app, { prisma, providers }) {
           }
         : null,
       ...rest,
+      // What is owed and taken at the door is money too, though never the
+      // platform's: withheld with the money figures (SPEC3 §9.10).
+      venuePayments: moneyVisible ? venuePayments : undefined,
     }
   }
 

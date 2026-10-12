@@ -39,7 +39,8 @@ import {
   listMediaQueue,
 } from '../lib/event-media.js'
 import { EVENT_SUMMARY_SELECT, toEventDetail, toEventSummary } from '../lib/presenters.js'
-import { feeConfigFor } from './orders.js'
+import { eventFeeConfig } from '../lib/checkout-pricing.js'
+import { eventPaymentTerms } from '../lib/payment-terms.js'
 import { defineRoute } from '../lib/register.js'
 import { WEBSITE_REDIRECT_INCLUDE, websiteViewFor } from '../lib/website-redirect.js'
 
@@ -93,7 +94,11 @@ function assertReviewedRevision(event, reviewed) {
  * @returns {void} Nothing.
  */
 export function registerModerationRoutes(app, { prisma, env, mediaStorage }) {
-  const pricing = env ? { feeConfigFor: (currency) => feeConfigFor(env, currency) } : {}
+  // The event's own booking fee when the Desi-Event team set one, else the
+  // site default: the terms checkout charges (SPEC3 §7.2).
+  const pricing = env
+    ? { feeConfigFor: (currency, event) => eventFeeConfig(env, event, currency) }
+    : {}
 
   defineRoute(app, 'moderation.queue', {
     handler: async (request) => {
@@ -189,6 +194,7 @@ export function registerModerationRoutes(app, { prisma, env, mediaStorage }) {
           includeDraftTiers: true,
           includeOnlineUrl: true,
           website: websiteViewFor(request.actor, full),
+          paymentTerms: await eventPaymentTerms(prisma, full, { actor: request.actor, env }),
           ...pricing,
         }),
       }

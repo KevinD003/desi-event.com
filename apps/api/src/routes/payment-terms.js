@@ -3,36 +3,30 @@
  * for the Desi-Event team (SPEC3 §7, §9.1): `paymentTerms.get`,
  * `paymentTerms.setFee` and `paymentTerms.setVenuePayment`.
  *
- * Registered by SPEC3's foundation stage so the contract, the guards and the
- * budget are in place from the start: the session, `payment_terms:manage` and
- * the PAYMENT_TERMS step-up come from the contract (`defineRoute`), and the two
- * writes share one `payment-terms` budget of sixty an hour per administrator.
- * The handlers answer 501 `NOT_BUILT` until the next stage replaces each one
- * with `lib/payment-terms.js`'s (SPEC3 §0.7: no stub ships).
+ * The session, `payment_terms:manage` and the PAYMENT_TERMS step-up come from
+ * the contract (`defineRoute`); the two writes share one `payment-terms`
+ * budget of sixty an hour per administrator, run after those guards so a
+ * refused caller spends nothing. The rules — any status but DELETED, never for
+ * an event sold on its listing's own site, never by a member of the event's
+ * organisation, compare-and-set, audit, history — are `lib/payment-terms.js`'s.
+ * Every answer is `no-store`.
  *
  * @module @desi-event/api/routes/payment-terms
  */
 
-import { exposedServerError } from '../lib/errors.js'
+import { paymentTermsAdminView, setEventFee, setVenuePayment } from '../lib/payment-terms.js'
 import { defineRoute } from '../lib/register.js'
 import { DEFAULT_PAYMENT_TERMS_LIMIT, actorBudget } from '../plugins/rate-limit.js'
 
-/** What a route answers until its handler is built. */
-const NOT_BUILT = 'NOT_BUILT'
-
 /**
- * The handler of a route registered before it was built: never cached, and a
- * 501 that says so.
+ * Mark a reply as never to be cached: these are administrators' reads of
+ * money settings.
  *
- * @param {object} _request The request.
  * @param {object} reply The reply.
- * @returns {Promise<never>} Never resolves.
- * @throws {Error} Always: 501 `NOT_BUILT`.
+ * @returns {void}
  */
-async function notBuilt(_request, reply) {
+function noStore(reply) {
   reply.header('cache-control', 'no-store, private')
-
-  throw exposedServerError(501, NOT_BUILT, 'This route has no handler in this build.')
 }
 
 /**
@@ -40,10 +34,12 @@ async function notBuilt(_request, reply) {
  *
  * @param {object} app The Fastify instance.
  * @param {object} deps Injected dependencies.
+ * @param {object} deps.prisma The Prisma client.
+ * @param {object} deps.env The parsed API environment, for the site default.
  * @param {{max?: number, timeWindow?: string|number}} [deps.paymentTermsLimit] Overrides for the `payment-terms` budget.
  * @returns {void} Nothing.
  */
-export function registerPaymentTermsRoutes(app, { paymentTermsLimit = {} } = {}) {
+export function registerPaymentTermsRoutes(app, { prisma, env, paymentTermsLimit = {} } = {}) {
   // One budget for both writes: a change of fee and a change of the switch
   // draw on the same sixty an hour (SPEC3 §4.4).
   const budget = actorBudget({
@@ -52,7 +48,69 @@ export function registerPaymentTermsRoutes(app, { paymentTermsLimit = {} } = {})
     ...paymentTermsLimit,
   })
 
-  defineRoute(app, 'paymentTerms.get', { handler: notBuilt })
-  defineRoute(app, 'paymentTerms.setFee', { preHandler: [budget], handler: notBuilt })
-  defineRoute(app, 'paymentTerms.setVenuePayment', { preHandler: [budget], handler: notBuilt })
+  defineRoute(app, 'paymentTerms.get', {
+    handler: async (request, reply) => {
+      noStore(reply)
+
+      return {
+        data: await paymentTermsAdminView(prisma, request.params.id, {
+          env,
+          before: request.query?.before ?? null,
+        }),
+      }
+    },
+  })
+
+  defineRoute(app, 'paymentTerms.setFee', {
+    preHandler: [budget],
+    handler: async (request, reply) => {
+      noStore(reply)
+
+      const body = request.body
+
+      await setEventFee(prisma, {
+        eventId: request.params.id,
+        source: body.source,
+        percentageBps: body.source === 'EVENT' ? body.percentageBps : null,
+        flatCentsPerTicket: body.source === 'EVENT' ? body.flatCentsPerTicket : null,
+        reason: body.reason,
+        expectedSequence: body.expectedSequence,
+        actor: request.actor,
+        now: new Date(),
+      })
+
+      request.log.info(
+        { eventId: request.params.id, source: body.source },
+        'event booking fee changed',
+      )
+
+      return { data: await paymentTermsAdminView(prisma, request.params.id, { env }) }
+    },
+  })
+
+  defineRoute(app, 'paymentTerms.setVenuePayment', {
+    preHandler: [budget],
+    handler: async (request, reply) => {
+      noStore(reply)
+
+      const body = request.body
+
+      await setVenuePayment(prisma, {
+        eventId: request.params.id,
+        enabled: body.enabled,
+        limit: body.limit ?? null,
+        reason: body.reason,
+        seen: body.seen,
+        actor: request.actor,
+        now: new Date(),
+      })
+
+      request.log.info(
+        { eventId: request.params.id, enabled: body.enabled },
+        'event pay-at-the-venue setting changed',
+      )
+
+      return { data: await paymentTermsAdminView(prisma, request.params.id, { env }) }
+    },
+  })
 }

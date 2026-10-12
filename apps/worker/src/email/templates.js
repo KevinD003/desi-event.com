@@ -231,6 +231,13 @@ function nightLine(data) {
  */
 function nightOutcomeLine(data) {
   const order = orderPhrase(data)
+
+  // A booking paid at the venue: only its booking fee was paid online, so
+  // that is what a cancelled night refunds (SPEC3 §9.9).
+  if (data?.atVenue === true && data?.outcome === 'REFUNDED') {
+    return `Your tickets from ${order} for that night are withdrawn. The booking fee you paid online for them is refunded (simulated).`
+  }
+
   const lines = {
     REFUNDED: `Your tickets from ${order} for that night are refunded in full.`,
     KEPT: `Your ticket from ${order} is valid for every night, so you keep it for the others.`,
@@ -239,6 +246,7 @@ function nightOutcomeLine(data) {
     DISPUTED: `Your tickets from ${order} for that night are withdrawn. Your payment is under dispute, so any refund is handled with the dispute.`,
     UNPAID: `${orderPhrase(data, true)} was not paid, so it is cancelled and nothing is charged.`,
     NOT_SENT: `Your tickets from ${order} for that night are withdrawn. Their refund was not sent automatically, so contact the organiser about it.`,
+    NOTHING_PAID_ONLINE: `Your tickets from ${order} for that night are withdrawn. Nothing was paid online for them.`,
   }
 
   if (typeof data?.outcome === 'string' && Object.hasOwn(lines, data.outcome)) {
@@ -249,6 +257,111 @@ function nightOutcomeLine(data) {
   if (data?.refunded === false) return lines.FREE
 
   return lines.REFUNDED
+}
+
+/**
+ * An amount of door money, as a sentence names it, or null when there is
+ * none to name.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @param {string} key The cents field.
+ * @returns {string|null} The formatted amount, or null for nothing above 0.
+ */
+function doorAmountOf(data, key) {
+  const cents = data?.[key]
+
+  if (!Number.isInteger(cents) || cents <= 0) return null
+
+  return formatCents(cents, field(data, 'currency', 'INR'))
+}
+
+/**
+ * What a cancellation notice says about money taken at the door for a
+ * booking paid at the venue (SPEC3 §9.9, SPEC3-XI XT7): what the buyer paid
+ * there for the tickets they hold is with the organiser, and so is what people
+ * they passed tickets to paid there. Desi-Event never holds door money.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string[]} The lines; none when nothing was paid at the door.
+ */
+function doorMoneyLines(data) {
+  const own = doorAmountOf(data, 'paidAtDoorCents')
+  const others = doorAmountOf(data, 'paidAtDoorByOthersCents')
+
+  return [
+    own === null
+      ? ''
+      : `The ${own} you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+    others === null
+      ? ''
+      : `${others} was paid at the door by people you passed tickets to; it is with the organiser.`,
+  ]
+}
+
+/**
+ * Whether anything was paid at the door for a booking, by the buyer or by
+ * people they passed tickets to: then the notice does not say that nothing
+ * further is needed.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {boolean} True when there is door money to ask back.
+ */
+function paidAtDoor(data) {
+  return (
+    doorAmountOf(data, 'paidAtDoorCents') !== null ||
+    doorAmountOf(data, 'paidAtDoorByOthersCents') !== null
+  )
+}
+
+/**
+ * What a cancelled event means for a booking paid at the venue (SPEC3 §9.9),
+ * by what became of its booking fee paid online (`onlineRefund`): being
+ * refunded, nothing paid online, refunded earlier, kept by Desi-Event when
+ * unpaid tickets were cancelled (SPEC3-XI XU6), or held by a dispute.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string} The line.
+ */
+function venueCancelledLine(data) {
+  const reference = field(data, 'orderReference', '')
+  const opening = `Your tickets on ${reference === '' ? 'your order' : `order ${reference}`} were to be paid at the door.`
+  const lines = {
+    REQUESTED: `${opening} The booking fee you paid online is being refunded (simulated).`,
+    NONE_PAID: `${opening} Nothing was paid online for them.`,
+    ALREADY_REFUNDED: `${opening} The booking fee you paid online was refunded earlier.`,
+    FEE_KEPT: `${opening} The booking fee paid online for tickets cancelled because they were not paid for was kept by Desi-Event, and nothing else paid online is left to refund.`,
+    DISPUTED: `${opening} Your payment is under dispute, so any refund is handled with the dispute.`,
+  }
+
+  if (typeof data?.onlineRefund === 'string' && Object.hasOwn(lines, data.onlineRefund)) {
+    return lines[data.onlineRefund]
+  }
+
+  return `${opening} The booking fee paid online was not refunded automatically, so contact the organiser about it.`
+}
+
+/**
+ * What a cancellation notice tells an account that holds a ticket of
+ * somebody else's booking and paid for it at the door (SPEC3-XI XT7): that
+ * money is with the organiser. For the whole event, or for one night of it.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @param {boolean} night Whether a night was cancelled rather than the event.
+ * @returns {string[]} The body lines.
+ */
+function holderDoorLines(data, night) {
+  const title = field(data, 'eventTitle', 'The event')
+  const label = field(data, 'sessionLabel', '')
+  const amount = doorAmountOf(data, 'paidAtDoorCents') ?? 'The money'
+  const what = night
+    ? `${label === '' ? 'One night' : label} of ${title} was cancelled.`
+    : `${title} was cancelled.`
+
+  return [
+    'Hello,',
+    what,
+    `${amount === 'The money' ? amount : `The ${amount}`} you paid at the door for it is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+  ]
 }
 
 /**
@@ -396,17 +509,43 @@ export const TEMPLATES = Object.freeze({
   // client, and renaming it here would mean two names for one message.
   // ---------------------------------------------------------------------
 
-  'event.cancelled': (data) => ({
-    subject: `${field(data, 'eventTitle', 'An event you booked')} has been cancelled`,
-    heading: 'The event has been cancelled',
-    lines: [
-      'Hello,',
-      `${field(data, 'eventTitle', 'The event')} has been cancelled by ${byWhom(data)}.`,
-      field(data, 'reason', ''),
-      `This affects ${orderPhrase(data)}.`,
-      'A refund has been requested. Nothing further is needed from you.',
-    ],
-  }),
+  'event.cancelled': (data) => {
+    const subject = `${field(data, 'eventTitle', 'An event you booked')} has been cancelled`
+    const heading = 'The event has been cancelled'
+
+    // An account that paid at the door for a ticket of somebody else's
+    // booking (SPEC3-XI XT7): only that its money is with the organiser.
+    if (data?.recipient === 'HOLDER') {
+      return { subject, heading, lines: holderDoorLines(data, false) }
+    }
+
+    if (data?.atVenue === true) {
+      return {
+        subject,
+        heading,
+        lines: [
+          'Hello,',
+          `${field(data, 'eventTitle', 'The event')} has been cancelled by ${byWhom(data)}.`,
+          field(data, 'reason', ''),
+          venueCancelledLine(data),
+          ...doorMoneyLines(data),
+          paidAtDoor(data) ? '' : 'Nothing further is needed from you.',
+        ],
+      }
+    }
+
+    return {
+      subject,
+      heading,
+      lines: [
+        'Hello,',
+        `${field(data, 'eventTitle', 'The event')} has been cancelled by ${byWhom(data)}.`,
+        field(data, 'reason', ''),
+        `This affects ${orderPhrase(data)}.`,
+        'A refund has been requested. Nothing further is needed from you.',
+      ],
+    }
+  },
 
   'event.postponed': (data) => ({
     subject: `${field(data, 'eventTitle', 'An event you booked')} has been postponed`,
@@ -435,13 +574,19 @@ export const TEMPLATES = Object.freeze({
   'event.session_cancelled': (data) => ({
     subject: `A night of ${field(data, 'eventTitle', 'an event you booked')} has been cancelled`,
     heading: 'A night of your event has been cancelled',
-    lines: [
-      'Hello,',
-      `${byWhom(data, true)} has cancelled one night of ${field(data, 'eventTitle', 'your event')}.`,
-      nightLine(data),
-      field(data, 'reason', ''),
-      nightOutcomeLine(data),
-    ],
+    lines:
+      // An account that paid at the door for a ticket of somebody else's
+      // booking (SPEC3-XI XT7): only that its money is with the organiser.
+      data?.recipient === 'HOLDER'
+        ? holderDoorLines(data, true)
+        : [
+            'Hello,',
+            `${byWhom(data, true)} has cancelled one night of ${field(data, 'eventTitle', 'your event')}.`,
+            nightLine(data),
+            field(data, 'reason', ''),
+            nightOutcomeLine(data),
+            ...(data?.atVenue === true ? doorMoneyLines(data) : []),
+          ],
   }),
 
   'ticket.issued': (data) => ({
@@ -455,15 +600,23 @@ export const TEMPLATES = Object.freeze({
     ],
   }),
 
-  'ticket.transfer.invited': (data) => ({
-    subject: `${field(data, 'fromName', 'Somebody')} wants to send you a ticket`,
-    heading: 'A ticket is waiting for you',
-    lines: [
-      'Hello,',
-      `${field(data, 'fromName', 'Somebody')} has offered you a ticket for ${field(data, 'eventTitle', 'an event')}.`,
-      'Open your account to accept it. The offer expires, and until you accept it the ticket stays with them.',
-    ],
-  }),
+  'ticket.transfer.invited': (data) => {
+    // A ticket booked to pay at the door keeps what it owes (SPEC3-XI XT6).
+    const due = doorAmountOf(data, 'venueDueCents')
+
+    return {
+      subject: `${field(data, 'fromName', 'Somebody')} wants to send you a ticket`,
+      heading: 'A ticket is waiting for you',
+      lines: [
+        'Hello,',
+        `${field(data, 'fromName', 'Somebody')} has offered you a ticket for ${field(data, 'eventTitle', 'an event')}.`,
+        due === null
+          ? ''
+          : `This ticket was booked to pay at the door: whoever holds it pays ${due} at the door.`,
+        'Open your account to accept it. The offer expires, and until you accept it the ticket stays with them.',
+      ],
+    }
+  },
 
   'ticket.transfer.completed': (data) => ({
     subject: `Your ticket for ${field(data, 'eventTitle', 'your event')} has been handed on`,

@@ -46,7 +46,8 @@ import {
   toEventDetail,
   toEventSummary,
 } from '../lib/presenters.js'
-import { feeConfigFor } from './orders.js'
+import { eventFeeConfig } from '../lib/checkout-pricing.js'
+import { eventPaymentTerms } from '../lib/payment-terms.js'
 import { loadEventFacets } from '../lib/facets.js'
 import {
   WEBSITE_REDIRECT_INCLUDE,
@@ -724,10 +725,25 @@ export function tierWindowMoves(event, { startsAt, moves, proposed }) {
  * @returns {void} Nothing.
  */
 export function registerEventRoutes(app, { prisma, env }) {
-  // One ticket of the cheapest tier, priced with checkout's own fee terms, so a
-  // card's "from" price is the price and not the face value.
-  const pricing = env ? { feeConfigFor: (currency) => feeConfigFor(env, currency) } : {}
+  // One ticket of the cheapest tier, priced with checkout's own fee terms —
+  // the event's own booking fee when the Desi-Event team set one, else the
+  // site default (SPEC3 §7.2) — so a card's "from" price is the price and not
+  // the face value.
+  const pricing = env
+    ? { feeConfigFor: (currency, event) => eventFeeConfig(env, event, currency) }
+    : {}
   const summaryOptions = pricing
+
+  /**
+   * An event's booking fee and pay-at-the-venue switch for a detail, when the
+   * reader is its own team or the Desi-Event team; undefined for everybody
+   * else, so the key stays out (SPEC3 §7.2, §11.3).
+   *
+   * @param {object} event The event as read.
+   * @param {object|null} actor The request actor.
+   * @returns {Promise<object|undefined>} The `paymentTerms` view, or undefined.
+   */
+  const paymentTermsFor = (event, actor) => eventPaymentTerms(prisma, event, { actor, env })
 
   defineRoute(app, 'events.facets', {
     handler: async () => ({ data: await loadEventFacets(prisma) }),
@@ -807,6 +823,7 @@ export function registerEventRoutes(app, { prisma, env }) {
           sessionsAvailability: seats.bySession,
           tierSeatsAvailable: seats.byTier,
           website: websiteViewFor(request.actor, event),
+          paymentTerms: await paymentTermsFor(event, request.actor),
           // A deleted event reaches only its own team and the Desi-Event team
           // (`assertVisibleTo`), who read its record.
           deletion: insider ? { platformReader: platformReader(request.actor) } : null,
@@ -863,6 +880,7 @@ export function registerEventRoutes(app, { prisma, env }) {
           includeDraftTiers: true,
           includeOnlineUrl: true,
           website: websiteViewFor(request.actor, event),
+          paymentTerms: await paymentTermsFor(event, request.actor),
           ...pricing,
         }),
       }
@@ -1048,6 +1066,7 @@ export function registerEventRoutes(app, { prisma, env }) {
           includeDraftTiers: true,
           includeOnlineUrl: true,
           website: websiteViewFor(request.actor, event),
+          paymentTerms: await paymentTermsFor(event, request.actor),
           ...pricing,
         }),
       }
@@ -1110,6 +1129,7 @@ export function registerEventRoutes(app, { prisma, env }) {
         includeDraftTiers: true,
         includeOnlineUrl: true,
         website: websiteViewFor(request.actor, full),
+        paymentTerms: await paymentTermsFor(full, request.actor),
         ...pricing,
       }),
     }
@@ -1401,6 +1421,7 @@ export function registerEventRoutes(app, { prisma, env }) {
           includeDraftTiers: true,
           includeOnlineUrl: true,
           website: websiteViewFor(request.actor, full),
+          paymentTerms: await paymentTermsFor(full, request.actor),
           ...pricing,
         }),
       }

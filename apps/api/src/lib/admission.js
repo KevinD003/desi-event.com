@@ -48,11 +48,37 @@
  * FINANCE_ADMIN and ADMIN (the platform administrator, who reviews events and
  * invites organisers) admit nobody, and a refused attempt is audited.
  *
- * Locks are taken in one order everywhere: the ticket, then the membership, then
- * the scope. The team routes lock the membership before touching its scopes, so
- * a confirmation and a role change cannot deadlock on each other. A group
- * admission (`./group-admission.js`) takes the order, the group pass and its
- * tickets (sorted by id) first, then the same membership and scope.
+ * ## One lock order for every confirmation (SPEC3 §9.3, SPEC3-XI §2)
+ *
+ * Card or not, single or group: the night the admission is written on
+ * (`FOR KEY SHARE`, the lock a `CheckIn` insert's foreign key takes anyway),
+ * then the order (`FOR SHARE`), then the ticket's order line (`FOR KEY
+ * SHARE`, the lock the ticket's foreign key takes when the admission updates
+ * the ticket twice), then the ticket (`FOR UPDATE`), then the membership and
+ * the scope (`FOR SHARE`). What the first locks need — the
+ * ticket's order and its night — is read without a lock first: both are fixed
+ * for the life of the rows. Every other writer of these rows takes them in the
+ * same order (night cancellation and deletion: tiers, night, orders, tickets;
+ * refunds and transfer acceptance: order, line, tickets), so a refund, a
+ * transfer acceptance or a night's cancellation that
+ * holds the order or the night never waits on a door that holds the ticket
+ * and waits for them. Two stewards both hold the order `FOR SHARE` and take
+ * turns on the ticket. The team routes lock the membership before touching its
+ * scopes, so a confirmation and a role change cannot deadlock on each other. A
+ * group admission (`./group-admission.js`) takes its nights, the order, the
+ * group pass, its tickets' lines and its tickets (each sorted by id), then the same membership and
+ * scope.
+ *
+ * ## Paying at the door (SPEC3 §9.3)
+ *
+ * A ticket booked to pay at the venue owes its share of the ticket price at the
+ * door. The preview says what to take (`payment`) and, for information, what
+ * else the same holder owes on the booking. The confirmation records the
+ * payment and the admission in one transaction (`./venue-payments.js`): without
+ * a payment it is refused `PAYMENT_DUE`; a payment for another amount is
+ * refused `PAYMENT_AMOUNT_MISMATCH`; nothing is recorded for a ticket that is
+ * not let in. A ticket cancelled because it was not paid for is refused
+ * `UNPAID_CANCELLED`.
  *
  * ## The method is derived, not declared
  *
@@ -98,7 +124,14 @@ import {
 import { ADMISSION_REFUSAL_REASONS, withoutAddresses } from '@desi-event/schemas'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
-import { conflict, databaseErrorCode, forbidden, notFound } from './errors.js'
+import {
+  conflict,
+  databaseErrorCode,
+  databaseRefusal,
+  forbidden,
+  notFound,
+  paymentTermsRefusal,
+} from './errors.js'
 import { likeLiteral } from './like-pattern.js'
 import { credentialDigest } from './ticket-credentials.js'
 import {
@@ -107,6 +140,12 @@ import {
   admissionRefusalCode,
   admit,
 } from './tickets.js'
+import {
+  VENUE_PAYMENT_VIA,
+  doorAmount,
+  paymentDueForPreview,
+  recordVenuePayment,
+} from './venue-payments.js'
 
 /**
  * The HKDF purpose for preview references. Distinct from the pass key, so a
@@ -183,6 +222,12 @@ export const ADMISSION_INCLUDE = Object.freeze({
           id: true,
           status: true,
           eventSessionId: true,
+          // What a door needs of a booking paid at the venue: its buyer (whose
+          // group pass covers their own tickets), how it is paid, and the
+          // currency the amount due is in. Never the buyer's address or totals.
+          userId: true,
+          paymentMethod: true,
+          currency: true,
           event: {
             select: {
               id: true,
@@ -580,6 +625,7 @@ export function toAdmissionSession(ticket) {
  * @param {string|null} options.previewReference The reference, when admissible.
  * @param {Date|null} options.previewExpiresAt When it lapses.
  * @param {{night: string|null, everyNight: boolean}|null} [options.context] The night, from {@link nightFor}.
+ * @param {object|null} [options.payment] What the ticket owes at the door, from `paymentDueForPreview`; null when nothing.
  * @returns {object} A payload satisfying `admissionPreviewResponseSchema`'s `data`.
  */
 export function toAdmissionPreview({
@@ -590,6 +636,7 @@ export function toAdmissionPreview({
   previewReference,
   previewExpiresAt,
   context = null,
+  payment = null,
 }) {
   // When it was let in on the night in question: tonight's admission for a
   // ticket good for every night, never last night's.
@@ -609,6 +656,9 @@ export function toAdmissionPreview({
       : (admission?.scannedAt ?? ticket.checkedInAt ?? null),
     previewReference,
     previewExpiresAt,
+    // What to take at the door, or that it was taken; null when nothing is
+    // due. Never a refusal: the confirmation takes the payment.
+    payment,
   }
 }
 
@@ -620,9 +670,10 @@ export function toAdmissionPreview({
  * @param {string} options.outcome `ADMITTED` or `ALREADY_CHECKED_IN`.
  * @param {string} options.actorId Who confirmed.
  * @param {{night: string|null, everyNight: boolean}|null} [options.context] The night, from {@link nightFor}.
+ * @param {{recordedCents: number, venuePaymentId: string, byThisRequest: boolean}|null} [options.payment] The payment taken at the door with this admission, or found recorded; null when the ticket owed nothing there.
  * @returns {object} A payload satisfying `checkInResponseSchema`'s `data`.
  */
-export function toAdmissionResult({ ticket, outcome, actorId, context = null }) {
+export function toAdmissionResult({ ticket, outcome, actorId, context = null, payment = null }) {
   // The admission this answer is about: tonight's, for a ticket good for
   // every night.
   const admission = admissionOn(ticket, context)
@@ -640,6 +691,26 @@ export function toAdmissionResult({ ticket, outcome, actorId, context = null }) 
     seat: toAdmissionSeat(ticket),
     session: toAdmissionSession(ticket),
     attendeeName: doorName(ticket.attendeeName),
+    payment,
+  }
+}
+
+/**
+ * A ticket's payment at the door as a confirmation reports it when this
+ * request did not record one: the payment already recorded for it (an
+ * every-night pass paid on an earlier night, or a retry that finds it
+ * admitted), or null when it owes nothing there.
+ *
+ * @param {object} ticket A ticket row.
+ * @returns {{recordedCents: number, venuePaymentId: string, byThisRequest: boolean}|null} The payment.
+ */
+export function recordedPaymentOf(ticket) {
+  if ((ticket?.venueDueCents ?? 0) <= 0 || !ticket.venuePaymentId) return null
+
+  return {
+    recordedCents: ticket.venueDueCents,
+    venuePaymentId: ticket.venuePaymentId,
+    byThisRequest: false,
   }
 }
 
@@ -786,6 +857,7 @@ function stringClaims(claims, keys) {
  * @param {string} options.actorId Who previewed it.
  * @param {string} options.method How it was presented.
  * @param {string|null} [options.night] The night the door said it was admitting to.
+ * @param {number} [options.dueCents] What the ticket owed at the door when it was looked up (0 when nothing), so a confirmation can tell a client's mistake from a change (SPEC3 §9.3).
  * @param {Date} options.expiresAt When the reference lapses.
  * @returns {string} The reference.
  */
@@ -797,6 +869,7 @@ export function signPreviewReference({
   actorId,
   method,
   night = null,
+  dueCents = 0,
   expiresAt,
 }) {
   return signReference({
@@ -810,9 +883,21 @@ export function signPreviewReference({
       a: actorId,
       m: method,
       n: night,
+      d: dueCents,
       x: expiresAt.getTime(),
     },
   })
+}
+
+/**
+ * Whether a due claim is well formed: absent (a reference signed before it
+ * existed), or a whole number of cents, 0 or more.
+ *
+ * @param {unknown} due The claim.
+ * @returns {boolean} True when it is.
+ */
+function dueClaim(due) {
+  return due === undefined || (Number.isInteger(due) && due >= 0)
 }
 
 /**
@@ -831,7 +916,10 @@ export function readPreviewReference({ secret, reference, now }) {
     reference,
     now,
     validate: (claims) =>
-      claims.v === 1 && stringClaims(claims, ['t', 'e', 'o', 'a', 'm']) && nightClaim(claims.n),
+      claims.v === 1 &&
+      stringClaims(claims, ['t', 'e', 'o', 'a', 'm']) &&
+      nightClaim(claims.n) &&
+      dueClaim(claims.d),
   })
 }
 
@@ -851,6 +939,7 @@ export function readPreviewReference({ secret, reference, now }) {
  * @param {string} options.actorId Who looked it up.
  * @param {string} options.method How it was presented.
  * @param {string[]} options.ticketIds The tickets that were admissible.
+ * @param {number[]|null} [options.ticketDues] What each of them owed at the door and had not paid (0 when nothing), in the same order: a confirmation's payment is checked against the named tickets' claims (SPEC3 §9.5).
  * @param {string|null} [options.night] The night the door said it was admitting to.
  * @param {Date} options.expiresAt When the reference lapses.
  * @returns {string} The reference.
@@ -864,6 +953,7 @@ export function signGroupPreviewReference({
   actorId,
   method,
   ticketIds,
+  ticketDues = null,
   night = null,
   expiresAt,
 }) {
@@ -879,6 +969,7 @@ export function signGroupPreviewReference({
       a: actorId,
       m: method,
       ts: ticketIds,
+      td: ticketDues ?? ticketIds.map(() => 0),
       n: night,
       x: expiresAt.getTime(),
     },
@@ -909,6 +1000,10 @@ export function readGroupPreviewReference({ secret, reference, now }) {
       claims.ts.length >= 1 &&
       claims.ts.length <= 50 &&
       claims.ts.every((id) => typeof id === 'string' && id !== '') &&
+      (claims.td === undefined ||
+        (Array.isArray(claims.td) &&
+          claims.td.length === claims.ts.length &&
+          claims.td.every((due) => Number.isInteger(due) && due >= 0))) &&
       nightClaim(claims.n),
   })
 }
@@ -990,6 +1085,12 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
     if (refusal) outcome = 'REFUSED'
   }
 
+  // What the ticket owes at the door (SPEC3 §9.3): a state of the preview,
+  // never a refusal. The reference carries the amount still to take, so the
+  // confirmation can tell a steward's mistake from a change.
+  const payment = await paymentDueForPreview(prisma, ticket)
+  const dueCents = payment && payment.paid === false ? payment.dueCents : 0
+
   const previewExpiresAt =
     outcome === 'ADMISSIBLE' ? new Date(now.getTime() + PREVIEW_TTL_MS) : null
   const previewReference =
@@ -1002,6 +1103,7 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
           actorId: actor.id,
           method: presentation.method,
           night: named,
+          dueCents,
           expiresAt: previewExpiresAt,
         })
       : null
@@ -1042,6 +1144,7 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
     previewReference,
     previewExpiresAt,
     context,
+    payment,
   })
 }
 
@@ -1092,6 +1195,15 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
       decide(tx, { actor, body, presentation, claims, now }),
     )
   } catch (error) {
+    // The database refusing to let in a ticket whose payment at the door is
+    // not recorded (`check_in_payment_due`) is the door's own refusal, told
+    // as such and audited (SPEC3 §5.5). Every other refusal SPEC3 names — a
+    // payment that could not be recorded because the booking changed — goes
+    // to the error mapper, which answers it with its own sentence.
+    const refused = databaseRefusal(error)
+
+    if (refused && refused.code !== 'PAYMENT_DUE') throw error
+
     // Two ways the database refuses a racing admission that did not take the
     // row lock first — a writer outside this module, or a test inserting a row
     // directly. P2002 is the unique `CheckIn(ticketId, eventSessionId)`; P0001
@@ -1100,7 +1212,7 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
     // assumed.
     const code = databaseErrorCode(error)
 
-    if (code !== 'P2002' && code !== 'P0001') throw error
+    if (!refused && code !== 'P2002' && code !== 'P0001') throw error
 
     const current = await prisma.ticket.findUnique({
       where: { id: claims.t },
@@ -1111,18 +1223,22 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
       ? nightFor(current, await eventNights(prisma, currentEvent.id), claims.n)
       : null
 
-    verdict =
-      current && !context?.refusal && alreadyIn(current, context)
-        ? { kind: 'already', ticket: current, context }
-        : {
-            kind: 'refused',
-            reason: current
-              ? (context?.refusal ??
-                admissionRefusalCode(current, current.orderItem.order, currentEvent) ??
-                'NOT_ADMISSIBLE')
-              : 'NOT_ADMISSIBLE',
-            ticketId: claims.t,
-          }
+    if (refused && current && !context?.refusal && !alreadyIn(current, context)) {
+      verdict = await paymentDueVerdict(prisma, current)
+    } else {
+      verdict =
+        current && !context?.refusal && alreadyIn(current, context)
+          ? { kind: 'already', ticket: current, context }
+          : {
+              kind: 'refused',
+              reason: current
+                ? (context?.refusal ??
+                  admissionRefusalCode(current, current.orderItem.order, currentEvent) ??
+                  'NOT_ADMISSIBLE')
+                : 'NOT_ADMISSIBLE',
+              ticketId: claims.t,
+            }
+    }
   }
 
   if (verdict.kind === 'admitted') {
@@ -1132,6 +1248,7 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
         eventId: claims.e,
         eventSessionId: verdict.context.night,
         method: presentation.method,
+        paymentRecorded: Boolean(verdict.payment?.byThisRequest),
       },
       'ticket admitted',
     )
@@ -1141,6 +1258,7 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
       outcome: 'ADMITTED',
       actorId: actor.id,
       context: verdict.context,
+      payment: verdict.payment,
     })
   }
 
@@ -1158,11 +1276,14 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
       },
     })
 
+    // Its payment, if it owed one, is the one already recorded: a retry after
+    // a lost answer finds the ticket admitted and records nothing twice.
     return toAdmissionResult({
       ticket: verdict.ticket,
       outcome: 'ALREADY_CHECKED_IN',
       actorId: actor.id,
       context: verdict.context,
+      payment: recordedPaymentOf(verdict.ticket),
     })
   }
 
@@ -1180,7 +1301,60 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
 
   if (verdict.kind === 'hidden') throw notFound(UNIFORM_NOT_FOUND)
 
+  // Paying at the door (SPEC3 §9.3): no payment sent for a ticket that owes
+  // one, or an amount that is not what it owes. Neither is in the closed
+  // admission vocabulary: an amount due is a state of the ticket, not a
+  // reason it may never be let in.
+  if (verdict.kind === 'payment_due') {
+    throw paymentTermsRefusal('PAYMENT_DUE', {
+      values: { amount: doorAmount(verdict.dueCents, verdict.currency) },
+      details: { dueCents: verdict.dueCents, booking: verdict.booking },
+    })
+  }
+
+  if (verdict.kind === 'payment_mismatch') {
+    throw paymentTermsRefusal('PAYMENT_AMOUNT_MISMATCH', {
+      values: { amount: doorAmount(verdict.dueCents, verdict.currency) },
+    })
+  }
+
   throw admissionConflict(verdict.reason)
+}
+
+/**
+ * The verdict for a ticket that owes a payment at the door and was sent none:
+ * what to take, and what else the same holder owes on the booking.
+ *
+ * @param {object} db A Prisma client or transaction client.
+ * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
+ * @returns {Promise<object>} A `payment_due` verdict.
+ */
+async function paymentDueVerdict(db, ticket) {
+  const payment = await paymentDueForPreview(db, ticket)
+
+  return {
+    kind: 'payment_due',
+    reason: 'PAYMENT_DUE',
+    ticketId: ticket.id,
+    dueCents: ticket.venueDueCents,
+    currency: ticket.orderItem.order.currency,
+    booking: payment?.booking ?? { otherUnpaidTickets: 0, otherUnpaidCents: 0, groupPass: false },
+  }
+}
+
+/**
+ * The night an admission of this ticket would be written on, read without a
+ * lock: the night the door named, else the night the ticket is for, else the
+ * one night still on. Null for an event with no nights, where the admission
+ * names none.
+ *
+ * @param {object} ticket A ticket with its seat's and its tier's night.
+ * @param {Array<object>} nights The event's nights.
+ * @param {string|null} named The night the door named.
+ * @returns {string|null} The night.
+ */
+export function admissionNightOf(ticket, nights, named) {
+  return nightFor(ticket, nights, named).night ?? named ?? ownNight(ticket)
 }
 
 /**
@@ -1193,15 +1367,58 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
  * @param {object} options.presentation From {@link presentationOf}.
  * @param {object} options.claims The verified preview reference.
  * @param {Date} options.now The instant.
- * @returns {Promise<object>} A verdict: admitted, already, refused, forbidden or hidden.
+ * @returns {Promise<object>} A verdict: admitted, already, refused, payment_due, payment_mismatch, forbidden or hidden.
  */
 async function decide(tx, { actor, body, presentation, claims, now }) {
   const named = claims.n
 
-  // The previewed ticket's row, first. Every writer that changes whether a
-  // ticket admits — refund, revocation, transfer — updates this row, so holding
-  // it serialises them against this admission: whichever commits first, the
-  // other sees what it did.
+  // What the first locks need, read without a lock because it is fixed for
+  // the life of the rows: the previewed ticket's order, and the night its
+  // admission would be written on (SPEC3 §9.3 step 1).
+  const anchor = await tx.ticket.findUnique({
+    where: { id: claims.t },
+    select: {
+      orderItemId: true,
+      orderItem: {
+        select: {
+          orderId: true,
+          order: { select: { eventId: true } },
+          ticketType: { select: { eventSessionId: true } },
+        },
+      },
+      eventSeat: { select: { eventSessionId: true } },
+    },
+  })
+
+  if (anchor?.orderItem) {
+    // The night first, as a `CheckIn` insert's foreign key takes it anyway,
+    // then the order: the one order every other writer of these rows uses
+    // (SPEC3-XI §2.1). A refund or a night's cancellation that holds either
+    // never waits on this door while it holds the ticket.
+    const night = admissionNightOf(
+      anchor,
+      await eventNights(tx, anchor.orderItem.order.eventId),
+      named,
+    )
+
+    if (night)
+      await tx.$queryRaw`SELECT "id" FROM "EventSession" WHERE "id" = ${night} FOR KEY SHARE`
+
+    await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${anchor.orderItem.orderId} FOR SHARE`
+
+    // Then the ticket's order line, `FOR KEY SHARE`: the lock the ticket's
+    // foreign key takes anyway when this admission updates the ticket a second
+    // time in one transaction (payment, then status), taken here in its place
+    // in the order (SPEC3-XI §2.1: order, line, ticket) rather than after the
+    // ticket. A transfer acceptance holds the line `FOR UPDATE` before it
+    // locks the ticket; taken after the ticket, the two deadlocked.
+    await tx.$queryRaw`SELECT "id" FROM "OrderItem" WHERE "id" = ${anchor.orderItemId} FOR KEY SHARE`
+  }
+
+  // Then the previewed ticket's row. Every writer that changes whether a
+  // ticket admits — refund, revocation, transfer, a cancellation unpaid —
+  // updates this row, so holding it serialises them against this admission:
+  // whichever commits first, the other sees what it did.
   await tx.$queryRaw`SELECT "id" FROM "Ticket" WHERE "id" = ${claims.t} FOR UPDATE`
 
   // The caller's platform role and suspension, read now rather than trusted
@@ -1219,10 +1436,11 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
 
   if (!ticket || ticket.id !== claims.t) {
     // The pass no longer resolves to what was previewed. Accepting a transfer,
-    // a refund and a revocation all clear the digest, so a credential previewed
-    // a minute ago can stop resolving. The previewed ticket is read by its id —
-    // from the verified reference, never from the request — so the door can be
-    // told the truth about what happened to it rather than "not found".
+    // a refund, a revocation and a cancellation unpaid all clear the digest,
+    // so a credential previewed a minute ago can stop resolving. The previewed
+    // ticket is read by its id — from the verified reference, never from the
+    // request — so the door can be told the truth about what happened to it
+    // rather than "not found".
     const previewed = await tx.ticket.findUnique({
       where: { id: claims.t },
       include: ADMISSION_INCLUDE,
@@ -1290,6 +1508,49 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
 
   if (refusal) return { kind: 'refused', ticketId: ticket.id, reason: refusal }
 
+  // Paying at the door (SPEC3 §9.3): a ticket that owes its share of the
+  // ticket price and has no payment is let in only with that payment,
+  // recorded here, in this transaction, before the admission. A ticket that
+  // owes nothing, or was paid on an earlier night, ignores the body's payment.
+  const due = ticket.venueDueCents ?? 0
+  let payment = recordedPaymentOf(ticket)
+
+  if (due > 0 && !ticket.venuePaymentId) {
+    // Dues never change, so a reference that claimed another amount was not
+    // looked up for this ticket as it is.
+    if ((claims.d ?? 0) !== due) {
+      return { kind: 'refused', ticketId: ticket.id, reason: 'PREVIEW_MISMATCH' }
+    }
+
+    if (!body.payment) return paymentDueVerdict(tx, ticket)
+
+    if (body.payment.amountCents !== due) {
+      return {
+        kind: 'payment_mismatch',
+        reason: 'PAYMENT_AMOUNT_MISMATCH',
+        ticketId: ticket.id,
+        dueCents: due,
+        currency: order.currency,
+      }
+    }
+
+    const recorded = await recordVenuePayment(tx, {
+      order,
+      event,
+      tickets: [ticket],
+      amountCents: due,
+      actorId: actor.id,
+      authority: authority.authority,
+      role: authority.role,
+      eventSessionId: context.night,
+      via: VENUE_PAYMENT_VIA.DOOR_TICKET,
+      gate: body.gate ?? null,
+      now,
+    })
+
+    payment = { recordedCents: due, venuePaymentId: recorded.id, byThisRequest: true }
+  }
+
   await admit(tx, {
     ticket,
     eventSessionId: context.night,
@@ -1301,6 +1562,7 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
     authority: authority.authority,
     role: authority.role,
     organizationId: event.organizationId,
+    venuePaymentId: payment?.byThisRequest ? payment.venuePaymentId : null,
     now,
   })
 
@@ -1322,7 +1584,7 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
     include: ADMISSION_INCLUDE,
   })
 
-  return { kind: 'admitted', ticket: admitted, context }
+  return { kind: 'admitted', ticket: admitted, context, payment }
 }
 
 /**

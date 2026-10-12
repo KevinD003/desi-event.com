@@ -11,7 +11,10 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { applyBps } from '@desi-event/pricing'
+
 import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { generatedReferralText, referralCodeFixture } from './helpers/fee-orders.js'
 import { makeWorld, minutesFromNow } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
 
@@ -308,6 +311,366 @@ describe('POST /v1/orders/quote', () => {
     const third = await quote(app, basket, headers)
     expect(third.statusCode).toBe(429)
     expect(third.json().error.code).toBe('RATE_LIMITED')
+
+    await app.close()
+  })
+})
+
+/**
+ * SPEC3 §6, §8.2, §11.3: what a quote says about the booking fee, a referral
+ * code and paying at the venue. Additive: every case above prices a card
+ * order with no code, exactly as before.
+ */
+describe('POST /v1/orders/quote: booking fee, referral codes and paying at the venue', () => {
+  /**
+   * The published event with paying at the venue switched on.
+   *
+   * @param {object} prisma The stub.
+   * @param {object} ids World ids.
+   * @param {object} [overrides] Event columns to set as well.
+   * @returns {object} The event row.
+   */
+  function venueOn(prisma, ids, overrides = {}) {
+    const event = prisma._store.event.find((row) => row.id === ids.publishedEvent.id)
+
+    return Object.assign(event, {
+      venuePaymentEnabled: true,
+      venuePaymentLimit: 50,
+      venuePaymentChangedAt: new Date(),
+      ...overrides,
+    })
+  }
+
+  /**
+   * A referral code row in the stub.
+   *
+   * @param {object} prisma The stub.
+   * @param {object} ids World ids.
+   * @param {object} [overrides] Columns to set.
+   * @returns {Promise<{row: object, referralCode: string}>} The code.
+   */
+  function code(prisma, ids, overrides = {}) {
+    return referralCodeFixture(prisma, { createdById: ids.platformAdministrator.id, ...overrides })
+  }
+
+  /** One general-admission ticket of the published event. */
+  const basket = (ids, extra = {}) => ({
+    eventId: ids.publishedEvent.id,
+    items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 2 }],
+    ...extra,
+  })
+
+  it('answers a card quote with its fee, its tax and no referral, priced as before', async () => {
+    const { app, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+    const { data } = (await quote(app, basket(ids), headers)).json()
+
+    expect(data).toMatchObject({
+      paymentMethod: 'CARD',
+      feeGrossCents: data.feesCents,
+      feeWaivedCents: 0,
+      venueDueCents: 0,
+      fee: { percentageBps: 590, flatCentsPerTicket: 99 },
+      tax: { applied: true, appliedTo: 'TICKETS_AND_FEE', notAppliedReason: null },
+      referral: null,
+      venuePayment: { available: false },
+    })
+    // The buyer reads the numbers, never where they came from.
+    expect(data.fee).not.toHaveProperty('source')
+    expect(data.lines[0]).not.toHaveProperty('venueDueCents')
+
+    await app.close()
+  })
+
+  it('quotes paying at the venue: the fee online, the ticket price at the door, no tax', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+
+    venueOn(prisma, ids)
+
+    const card = (await quote(app, basket(ids), headers)).json().data
+    const venue = (await quote(app, basket(ids, { paymentMethod: 'AT_VENUE' }), headers)).json()
+      .data
+
+    expect(card.venuePayment).toEqual({ available: true })
+    expect(card.taxCents).toBeGreaterThan(0)
+    expect(venue).toMatchObject({
+      paymentMethod: 'AT_VENUE',
+      subtotalCents: 300_000,
+      venueDueCents: 300_000,
+      feesCents: card.feesCents,
+      taxCents: 0,
+      totalCents: card.feesCents,
+      tax: { applied: false, appliedTo: 'NOTHING', notAppliedReason: 'PAID_AT_VENUE' },
+      venuePayment: { available: true },
+    })
+    expect(venue.lines[0].venueDueCents).toBe(300_000)
+
+    await app.close()
+  })
+
+  it('refuses paying at the venue when it is off, for an online event and with nothing to pay at the door', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+    const atVenue = basket(ids, { paymentMethod: 'AT_VENUE' })
+
+    const off = await quote(app, atVenue, headers)
+
+    expect(off.statusCode).toBe(409)
+    expect(off.json().error.code).toBe('VENUE_PAYMENT_OFF')
+
+    venueOn(prisma, ids, { isOnline: true })
+
+    const online = await quote(app, atVenue, headers)
+
+    expect(online.statusCode).toBe(409)
+    expect(online.json().error.code).toBe('VENUE_PAYMENT_UNAVAILABLE')
+
+    venueOn(prisma, ids, { isOnline: false })
+    prisma._store.promoCode.push(
+      promo(ids, { code: 'FREEALL', value: 10_000, eventId: ids.publishedEvent.id }),
+    )
+
+    const nothing = await quote(app, { ...atVenue, promoCode: 'FREEALL' }, headers)
+
+    expect(nothing.statusCode).toBe(422)
+    expect(nothing.json().error.code).toBe('NOTHING_TO_PAY_AT_VENUE')
+
+    await app.close()
+  })
+
+  it('removes the whole booking fee with an applicable referral code, and the tax it carried, and never echoes the code', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+    const { referralCode } = await code(prisma, ids)
+    const before = snapshot(prisma)
+    const plain = (await quote(app, basket(ids), headers)).json().data
+    const waived = (
+      await quote(app, basket(ids, { referralCode: referralCode.toLowerCase() }), headers)
+    ).json().data
+
+    expect(waived).toMatchObject({
+      referral: { applied: true, reason: null },
+      feeGrossCents: plain.feesCents,
+      feeWaivedCents: plain.feesCents,
+      feesCents: 0,
+    })
+    // The tax base loses the fee: the tax on the tickets alone.
+    expect(waived.taxCents).toBeLessThan(plain.taxCents)
+    expect(waived.totalCents).toBe(plain.subtotalCents - plain.discountCents + waived.taxCents)
+    expect(JSON.stringify(waived)).not.toContain(referralCode)
+    // A quote writes nothing, and takes no use.
+    expect(snapshot(prisma)).toBe(before)
+    expect(prisma._store.referralCode[0].useCount).toBe(0)
+
+    await app.close()
+  })
+
+  it('answers NOT_ACCEPTED, the same answer, for every code that does not apply', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+    const admin = bearer(await signIn(app, 'anil@desi-event.example'))
+    const off = (await code(prisma, ids, { active: false })).referralCode
+    const expired = await code(prisma, ids, { expiresAt: new Date(Date.now() + 60_000) })
+    const usedUp = (await code(prisma, ids, { maxUses: 1, useCount: 1 })).referralCode
+    const outOfScope = (
+      await code(prisma, ids, { scope: 'SELECTED_EVENTS', eventIds: [ids.draftEvent.id] })
+    ).referralCode
+    const own = (await code(prisma, ids)).referralCode
+
+    prisma._store.referralCode.find((row) => row.id === expired.row.id).expiresAt = new Date(
+      Date.now() - 1_000,
+    )
+
+    const answers = []
+
+    for (const [who, referralCode] of [
+      [headers, generatedReferralText()],
+      [headers, off],
+      [headers, expired.referralCode],
+      [headers, usedUp],
+      [headers, outOfScope],
+      [admin, own],
+    ]) {
+      const response = await quote(app, basket(ids, { referralCode }), who)
+
+      expect(response.statusCode).toBe(200)
+      answers.push(response.json().data.referral)
+    }
+
+    expect(new Set(answers.map((answer) => JSON.stringify(answer)))).toEqual(
+      new Set([JSON.stringify({ applied: false, reason: 'NOT_ACCEPTED' })]),
+    )
+
+    await app.close()
+  })
+
+  it('does not look a code up when there is no fee to remove', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+
+    prisma._store.promoCode.push(
+      promo(ids, { code: 'FREEALL', value: 10_000, eventId: ids.publishedEvent.id }),
+    )
+
+    let lookups = 0
+    const findUnique = prisma.referralCode.findUnique.bind(prisma.referralCode)
+
+    prisma.referralCode.findUnique = (args) => {
+      lookups += 1
+
+      return findUnique(args)
+    }
+
+    const { data } = (
+      await quote(
+        app,
+        basket(ids, { promoCode: 'FREEALL', referralCode: generatedReferralText() }),
+        headers,
+      )
+    ).json()
+
+    expect(data.referral).toEqual({ applied: false, reason: 'NOTHING_TO_WAIVE' })
+    expect(lookups).toBe(0)
+
+    await app.close()
+  })
+
+  it('rations wrong referral codes only: valid ones never reach the budget, the eleventh wrong one does', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+    const { referralCode } = await code(prisma, ids)
+
+    for (let index = 0; index < 12; index += 1) {
+      expect((await quote(app, basket(ids, { referralCode }), headers)).statusCode).toBe(200)
+    }
+
+    for (let index = 0; index < 10; index += 1) {
+      const response = await quote(
+        app,
+        basket(ids, { referralCode: generatedReferralText() }),
+        headers,
+      )
+
+      expect(response.json().data.referral.reason).toBe('NOT_ACCEPTED')
+    }
+
+    const spent = await quote(app, basket(ids, { referralCode: generatedReferralText() }), headers)
+
+    expect(spent.statusCode).toBe(429)
+    expect(spent.json().error).toMatchObject({
+      code: 'RATE_LIMITED',
+      message: 'Too many referral codes were tried. Wait a few minutes, then try again.',
+    })
+    // A request naming no code is never refused by the budget.
+    expect((await quote(app, basket(ids), headers)).statusCode).toBe(200)
+
+    await app.close()
+  })
+
+  it('counts wrong codes per visitor address, whatever the user agent, and in one shared bucket without one', async () => {
+    const { app, ids } = await createTestApp({
+      rateLimit: {
+        global: { max: 10_000, timeWindow: '1 minute' },
+        referralAttempt: { actorMax: 1_000, addressMax: 2, sharedMax: 3, timeWindow: '10 minutes' },
+      },
+    })
+    const accounts = []
+
+    for (const email of ['priya@example.com', 'owner@rangoli.example', 'arun@rangoli.example']) {
+      accounts.push(bearer(await signIn(app, email)))
+    }
+
+    const wrong = (headers) =>
+      quote(app, basket(ids, { referralCode: generatedReferralText() }), headers)
+
+    // The web server forwards one visitor's address; the user agent changes
+    // each time and buys nothing.
+    for (const [index, account] of accounts.slice(0, 2).entries()) {
+      const response = await wrong({
+        ...account,
+        'x-desi-client-address': '198.51.100.7',
+        'user-agent': `Agent ${index}`,
+      })
+
+      expect(response.statusCode).toBe(200)
+    }
+
+    const sameAddress = await wrong({
+      ...accounts[2],
+      'x-desi-client-address': '198.51.100.7',
+      'user-agent': 'Agent 9',
+    })
+
+    expect(sameAddress.statusCode).toBe(429)
+
+    // Another address has its own bucket.
+    expect(
+      (await wrong({ ...accounts[2], 'x-desi-client-address': '203.0.113.9' })).statusCode,
+    ).toBe(200)
+
+    await app.close()
+  })
+
+  it('needs an account to name a referral code or to pay at the venue', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    venueOn(prisma, ids)
+
+    const guestOrder = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        ...basket(ids, { paymentMethod: 'AT_VENUE' }),
+        buyerEmail: 'guest@example.com',
+        buyerName: 'Guest Buyer',
+      },
+    })
+
+    expect(guestOrder.statusCode).toBe(401)
+    expect(guestOrder.json().error.code).toBe('SIGN_IN_REQUIRED')
+
+    const guestCode = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        ...basket(ids, { referralCode: generatedReferralText() }),
+        buyerEmail: 'guest@example.com',
+        buyerName: 'Guest Buyer',
+      },
+    })
+
+    expect(guestCode.statusCode).toBe(401)
+    expect(guestCode.json().error.code).toBe('SIGN_IN_REQUIRED')
+    expect(prisma._store.order).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('taxes a card order in Ontario on tickets and fee, a waived one on tickets alone, and paying at the venue not at all', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+    const { referralCode } = await code(prisma, ids)
+
+    Object.assign(
+      prisma._store.venue.find((row) => row.id === ids.publishedEvent.venueId),
+      { country: 'CA', region: 'ON' },
+    )
+    venueOn(prisma, ids)
+
+    const card = (await quote(app, basket(ids), headers)).json().data
+    const waived = (await quote(app, basket(ids, { referralCode }), headers)).json().data
+    const venue = (await quote(app, basket(ids, { paymentMethod: 'AT_VENUE' }), headers)).json()
+      .data
+    const net = card.subtotalCents - card.discountCents
+
+    expect(card.taxCents).toBe(applyBps(net + card.feesCents, 1300))
+    expect(card.taxCents).toBeGreaterThan(0)
+    expect(waived.taxCents).toBe(applyBps(net, 1300))
+    expect(venue).toMatchObject({
+      taxCents: 0,
+      tax: { applied: false, notAppliedReason: 'PAID_AT_VENUE' },
+    })
 
     await app.close()
   })

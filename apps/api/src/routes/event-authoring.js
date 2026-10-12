@@ -37,6 +37,8 @@ import {
   AUTHORING_MODES,
   allInPreview,
   assertAuthorable,
+  assertFeeTermsCurrency,
+  assertHeldFeeTermsCurrency,
   authorChange,
   bindReservedSeatsAudited,
   changedFields,
@@ -80,7 +82,7 @@ import {
 import { databaseErrorCode, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { lockTicketTypes } from '../lib/inventory.js'
 import { defineRoute } from '../lib/register.js'
-import { feeConfigFor } from './orders.js'
+import { eventFeeConfig } from '../lib/checkout-pricing.js'
 
 /** Usage of a session or tier that nothing has touched yet. */
 const UNUSED_SESSION = Object.freeze({
@@ -658,6 +660,9 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
       refuseCancelledNight(event, proposed.eventSessionId)
 
+      // The event's own booking fee is in one currency (SPEC3 DF3).
+      assertFeeTermsCurrency(event, proposed.currency)
+
       refuseProblems(
         [
           ...ticketTypeProblems(
@@ -693,6 +698,10 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
          * @returns {Promise<void>} Resolves when written.
          */
         write: async (tx) => {
+          // Again under the event's row: a fee saved since the read above
+          // does not move the revision (SPEC3 DF3, DF7).
+          await assertHeldFeeTermsCurrency(tx, event.id, proposed.currency)
+
           created = await tx.ticketType.create({
             data: {
               eventId: event.id,
@@ -749,6 +758,11 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
       refuseCancelledNight(event, merged.eventSessionId)
 
+      // The event's own booking fee is in one currency (SPEC3 DF3).
+      if (patch.currency !== undefined && patch.currency !== existing.currency) {
+        assertFeeTermsCurrency(event, merged.currency)
+      }
+
       refuseProblems(
         [
           ...ticketTypeProblems(merged, event, event.sessions, { siblings: event.ticketTypes }),
@@ -782,6 +796,12 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
          * @returns {Promise<void>} Resolves when written.
          */
         write: async (tx) => {
+          // Again under the event's row: a fee saved since the read above
+          // does not move the revision (SPEC3 DF3, DF7).
+          if (patch.currency !== undefined && patch.currency !== existing.currency) {
+            await assertHeldFeeTermsCurrency(tx, event.id, merged.currency)
+          }
+
           // Re-read under the tier's lock: a hold can land between the check
           // above and this write, and a quantity cut must count it.
           await lockTicketTypes(tx, [existing.id])
@@ -939,7 +959,9 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
   defineRoute(app, 'events.pricePreview', {
     handler: async (request) => {
       const event = await readable(request)
-      // What checkout would charge: the same fee terms and the venue's tax.
+      // What checkout would charge: the same fee terms — the event's own when
+      // the Desi-Event team set them, else the site default — and the venue's
+      // tax.
       const { rateBps } = resolveTaxPolicy({
         country: event.venue?.country ?? null,
         region: event.venue?.region ?? null,
@@ -951,7 +973,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
           ticketTypeId: tier.id,
           name: tier.name,
           ...allInPreview(tier, {
-            feeConfig: env ? feeConfigFor(env, tier.currency ?? 'INR') : undefined,
+            feeConfig: env ? eventFeeConfig(env, event, tier.currency ?? 'INR') : undefined,
             taxRateBps: rateBps,
           }),
         })),

@@ -53483,6 +53483,7 @@
                               "unitPriceCents",
                               "refundedQuantity",
                               "pendingQuantity",
+                              "cancelledQuantity",
                               "refundableQuantity"
                             ],
                             "additionalProperties": false
@@ -57059,7 +57060,8 @@
                                   "quantity",
                                   "lineValueCents",
                                   "refundedQuantity",
-                                  "refundedCents"
+                                  "refundedCents",
+                                  "cancelledQuantity"
                                 ],
                                 "additionalProperties": false
                               }
@@ -57137,7 +57139,8 @@
                                   "quantity",
                                   "lineValueCents",
                                   "refundedQuantity",
-                                  "refundedCents"
+                                  "refundedCents",
+                                  "cancelledQuantity"
                                 ],
                                 "additionalProperties": false
                               }
@@ -57215,7 +57218,8 @@
                                   "quantity",
                                   "lineValueCents",
                                   "refundedQuantity",
-                                  "refundedCents"
+                                  "refundedCents",
+                                  "cancelledQuantity"
                                 ],
                                 "additionalProperties": false
                               }
@@ -57293,7 +57297,8 @@
                                   "quantity",
                                   "lineValueCents",
                                   "refundedQuantity",
-                                  "refundedCents"
+                                  "refundedCents",
+                                  "cancelledQuantity"
                                 ],
                                 "additionalProperties": false
                               }
@@ -72193,10 +72198,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "default": 20,
+              "default": 50,
               "type": "integer",
               "minimum": 1,
-              "maximum": 100
+              "maximum": 50
             }
           },
           {
@@ -73207,10 +73212,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "default": 20,
+              "default": 50,
               "type": "integer",
               "minimum": 1,
-              "maximum": 100
+              "maximum": 50
             }
           }
         ],

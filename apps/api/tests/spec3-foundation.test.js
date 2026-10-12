@@ -231,7 +231,7 @@ describe('the thirteen routes are registered behind their guards', () => {
   })
 })
 
-describe('SPEC3-XI’s two routes are registered behind their guards (501 until built)', () => {
+describe('SPEC3-XI’s two routes are registered behind their guards', () => {
   const ROUTES = ['venueBookings.unpaid', 'venueBookings.cancel']
   const CANCEL = { ticketIds: [cuid()], reason: REASON }
 
@@ -248,7 +248,9 @@ describe('SPEC3-XI’s two routes are registered behind their guards (501 until 
     await app.close()
   })
 
-  it('asks for a recent second factor before anything else, then answers 501 NOT_BUILT, never cached', async () => {
+  // Built by Stage B1-V pass 2 (SPEC3-XI §16): past the guards, a booking or
+  // an event nobody may act on answers 404 rather than the 501 the stubs gave.
+  it('asks for a recent second factor before anything else, then answers 404 for a booking it does not know, never cached', async () => {
     const { app, prisma } = await createTestApp()
     const headers = bearer(await signIn(app, 'anil@desi-event.example'))
 
@@ -270,8 +272,8 @@ describe('SPEC3-XI’s two routes are registered behind their guards (501 until 
     for (const id of ROUTES) {
       const response = await call(app, id, { headers, body: CANCEL })
 
-      expect(response.statusCode, id).toBe(501)
-      expect(response.json().error.code, id).toBe('NOT_BUILT')
+      expect(response.statusCode, id).toBe(404)
+      expect(response.json().error.code, id).toBe('NOT_FOUND')
       expect(response.headers['cache-control'], id).toBe('no-store, private')
     }
 
@@ -309,7 +311,7 @@ describe('SPEC3-XI’s two routes are registered behind their guards (501 until 
     await stepUp(app, 'anil@desi-event.example', headers)
 
     expect((await call(app, 'venueBookings.cancel', { headers, body: CANCEL })).statusCode).toBe(
-      501,
+      404,
     )
 
     const second = await call(app, 'venueBookings.cancel', { headers, body: CANCEL })
@@ -317,7 +319,7 @@ describe('SPEC3-XI’s two routes are registered behind their guards (501 until 
     expect(second.statusCode).toBe(429)
     expect(second.json().error.code).toBe('RATE_LIMITED')
     // The list has no such budget.
-    expect((await call(app, 'venueBookings.unpaid', { headers })).statusCode).toBe(501)
+    expect((await call(app, 'venueBookings.unpaid', { headers })).statusCode).toBe(404)
 
     await app.close()
   })

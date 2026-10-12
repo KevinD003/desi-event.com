@@ -17,11 +17,14 @@ const {
   GET,
   PROXY_BODY_LIMIT_BYTES,
   SERVER_ONLY_API_PATHS,
+  checkoutAddress,
   isBeacon,
+  isCheckout,
   isServerOnlyPath,
   readBoundedBody,
   withoutBearerSecret,
 } = await import('./route.js')
+const { resetForwardingWarnings } = await import('../../../../lib/traffic-forwarding.js')
 
 /** A cookie the API sets alongside a sign-in's answer. */
 const SESSION_COOKIE = '__Host-desi_session=opaque-secret-value; Path=/; HttpOnly; Secure'
@@ -514,6 +517,194 @@ describe('visits through the proxy', () => {
     expect(response.status).toBe(404)
     expect((await response.json()).error.code).toBe('NOT_FOUND')
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('checkouts through the proxy', () => {
+  /** A signed-in browser's checkout request headers. */
+  const CHECKOUT = {
+    'content-type': 'application/json',
+    cookie: '__Host-desi_session=opaque-secret-value; desi_csrf=csrf-value',
+    'x-desi-csrf': 'csrf-value',
+    'idempotency-key': 'k-123',
+    'user-agent': 'Mozilla/5.0 Chrome/130',
+    'x-forwarded-for': '198.51.100.7',
+    'sec-gpc': '1',
+    dnt: '1',
+  }
+
+  /**
+   * A checkout request as the browser sends it.
+   *
+   * @param {string[]} path The proxied path.
+   * @param {object} [headers] Request headers.
+   * @returns {Request} The request.
+   */
+  function checkoutRequest(path, headers = CHECKOUT) {
+    return new Request(`http://web.test/api/v1/${path.join('/')}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ eventId: 'cevent0000000001', items: [] }),
+    })
+  }
+
+  it.each([[['orders', 'quote']], [['orders']]])(
+    'forwards %j with its session and the visitor’s address as this server read it',
+    async (path) => {
+      fetchMock.mockResolvedValue(upstream({ data: {} }))
+
+      await POST(checkoutRequest(path), context(path))
+
+      const [target, init] = fetchMock.mock.calls[0]
+
+      expect(target).toMatch(new RegExp(`/v1/${path.join('/')}$`, 'u'))
+      // The session travels as on any request: a checkout is the buyer's.
+      expect(init.headers.get('cookie')).toBe(CHECKOUT.cookie)
+      expect(init.headers.get('x-desi-csrf')).toBe('csrf-value')
+      expect(init.headers.get('idempotency-key')).toBe('k-123')
+      expect(init.headers.get('x-desi-client-address')).toBe('198.51.100.7')
+      // Nothing else a beacon carries: the privacy signals are a visit's.
+      expect(init.headers.get('sec-gpc')).toBeNull()
+      expect(init.headers.get('dnt')).toBeNull()
+    },
+  )
+
+  it('replaces an address the browser claims with the one this server read, or sends none', async () => {
+    fetchMock.mockResolvedValue(upstream({ data: {} }))
+
+    await POST(
+      checkoutRequest(['orders', 'quote'], {
+        ...CHECKOUT,
+        'x-desi-client-address': '203.0.113.250',
+      }),
+      context(['orders', 'quote']),
+    )
+
+    const { 'x-forwarded-for': _forwarded, ...noForwardedFor } = CHECKOUT
+
+    await POST(
+      checkoutRequest(['orders'], { ...noForwardedFor, 'x-desi-client-address': '203.0.113.250' }),
+      context(['orders']),
+    )
+
+    expect(fetchMock.mock.calls[0][1].headers.get('x-desi-client-address')).toBe('198.51.100.7')
+    expect(fetchMock.mock.calls[1][1].headers.get('x-desi-client-address')).toBeNull()
+  })
+
+  it('adds no address to any other order route', async () => {
+    fetchMock.mockResolvedValue(upstream({ data: {} }))
+
+    await GET(
+      new Request('http://web.test/api/v1/orders', { headers: CHECKOUT }),
+      context(['orders']),
+    )
+    await POST(
+      checkoutRequest(['orders', 'ORD-1', 'group-pass']),
+      context(['orders', 'ORD-1', 'group-pass']),
+    )
+
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.headers.get('x-desi-client-address')).toBeNull()
+    }
+  })
+
+  describe('in production', () => {
+    let warn
+
+    beforeEach(() => {
+      resetForwardingWarnings()
+      warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      vi.stubEnv('NODE_ENV', 'production')
+    })
+
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      warn.mockRestore()
+      resetForwardingWarnings()
+    })
+
+    it('with no proxy setting, forwards no address on a checkout, so a browser that names one gets no bucket of its own', async () => {
+      vi.stubEnv('TRAFFIC_TRUSTED_PROXY_HOPS', '')
+      fetchMock.mockImplementation(async () => upstream({ data: {} }))
+
+      // Next fills X-Forwarded-For from the connection only when the browser
+      // sent none, so with no proxy in front each of these is the browser's
+      // own choice: a new address for every wrong guess.
+      for (const [index, path] of [
+        ['orders', 'quote'],
+        ['orders'],
+        ['orders', 'quote'],
+      ].entries()) {
+        await POST(
+          checkoutRequest(path, { ...CHECKOUT, 'x-forwarded-for': `198.51.100.${index + 20}` }),
+          context(path),
+        )
+      }
+
+      for (const [, init] of fetchMock.mock.calls) {
+        expect(init.headers.get('x-desi-client-address')).toBeNull()
+        // The session still travels: the API counts the refusal in its shared bucket.
+        expect(init.headers.get('cookie')).toBe(CHECKOUT.cookie)
+      }
+
+      // A visit is still counted from the connection, as its figures are a guide.
+      await POST(
+        new Request('http://web.test/api/v1/traffic/beacons', {
+          method: 'POST',
+          headers: { 'user-agent': 'Mozilla/5.0', 'x-forwarded-for': '198.51.100.7' },
+          body: '{}',
+        }),
+        context(['traffic', 'beacons']),
+      )
+
+      expect(fetchMock.mock.calls.at(-1)[1].headers.get('x-desi-client-address')).toBe(
+        '198.51.100.7',
+      )
+    })
+
+    it('behind the proxies the setting names, forwards the entry the nearest of them appended', async () => {
+      vi.stubEnv('TRAFFIC_TRUSTED_PROXY_HOPS', '1')
+      fetchMock.mockImplementation(async () => upstream({ data: {} }))
+
+      await POST(
+        checkoutRequest(['orders', 'quote'], {
+          ...CHECKOUT,
+          'x-forwarded-for': '203.0.113.250, 198.51.100.7',
+        }),
+        context(['orders', 'quote']),
+      )
+
+      expect(fetchMock.mock.calls[0][1].headers.get('x-desi-client-address')).toBe('198.51.100.7')
+    })
+
+    it('reads the address for a checkout only when the browser cannot choose it', () => {
+      const headers = new Headers({ 'x-forwarded-for': '203.0.113.250, 198.51.100.7, 10.0.0.2' })
+
+      expect(checkoutAddress(headers, { NODE_ENV: 'production' })).toBeNull()
+      expect(
+        checkoutAddress(headers, { NODE_ENV: 'production', TRAFFIC_TRUSTED_PROXY_HOPS: '0' }),
+      ).toBeNull()
+      expect(
+        checkoutAddress(headers, { NODE_ENV: 'production', TRAFFIC_TRUSTED_PROXY_HOPS: '2' }),
+      ).toBe('198.51.100.7')
+      // An unusable setting is 0, so it forwards nothing either.
+      expect(
+        checkoutAddress(headers, { NODE_ENV: 'production', TRAFFIC_TRUSTED_PROXY_HOPS: 'many' }),
+      ).toBeNull()
+      // Outside production the connection is a developer's or a test's.
+      expect(checkoutAddress(headers, { NODE_ENV: 'development' })).toBe('10.0.0.2')
+      expect(checkoutAddress(headers, { NODE_ENV: 'test' })).toBe('10.0.0.2')
+    })
+  })
+
+  it('knows a checkout’s quote and charge from every other request', () => {
+    expect(isCheckout('POST', ['orders'])).toBe(true)
+    expect(isCheckout('POST', ['orders', 'quote'])).toBe(true)
+    expect(isCheckout('GET', ['orders'])).toBe(false)
+    expect(isCheckout('GET', ['orders', 'quote'])).toBe(false)
+    expect(isCheckout('POST', ['orders', 'ORD-1'])).toBe(false)
+    expect(isCheckout('POST', ['orders', 'quote', 'x'])).toBe(false)
+    expect(isCheckout('POST', ['holds'])).toBe(false)
   })
 })
 

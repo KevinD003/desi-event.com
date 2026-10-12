@@ -22,6 +22,24 @@
  * they are sent through the refund service (`lib/event-refunds.js`). Nothing in
  * the transaction calls a payment provider.
  *
+ * ## Locks (SPEC3-XI §2.1, §2.3.1)
+ *
+ * The event row, the night's ticket types, the night, then every paid order
+ * the cancellation touches with tickets on the night — sorted by id — before a
+ * single ticket is withdrawn. A door admitting a ticket of one of those orders
+ * on another night holds the order (`FOR SHARE`) before its ticket; withdrawing
+ * the ticket first and locking the order after would wait on that door while
+ * it waited for the ticket. Unpaid orders are left to `cancelUnpaidOrders`'
+ * conditional update.
+ *
+ * ## Bookings paid at the venue (SPEC3 §9.9)
+ *
+ * A pay-at-the-venue booking's online part is its booking fee (and any tax on
+ * it), so its night's refund is that share; one with nothing left online is
+ * told so (`NOTHING_PAID_ONLINE`), and free tickets are those with no ticket
+ * price at all. Its notice also says what was paid at the door for the
+ * night's tickets, which stays with the organiser.
+ *
  * @file @desi-event/api/lib/session-cancellation
  */
 
@@ -34,14 +52,18 @@ import { recordChangeNotice } from './event-change-notices.js'
 import {
   IN_FLIGHT_PAYMENT_STATES,
   cancelUnpaidOrders,
+  lockOrderLines,
   nightHasStarted,
   releaseHoldsOf,
 } from './event-deletion.js'
+import { doorMoneyOf, writeHolderNotices } from './event-cancellation.js'
 import { refundOwed } from './event-refunds.js'
 import { httpError } from './errors.js'
 import { lockTicketTypes } from './inventory.js'
+import { settleReferralUsesIfEnded } from './referral-uses.js'
 import {
   REFUND_BLOCKING_DISPUTE_STATES,
+  lineQuantityLeft,
   orderParts,
   partsLeft,
   partsSpokenFor,
@@ -49,10 +71,12 @@ import {
   quoteNamedLines,
   refundableCents,
   requestRefund,
+  shareBasisOf,
 } from './refunds.js'
 import { lockEventSessions } from './session-inventory.js'
 import { SESSION_CANCELLED_PREFIX, withdrawTickets } from './tickets.js'
 import { TRANSACTION_BUDGETS, budgetedTransaction, liveOrderCount } from './transaction-budget.js'
+import { atVenueFacts } from './venue-payments.js'
 import { openReconciliation } from './webhook-handlers.js'
 
 /** The template a night's cancellation notice is sent with. */
@@ -90,9 +114,13 @@ export const ORDERS_CHANGED_SENTENCE =
  *
  * - `REFUNDED`: a refund of the night's tickets was asked for and reserved.
  * - `KEPT`: a ticket good for every night, kept for the others.
- * - `FREE`: a free order; its tickets for the night are withdrawn.
+ * - `FREE`: a free order (no ticket price at all); its tickets for the night
+ *   are withdrawn.
  * - `NOTHING_OWED`: a paid order with nothing left to refund for the night
  *   (already refunded, or a promo code left the night's tickets worth nothing).
+ * - `NOTHING_PAID_ONLINE`: a booking paid at the venue with nothing left of
+ *   what was paid online for the night's tickets (a booking fee waived or
+ *   already refunded); its tickets for the night are withdrawn.
  * - `DISPUTED`: the payment is disputed, so the refund is left to the finance
  *   team, who are given a reconciliation task.
  * - `UNPAID`: an unpaid order for the night, cancelled.
@@ -106,7 +134,36 @@ export const NIGHT_OUTCOMES = Object.freeze([
   'DISPUTED',
   'UNPAID',
   'NOT_SENT',
+  'NOTHING_PAID_ONLINE',
 ])
+
+/**
+ * What became of the booking fee paid online, for a pay-at-the-venue
+ * booking's notice (SPEC3 §9.9), from its night outcome.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+const ONLINE_REFUND_BY_OUTCOME = Object.freeze({
+  REFUNDED: 'REQUESTED',
+  NOTHING_PAID_ONLINE: 'NONE_PAID',
+  FREE: 'NONE_PAID',
+  DISPUTED: 'DISPUTED',
+})
+
+/**
+ * The outcome for an order whose night's tickets are withdrawn with nothing
+ * refunded: free tickets (no ticket price after the promo), a pay-at-the-venue
+ * booking with nothing left online, or a paid order with nothing left to
+ * refund for them.
+ *
+ * @param {object} order The order.
+ * @returns {'FREE'|'NOTHING_PAID_ONLINE'|'NOTHING_OWED'} The outcome.
+ */
+function nothingRefundedOutcome(order) {
+  if ((order.subtotalCents ?? 0) - (order.discountCents ?? 0) <= 0) return 'FREE'
+
+  return order.paymentMethod === 'AT_VENUE' ? 'NOTHING_PAID_ONLINE' : 'NOTHING_OWED'
+}
 
 /** Ticket states a night's cancellation withdraws. */
 const WITHDRAWABLE = Object.freeze(['VALID', 'TRANSFER_PENDING'])
@@ -171,7 +228,8 @@ function nightLines(order, nightId, pendingByLine = new Map()) {
     .filter((item) => lineOnNight(item, nightId) && item.unitPriceCents > 0)
     .map((item) => ({
       orderItemId: item.id,
-      quantity: item.quantity - (item.refundedQuantity ?? 0) - (pendingByLine.get(item.id) ?? 0),
+      // Tickets cancelled unpaid are gone, never refunded (SPEC3-XI §10.2).
+      quantity: lineQuantityLeft(item, pendingByLine.get(item.id) ?? 0),
     }))
     .filter((line) => line.quantity > 0)
 }
@@ -254,16 +312,10 @@ export async function loadNightFacts(db, event, session, now) {
       .map((tier) => tier.id),
   )
 
-  const tickets = await db.ticket.findMany({
-    where: {
-      status: { in: [...WITHDRAWABLE] },
-      orderItem: { order: { eventId: event.id } },
-      OR: [
-        { orderItem: { ticketTypeId: { in: [...nightTierIds] } } },
-        { eventSeat: { eventSessionId: session.id } },
-      ],
-    },
-    select: { id: true },
+  const ticketIds = await nightTicketIds(db, {
+    eventId: event.id,
+    nightId: session.id,
+    nightTierIds: [...nightTierIds],
   })
 
   const checkIns = await db.checkIn.count({
@@ -284,12 +336,39 @@ export async function loadNightFacts(db, event, session, now) {
     touchedOrders: plans.length,
     inFlight,
     currency,
-    ticketIds: tickets.map((ticket) => ticket.id),
+    ticketIds,
     nightTierIds: [...nightTierIds],
     checkIns,
     started: checkIns > 0 || nightHasStarted(session, now),
     othersOn: others.length,
   }
+}
+
+/**
+ * The night's tickets a cancellation withdraws: VALID or TRANSFER_PENDING
+ * tickets of the event's orders, on the night's tiers or holding a seat on it.
+ *
+ * @param {object} db A Prisma client or transaction client.
+ * @param {object} options Options.
+ * @param {string} options.eventId The event.
+ * @param {string} options.nightId The night.
+ * @param {string[]} options.nightTierIds The night's tiers.
+ * @returns {Promise<string[]>} The tickets' ids.
+ */
+async function nightTicketIds(db, { eventId, nightId, nightTierIds }) {
+  const tickets = await db.ticket.findMany({
+    where: {
+      status: { in: [...WITHDRAWABLE] },
+      orderItem: { order: { eventId } },
+      OR: [
+        { orderItem: { ticketTypeId: { in: [...nightTierIds] } } },
+        { eventSeat: { eventSessionId: nightId } },
+      ],
+    },
+    select: { id: true },
+  })
+
+  return tickets.map((ticket) => ticket.id)
 }
 
 /**
@@ -384,7 +463,9 @@ async function nightRefundQuote(db, order, nightId) {
   if (lines.length === 0) return { lines, amountCents: 0 }
 
   const parts = orderParts(order)
-  const left = partsLeft(parts, await partsSpokenFor(db, order))
+  const spoken = await partsSpokenFor(db, order)
+  const left = partsLeft(parts, spoken)
+  const share = shareBasisOf(order, spoken)
   const quoted = quoteNamedLines({
     items: order.items ?? [],
     lines,
@@ -393,9 +474,16 @@ async function nightRefundQuote(db, order, nightId) {
     parts,
     left,
     capFaceToLeft: true,
+    share,
   })
 
-  if (quoted.named.amountCents <= 0) return { lines, amountCents: 0 }
+  // A pay-at-the-venue booking's tickets have no face value online: its
+  // night's refund is their share of the booking fee and its tax, by their
+  // basis, so nothing is owed only when that share is nothing (SPEC3 §10.2).
+  // A card order's is its tickets' face value left, as before.
+  const nothing = share.atVenue ? quoted.amountCents <= 0 : quoted.named.amountCents <= 0
+
+  if (nothing) return { lines, amountCents: 0 }
 
   return { lines, amountCents: Math.min(refundableCents(order), quoted.amountCents) }
 }
@@ -443,6 +531,10 @@ export async function sessionCancellationPreview(db, options) {
     ticketsWithdrawn: facts.ticketIds.length,
     currency: facts.currency,
     paymentMode: ['MOCK', 'STRIPE_TEST', 'LIVE'].includes(paymentMode) ? paymentMode : 'MOCK',
+    // The night's bookings paid at the venue (SPEC3 §9.7): only their booking
+    // fee paid online is refunded, and money taken at the door stays with
+    // the organiser.
+    atVenue: await atVenueFacts(db, { eventId: event.id, sessionId: session.id }),
   }
 }
 
@@ -550,6 +642,24 @@ export async function cancelSession(prisma, options) {
       })
     }
 
+    // 3b. Every paid order with tickets on the night, sorted, before any of
+    // its tickets is withdrawn (SPEC3-XI §2.3.1): the order every other writer
+    // of these rows takes them in. A door admitting another night's ticket of
+    // one of these orders holds the order first; this waits for it, or it
+    // waits for this. `askRefund`'s lock below is then a re-lock. Then their
+    // lines, `FOR KEY SHARE`, which waits out a transfer being accepted and
+    // keeps new ones out; and the night's tickets read again under those
+    // locks, so a successor an acceptance issued meanwhile is withdrawn too.
+    const lockedOrderIds = await lockPaidOrders(tx, facts.plans)
+
+    await lockOrderLines(tx, lockedOrderIds)
+
+    const ticketIds = await nightTicketIds(tx, {
+      eventId: locked.id,
+      nightId: night.id,
+      nightTierIds: facts.nightTierIds,
+    })
+
     // 4. The night, cancelled. Final.
     await tx.eventSession.update({
       where: { id: night.id },
@@ -574,20 +684,25 @@ export async function cancelSession(prisma, options) {
       .filter((entry) => entry.plan === 'CANCEL')
       .map((entry) => entry.order.id)
     let ordersCancelled = 0
+    /** @type {string[]} */
+    let cancelledOrderIds = []
 
     if (pendingIds.length > 0) {
-      ordersCancelled = await cancelUnpaidOrders(tx, {
+      const unpaid = await cancelUnpaidOrders(tx, {
         where: { id: { in: pendingIds } },
         reason: 'SESSION_CANCELLED',
         now,
         actorId,
         requestId,
       })
+
+      ordersCancelled = unpaid.cancelled
+      cancelledOrderIds = unpaid.orderIds
     }
 
     // 7. Its tickets, withdrawn.
     const ticketsWithdrawn = await withdrawTickets(tx, {
-      ticketIds: facts.ticketIds,
+      ticketIds,
       reason: `${SESSION_CANCELLED_PREFIX}${night.id}`,
       now,
     })
@@ -614,7 +729,7 @@ export async function cancelSession(prisma, options) {
 
       if (plan === 'ZERO') {
         zeroValue += 1
-        outcomes.set(order.id, order.totalCents === 0 ? 'FREE' : 'NOTHING_OWED')
+        outcomes.set(order.id, nothingRefundedOutcome(order))
         continue
       }
 
@@ -650,13 +765,31 @@ export async function cancelSession(prisma, options) {
 
       if (asked === null) {
         zeroValue += 1
-        outcomes.set(order.id, 'NOTHING_OWED')
+        outcomes.set(
+          order.id,
+          order.paymentMethod === 'AT_VENUE' ? 'NOTHING_PAID_ONLINE' : 'NOTHING_OWED',
+        )
         continue
       }
 
       if (asked) refundsReserved += 1
       outcomes.set(order.id, 'REFUNDED')
     }
+
+    // 8b. Referral uses given back, in one batch after the last order, ticket
+    // and seat write (SPEC3-XI XR4, XR6): the unpaid orders cancelled, then
+    // every paid order locked in 3b. An order that has now ended without
+    // being used — every ticket withdrawn and nothing left online, a
+    // zero-online booking's included — gives its use back once.
+    await settleReferralUsesIfEnded(tx, {
+      entries: [
+        ...cancelledOrderIds.map((orderId) => ({ orderId, cause: 'UNPAID_ORDER_CANCELLED' })),
+        ...lockedOrderIds.map((orderId) => ({ orderId, cause: 'SESSION_CANCELLED' })),
+      ],
+      actorId,
+      requestId,
+      now,
+    })
 
     // 9. One notice per touched order.
     let notifications = 0
@@ -665,6 +798,16 @@ export async function cancelSession(prisma, options) {
       if (!order.buyerEmail) continue
 
       const outcome = outcomes.get(order.id) ?? 'NOT_SENT'
+      // A booking paid at the venue: what became of its booking fee paid
+      // online, and what was paid at the door for the night's tickets — by
+      // the buyer, and by people they passed tickets to (SPEC3-XI XT7), each
+      // of whom is told too. A ticket paid at the door has been let in, and a
+      // night with anybody let in is not cancelled, so this is the money for
+      // the night's own tickets only.
+      const venue =
+        order.paymentMethod === 'AT_VENUE'
+          ? doorMoneyOf(order, nightTicketsOf(order, night.id))
+          : null
       const created = await tx.notificationOutbox.createMany({
         data: [
           {
@@ -687,6 +830,15 @@ export async function cancelSession(prisma, options) {
               refunded: outcome === 'REFUNDED',
               keptEveryNight: outcome === 'KEPT',
               byPlatform: platform,
+              ...(venue
+                ? {
+                    atVenue: true,
+                    onlineRefund: ONLINE_REFUND_BY_OUTCOME[outcome] ?? null,
+                    paidAtDoorCents: venue.buyerCents,
+                    paidAtDoorByOthersCents: venue.othersCents,
+                    currency: order.currency,
+                  }
+                : {}),
             },
             dedupeKey: `session-cancelled:${night.id}:${order.id}`,
             suppressible: isSuppressible(SESSION_CANCELLED_TEMPLATE),
@@ -696,6 +848,17 @@ export async function cancelSession(prisma, options) {
       })
 
       notifications += created.count
+
+      if (venue) {
+        notifications += await writeHolderNotices(tx, {
+          template: SESSION_CANCELLED_TEMPLATE,
+          holders: venue.holders,
+          event: locked,
+          order,
+          currency: order.currency,
+          night,
+        })
+      }
     }
 
     // 10. What ticket holders are shown.
@@ -764,6 +927,49 @@ export async function cancelSession(prisma, options) {
   const cancelled = await prisma.eventSession.findUnique({ where: { id: session.id } })
 
   return { session: cancelled, refunds, refundError, counts }
+}
+
+/**
+ * Lock, sorted by id, every paid order a night's cancellation refunds or
+ * withdraws tickets of (SPEC3-XI §2.3.1): every touched order but those told
+ * only (an every-night ticket kept) and the unpaid ones, which
+ * `cancelUnpaidOrders` cancels by its own conditional update.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {Array<{order: object, plan: string}>} plans The night's plans.
+ * @returns {Promise<string[]>} The ids locked, in the order taken.
+ */
+export async function lockPaidOrders(tx, plans) {
+  const ids = [
+    ...new Set(
+      (plans ?? [])
+        .filter(({ order, plan }) => plan !== 'TELL' && order.status === 'PAID')
+        .map(({ order }) => order.id),
+    ),
+  ].sort()
+
+  for (const id of ids) {
+    await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`
+  }
+
+  return ids
+}
+
+/**
+ * An order's tickets for one night: its lines on the night's tier, and its
+ * tickets holding a seat on that night.
+ *
+ * @param {object} order An order with `items[].ticketType` and `items[].tickets[].eventSeat`.
+ * @param {string} nightId The night.
+ * @returns {Array<object>} The tickets.
+ */
+function nightTicketsOf(order, nightId) {
+  return (order.items ?? []).flatMap((item) =>
+    (item.tickets ?? []).filter(
+      (ticket) =>
+        item.ticketType?.eventSessionId === nightId || ticket.eventSeat?.eventSessionId === nightId,
+    ),
+  )
 }
 
 /**

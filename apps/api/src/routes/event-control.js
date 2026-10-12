@@ -52,7 +52,8 @@ import { TRANSACTION_BUDGETS, budgetedTransaction } from '../lib/transaction-bud
 import { WEBSITE_REDIRECT_INCLUDE, websiteViewFor } from '../lib/website-redirect.js'
 import { platformEditRateLimit } from '../plugins/rate-limit.js'
 import { toSession } from './event-authoring.js'
-import { feeConfigFor } from './orders.js'
+import { eventFeeConfig } from '../lib/checkout-pricing.js'
+import { eventPaymentTerms } from '../lib/payment-terms.js'
 
 /**
  * What is still owed when the refund pass after a deletion or a night's
@@ -192,7 +193,11 @@ export function registerEventControlRoutes(
   { prisma, providers, env, payments, platformEditLimit },
 ) {
   const paymentMode = payments?.mode ?? 'MOCK'
-  const pricing = env ? { feeConfigFor: (currency) => feeConfigFor(env, currency) } : {}
+  // The event's own booking fee when the Desi-Event team set one, else the
+  // site default: the terms checkout charges (SPEC3 §7.2).
+  const pricing = env
+    ? { feeConfigFor: (currency, event) => eventFeeConfig(env, event, currency) }
+    : {}
   const editBudget = platformEditRateLimit(platformEditLimit ?? {})
 
   /**
@@ -209,6 +214,7 @@ export function registerEventControlRoutes(
       includeDraftTiers: true,
       includeOnlineUrl: true,
       website: websiteViewFor(actor, full),
+      paymentTerms: await eventPaymentTerms(prisma, full, { actor, env }),
       deletion: { platformReader: isPlatformReader(actor) },
       ...pricing,
     })
@@ -626,6 +632,15 @@ export function registerEventControlRoutes(
                     restoreTo: restoreTarget(event.statusBeforeDeletion),
                   }
                 : null,
+            // The list's "Booking fee" and "Pay at the venue" columns (SPEC3
+            // §7.3): the event's own fee, or the site default (no numbers),
+            // and the switch with its limit.
+            feeSource: event.feeSource ?? 'SITE_DEFAULT',
+            feePercentageBps: event.feePercentageBps ?? null,
+            feeFlatCentsPerTicket: event.feeFlatCentsPerTicket ?? null,
+            feeCurrency: event.feeCurrency ?? null,
+            venuePaymentEnabled: event.venuePaymentEnabled === true,
+            venuePaymentLimit: event.venuePaymentLimit ?? null,
           }
         }),
       )

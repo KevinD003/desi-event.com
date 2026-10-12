@@ -50,6 +50,11 @@
 import { financeSummary } from './finance-reporting.js'
 import { dayDate } from './traffic.js'
 import { trafficSummary, trafficWindow } from './traffic-report.js'
+import {
+  BOOKED_UNPAID_ORDER_WHERE,
+  PAID_ORDER_WHERE,
+  UNPAID_VENUE_TICKET_WHERE,
+} from './venue-payment-filters.js'
 
 /**
  * Ticket states that mean a ticket exists and has not been given up.
@@ -330,6 +335,12 @@ export async function reservedSeatInventory(prisma, params) {
  * Only `PAID` orders are counted. A pending order is a basket, and a cancelled
  * or expired one never happened.
  *
+ * A place booked to pay at the venue and cancelled unpaid went back to stock
+ * (SPEC3-XI §9.10): it is not sold, and counting it would count it twice
+ * once it is sold again. So each line counts `quantity − venueCancelledQuantity`
+ * and its value without those tickets' share, and every group says how many
+ * were cancelled (`cancelledQuantity`).
+ *
  * @param {object} prisma A Prisma client.
  * @param {object} params Inputs, as {@link eventScope} plus a window and currency.
  * @returns {Promise<object>} Four breakdowns, each bounded.
@@ -351,6 +362,7 @@ export async function salesBreakdowns(prisma, params) {
       subtotalCents: true,
       refundedQuantity: true,
       refundedCents: true,
+      venueCancelledQuantity: true,
       ticketType: { select: { id: true, name: true, currency: true } },
       order: {
         select: {
@@ -366,6 +378,25 @@ export async function salesBreakdowns(prisma, params) {
       },
     },
   })
+
+  /**
+   * What a line counts as sold: its tickets, less those cancelled unpaid, and
+   * its value without their share of it.
+   *
+   * @param {object} item An order line as read above.
+   * @returns {{sold: number, value: number, cancelled: number}} The line's figures.
+   */
+  const soldOf = (item) => {
+    const cancelled = Math.min(item.quantity, Math.max(0, item.venueCancelledQuantity ?? 0))
+    const cancelledValue =
+      item.quantity > 0 ? Math.round((item.subtotalCents * cancelled) / item.quantity) : 0
+
+    return {
+      sold: item.quantity - cancelled,
+      value: item.subtotalCents - cancelledValue,
+      cancelled,
+    }
+  }
 
   /**
    * Fold order lines into one grouping.
@@ -392,16 +423,19 @@ export async function salesBreakdowns(prisma, params) {
           lineValueCents: 0,
           refundedQuantity: 0,
           refundedCents: 0,
+          cancelledQuantity: 0,
           ...(shape.extra ?? {}),
         })
       }
 
       const entry = groups.get(key)
+      const line = soldOf(item)
 
-      entry.quantity += item.quantity
-      entry.lineValueCents += item.subtotalCents
+      entry.quantity += line.sold
+      entry.lineValueCents += line.value
       entry.refundedQuantity += item.refundedQuantity
       entry.refundedCents += item.refundedCents
+      entry.cancelledQuantity += line.cancelled
     }
 
     return [...groups.values()]
@@ -427,15 +461,18 @@ export async function salesBreakdowns(prisma, params) {
         lineValueCents: 0,
         refundedQuantity: 0,
         refundedCents: 0,
+        cancelledQuantity: 0,
       })
     }
 
     const entry = byDate.get(key)
+    const line = soldOf(item)
 
-    entry.quantity += item.quantity
-    entry.lineValueCents += item.subtotalCents
+    entry.quantity += line.sold
+    entry.lineValueCents += line.value
     entry.refundedQuantity += item.refundedQuantity
     entry.refundedCents += item.refundedCents
+    entry.cancelledQuantity += line.cancelled
   }
 
   return {
@@ -619,7 +656,7 @@ export const FUNNEL_NOT_COUNTED = Object.freeze([
  *
  * @param {object} prisma A Prisma client.
  * @param {object} params Inputs, as {@link eventScope} plus a window and `now`.
- * @returns {Promise<{steps: Array<{key: string, label: string, count: number}>, missing: Array<string>}>} The funnel and what it does not count.
+ * @returns {Promise<{steps: Array<{key: string, label: string, count: number}>, missing: Array<string>, atVenue: {bookedUnpaid: number}}>} The funnel, what it does not count, and the bookings paid at the venue still waiting for their payment.
  */
 export async function conversionFunnel(prisma, params) {
   const scope = eventScope(params)
@@ -630,7 +667,7 @@ export async function conversionFunnel(prisma, params) {
     now: params.now ?? new Date(),
   })
 
-  const [visits, holds, ordersCreated, ordersPaid] = await Promise.all([
+  const [visits, holds, ordersCreated, ordersPaid, bookedUnpaid] = await Promise.all([
     prisma.trafficDaily.aggregate({
       where: {
         event: scope,
@@ -643,7 +680,11 @@ export async function conversionFunnel(prisma, params) {
     }),
     prisma.ticketHold.count({ where: { ticketType: { event: scope }, ...window } }),
     prisma.order.count({ where: { event: scope, ...window } }),
-    prisma.order.count({ where: { event: scope, status: 'PAID', ...window } }),
+    // A booking paid at the venue counts as paid once a payment was taken at
+    // the door and none of its standing tickets still waits for one (SPEC3
+    // §9.10); until then it is counted apart, below.
+    prisma.order.count({ where: { event: scope, ...PAID_ORDER_WHERE, ...window } }),
+    prisma.order.count({ where: { event: scope, ...BOOKED_UNPAID_ORDER_WHERE, ...window } }),
   ])
 
   return {
@@ -659,6 +700,54 @@ export async function conversionFunnel(prisma, params) {
       { key: 'ordersPaid', label: 'Orders paid', count: ordersPaid },
     ],
     missing: [...FUNNEL_NOT_COUNTED],
+    // Orders booked to pay at the venue still waiting for a payment at the
+    // door: not in "Orders paid" until it is taken.
+    atVenue: { bookedUnpaid },
+  }
+}
+
+/**
+ * Tickets booked to pay at the venue, in the scope and the currency (SPEC3
+ * §9.10, SPEC3-XI §9.10): those still unpaid and what they owe, what was
+ * taken at the door, and how many unpaid ones were cancelled. Door money is
+ * taken by the organiser: it is never in the money figures, which come from
+ * the ledger, and it is reported here only beside them.
+ *
+ * @param {object} prisma A Prisma client.
+ * @param {object} params Inputs, as {@link eventScope} plus `currency`.
+ * @returns {Promise<{ticketsUnpaid: number, unpaidCents: number, paidAtDoorCents: number, cancelledUnpaidTickets: number}>} The figures.
+ */
+export async function venuePaymentFigures(prisma, params) {
+  const scope = eventScope(params)
+  const { currency } = params
+
+  const [unpaid, taken, cancelledUnpaidTickets] = await Promise.all([
+    prisma.ticket.findMany({
+      where: {
+        ...UNPAID_VENUE_TICKET_WHERE,
+        orderItem: {
+          order: { event: scope, status: 'PAID', paymentMethod: 'AT_VENUE', currency },
+        },
+      },
+      select: { venueDueCents: true },
+    }),
+    prisma.venuePayment.aggregate({
+      where: { event: scope, currency },
+      _sum: { amountCents: true },
+    }),
+    prisma.ticket.count({
+      where: {
+        venueCancellationId: { not: null },
+        orderItem: { order: { event: scope, currency } },
+      },
+    }),
+  ])
+
+  return {
+    ticketsUnpaid: unpaid.length,
+    unpaidCents: unpaid.reduce((sum, ticket) => sum + (ticket.venueDueCents ?? 0), 0),
+    paidAtDoorCents: taken._sum?.amountCents ?? 0,
+    cancelledUnpaidTickets,
   }
 }
 
@@ -697,6 +786,7 @@ export async function organizerAnalytics(prisma, params) {
     exceptions,
     funnel,
     traffic,
+    venuePayments,
   ] = await Promise.all([
     moneyTotals(prisma, params),
     ticketCounts(prisma, params),
@@ -709,6 +799,7 @@ export async function organizerAnalytics(prisma, params) {
     reconciliationExceptions(prisma, params),
     conversionFunnel(prisma, params),
     trafficSummary(prisma, params),
+    venuePaymentFigures(prisma, params),
   ])
 
   return {
@@ -722,6 +813,7 @@ export async function organizerAnalytics(prisma, params) {
     notifications,
     exceptions,
     funnel,
+    venuePayments,
     // Said in the payload rather than assumed by the screen, so an export and a
     // page cannot disagree about which day a sale fell on.
     timeZone: 'UTC',

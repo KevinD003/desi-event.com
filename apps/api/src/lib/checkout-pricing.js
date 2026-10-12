@@ -14,9 +14,23 @@
  *
  * With `lock: true` the rows are locked in the one order every checkout path
  * uses (see `session-inventory.js`): every tier, sorted; every night, sorted;
- * then the promo code. The promo row is re-read under its lock and evaluated
- * then, so a code with one use left gives one discount however many buyers race
- * for it. A `CHECK` on the table is the backstop.
+ * every hold, sorted; the promo code; the referral code; and, for a booking to
+ * pay at the venue, the event's venue-booking advisory lock last (SPEC3 §6.3,
+ * SPEC3-XI §2.1 rows 2-4, 10 and 11). Each code is re-read under its lock and
+ * evaluated then, so a code with one use left gives one discount, or one
+ * waiver, however many buyers race for it. A `CHECK` on each table is the
+ * backstop. The event row itself is never locked: the booking fee and the
+ * pay-at-the-venue switch are read with an ordinary read, so a change saved by
+ * an administrator applies to checkouts priced after it (DF4).
+ *
+ * ## The booking fee and how the ticket price is paid (SPEC3 §6)
+ *
+ * The fee is the event's own when the Desi-Event team set one in the order's
+ * currency, else the site default ({@link eventFeeConfig}). A referral code
+ * removes the whole fee, and on a card order the tax it would have carried; it
+ * is not looked up at all when there is no fee to remove. Paying at the venue
+ * puts only the fee, and any tax on it, online; the ticket price is owed at
+ * the door and carries no tax.
  *
  * Nothing here trusts the request for a price, a seat's state or which tier a
  * seat belongs to. All three come from the database.
@@ -30,16 +44,19 @@ import {
   validateQuantityRequest,
 } from '@desi-event/inventory'
 import {
+  PAYMENT_METHODS,
   assertTaxPolicyUsable,
   computeOrderTotals,
   evaluatePromoCode,
   feeConfigForCurrency,
   resolveTaxPolicy,
+  unitsWithShare,
 } from '@desi-event/pricing'
 import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
-import { conflict, httpError, notFound, unprocessable } from './errors.js'
+import { conflict, httpError, notFound, paymentTermsRefusal, unprocessable } from './errors.js'
 import { lockTicketHolds, lockTicketTypes, readAvailability } from './inventory.js'
+import { evaluateReferral } from './referral-codes.js'
 import { pendingOrdersOf } from './seating.js'
 import {
   assertSessionCapacity,
@@ -48,6 +65,7 @@ import {
   mayBookHiddenTier,
 } from './session-inventory.js'
 import { assertSeatsCoherent, loadSeatedHoldItems, priceLines } from './seated-checkout.js'
+import { assertVenueBookingLimits, venuePaymentAvailable } from './venue-booking-limits.js'
 
 /** `TicketTypeVisibility.HIDDEN`, inlined to avoid importing the database client. */
 const HIDDEN = 'HIDDEN'
@@ -67,6 +85,46 @@ export function feeConfigFor(env, currency) {
     percentageBps: env.PLATFORM_FEE_BPS,
     flatCents: env.PLATFORM_FEE_FLAT_CENTS,
   })
+}
+
+/**
+ * The booking fee terms an order of this event, in this currency, is priced
+ * with (SPEC3 §6.1, DF3): the event's own when the Desi-Event team set them in
+ * that currency, else the site default for the currency. The answer says which
+ * (`source`) and the decision it came from (`settingId`), which the order
+ * records; a buyer is never told the source.
+ *
+ * An event read without its fee columns is a programming error, never a
+ * silent fallback to the site default: that is how a card's price and the
+ * checkout's could disagree.
+ *
+ * @param {object} env The parsed API environment.
+ * @param {object} event The event, with `feeSource`, `feePercentageBps`, `feeFlatCentsPerTicket`, `feeCurrency` and `feeSettingId` (`EVENT_FEE_SELECT`).
+ * @param {string} currency The order's currency.
+ * @returns {{percentageBps: number, flatCents: number, currency: string, source: 'EVENT'|'SITE_DEFAULT', settingId: string|null}} The terms.
+ * @throws {TypeError} For an event read without its fee columns.
+ */
+export function eventFeeConfig(env, event, currency) {
+  if (!event || typeof event !== 'object' || !('feeSource' in event)) {
+    throw new TypeError('eventFeeConfig needs the event with its booking fee columns')
+  }
+
+  if (
+    event.feeSource === 'EVENT' &&
+    event.feeCurrency === currency &&
+    Number.isInteger(event.feePercentageBps) &&
+    Number.isInteger(event.feeFlatCentsPerTicket)
+  ) {
+    return {
+      percentageBps: event.feePercentageBps,
+      flatCents: event.feeFlatCentsPerTicket,
+      currency,
+      source: 'EVENT',
+      settingId: event.feeSettingId ?? null,
+    }
+  }
+
+  return { ...feeConfigFor(env, currency), source: 'SITE_DEFAULT', settingId: null }
 }
 
 /**
@@ -329,15 +387,15 @@ export function promoReason(promoCode, { now, currency }) {
  *
  * @param {object} tx A Prisma transaction client.
  * @param {object} options Options.
- * @param {object} options.body The request: `eventId`, `items`, optional `holdIds`, `promoCode` and `attendees`.
+ * @param {object} options.body The request: `eventId`, `items`, optional `holdIds`, `promoCode`, `attendees`, `paymentMethod` and `referralCode`.
  * @param {object|null} options.actor The request actor.
  * @param {string|null} [options.guestToken] A guest hold token, from `X-Hold-Token`.
  * @param {Date} options.now The moment the order is priced at.
  * @param {object} options.env The parsed API environment.
  * @param {boolean} options.lock Whether to take the checkout locks (the charge) or not (the quote).
  * @param {boolean} [options.unknownPromoIsError] Whether a code this organiser does not have is refused (the charge) or reported (the quote).
- * @returns {Promise<object>} Everything the order write, or the quote, needs.
- * @throws {Error} The same refusals the charge gives.
+ * @returns {Promise<object>} Everything the order write, or the quote, needs: beside the totals, `paymentMethod`, `fee` ({@link eventFeeConfig}), `referral` (`{ row, applied, reason }`, or null when no code was named) and `venuePayment` (`{ available }`).
+ * @throws {Error} The same refusals the charge gives, and SPEC3's: 401 `SIGN_IN_REQUIRED`, 409 `VENUE_PAYMENT_OFF`, `VENUE_PAYMENT_UNAVAILABLE`, `VENUE_PAYMENT_FULL`, 422 `NOTHING_TO_PAY_AT_VENUE`.
  */
 export async function priceCheckout(
   tx,
@@ -350,7 +408,12 @@ export async function priceCheckout(
   // read anything.
   if (lock) await lockTicketTypes(tx, requestedIds)
 
-  const event = await tx.event.findUnique({ where: { id: body.eventId } })
+  // No lock on the event: an order insert's foreign key takes only
+  // `FOR KEY SHARE`, and the fee and switch are read as they stand (DF4).
+  const event = await tx.event.findUnique({
+    where: { id: body.eventId },
+    include: { organization: { select: { platformHeldSource: true } } },
+  })
   if (!event) throw notFound('No such event.')
   if (!BOOKABLE_STATUSES.has(event.status)) {
     throw unprocessable('This event is not on sale.')
@@ -565,14 +628,79 @@ export async function priceCheckout(
     seatedItems,
   })
 
-  const totals = computeOrderTotals({
-    items: pricedLines,
-    promoCode,
-    feeConfig: feeConfigFor(env, currency),
-    taxRateBps: taxPolicy.rateBps,
-    currency,
-    now,
-  })
+  const fee = eventFeeConfig(env, event, currency)
+  const paymentMethod = body.paymentMethod ?? PAYMENT_METHODS.CARD
+  const atVenue = paymentMethod === PAYMENT_METHODS.AT_VENUE
+  const totalsFor = (feeWaived) =>
+    computeOrderTotals({
+      items: pricedLines,
+      promoCode,
+      feeConfig: fee,
+      taxRateBps: taxPolicy.rateBps,
+      currency,
+      now,
+      paymentMethod,
+      feeWaived,
+    })
+
+  // Paying at the venue needs an account (the wallet, the door's holder and the
+  // group pass all do), the switch on, and an event with a venue of its own
+  // that is sold here. Bookability was refused above.
+  if (atVenue) {
+    if (!actor) throw paymentTermsRefusal('SIGN_IN_REQUIRED')
+    if (event.venuePaymentEnabled !== true) throw paymentTermsRefusal('VENUE_PAYMENT_OFF')
+    if (event.isOnline === true || event.organization?.platformHeldSource) {
+      throw paymentTermsRefusal('VENUE_PAYMENT_UNAVAILABLE')
+    }
+  }
+
+  let totals = totalsFor(false)
+
+  // A referral code removes the whole booking fee. With no fee to remove it is
+  // not looked up at all, so the answer says nothing about the code; otherwise
+  // the same queries run whatever it finds, and only an applicable code is
+  // locked (SPEC3 §8.2, DR10).
+  /** @type {{row: object|null, applied: boolean, reason: string|null}|null} */
+  let referral = null
+
+  if (body.referralCode !== undefined) {
+    if (!actor) throw paymentTermsRefusal('SIGN_IN_REQUIRED')
+
+    if (totals.feeGrossCents === 0) {
+      referral = { row: null, applied: false, reason: 'NOTHING_TO_WAIVE' }
+    } else {
+      const evaluated = await evaluateReferral(tx, {
+        code: body.referralCode,
+        event,
+        actor,
+        now,
+        lock,
+      })
+
+      if (evaluated.applicable) {
+        referral = { row: evaluated.row, applied: true, reason: null }
+        totals = totalsFor(true)
+      } else {
+        referral = { row: null, applied: false, reason: 'NOT_ACCEPTED' }
+      }
+    }
+  }
+
+  // Nothing to pay at the door: a basket whose ticket price after the promo
+  // is 0 is a free booking, settled as one, never booked to pay at the venue.
+  if (atVenue && totals.venueDueCents <= 0) throw paymentTermsRefusal('NOTHING_TO_PAY_AT_VENUE')
+
+  // The event's limit on tickets waiting to be paid at the door, counted under
+  // its advisory lock: the last lock of the checkout (SPEC3-XI §2.1 row 11).
+  if (lock && atVenue) {
+    await assertVenueBookingLimits(tx, {
+      event,
+      adding: totals.lineItems.reduce(
+        (sum, line) => sum + unitsWithShare(line.venueDueCents ?? 0, line.quantity),
+        0,
+      ),
+    })
+  }
 
   // A promo that exists but is inactive, out of window or exhausted yields a
   // zero discount. It must not consume a redemption or be stamped on the
@@ -627,6 +755,14 @@ export async function priceCheckout(
     lineSessions,
     eventSessionId: sessionOfOrder(lineSessions),
     attendees,
+    paymentMethod,
+    fee,
+    referral,
+    venuePayment: {
+      // Offered while the switch is on for a bookable event with a venue of
+      // its own, for a basket with a ticket price to pay at the door.
+      available: venuePaymentAvailable(event) && totals.subtotalCents - totals.discountCents > 0,
+    },
   }
 }
 
@@ -638,7 +774,8 @@ export async function priceCheckout(
  * @returns {object} A payload satisfying `orderQuoteResponseSchema`'s `data`.
  */
 export function toOrderQuote(priced, now) {
-  const { totals, lineSessions, ticketTypesById, promo } = priced
+  const { totals, lineSessions, ticketTypesById, promo, paymentMethod, fee, referral } = priced
+  const atVenue = paymentMethod === PAYMENT_METHODS.AT_VENUE
 
   return {
     currency: totals.currency,
@@ -646,7 +783,23 @@ export function toOrderQuote(priced, now) {
     discountCents: totals.discountCents,
     feesCents: totals.feesCents,
     taxCents: totals.taxCents,
+    // What is paid online; a pay-at-the-venue quote also says what is paid at
+    // the door.
     totalCents: totals.totalCents,
+    paymentMethod,
+    feeGrossCents: totals.feeGrossCents,
+    feeWaivedCents: totals.feeWaivedCents,
+    venueDueCents: totals.venueDueCents,
+    // The numbers, never where they came from (SPEC3 §7.2, A13).
+    fee: { percentageBps: fee.percentageBps, flatCentsPerTicket: fee.flatCents },
+    tax: {
+      applied: totals.taxApplied,
+      appliedTo: totals.taxAppliedTo,
+      notAppliedReason: atVenue ? 'PAID_AT_VENUE' : null,
+    },
+    // Whether the code was applied and why not; never the code itself.
+    referral: referral ? { applied: referral.applied, reason: referral.reason } : null,
+    venuePayment: priced.venuePayment,
     lines: totals.lineItems.map((line, index) => ({
       ticketTypeId: line.ticketTypeId,
       name: line.name ?? ticketTypesById.get(line.ticketTypeId)?.name ?? 'Ticket',
@@ -655,6 +808,8 @@ export function toOrderQuote(priced, now) {
       unitPriceCents: line.unitPriceCents,
       subtotalCents: line.subtotalCents,
       discountCents: line.discountCents ?? 0,
+      // Only a pay-at-the-venue line owes something at the door.
+      ...(line.venueDueCents !== undefined ? { venueDueCents: line.venueDueCents } : {}),
     })),
     promo,
     pricedAt: now.toISOString(),

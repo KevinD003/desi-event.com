@@ -40,6 +40,7 @@ import { CARD_PLACEMENTS, TRAFFIC_SOURCES } from '@desi-event/schemas/traffic-vo
 
 import { likeLiteral } from './like-pattern.js'
 import { dayDate, utcDay } from './traffic.js'
+import { PAID_ORDER_WHERE } from './venue-payment-filters.js'
 import { WEBSITE_REDIRECT_SELECT, websiteRedirectState } from './website-redirect.js'
 
 /** The longest per-day series a payload carries. */
@@ -374,7 +375,7 @@ export async function trafficSummary(
     // Two columns, grouped here by day and by event: a database day bucket
     // would need raw SQL, and these rows are the organisation's own.
     prisma.order.findMany({
-      where: { event: scope, status: 'PAID', paidAt: paidFilter(window, firstDay) },
+      where: { event: scope, ...PAID_ORDER_WHERE, paidAt: paidFilter(window, firstDay) },
       select: { eventId: true, paidAt: true },
     }),
   ])
@@ -585,7 +586,11 @@ export async function platformTraffic(
       ? []
       : prisma.order.groupBy({
           by: ['eventId'],
-          where: { eventId: { in: everyId }, status: 'PAID', paidAt: paidFilter(window, firstDay) },
+          where: {
+            eventId: { in: everyId },
+            ...PAID_ORDER_WHERE,
+            paidAt: paidFilter(window, firstDay),
+          },
           _count: { _all: true },
         }),
     everyId.length === 0

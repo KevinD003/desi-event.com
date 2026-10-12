@@ -1739,3 +1739,247 @@ describe('a deleted event fixture', () => {
     await app.close()
   })
 })
+
+/**
+ * A booking paid at the venue whose whole booking fee a referral code waived
+ * (SPEC3-XI XR2), on the fixture's second night, PAID or, as checkout's first
+ * transaction leaves it, PENDING with no payment and no tickets; and its code,
+ * one use taken.
+ *
+ * @param {object} fixture `threeNightEventFixture`'s result.
+ * @param {object} buyer The buyer's account.
+ * @param {object} options Options.
+ * @param {string} options.codeId The code's id.
+ * @param {string} options.reference The booking's reference.
+ * @param {'PAID'|'PENDING'} [options.status] Settled or not yet.
+ * @returns {object} The rows to add.
+ */
+function waivedBooking(fixture, buyer, { codeId, reference, status = 'PAID' }) {
+  const tier = fixture.tiers[1]
+  const at = new Date('2026-09-01T12:00:00.000Z')
+  const order = {
+    id: cuid(),
+    reference,
+    idempotencyKey: null,
+    eventId: fixture.event.id,
+    eventSessionId: tier.eventSessionId,
+    userId: buyer.id,
+    buyerEmail: buyer.email,
+    buyerName: buyer.displayName,
+    status,
+    currency: 'INR',
+    subtotalCents: tier.priceCents,
+    discountCents: 0,
+    feesCents: 0,
+    taxCents: 0,
+    totalCents: 0,
+    promoCodeId: null,
+    refundedCents: 0,
+    refundPendingCents: 0,
+    expiresAt: status === 'PENDING' ? new Date(Date.now() + 600_000) : null,
+    paidAt: status === 'PAID' ? at : null,
+    cancelledAt: null,
+    createdAt: at,
+    updatedAt: at,
+    paymentMethod: 'AT_VENUE',
+    feeGrossCents: 2_400,
+    feeWaivedCents: 2_400,
+    referralCodeId: codeId,
+    referralUseReturnedAt: null,
+    referralUseReturnCause: null,
+    venueDueCents: tier.priceCents,
+    venueCancelledBasisCents: 0,
+    venueFeeKeptCents: 0,
+  }
+  const item = {
+    id: cuid(),
+    orderId: order.id,
+    ticketTypeId: tier.id,
+    quantity: 1,
+    unitPriceCents: tier.priceCents,
+    subtotalCents: tier.priceCents,
+    refundedQuantity: 0,
+    refundedCents: 0,
+    attendeeNames: [],
+    venueDueCents: tier.priceCents,
+    venueCancelledQuantity: 0,
+  }
+  const tickets =
+    status === 'PAID'
+      ? [
+          {
+            id: cuid(),
+            orderItemId: item.id,
+            code: `${reference}-1`,
+            credentialHash: `${reference.toLowerCase()}-pass`,
+            credentialVersion: 1,
+            credentialIssuedAt: at,
+            attendeeName: null,
+            ownerUserId: buyer.id,
+            eventSeatId: null,
+            status: 'VALID',
+            checkedInAt: null,
+            revokedAt: null,
+            revokedReason: null,
+            supersedesTicketId: null,
+            venueDueCents: tier.priceCents,
+            venuePaymentId: null,
+            venueCancellationId: null,
+            createdAt: at,
+            updatedAt: at,
+          },
+        ]
+      : []
+  const code = {
+    id: codeId,
+    code: `FRIENDS-${reference}`,
+    label: null,
+    scope: 'ALL_EVENTS',
+    expiresAt: null,
+    maxUses: null,
+    useCount: 1,
+    active: true,
+    switchedOffAt: null,
+    createdById: null,
+    updatedById: null,
+    createdAt: at,
+    updatedAt: at,
+  }
+
+  return { order: [order], orderItem: [item], ticket: tickets, referralCode: [code] }
+}
+
+describe('the lock law and the referral uses (SPEC3-XI §2.3.2, §2.3.7, XR4)', () => {
+  it('a deletion locks every paid order right after the nights, cancels unpaid orders without touching a code, and gives every use back last, ascending, in one batch', async () => {
+    const [low, high] = [cuid(), cuid()].sort()
+    let buyer = null
+    const { app, prisma, fixture } = await threeNightApp({}, (shape) => {
+      buyer = { id: shape.orders[0].userId, email: 'priya@example.com', displayName: 'Priya' }
+      // The PAID booking names the higher code, the PENDING one the lower, so
+      // ascending order is not the order the orders are met in.
+      addRows(shape.rows, waivedBooking(shape, buyer, { codeId: high, reference: 'DE-WAIVEDPAID' }))
+      addRows(
+        shape.rows,
+        waivedBooking(shape, buyer, {
+          codeId: low,
+          reference: 'DE-WAIVEDPEND',
+          status: 'PENDING',
+        }),
+      )
+    })
+    const headers = await as(app, 'owner@rangoli.example')
+    const from = prisma.lockLog.length
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${fixture.event.id}/delete`,
+      headers,
+      payload: body(fixture.event, 'CANCEL_AND_REFUND'),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+
+    const paid = prisma._store.order.find((row) => row.reference === 'DE-WAIVEDPAID')
+    const pending = prisma._store.order.find((row) => row.reference === 'DE-WAIVEDPEND')
+    const log = prisma.lockLog.slice(from)
+    const deleting = log.find((entry) => entry.table === 'EventSession').transaction
+    const inTransaction = log.filter((entry) => entry.transaction === deleting)
+    const lastNight = inTransaction.map((entry) => entry.table).lastIndexOf('EventSession')
+    const paidIds = prisma._store.order
+      .filter((row) => row.eventId === fixture.event.id && row.paidAt && row.id !== pending.id)
+      .map((row) => row.id)
+      .sort()
+    const afterNights = inTransaction
+      .slice(lastNight + 1, lastNight + 1 + paidIds.length)
+      .map((entry) => `${entry.table}:${entry.kind}:${entry.id}`)
+
+    // 2.3.2: every paid order, ascending, straight after the nights.
+    expect(afterNights).toEqual(paidIds.map((id) => `Order:lock:${id}`))
+
+    const firstTicketWrite = inTransaction.findIndex(
+      (entry) => entry.table === 'Ticket' && entry.kind === 'write',
+    )
+
+    expect(firstTicketWrite).toBeGreaterThan(lastNight + paidIds.length)
+
+    // The codes last, ascending, after every order, line, ticket and seat write.
+    const codes = inTransaction.filter((entry) => entry.table === 'ReferralCode')
+    const firstCode = inTransaction.findIndex((entry) => entry.table === 'ReferralCode')
+    const lastRowWrite = inTransaction
+      .map(
+        (entry) =>
+          entry.kind === 'write' &&
+          ['Order', 'OrderItem', 'Ticket', 'EventSeat'].includes(entry.table),
+      )
+      .lastIndexOf(true)
+
+    expect(firstCode).toBeGreaterThan(lastRowWrite)
+    expect([...new Set(codes.map((entry) => entry.id))]).toEqual([low, high])
+
+    expect(pending).toMatchObject({
+      status: 'CANCELLED',
+      referralUseReturnCause: 'UNPAID_ORDER_CANCELLED',
+    })
+    expect(paid).toMatchObject({ status: 'PAID', referralUseReturnCause: 'EVENT_DELETED' })
+
+    for (const id of [low, high]) {
+      expect(prisma._store.referralCode.find((row) => row.id === id).useCount).toBe(0)
+    }
+
+    await app.close()
+  })
+
+  it('an event’s cancellation locks the orders it read as PENDING, and gives a waived booking’s use back with EVENT_CANCELLED', async () => {
+    const codeId = cuid()
+    const { app, prisma, fixture } = await threeNightApp({}, (shape) => {
+      const buyer = { id: shape.orders[0].userId, email: 'priya@example.com', displayName: 'P' }
+
+      addRows(shape.rows, waivedBooking(shape, buyer, { codeId, reference: 'DE-WAIVEDCANC' }))
+      addRows(
+        shape.rows,
+        waivedBooking(shape, buyer, {
+          codeId: cuid(),
+          reference: 'DE-WAIVEDWAIT',
+          status: 'PENDING',
+        }),
+      )
+    })
+    const headers = await as(app, 'owner@rangoli.example')
+    const from = prisma.lockLog.length
+
+    const cancelled = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${fixture.event.id}/cancel`,
+      headers,
+      payload: { reasonCode: 'VENUE_UNAVAILABLE', reason: 'The venue flooded this week.' },
+    })
+
+    expect(cancelled.statusCode, cancelled.body).toBe(200)
+
+    const waived = prisma._store.order.find((row) => row.reference === 'DE-WAIVEDCANC')
+    const waiting = prisma._store.order.find((row) => row.reference === 'DE-WAIVEDWAIT')
+    const log = prisma.lockLog.slice(from)
+
+    // The PENDING order was locked (2.3.7) and, still PENDING, left alone.
+    expect(
+      log.some(
+        (entry) => entry.table === 'Order' && entry.kind === 'lock' && entry.id === waiting.id,
+      ),
+    ).toBe(true)
+    expect(waiting).toMatchObject({ status: 'PENDING', referralUseReturnedAt: null })
+
+    // The zero-online booking: its event cancelled, nothing to refund. Its use
+    // goes back at once, after the last order lock.
+    expect(waived).toMatchObject({ referralUseReturnCause: 'EVENT_CANCELLED' })
+    expect(prisma._store.referralCode.find((row) => row.id === codeId).useCount).toBe(0)
+
+    const codeAt = log.findIndex((entry) => entry.table === 'ReferralCode')
+    const lastOrderLock = log
+      .map((entry) => entry.table === 'Order' && entry.kind === 'lock')
+      .lastIndexOf(true)
+
+    expect(codeAt).toBeGreaterThan(lastOrderLock)
+
+    await app.close()
+  })
+})

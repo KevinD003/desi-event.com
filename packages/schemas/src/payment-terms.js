@@ -27,6 +27,7 @@ import {
   cuidSchema,
   currencySchema,
   orderReferenceSchema,
+  pageSchema,
   paginationQuerySchema,
   queryDateTimeSchema,
   timestampSchema,
@@ -421,19 +422,31 @@ export const switchOffReferralCodeRequestSchema = z.strictObject({
   reason: reasonSchema.optional(),
 })
 
+/** How many referral codes, or uses of one, a page holds: fifty, and no more (SPEC3 §8.4). */
+export const REFERRAL_PAGE_SIZE = 50
+
+/**
+ * A page of referral codes or of one code's uses: fifty unless fewer are
+ * asked for, never more.
+ */
+const referralPageQuerySchema = z.object({
+  page: pageSchema,
+  perPage: z.coerce.number().int().min(1).max(REFERRAL_PAGE_SIZE).default(REFERRAL_PAGE_SIZE),
+})
+
 /**
  * `referralCodes.list`: by status, by the administrator who made it, by an
  * event in its scope. Never by its text, which stays out of a URL; finding a
  * code by its text is a filter in the browser over the page.
  */
-export const listReferralCodesQuerySchema = paginationQuerySchema.extend({
+export const listReferralCodesQuerySchema = referralPageQuerySchema.extend({
   status: z.enum([...REFERRAL_STATUSES]).optional(),
   creatorId: cuidSchema.optional(),
   eventId: cuidSchema.optional(),
 })
 
 /** `referralCodes.get`: a page of the code's uses. */
-export const referralCodeUsesQuerySchema = paginationQuerySchema
+export const referralCodeUsesQuerySchema = referralPageQuerySchema
 
 /**
  * `platformFees.refund`: why, and the amount the administrator was shown as

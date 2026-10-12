@@ -40,6 +40,13 @@
  * is never forwarded on any path. `traffic/events`, the platform's list, is a
  * session route like any other.
  *
+ * A checkout's quote and charge (`POST orders/quote`, `POST orders`) are
+ * forwarded with their session as any other request, plus the visitor's
+ * address as this server read it, so the API can ration wrong referral codes
+ * per address (SPEC3 §4.4); nothing else a beacon carries is added. A
+ * production server with no proxy setting forwards no address there
+ * ({@link checkoutAddress}): the browser could name it.
+ *
  * Some API routes are for this server alone and are never forwarded
  * (`SERVER_ONLY_API_PATHS`): counting a visit to an organiser's website is done
  * by the web's own redirect route, so a browser cannot count one by posting it.
@@ -50,7 +57,12 @@
 import { MEDIA_LIMITS } from '@desi-event/schemas/media'
 
 import { getApiBaseUrl } from '../../../../lib/api-client.js'
-import { trafficForwardHeaders } from '../../../../lib/traffic-forwarding.js'
+import {
+  CLIENT_ADDRESS_HEADER,
+  clientAddressFrom,
+  trafficForwardHeaders,
+  trustedProxyHops,
+} from '../../../../lib/traffic-forwarding.js'
 
 /** Never cached: every request here is somebody's session. */
 export const dynamic = 'force-dynamic'
@@ -123,6 +135,54 @@ export function isServerOnlyPath(path) {
  */
 export function isBeacon(method, path) {
   return method === 'POST' && path.length === 2 && path[0] === 'traffic' && path[1] === 'beacons'
+}
+
+/**
+ * Whether a request is a checkout's quote or charge: `POST orders/quote` or
+ * `POST orders`. Wrong referral codes tried through either are rationed per
+ * visitor's address as well as per account (SPEC3 §4.4), so this server hands
+ * the API the address it read, and nothing more.
+ *
+ * @param {string} method The HTTP method.
+ * @param {string[]} path The proxied path segments.
+ * @returns {boolean} True for a checkout's quote or charge.
+ */
+export function isCheckout(method, path) {
+  if (method !== 'POST' || path[0] !== 'orders') return false
+
+  return path.length === 1 || (path.length === 2 && path[1] === 'quote')
+}
+
+/**
+ * The visitor's address a checkout's quote or charge is forwarded with, or
+ * null for none.
+ *
+ * The API rations wrong referral codes per address (SPEC3 §4.4, DR10), which
+ * is what stops guessing spread over many free accounts, so the address has
+ * to be one the browser cannot choose. With no proxy setting
+ * (`TRAFFIC_TRUSTED_PROXY_HOPS` 0) it would be the last `X-Forwarded-For`
+ * entry, and Next fills that header from the connection only when the browser
+ * sent none (`??=` in `base-server.js`): a browser that sends one names its own
+ * address, and a new one on every guess gets a new bucket each time. Visit
+ * counting accepts that and calls its figures a guide; a refusal budget
+ * cannot. So in production with 0 hops no address is forwarded, and the API
+ * counts those refusals in its shared bucket, which is never skipped. Behind
+ * the proxies the setting names, the entry is the one the nearest of them
+ * appended, as for a visit.
+ *
+ * Outside production the server is a developer's or a test's, its connection
+ * is local and nothing is at stake, so the address is read as for a visit.
+ *
+ * @param {Headers} headers The incoming request's headers.
+ * @param {Record<string, string|undefined>} [env] The environment.
+ * @returns {string|null} An IP literal, or null.
+ */
+export function checkoutAddress(headers, env = process.env) {
+  const hops = trustedProxyHops(env)
+
+  if (hops === 0 && env.NODE_ENV === 'production') return null
+
+  return clientAddressFrom(headers, { hops })
 }
 
 /**
@@ -322,6 +382,16 @@ async function forward(request, context) {
     for (const [name, value] of Object.entries(trafficForwardHeaders(request))) {
       headers.set(name, value)
     }
+  }
+
+  // A checkout's quote or charge keeps its session and gains the visitor's
+  // address as this server read it — never one the browser claims, and
+  // nothing else of a beacon's (no privacy signals): the API rations wrong
+  // referral codes per address, without the user agent (SPEC3 §4.4).
+  if (isCheckout(request.method, path)) {
+    const address = checkoutAddress(request.headers)
+
+    if (address) headers.set(CLIENT_ADDRESS_HEADER, address)
   }
 
   let body

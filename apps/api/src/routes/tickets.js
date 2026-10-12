@@ -31,6 +31,13 @@
  * one-time code reaches the recipient (`../lib/delivery.js`): with no delivery
  * provider it is returned once, `no-store`, to the sender to pass on.
  *
+ * ## Paying at the door (SPEC3 §9.3, SPEC3-XI XT)
+ *
+ * A ticket booked to pay at the venue says what it owes at the door on its own
+ * page, its pass and an accepted transfer (`venuePayment`). It can be offered
+ * and passed on like any other ticket: what is due stays with it, and the
+ * invitation says so; whoever holds it pays at the door.
+ *
  * @module @desi-event/api/routes/tickets
  */
 
@@ -56,6 +63,7 @@ import {
   WALLET_INCLUDE,
   joinUrlFor,
   ticketSession,
+  ticketVenuePayment,
   toWalletTicket,
   transferRecipient,
 } from '../lib/presenters.js'
@@ -73,14 +81,19 @@ import {
   transferTokenDigest,
 } from '../lib/tickets.js'
 import { confirmAdmission, listAdmissionEvents, previewAdmission } from '../lib/admission.js'
+import { settleReferralUsesIfEnded } from '../lib/referral-uses.js'
 import { confirmGroupAdmission, previewGroupAdmission } from '../lib/group-admission.js'
 import { defineRoute } from '../lib/register.js'
+
+/** A ticket's cancellation unpaid, as its holder is told it: when, and by whom. */
+const VENUE_CANCELLATION_SELECT = Object.freeze({ createdAt: true, authority: true })
 
 /** Everything a scan needs in order to authorise itself. */
 const TICKET_INCLUDE = Object.freeze({
   // The event's approved cover comes with it, so a ticket shows the picture
   // its event page shows.
   orderItem: { include: { order: { include: { event: { include: EVENT_COVER_INCLUDE } } } } },
+  venueCancellation: { select: VENUE_CANCELLATION_SELECT },
 })
 
 /** The ticket page's read: the same, plus the night it is for. */
@@ -92,6 +105,7 @@ const TICKET_DETAIL_INCLUDE = Object.freeze({
     },
   },
   eventSeat: { select: { eventSession: { select: SESSION_SUMMARY_SELECT } } },
+  venueCancellation: { select: VENUE_CANCELLATION_SELECT },
 })
 
 /**
@@ -338,7 +352,16 @@ export function registerTicketRoutes(
 
       return {
         data: {
-          ticket: stripRelations(ticket),
+          ticket: {
+            ...stripRelations(ticket),
+            // What it owes at the door, whether it was paid there and by the
+            // reader, and whether it was cancelled because it was not paid
+            // for; null when it owes nothing there.
+            venuePayment: ticketVenuePayment(ticket, {
+              currency: ticket.orderItem.order.currency,
+              viewerUserId: request.actor.id,
+            }),
+          },
           event: {
             id: event.id,
             slug: event.slug,
@@ -460,6 +483,12 @@ export function registerTicketRoutes(
           credential,
           credentialVersion: ticket.credentialVersion,
           issuedAt: ticket.credentialIssuedAt ?? null,
+          // A ticket that owes a payment still gets its pass: the door has to
+          // scan it to take the payment.
+          venuePayment: ticketVenuePayment(ticket, {
+            currency: order?.currency ?? null,
+            viewerUserId: request.actor.id,
+          }),
         },
       }
     },
@@ -478,7 +507,7 @@ export function registerTicketRoutes(
       // that sent it rather than by reading its payload.
       const ticket = await prisma.ticket.findUnique({
         where: { id: request.params.id },
-        include: { orderItem: { select: { order: { select: { event: true } } } } },
+        include: { orderItem: { select: { order: { select: { event: true, currency: true } } } } },
       })
 
       if (!ticket) throw notFound('No such ticket.')
@@ -593,6 +622,11 @@ export function registerTicketRoutes(
               // Not the printed code: the email never shows it, and until the
               // offer is accepted it still admits the sender's ticket by hand.
               expiresAt: expiresAt.toISOString(),
+              // A ticket booked to pay at the door keeps what it owes: the
+              // invitation tells the recipient whoever holds it pays this
+              // there (SPEC3-XI XT6). 0 for a ticket that owes nothing.
+              venueDueCents: ticket.venuePaymentId ? 0 : (ticket.venueDueCents ?? 0),
+              currency: ticket.orderItem?.order?.currency ?? null,
             },
             businessEvent: `ticket.transfer.invited:${outcome.transfer.id}`,
             dedupeKey: `ticket.transfer.invited:${outcome.transfer.id}`,
@@ -643,10 +677,23 @@ export function registerTicketRoutes(
         throw conflict('That invitation was already answered.', { status: transfer.status })
       }
 
+      // What the new ticket owes at the door: what the old one owed, now the
+      // recipient's to pay (SPEC3-XI XT2). Null when it owes nothing there.
+      const line = await prisma.orderItem.findUnique({
+        where: { id: outcome.ticket.orderItemId },
+        select: { order: { select: { currency: true } } },
+      })
+      const venuePayment = ticketVenuePayment(outcome.ticket, {
+        currency: line?.order?.currency ?? null,
+        viewerUserId: request.actor.id,
+      })
+
       // The one time a credential crosses the wire. It is derived rather than
       // stored, so this response is the only place it will ever exist outside
       // the recipient's own device.
-      return { data: { ticket: outcome.ticket, credential: outcome.credential } }
+      return {
+        data: { ticket: { ...outcome.ticket, venuePayment }, credential: outcome.credential },
+      }
     },
   })
 
@@ -738,15 +785,37 @@ export function registerTicketRoutes(
         organizationId: event.organizationId,
       })
 
-      const revoked = await prisma.$transaction((tx) =>
-        revokeTicket(tx, {
+      const orderId = ticket.orderItem.order.id
+      const revoked = await prisma.$transaction(async (tx) => {
+        // The order first, then the ticket (SPEC3-XI §2.3.5): every other
+        // writer of an order and its tickets takes them in that order, and
+        // the referral use below is decided under this lock.
+        await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`
+
+        const moved = await revokeTicket(tx, {
           ticket: stripRelations(ticket),
           reason: request.body.reason,
           actorId: request.actor.id,
           requestId: request.id,
           now,
-        }),
-      )
+        })
+
+        // An order that now has no ticket standing and nothing left to refund
+        // ended without being used, and gives its referral use back once
+        // (SPEC3-XI XR4): after the ticket's write, so the code is the last
+        // lock taken.
+        if (moved) {
+          await settleReferralUsesIfEnded(tx, {
+            entries: [{ orderId, cause: 'TICKETS_REVOKED' }],
+            actorId: request.actor.id,
+            requestId: request.id,
+            now,
+            log: request.log,
+          })
+        }
+
+        return moved
+      })
 
       if (!revoked) {
         throw conflict('Somebody else moved that ticket on. Read it again.', {
@@ -772,7 +841,12 @@ export function registerTicketRoutes(
  * @returns {object} The ticket's own columns only.
  */
 function stripRelations(ticket) {
-  const { orderItem: _orderItem, eventSeat: _eventSeat, ...rest } = ticket
+  const {
+    orderItem: _orderItem,
+    eventSeat: _eventSeat,
+    venueCancellation: _venueCancellation,
+    ...rest
+  } = ticket
 
   return rest
 }

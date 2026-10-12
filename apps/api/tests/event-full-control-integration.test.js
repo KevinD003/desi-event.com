@@ -1844,42 +1844,58 @@ when()('cancelling and refunding orders that carry a fee, tax and a promo code',
     )
 
     const submitted = await prisma.refund.findUnique({ where: { id: asked.refund.id } })
-    // Somebody's basket for the night: the cancellation releases it after it
-    // has read the night's orders, so holding it from outside stops the
-    // cancellation between that read and its refunds.
-    const hold = await prisma.ticketHold.create({
-      data: {
-        ticketTypeId: tier.id,
-        quantity: 1,
-        status: 'ACTIVE',
-        expiresAt: new Date(Date.now() + 600_000),
-        userId: world.owner.id,
-      },
-    })
     const preview = await nightPreview(fees, second.id)
 
     expect(preview.json().data).toMatchObject({ orders: 1, ordersRefunded: 1 })
 
-    const holdLock = await lockFromOutside('TicketHold', hold.id)
-    const cancelling = cancelNight(fees.event.id, second.id, 1, { headers: fees.headers })
+    // The provider answers for finance's refund now, and it settles — in a
+    // transaction held open until the cancellation, having read the night's
+    // orders while the refund was still in flight, waits for the order. Since
+    // SPEC3-XI §2.3.1 a night's cancellation locks every paid order it
+    // refunds right after reading them, before it touches a hold or a ticket,
+    // so this is where a refund settling mid-cancellation now meets it: the
+    // cancellation waits for the settlement's commit, then decides again
+    // from what it left.
+    let letGo
+    const gate = new Promise((resolve) => {
+      letGo = resolve
+    })
+    let settledInside
+    const inside = new Promise((resolve, reject) => {
+      settledInside = { resolve, reject }
+    })
+    const settling = prisma.$transaction(
+      async (tx) => {
+        const result = await settleRefund(tx, {
+          refund: submitted,
+          order,
+          result: { providerRefundId: `re_race_${RUN}`, rawStatus: 'succeeded' },
+          organizationId: fees.organization.id,
+          seatPolicy: SEAT_POLICIES.WITHHOLD,
+          now: new Date(),
+        })
+        const [{ pid }] = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`
 
-    await untilWaiting(prisma, () => [holdLock.pid], 1, 'the cancellation')
+        settledInside.resolve(Number(pid))
+        await gate
 
-    // The provider answers for finance's refund now, and it settles.
-    const finished = await prisma.$transaction((tx) =>
-      settleRefund(tx, {
-        refund: submitted,
-        order,
-        result: { providerRefundId: `re_race_${RUN}`, rawStatus: 'succeeded' },
-        organizationId: fees.organization.id,
-        seatPolicy: SEAT_POLICIES.WITHHOLD,
-        now: new Date(),
-      }),
+        return result
+      },
+      { timeout: 60_000, maxWait: 10_000 },
     )
 
-    expect(finished.settled).toBe(true)
+    settling.catch((error) => settledInside.reject(error))
 
-    await holdLock.open()
+    const settlerPid = await inside
+    const cancelling = cancelNight(fees.event.id, second.id, 1, { headers: fees.headers })
+
+    await untilWaiting(prisma, () => [settlerPid], 1, 'the cancellation')
+
+    letGo()
+
+    const finished = await settling
+
+    expect(finished.settled).toBe(true)
 
     const cancelled = await cancelling
 

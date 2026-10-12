@@ -77,7 +77,19 @@ describe('the preview reference', () => {
     const body = Buffer.from(reference().split('.')[0], 'base64url').toString('utf8')
 
     // `n` is the night the door said it was admitting to: an id, or null.
-    expect(Object.keys(JSON.parse(body)).sort()).toEqual(['a', 'e', 'm', 'n', 'o', 't', 'v', 'x'])
+    // `d` is what the ticket owed at the door when it was looked up, in cents
+    // (SPEC3 §9.3): a number, never anybody's details.
+    expect(Object.keys(JSON.parse(body)).sort()).toEqual([
+      'a',
+      'd',
+      'e',
+      'm',
+      'n',
+      'o',
+      't',
+      'v',
+      'x',
+    ])
   })
 
   it('is refused under another deployment’s secret', () => {

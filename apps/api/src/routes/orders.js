@@ -22,6 +22,15 @@
  * hold item at checkout, because by settlement the zone override may have moved
  * and there would be no way to tell.
  *
+ * Booking fees, referral codes and paying at the venue (SPEC3 §6): the order
+ * records the fee terms it was priced with, what a referral code waived (and
+ * which code, for administrators only), how the ticket price is paid and what
+ * is owed at the door; the order and each line write `venueDueCents` here, the
+ * tickets at settlement (`lib/checkout.js`). A referral code's use is taken in
+ * the order's first transaction under the code's lock. A wrong referral code
+ * spends from a budget shared by the quote and the charge, counted only when
+ * the answer is `NOT_ACCEPTED`.
+ *
  * @module @desi-event/api/routes/orders
  */
 
@@ -39,9 +48,12 @@ import {
   exposedServerError,
   httpError,
   notFound,
+  paymentTermsRefusal,
 } from '../lib/errors.js'
+import { memberHolds } from '../lib/event-authority.js'
 import { generateOrderReference, generateTicketCode } from '../lib/identifiers.js'
 import { toOrder } from '../lib/presenters.js'
+import { consumeReferralUse } from '../lib/referral-uses.js'
 import { stampHoldItems } from '../lib/seated-checkout.js'
 import {
   CAPTURE_OUTCOMES,
@@ -58,7 +70,12 @@ import {
   retrieveGroupPass,
   rotateGroupPass,
 } from '../lib/group-passes.js'
-import { passRateLimit, promoAttemptRateLimit, quoteRateLimit } from '../plugins/rate-limit.js'
+import {
+  passRateLimit,
+  promoAttemptRateLimit,
+  quoteRateLimit,
+  referralAttemptBudget,
+} from '../plugins/rate-limit.js'
 
 // Re-exported: routes/events.js prices listing cards with it, and it has always
 // been reached through this module.
@@ -112,6 +129,12 @@ const ORDER_INCLUDE = Object.freeze({
   // summary presenter filters it again.
   event: {
     include: { venue: true, organization: true, ticketTypes: true, ...EVENT_COVER_INCLUDE },
+  },
+  // Its unpaid pay-at-the-venue tickets cancelled, oldest first, with who
+  // cancelled: the presenter names them to organisation readers only.
+  venueCancellations: {
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    include: { cancelledBy: { select: { displayName: true } } },
   },
 })
 
@@ -238,12 +261,23 @@ function ownsOrder(actor, order) {
  * @param {object} deps.env The parsed API environment.
  * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the pass rate limit, which the group pass shares; supplied by tests.
  * @param {{max?: number, timeWindow?: string|number}} [deps.quoteLimit] Overrides for the checkout-quote rate limit, and for the promo-attempt limit on a checkout that names a code; supplied by tests.
+ * @param {{actorMax?: number, addressMax?: number, sharedMax?: number, timeWindow?: string|number}} [deps.referralAttemptLimit] Overrides for the wrong referral codes budget the quote and the charge share.
  * @returns {void} Nothing.
  */
-export function registerOrderRoutes(app, { prisma, providers, env, passLimit, quoteLimit }) {
+export function registerOrderRoutes(
+  app,
+  { prisma, providers, env, passLimit, quoteLimit, referralAttemptLimit },
+) {
+  // One budget for both routes, so a wrong code tried through either counts
+  // once (SPEC3 §4.4). Its hook runs after the session guard and refuses only
+  // a request that names a code while a bucket is full; the handlers count a
+  // `NOT_ACCEPTED` answer, and nothing else.
+  const referralBudget = referralAttemptBudget(referralAttemptLimit ?? {})
+
   defineRoute(app, 'orders.create', {
     // Counted only when the body names a promo code: see promoAttemptRateLimit.
     config: { rateLimit: promoAttemptRateLimit(quoteLimit) },
+    preHandler: [referralBudget.hook],
     handler: async (request) => {
       const body = request.body
       const now = new Date()
@@ -288,32 +322,64 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
             promoApplied,
             totals,
             attendees,
+            paymentMethod,
+            fee,
+            referral,
           } = priced
+
+          // A referral code that is not accepted at the charge is refused
+          // whatever figures the buyer sent (SPEC3 §6.5): the booking fee is
+          // back, so the total moved. One answer for every cause, and the
+          // wrong-codes budget counts it.
+          if (referral?.reason === 'NOT_ACCEPTED') {
+            referralBudget.recordRefusal(request)
+
+            throw paymentTermsRefusal('REFERRAL_NOT_ACCEPTED')
+          }
 
           // A precondition, never a price. The buyer was shown a figure; if the
           // server's figure is different now — a code used up meanwhile, a tax
-          // change — refuse before anything is written, rather than charging an
-          // amount nobody agreed to.
+          // change, a booking fee an administrator changed — refuse before
+          // anything is written, rather than charging an amount nobody agreed
+          // to. The door figure of a booking to pay at the venue is held to
+          // what the buyer saw the same way.
           if (
-            body.expectedTotalCents !== undefined &&
-            body.expectedTotalCents !== totals.totalCents
+            (body.expectedTotalCents !== undefined &&
+              body.expectedTotalCents !== totals.totalCents) ||
+            (body.expectedVenueDueCents !== undefined &&
+              body.expectedVenueDueCents !== totals.venueDueCents)
           ) {
             throw httpError(
               409,
               'PRICE_CHANGED',
               'The total changed since it was shown. Nothing has been charged.',
-              { totalCents: totals.totalCents, discountCents: totals.discountCents },
+              {
+                totalCents: totals.totalCents,
+                venueDueCents: totals.venueDueCents,
+                feesCents: totals.feesCents,
+              },
             )
           }
+
+          const referralApplied = Boolean(referral?.applied) && totals.feeWaivedCents > 0
 
           const created = await tx.order.create({
             data: {
               reference: generateOrderReference(),
               idempotencyKey,
               pricingSnapshot: buildPricingSnapshot({
-                feeConfig: feeConfigFor(env, currency),
+                feeConfig: fee,
                 taxPolicy,
                 currency,
+                fee: {
+                  source: fee.source,
+                  settingId: fee.settingId,
+                  grossCents: totals.feeGrossCents,
+                  waivedCents: totals.feeWaivedCents,
+                  chargedCents: totals.feesCents,
+                },
+                paymentMethod,
+                taxAppliedTo: totals.taxAppliedTo,
               }),
               eventId: event.id,
               // The night, when every line is for the same one.
@@ -329,13 +395,25 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
               subtotalCents: totals.subtotalCents,
               discountCents: totals.discountCents,
               feesCents: totals.feesCents,
-              // The booking fee the terms came to, before any waiver: the same
-              // as the fee charged until referral codes are applied here (CHECK
-              // \`order_fee_parts\`, SPEC3 §5.2).
-              feeGrossCents: totals.feeGrossCents,
               taxCents: totals.taxCents,
+              // What is paid online: the whole total by card, or the booking
+              // fee and any tax on it for a booking to pay at the venue.
               totalCents: totals.totalCents,
               promoCodeId: promoApplied ? promoCode.id : null,
+              // The terms it was priced with, for good (SPEC3 §5.2): new
+              // orders only ever see a fee change.
+              paymentMethod,
+              feeSource: fee.source,
+              feeSettingId: fee.settingId,
+              feePercentageBps: fee.percentageBps,
+              feeFlatCentsPerTicket: fee.flatCents,
+              // The fee the terms came to, and what a referral code waived
+              // (CHECKs \`order_fee_parts\`, \`order_fee_waiver_whole\`).
+              feeGrossCents: totals.feeGrossCents,
+              feeWaivedCents: totals.feeWaivedCents,
+              referralCodeId: referralApplied ? referral.row.id : null,
+              // The ticket price after the promo, owed at the door; 0 by card.
+              venueDueCents: totals.venueDueCents,
             },
           })
 
@@ -350,6 +428,9 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
                   quantity: line.quantity,
                   unitPriceCents: line.unitPriceCents,
                   subtotalCents: line.subtotalCents,
+                  // What the line's tickets owe at the door in all, split
+                  // across them at settlement; 0 by card.
+                  venueDueCents: line.venueDueCents ?? 0,
                   // Staged until settlement puts them on the tickets. A
                   // general-admission tier is one line; a seated tier's names
                   // travel with its seats instead, on the hold items.
@@ -428,6 +509,14 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
               where: { id: promoCode.id },
               data: { redemptionCount: { increment: 1 } },
             })
+          }
+
+          if (referralApplied) {
+            // The code's use, taken now the order naming it is written, under
+            // the code's row lock `evaluateReferral` took. The CHECK
+            // `referral_code_use_within_limit` refuses a use past the limit
+            // whatever happens here (409 REFERRAL_NOT_ACCEPTED).
+            await consumeReferralUse(tx, { referralCodeId: referral.row.id })
           }
 
           // A zero-total order (a 100% promo, a free event) moves no money, so
@@ -586,6 +675,7 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
 
   defineRoute(app, 'orders.quote', {
     config: { rateLimit: quoteRateLimit(quoteLimit) },
+    preHandler: [referralBudget.hook],
     handler: async (request) => {
       const now = new Date()
 
@@ -603,6 +693,10 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
         }),
       )
 
+      // A quote never refuses for a referral code: it says it was not
+      // accepted, and the wrong-codes budget counts that answer.
+      if (priced.referral?.reason === 'NOT_ACCEPTED') referralBudget.recordRefusal(request)
+
       return { data: toOrderQuote(priced, now) }
     },
   })
@@ -617,13 +711,20 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
       if (!order) throw notFound('No such order.')
 
       const buyer = ownsOrder(request.actor, order)
+      const organizationId = order.event?.organizationId
 
       if (!buyer) {
-        const organizationId = order.event?.organizationId
-
         // `assertCan` raises the 403; there is no role comparison here.
         assertCan(request.actor, CAPABILITIES.ORDER_VIEW, { organizationId })
       }
+
+      // Who reads it decides what it says about the booking fee's source and
+      // who cancelled unpaid tickets (SPEC3 §7.2, SPEC3-XI §11.3).
+      const reader = buyer
+        ? 'BUYER'
+        : memberHolds(request.actor, CAPABILITIES.ORDER_VIEW, organizationId)
+          ? 'ORGANISATION'
+          : 'PLATFORM'
 
       // Only the buyer gets their own address back. `order:view` reaches every
       // organisation role from VIEWER up, and none of them needs it.
@@ -639,7 +740,7 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
       return {
         data: {
           // The joining link and the address are the buyer's alone.
-          ...toOrder(order, { buyerAddress: buyer, joinUrl: buyer }),
+          ...toOrder(order, { buyerAddress: buyer, joinUrl: buyer, reader }),
           groupPass: groupPassSummary(order, { viewerUserId: request.actor?.id, issued }),
           // What changed about the event since this order was placed and
           // touches it, as recorded with each change (SPEC2-XI X-14).

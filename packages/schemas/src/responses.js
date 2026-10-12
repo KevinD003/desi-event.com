@@ -1274,11 +1274,9 @@ const salesGroupSchema = z.object({
   refundedCents: z.number().int().nullable(),
   /**
    * Unpaid pay-at-the-venue tickets cancelled (SPEC3-XI §9.10): their places
-   * went back to stock, so they are not counted as sold. Optional until the
-   * breakdown's builder sends it (Stage B1-V, `lib/analytics.js`): a required
-   * field would refuse every analytics answer the current builder makes.
+   * went back to stock, so they are not counted as sold.
    */
-  cancelledQuantity: z.number().int().min(0).optional(),
+  cancelledQuantity: z.number().int().min(0),
   startsAt: timestampSchema.nullable().optional(),
 })
 
@@ -1714,11 +1712,9 @@ export const refundableResponseSchema = z.object({
         pendingQuantity: z.number().int(),
         /**
          * Tickets of the line cancelled unpaid (SPEC3-XI §10.2): never offered
-         * for refund, and outside `refundableQuantity`. Optional until
-         * `refunds.summary` sends it (Stage B1-V, `routes/refunds.js`): a
-         * required field would refuse every answer the current handler makes.
+         * for refund, and outside `refundableQuantity`.
          */
-        cancelledQuantity: z.number().int().min(0).optional(),
+        cancelledQuantity: z.number().int().min(0),
         refundableQuantity: z.number().int(),
       }),
     ),

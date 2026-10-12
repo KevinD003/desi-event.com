@@ -20,6 +20,10 @@
  *  3. **Only paid orders are touched at all**, so a refunded or cancelled
  *     order cannot acquire tickets by way of a stale retry.
  *
+ * A booking to pay at the venue is refused outright (`PermanentJobError`):
+ * its tickets each carry a share of the door price that only settlement
+ * writes, and a ticket minted without one would admit without being paid for.
+ *
  * The same argument as `apps/api/src/lib/inventory.js` makes about overselling,
  * applied to ticket minting.
  *
@@ -38,6 +42,9 @@ import { generateTicketCodes } from '../ticket-codes.js'
 
 /** `OrderStatus.PAID`. */
 const PAID = 'PAID'
+
+/** `OrderPaymentMethod.AT_VENUE`: the ticket price is paid at the door. */
+const AT_VENUE = 'AT_VENUE'
 
 /**
  * Order statuses from which an order can still become `PAID`, so a job that
@@ -92,7 +99,7 @@ export function createIssueTicketsProcessor({
    *
    * @param {object} job The BullMQ job; only `job.data` is read.
    * @returns {Promise<IssueTicketsResult>} What the run minted, and what was already there.
-   * @throws {PermanentJobError} When the payload is invalid, the order does not exist, or its status can never become `PAID`.
+   * @throws {PermanentJobError} When the payload is invalid, the order does not exist, it is paid at the venue, or its status can never become `PAID`.
    * @throws {RetryableJobError} When the order exists but is not paid yet.
    */
   return async function issueTickets(job) {
@@ -116,6 +123,22 @@ export function createIssueTicketsProcessor({
           jobName: JOB_NAMES.ISSUE_TICKETS,
           details: { orderId },
         })
+      }
+
+      // A booking to pay at the venue is never minted here: each of its
+      // tickets carries its share of the door price, which only settlement
+      // (`apps/api/src/lib/checkout.js`) splits and writes (SPEC3 §9.2). A
+      // ticket minted without it would admit unpaid; whatever its status,
+      // retrying would never change that.
+      if (order.paymentMethod === AT_VENUE) {
+        throw new PermanentJobError(
+          `Order "${orderId}" is paid at the venue; its tickets are issued only at settlement`,
+          {
+            code: WORKER_ERROR_CODES.INVALID_STATE,
+            jobName: JOB_NAMES.ISSUE_TICKETS,
+            details: { orderId, paymentMethod: order.paymentMethod },
+          },
+        )
       }
 
       if (order.status !== PAID) {

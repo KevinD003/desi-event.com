@@ -446,7 +446,13 @@ when()('1. a whole refund in the amount form', () => {
       expect(item.refundedQuantity).toBe(item.quantity)
     }
 
-    expect(refund.allocation).toEqual({ ...parts, form: 'whole', whole: true })
+    // SPEC3 §10.2: every refund written now stores its basis; a card order's is its face.
+    expect(refund.allocation).toEqual({
+      ...parts,
+      basisCents: parts.faceValueCents,
+      form: 'whole',
+      whole: true,
+    })
 
     // Every ticket, the discounted line's two included, is refunded and its
     // pass is dead.
@@ -738,7 +744,13 @@ when()('8. cancelling an event on sale', () => {
       // Reserved, with its lines and its split: a refund that can settle.
       expect(refund.status).toBe('REQUESTED')
       expect(refund.reason).toBe('EVENT_CANCELLED')
-      expect(refund.allocation).toEqual({ ...orderParts(paid.order), form: 'whole', whole: true })
+      // SPEC3 §10.2: every refund written now stores its basis; a card order's is its face.
+      expect(refund.allocation).toEqual({
+        ...orderParts(paid.order),
+        basisCents: orderParts(paid.order).faceValueCents,
+        form: 'whole',
+        whole: true,
+      })
       expect(refund.items.map((item) => item.quantity).sort()).toEqual([1, 2])
       expect((await expectSane(paid.order.id)).refundPendingCents).toBe(paid.order.totalCents)
     }
@@ -2023,7 +2035,13 @@ when()('25. a ticket refund that takes everything the order has left', () => {
     })
 
     expect(refund.amountCents).toBe(paid.order.totalCents)
-    expect(refund.allocation).toEqual({ ...orderParts(paid.order), form: 'whole', whole: true })
+    // SPEC3 §10.2: every refund written now stores its basis; a card order's is its face.
+    expect(refund.allocation).toEqual({
+      ...orderParts(paid.order),
+      basisCents: orderParts(paid.order).faceValueCents,
+      form: 'whole',
+      whole: true,
+    })
 
     const after = await expectSane(paid.order.id)
     const tickets = await ticketsOf(after)

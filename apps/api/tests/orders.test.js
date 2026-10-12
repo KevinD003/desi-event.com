@@ -5,7 +5,8 @@ import { createInMemoryProviderRegistry } from '@desi-event/providers'
 
 import { bearer, createTestApp, feeConfig, holdHeaders, signIn, taxRateBps } from './helpers/app.js'
 import { cuid } from './helpers/prisma-stub.js'
-import { makeWorld, minutesFromNow } from './helpers/fixtures.js'
+import { atVenueOrder, cancelledUnpaidFixture } from './helpers/fee-orders.js'
+import { TEST_AUTH_SECRET, makeWorld, minutesFromNow } from './helpers/fixtures.js'
 import { seedPicture } from './helpers/media-world.js'
 
 /** Face value of the General Admission tier in the fixtures. */
@@ -1042,6 +1043,240 @@ describe('POST /v1/orders: the total a buyer was shown, names on tickets, and th
     })
     expect(item).not.toHaveProperty('attendeeNames')
     expect(response.json().data.onlineJoinUrl).toBeNull()
+
+    await app.close()
+  })
+})
+
+/**
+ * SPEC3 §11.3 and SPEC3-XI §11.2–§11.3, against the stub: what an order and a
+ * wallet say about a booking to pay at the venue — where it stands at the
+ * door, tickets passed on and paid by their new holders (XT7), unpaid tickets
+ * cancelled and the booking fee kept for them, and who is named to whom.
+ * Bookings are written with the helpers checkout's suites share
+ * (`atVenueOrder`, `cancelledUnpaidFixture`), so nothing here waits on the
+ * cancellation service.
+ */
+describe('a booking to pay at the venue, as its readers read it', () => {
+  /**
+   * A world and a PAID booking of three general-admission tickets.
+   *
+   * @param {function(object): object} [optionsFor] More `atVenueOrder` options, from the world's ids.
+   * @returns {Promise<object>} The harness and the booking.
+   */
+  async function booking(optionsFor = () => ({})) {
+    const harness = await createTestApp()
+    const { prisma, providers, ids } = harness
+    const session = prisma._store.eventSession.find((row) => row.eventId === ids.publishedEvent.id)
+    const placed = await atVenueOrder(
+      prisma,
+      {
+        event: ids.publishedEvent,
+        session,
+        tiers: { floor: ids.generalAdmission, balcony: ids.vip },
+        promoCode: null,
+      },
+      {
+        tag: 'readers',
+        payments: providers.payments,
+        credentialSecret: TEST_AUTH_SECRET,
+        userId: ids.attendee.id,
+        lines: [{ ticketTypeId: ids.generalAdmission.id, quantity: 3, unitPriceCents: 4_000 }],
+        ...optionsFor(ids),
+      },
+    )
+
+    return { ...harness, ...placed }
+  }
+
+  /**
+   * Read an order as somebody.
+   *
+   * @param {object} app The app.
+   * @param {string} reference The order.
+   * @param {string} email Who.
+   * @returns {Promise<object>} The order payload.
+   */
+  async function readAs(app, reference, email) {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/orders/${reference}`,
+      headers: bearer(await signIn(app, email)),
+    })
+
+    expect(response.statusCode, email).toBe(200)
+
+    return response.json().data
+  }
+
+  it('says what the buyer owes at the door, and gives the fee’s source only to the organisation', async () => {
+    const { app, order } = await booking()
+    const buyer = await readAs(app, order.reference, 'priya@example.com')
+
+    expect(buyer.venuePayment).toEqual({
+      dueCents: 12_000,
+      paidCents: 0,
+      unpaidTickets: 3,
+      unpaidCents: 12_000,
+      paidTickets: 0,
+      paidByOthersTickets: 0,
+      paidByOthersCents: 0,
+      passedOnUnpaidTickets: 0,
+      passedOnUnpaidCents: 0,
+      cancelledTickets: 0,
+      cancelledCents: 0,
+      feeKeptCents: 0,
+      state: 'TO_PAY',
+    })
+    expect(buyer).not.toHaveProperty('feeSource')
+
+    const organiser = await readAs(app, order.reference, 'owner@rangoli.example')
+
+    expect(organiser.feeSource).toBe('SITE_DEFAULT')
+
+    for (const read of [buyer, organiser]) {
+      expect(read).not.toHaveProperty('referralCodeId')
+      expect(read).not.toHaveProperty('referralUseReturnedAt')
+      expect(read).not.toHaveProperty('feeSettingId')
+    }
+
+    await app.close()
+  })
+
+  it('shows unpaid tickets cancelled by Desi-Event: the kept fee to the buyer, the administrator’s name to the organisation only', async () => {
+    const { app, prisma, ids, order, tickets } = await booking()
+    const reason = 'Not paid for at the door by the end of the night.'
+
+    await cancelledUnpaidFixture(prisma, {
+      order,
+      tickets: [tickets[0]],
+      reason,
+      actor: { id: ids.platformAdministrator.id },
+      authority: 'PLATFORM_ROLE',
+      role: 'ADMIN',
+    })
+
+    const kept = prisma._store.order.find((row) => row.id === order.id).venueFeeKeptCents
+
+    expect(kept).toBeGreaterThan(0)
+
+    const buyer = await readAs(app, order.reference, 'priya@example.com')
+
+    expect(buyer.venuePayment).toMatchObject({
+      unpaidTickets: 2,
+      unpaidCents: 12_000 - tickets[0].venueDueCents,
+      cancelledTickets: 1,
+      cancelledCents: tickets[0].venueDueCents,
+      feeKeptCents: kept,
+      state: 'TO_PAY',
+    })
+    expect(buyer.venueCancellations).toEqual([
+      {
+        at: expect.any(String),
+        by: 'DESI_EVENT',
+        ticketCount: 1,
+        basisCents: tickets[0].venueDueCents,
+        feeKeptCents: kept,
+        reason,
+      },
+    ])
+    expect(buyer.tickets.find((ticket) => ticket.id === tickets[0].id).venuePayment).toMatchObject({
+      paid: false,
+      cancelled: { at: expect.any(String), by: 'DESI_EVENT' },
+    })
+
+    const organiser = await readAs(app, order.reference, 'owner@rangoli.example')
+
+    expect(organiser.venueCancellations[0].byName).toBe('Anil Administrator')
+
+    // The Desi-Event team's own read names nobody (SPEC3-XI §4.6).
+    const platform = await readAs(app, order.reference, 'ops@desi-event.example')
+
+    expect(platform.venueCancellations[0]).not.toHaveProperty('byName')
+
+    await app.close()
+  })
+
+  it('reads CANCELLED once every unpaid ticket is cancelled, and the wallet says so ticket by ticket', async () => {
+    const { app, prisma, ids, order, tickets } = await booking()
+
+    await cancelledUnpaidFixture(prisma, {
+      order,
+      tickets,
+      actor: { id: ids.owner.id },
+      authority: 'ORGANIZATION_ROLE',
+      role: 'OWNER',
+    })
+
+    const buyer = await readAs(app, order.reference, 'priya@example.com')
+
+    expect(buyer.venuePayment).toMatchObject({
+      unpaidTickets: 0,
+      cancelledTickets: 3,
+      cancelledCents: 12_000,
+      state: 'CANCELLED',
+    })
+    expect(buyer.venueCancellations).toEqual([expect.objectContaining({ by: 'ORGANISER' })])
+
+    const wallet = await app.inject({
+      method: 'GET',
+      url: '/v1/tickets',
+      headers: bearer(await signIn(app, 'priya@example.com')),
+    })
+
+    expect(wallet.statusCode).toBe(200)
+
+    const mine = wallet.json().data.filter((row) => tickets.some((ticket) => ticket.id === row.id))
+
+    expect(mine).toHaveLength(3)
+
+    for (const row of mine) {
+      expect(row.status).toBe('REVOKED')
+      expect(row.venuePayment).toMatchObject({
+        paid: false,
+        cancelled: { at: expect.any(String), by: 'ORGANISER' },
+        paidAtDoorByYou: false,
+      })
+    }
+
+    await app.close()
+  })
+
+  it('counts tickets passed on apart from the buyer’s, and door money by whoever paid it (XT7)', async () => {
+    const { app, order, tickets } = await booking((ids) => ({
+      // Ticket 2 passed on and still owing; ticket 3 passed on, then paid at
+      // the door by its new holder.
+      holders: [null, ids.owner.id],
+      paidBy: [{ index: 2, holderId: ids.owner.id }],
+    }))
+    const buyer = await readAs(app, order.reference, 'priya@example.com')
+    const [own, passed, paid] = tickets
+
+    expect(buyer.venuePayment).toMatchObject({
+      unpaidTickets: 1,
+      unpaidCents: own.venueDueCents,
+      passedOnUnpaidTickets: 1,
+      passedOnUnpaidCents: passed.venueDueCents,
+      paidTickets: 0,
+      paidCents: 0,
+      paidByOthersTickets: 1,
+      paidByOthersCents: paid.venueDueCents,
+      state: 'TO_PAY',
+    })
+
+    // The new holder's wallet: the ticket they paid for says so.
+    const wallet = await app.inject({
+      method: 'GET',
+      url: '/v1/tickets',
+      headers: bearer(await signIn(app, 'owner@rangoli.example')),
+    })
+    const theirs = wallet.json().data.find((row) => row.id === paid.id)
+
+    expect(theirs.venuePayment).toMatchObject({ paid: true, paidAtDoorByYou: true })
+    expect(wallet.json().data.find((row) => row.id === passed.id).venuePayment).toMatchObject({
+      paid: false,
+      paidAtDoorByYou: false,
+    })
 
     await app.close()
   })

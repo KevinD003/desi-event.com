@@ -57,11 +57,13 @@ import { eventRefundPrefix, refundOwed } from './event-refunds.js'
 import { forbidden, httpError } from './errors.js'
 import { disambiguateSlug } from './identifiers.js'
 import { lockTicketTypes } from './inventory.js'
+import { settleReferralUsesIfEnded } from './referral-uses.js'
 import { REFUND_BLOCKING_DISPUTE_STATES, refundableCents, requestRefund } from './refunds.js'
 import { releaseSeats } from './seating.js'
 import { lockEventSessions } from './session-inventory.js'
 import { EVENT_DELETED_PREFIX, withdrawTickets } from './tickets.js'
 import { TRANSACTION_BUDGETS, budgetedTransaction, liveOrderCount } from './transaction-budget.js'
+import { atVenueFacts } from './venue-payments.js'
 import { isEligible } from './verification.js'
 
 /** A night counts as started this long before its doors (or its start). */
@@ -203,7 +205,7 @@ export async function loadDeletionFacts(db, event, now) {
   const pending = []
   const inFlight = []
   let paymentsInFlight = 0
-  let refundableCents = 0
+  let refundableSumCents = 0
   let currency = null
 
   for (const order of orders) {
@@ -224,12 +226,23 @@ export async function loadDeletionFacts(db, event, now) {
 
     if (order.status !== 'PAID') continue
 
-    if (order.totalCents === 0) {
+    // What is left, less a booking fee kept for good (SPEC3-XI XU6, §10.2).
+    // A refund in flight still counts as left: it is the money a cancelled
+    // event's refunds are sending, and the deletion's refunds send what no
+    // refund holds yet (`refundWhatIsLeft`).
+    const left = order.totalCents - order.refundedCents - (order.venueFeeKeptCents ?? 0)
+
+    // Nothing to give back online: a free order, or a booking paid at the
+    // venue whose online part (its booking fee and any tax on it) was waived,
+    // has already been refunded, or was kept when its unpaid tickets were
+    // cancelled (SPEC3 §9.9, SPEC3-XI §10.2). Its tickets are withdrawn and
+    // nothing is refunded; money taken at the door stays with the organiser.
+    const nothingOnline = order.paymentMethod === 'AT_VENUE' && left <= 0
+
+    if (order.totalCents === 0 || nothingOnline) {
       zeroValue.push(order)
       continue
     }
-
-    const left = order.totalCents - order.refundedCents
 
     if (left <= 0) continue
 
@@ -247,7 +260,7 @@ export async function loadDeletionFacts(db, event, now) {
     // reserved (a cancelled event's are): it is what the deletion's refunds
     // send.
     refundable.push(order)
-    refundableCents += left
+    refundableSumCents += left
   }
 
   const tierIds = (event.ticketTypes ?? []).map((tier) => tier.id)
@@ -289,7 +302,7 @@ export async function loadDeletionFacts(db, event, now) {
     orders: orders.length,
     soldOrders: sold.length,
     refundableOrders: refundable.length,
-    refundableCents,
+    refundableCents: refundableSumCents,
     currency,
     disputedOrders: disputed.length,
     zeroValueOrders: zeroValue.length,
@@ -521,6 +534,10 @@ export async function deletionPreview(
     },
     slug: { value: event.slug, keptRetired: Boolean(event.publishedAt) },
     paymentMode: ['MOCK', 'STRIPE_TEST', 'LIVE'].includes(paymentMode) ? paymentMode : 'MOCK',
+    // Bookings paid at the venue (SPEC3 §9.7): only their booking fee paid
+    // online is refunded, and what was taken at the door stays with the
+    // organiser, who returns it.
+    atVenue: await atVenueFacts(db, { eventId: event.id }),
   }
 }
 
@@ -531,6 +548,12 @@ export async function deletionPreview(
  * for the tickets are cleared (there will be no tickets), and each order's
  * cancellation is audited, in the caller's transaction.
  *
+ * It gives back no referral use (SPEC3-XI XR4): a use is given back in one
+ * batch per transaction, after the transaction's last order, ticket and seat
+ * write, so the codes are its last locks (XR6). It returns the orders it
+ * cancelled, and its caller adds them to that batch
+ * (`UNPAID_ORDER_CANCELLED`).
+ *
  * @param {object} tx A Prisma transaction client.
  * @param {object} options Options.
  * @param {object} options.where Which orders: `{ eventId }`, or `{ id: { in } }`.
@@ -538,7 +561,7 @@ export async function deletionPreview(
  * @param {Date} options.now The instant.
  * @param {string|null} [options.actorId] Who, for the audit.
  * @param {string|null} [options.requestId] For the audit trail.
- * @returns {Promise<number>} How many were cancelled.
+ * @returns {Promise<{cancelled: number, orderIds: string[]}>} How many were cancelled, and which, ascending.
  */
 export async function cancelUnpaidOrders(
   tx,
@@ -554,7 +577,8 @@ export async function cancelUnpaidOrders(
     orderBy: { id: 'asc' },
   })
 
-  let cancelled = 0
+  /** @type {string[]} */
+  const orderIds = []
 
   for (const order of candidates) {
     // Each one conditionally, so an order that started paying meanwhile is
@@ -566,7 +590,7 @@ export async function cancelUnpaidOrders(
 
     if (count === 0) continue
 
-    cancelled += 1
+    orderIds.push(order.id)
 
     const returned = order.promoCodeId
       ? await tx.promoCode.updateMany({
@@ -594,7 +618,7 @@ export async function cancelUnpaidOrders(
     })
   }
 
-  return cancelled
+  return { cancelled: orderIds.length, orderIds }
 }
 
 /**
@@ -729,6 +753,63 @@ export async function releaseHoldsOf(
 }
 
 /**
+ * Lock every paid order of an event, sorted by id, `FOR UPDATE`, then their
+ * lines, sorted, `FOR KEY SHARE` (SPEC3-XI §2.3.2): a deletion's locks after
+ * the event's tiers and nights and before any ticket of those orders is
+ * withdrawn.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {string} eventId The event.
+ * @returns {Promise<string[]>} The orders locked, ascending.
+ */
+export async function lockPaidOrdersOf(tx, eventId) {
+  const orders = await tx.order.findMany({
+    where: { eventId, status: 'PAID' },
+    select: { id: true },
+    orderBy: { id: 'asc' },
+  })
+  const ids = orders.map((order) => order.id).sort()
+
+  for (const id of ids) {
+    await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${id} FOR UPDATE`
+  }
+
+  await lockOrderLines(tx, ids)
+
+  return ids
+}
+
+/**
+ * Lock the lines of these orders, sorted by id, `FOR KEY SHARE`: enough to
+ * wait out, and keep out, a transfer being accepted (which holds a line
+ * `FOR UPDATE` while it retires a ticket and issues its successor), so the
+ * tickets a withdrawal reads afterwards are the ones standing (the finding
+ * B1-V's first pass recorded: an acceptance committing between the read and
+ * the withdrawal left its successor standing). It does not conflict with the
+ * door's own `FOR KEY SHARE` of a line, nor with a refund's update of one.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {string[]} orderIds The orders, already held.
+ * @returns {Promise<string[]>} The lines locked, ascending.
+ */
+export async function lockOrderLines(tx, orderIds) {
+  if (orderIds.length === 0) return []
+
+  const lines = await tx.orderItem.findMany({
+    where: { orderId: { in: orderIds } },
+    select: { id: true },
+    orderBy: { id: 'asc' },
+  })
+  const ids = lines.map((line) => line.id).sort()
+
+  for (const id of ids) {
+    await tx.$queryRaw`SELECT "id" FROM "OrderItem" WHERE "id" = ${id} FOR KEY SHARE`
+  }
+
+  return ids
+}
+
+/**
  * Delete an event (SPEC2-XI X-D, T1), then send what it owes.
  *
  * @param {object} prisma A Prisma client.
@@ -821,6 +902,19 @@ export async function deleteEvent(prisma, options) {
       sessions.map((session) => session.id),
     )
 
+    // 2b. Every paid order of the event, sorted, then their lines (SPEC3-XI
+    // §2.3.2): before a single ticket is withdrawn. A door admitting one of
+    // these orders' tickets on an event with no nights holds the order
+    // (`FOR SHARE`) before its ticket, so the deletion waits for it here, or
+    // it for the deletion, instead of each holding what the other wants. The
+    // lines' `FOR KEY SHARE` waits out a transfer being accepted (which holds
+    // a line `FOR UPDATE` while it retires a ticket and issues its successor)
+    // and keeps new acceptances out, so the tickets read in step 7 are the
+    // ones standing. Later locks of these orders are re-locks. No settlement
+    // can make another order PAID meanwhile: it takes its tiers first, and
+    // this transaction holds every tier of the event.
+    const paidOrderIds = await lockPaidOrdersOf(tx, event.id)
+
     // 3. Decided again, from what the locks hold.
     const locked = await tx.event.findUnique({
       where: { id: event.id },
@@ -868,13 +962,14 @@ export async function deleteEvent(prisma, options) {
     const actorId = actor?.id ?? null
 
     // 5. Unpaid orders nobody is paying for, and every hold.
-    const ordersCancelled = await cancelUnpaidOrders(tx, {
+    const unpaid = await cancelUnpaidOrders(tx, {
       where: { eventId: event.id },
       reason: 'EVENT_DELETED',
       now,
       actorId,
       requestId,
     })
+    const ordersCancelled = unpaid.cancelled
     const holdsReleased = await releaseHoldsOf(tx, tierIds, {
       now,
       reason: 'EVENT_DELETED',
@@ -919,6 +1014,8 @@ export async function deleteEvent(prisma, options) {
         byPlatform,
         via: 'event_deletion',
         now,
+        // The deletion gives the uses back itself, in one batch below.
+        deferReferralReturns: true,
       })
 
       await recordAudit(tx, {
@@ -967,6 +1064,25 @@ export async function deleteEvent(prisma, options) {
         now,
       })
     }
+
+    // 7b. Referral uses given back, in one batch after the last order, ticket
+    // and seat write (SPEC3-XI XR4, XR6): the unpaid orders cancelled above,
+    // then every paid order of the event, all held since step 2b. An order
+    // that has ended without being used gives its use back once; the codes
+    // are this transaction's last locks, in ascending order.
+    await settleReferralUsesIfEnded(tx, {
+      entries: [
+        ...unpaid.orderIds.map((orderId) => ({ orderId, cause: 'UNPAID_ORDER_CANCELLED' })),
+        ...paidOrderIds.map((orderId) => ({ orderId, cause: 'EVENT_DELETED' })),
+        ...(refundWork?.referralCandidateOrderIds ?? []).map((orderId) => ({
+          orderId,
+          cause: 'EVENT_DELETED',
+        })),
+      ],
+      actorId,
+      requestId,
+      now,
+    })
 
     // 8. DELETED, with the record of it. A web address never public is
     // released; one that was keeps pointing at nothing.

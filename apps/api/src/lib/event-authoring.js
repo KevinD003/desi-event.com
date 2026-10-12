@@ -61,7 +61,13 @@ import {
   authorityAuditMetadata,
   resolveEventAuthority,
 } from './event-authority.js'
-import { databaseErrorCode, httpError, notFound, unprocessable } from './errors.js'
+import {
+  databaseErrorCode,
+  httpError,
+  notFound,
+  paymentTermsRefusal,
+  unprocessable,
+} from './errors.js'
 
 /** The three ways an event's content may be edited. */
 export const AUTHORING_MODES = Object.freeze({ DRAFT: 'draft', LIVE: 'live', CONTENT: 'content' })
@@ -445,9 +451,64 @@ export function isKnownTimeZone(timezone) {
 export function defaultTierCurrency(event) {
   return (
     (event?.ticketTypes ?? []).find((tier) => tier.currency)?.currency ??
+    // The currency the Desi-Event team set the event's own booking fee in,
+    // before its first tier (SPEC3 DF3): its first tier is priced in it.
+    (event?.feeSource === 'EVENT' ? event.feeCurrency : null) ??
     event?.organization?.payoutCurrency ??
     'USD'
   )
+}
+
+/**
+ * Refuse a tier priced in a currency other than the one the Desi-Event team
+ * set this event's own booking fee in (SPEC3 DF3). An event sells in one
+ * currency, and its own fee is stored in that currency: a tier in another
+ * would be priced with the site default instead, so an organiser's edit would
+ * move the fee. Asked beside {@link tierCurrencyProblems}, by the organisation
+ * and in the Desi-Event team's editing sitting alike. An event on the site
+ * default refuses nothing here.
+ *
+ * @param {object} event The event, with `feeSource` and `feeCurrency`.
+ * @param {string|null|undefined} currency The tier's currency as it would be stored.
+ * @returns {void}
+ * @throws {Error} 409 `FEE_TERMS_CURRENCY`.
+ */
+export function assertFeeTermsCurrency(event, currency) {
+  if (event?.feeSource !== 'EVENT' || !event.feeCurrency || !currency) return
+
+  if (currency !== event.feeCurrency) {
+    throw paymentTermsRefusal('FEE_TERMS_CURRENCY', { values: { currency: event.feeCurrency } })
+  }
+}
+
+/**
+ * {@link assertFeeTermsCurrency} again, inside the authoring write, on the
+ * event as it stands once {@link authorChange} holds its row.
+ *
+ * The first check runs on the event the handler read before its transaction.
+ * The Desi-Event team's fee change takes the same row (`FOR NO KEY UPDATE`)
+ * and, by DF7, leaves `revision` alone, so a fee saved between that read and
+ * this write passes the revision compare-and-set unseen: without this second
+ * look an organiser's tier could land in a currency other than the fee's, and
+ * the fee would silently stop applying (SPEC3 DF3). Taken after the row, it
+ * reads what the fee change committed; a fee change that comes later waits
+ * for this write and reads the tier it made.
+ *
+ * @param {object} tx The authoring transaction, already holding the event's row.
+ * @param {string} eventId The event.
+ * @param {string|null|undefined} currency The tier's currency as it would be stored.
+ * @returns {Promise<void>} Resolves when the currency fits.
+ * @throws {Error} 409 `FEE_TERMS_CURRENCY`.
+ */
+export async function assertHeldFeeTermsCurrency(tx, eventId, currency) {
+  if (!currency) return
+
+  const current = await tx.event.findUnique({
+    where: { id: eventId },
+    select: { feeSource: true, feeCurrency: true },
+  })
+
+  assertFeeTermsCurrency(current, currency)
 }
 
 /**

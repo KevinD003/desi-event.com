@@ -815,3 +815,180 @@ describe('the door and a cancelled night', () => {
     await app.close()
   })
 })
+
+/**
+ * A booking paid at the venue whose whole booking fee a referral code waived
+ * (SPEC3-XI XR2's zero-online booking): PAID, nothing paid online, no
+ * payment, one ticket for a night owing its price at the door, the code's use
+ * taken.
+ *
+ * @param {object} fixture `threeNightEventFixture`'s result.
+ * @param {object} buyer The buyer's account.
+ * @param {object} options Options.
+ * @param {object} options.tier The night's tier.
+ * @param {string} options.codeId The code's id.
+ * @param {string} options.reference The booking's reference.
+ * @returns {object} The rows to add.
+ */
+function waivedNightBooking(fixture, buyer, { tier, codeId, reference }) {
+  const paidAt = new Date('2026-09-01T12:00:00.000Z')
+  const order = {
+    id: cuid(),
+    reference,
+    idempotencyKey: null,
+    eventId: fixture.event.id,
+    eventSessionId: tier.eventSessionId,
+    userId: buyer.id,
+    buyerEmail: buyer.email,
+    buyerName: buyer.displayName,
+    status: 'PAID',
+    currency: 'INR',
+    subtotalCents: tier.priceCents,
+    discountCents: 0,
+    feesCents: 0,
+    taxCents: 0,
+    totalCents: 0,
+    promoCodeId: null,
+    refundedCents: 0,
+    refundPendingCents: 0,
+    expiresAt: null,
+    paidAt,
+    cancelledAt: null,
+    createdAt: paidAt,
+    updatedAt: paidAt,
+    paymentMethod: 'AT_VENUE',
+    feeGrossCents: 2_400,
+    feeWaivedCents: 2_400,
+    referralCodeId: codeId,
+    referralUseReturnedAt: null,
+    referralUseReturnCause: null,
+    venueDueCents: tier.priceCents,
+    venueCancelledBasisCents: 0,
+    venueFeeKeptCents: 0,
+  }
+  const item = {
+    id: cuid(),
+    orderId: order.id,
+    ticketTypeId: tier.id,
+    quantity: 1,
+    unitPriceCents: tier.priceCents,
+    subtotalCents: tier.priceCents,
+    refundedQuantity: 0,
+    refundedCents: 0,
+    attendeeNames: [],
+    venueDueCents: tier.priceCents,
+    venueCancelledQuantity: 0,
+  }
+  const ticket = {
+    id: cuid(),
+    orderItemId: item.id,
+    code: `${reference}-1`,
+    credentialHash: `${reference.toLowerCase()}-pass`,
+    credentialVersion: 1,
+    credentialIssuedAt: paidAt,
+    attendeeName: null,
+    ownerUserId: buyer.id,
+    eventSeatId: null,
+    status: 'VALID',
+    checkedInAt: null,
+    revokedAt: null,
+    revokedReason: null,
+    supersedesTicketId: null,
+    venueDueCents: tier.priceCents,
+    venuePaymentId: null,
+    venueCancellationId: null,
+    createdAt: paidAt,
+    updatedAt: paidAt,
+  }
+  const createdAt = new Date('2026-08-01T00:00:00.000Z')
+  const code = {
+    id: codeId,
+    code: `FRIENDS-${reference}`,
+    label: null,
+    scope: 'ALL_EVENTS',
+    expiresAt: null,
+    maxUses: null,
+    useCount: 1,
+    active: true,
+    switchedOffAt: null,
+    createdById: null,
+    updatedById: null,
+    createdAt,
+    updatedAt: createdAt,
+  }
+
+  return { order: [order], orderItem: [item], ticket: [ticket], referralCode: [code] }
+}
+
+describe('the lock law and the referral uses (SPEC3-XI §2.3.1, XR4)', () => {
+  it('locks every paid order of the night, sorted, before withdrawing a ticket, and gives a waived booking’s use back last, in one batch', async () => {
+    const codeId = cuid()
+    let reference = null
+    const { app, prisma, fixture } = await threeNightApp((shape, world) => {
+      reference = 'DE-3NWAIVED'
+      addRows(
+        shape.rows,
+        waivedNightBooking(shape, world.ids.attendee, {
+          tier: shape.tiers[1],
+          codeId,
+          reference,
+        }),
+      )
+    })
+    const night = fixture.nights[1]
+    const headers = await as(app, 'owner@rangoli.example')
+    const from = prisma.lockLog.length
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${fixture.event.id}/sessions/${night.id}/cancel`,
+      headers,
+      payload: body(3),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+
+    const waived = prisma._store.order.find((row) => row.reference === reference)
+    const log = prisma.lockLog.slice(from)
+    const cancelling = log.find((entry) => entry.table === 'EventSession').transaction
+    const inTransaction = log.filter((entry) => entry.transaction === cancelling)
+    const firstTicketWrite = inTransaction.findIndex(
+      (entry) => entry.table === 'Ticket' && entry.kind === 'write',
+    )
+    const orderLocks = inTransaction
+      .slice(0, firstTicketWrite)
+      .filter((entry) => entry.table === 'Order' && entry.kind === 'lock')
+      .map((entry) => entry.id)
+    const paidOnNight = [fixture.orders[1].id, waived.id].sort()
+
+    // Both paid orders with tickets on the night, ascending, before any ticket.
+    expect(orderLocks).toEqual(paidOnNight)
+
+    const codeAt = inTransaction.findIndex((entry) => entry.table === 'ReferralCode')
+    const lastRowWrite = inTransaction
+      .map(
+        (entry) =>
+          entry.kind === 'write' &&
+          ['Order', 'OrderItem', 'Ticket', 'EventSeat'].includes(entry.table),
+      )
+      .lastIndexOf(true)
+
+    expect(codeAt).toBeGreaterThan(lastRowWrite)
+
+    // The waived booking ended: nothing online, its only ticket withdrawn.
+    expect(waived).toMatchObject({ status: 'PAID', referralUseReturnCause: 'SESSION_CANCELLED' })
+    expect(prisma._store.referralCode.find((row) => row.id === codeId).useCount).toBe(0)
+    expect(
+      prisma._store.auditLog.filter((row) => row.action === 'referral_code.use_returned'),
+    ).toHaveLength(1)
+
+    // Its notice says nothing was paid online.
+    const notice = prisma._store.notificationOutbox.find(
+      (row) => row.dedupeKey === `session-cancelled:${night.id}:${waived.id}`,
+    )
+
+    expect(notice.payload).toMatchObject({ outcome: 'NOTHING_PAID_ONLINE', atVenue: true })
+
+    await app.close()
+  })
+})

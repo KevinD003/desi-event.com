@@ -37,7 +37,8 @@ import { IMPORTED_FROM_SELECT, toEventDetail } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
 import { WEBSITE_REDIRECT_INCLUDE, websiteViewFor } from '../lib/website-redirect.js'
 import { eventImportRateLimit } from '../plugins/rate-limit.js'
-import { feeConfigFor } from './orders.js'
+import { eventFeeConfig } from '../lib/checkout-pricing.js'
+import { eventPaymentTerms } from '../lib/payment-terms.js'
 
 /** What an event's detail is read with after a move. */
 const DETAIL_INCLUDE = Object.freeze({
@@ -67,7 +68,11 @@ export function registerEventImportRoutes(
   { prisma, env, mediaStorage, fetchImportImage, eventImportLimit },
 ) {
   const budget = eventImportRateLimit(eventImportLimit ?? {})
-  const pricing = env ? { feeConfigFor: (currency) => feeConfigFor(env, currency) } : {}
+  // The event's own booking fee when the Desi-Event team set one, else the
+  // site default: the terms checkout charges (SPEC3 §7.2).
+  const pricing = env
+    ? { feeConfigFor: (currency, event) => eventFeeConfig(env, event, currency) }
+    : {}
   const storage = mediaStorage
 
   /**
@@ -258,6 +263,7 @@ export function registerEventImportRoutes(
           includeDraftTiers: true,
           includeOnlineUrl: true,
           website: websiteViewFor(request.actor, full),
+          paymentTerms: await eventPaymentTerms(prisma, full, { actor: request.actor, env }),
           ...pricing,
         }),
       }

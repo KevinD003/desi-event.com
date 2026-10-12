@@ -60,6 +60,29 @@
  * in full, counted after the discount; money that pays for no whole ticket is
  * recorded on the order and in the split, and withdraws nothing.
  *
+ * ## Orders paid at the venue (SPEC3 §10.2)
+ *
+ * A pay-at-the-venue order paid online only its booking fee and any tax on it;
+ * the ticket price is paid at the door, to the organiser, and never comes back
+ * through here. So its face value online is 0 ({@link orderParts}), and the
+ * fee and tax are shared between its tickets by their **basis**, the net
+ * ticket price (`subtotal − discount`, {@link orderBasis}), rather than by a
+ * face value it does not have. Every refund records the basis it spoke for
+ * (`allocation.basisCents`): a card order's face value, a pay-at-the-venue
+ * order's tickets' basis, 0 for the booking fee on its own. Its forms: the
+ * whole order (every standing ticket withdrawn, what is left of the fee and
+ * tax given back), named tickets (their share of the fee and tax; the lines
+ * carry 0), never an amount (422 `AMOUNT_REFUND_NOT_FOR_VENUE_ORDERS`). Money
+ * taken at the door is the organiser's to return, and nothing here touches it.
+ *
+ * ## The booking fee on its own (`fee`, SPEC3 §7.4)
+ *
+ * The Desi-Event team can refund what is left of one order's booking fee and
+ * the tax it carried, by hand ({@link requestRefund} with `feeOnly`). It
+ * withdraws no ticket, writes no line, is never promoted to the whole order and
+ * never moves the order to REFUNDED. The tax it gave back is not shared out
+ * again by a later refund of tickets (`feeFormTaxCents`).
+ *
  * ## What is never done here
  *
  * No Stripe identifier is invented. In mock mode the provider returns its own
@@ -86,8 +109,16 @@ import { allocateProportionally } from '@desi-event/pricing'
 import { PROVIDER_ERROR_CODES } from '@desi-event/providers'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
-import { conflict, httpError, notFound, unprocessable } from './errors.js'
+import {
+  PAYMENT_TERMS_SENTENCES,
+  conflict,
+  httpError,
+  notFound,
+  paymentTermsRefusal,
+  unprocessable,
+} from './errors.js'
 import { postBatch, resolveAccounts } from './ledger.js'
+import { settleReferralUsesIfEnded } from './referral-uses.js'
 import { lateCaptureLedgerKey, openReconciliation } from './webhook-handlers.js'
 
 /**
@@ -228,11 +259,35 @@ export function seatPolicyFor({ eventStartsAt, now, override }) {
  * opinion that disagreed with the constraint would be the more dangerous
  * number.
  *
+ * The booking fee Desi-Event kept when unpaid pay-at-the-venue tickets were
+ * cancelled (`venueFeeKeptCents`, SPEC3-XI XU6) is never refundable: it is
+ * taken off here, for every caller, and CHECK `order_venue_kept_within_total`
+ * refuses a reservation that would reach into it. A card order keeps nothing.
+ *
  * @param {object} order An `Order` row.
  * @returns {number} Integer cents, never negative.
  */
 export function refundableCents(order) {
-  return Math.max(0, order.totalCents - order.refundedCents - order.refundPendingCents)
+  return Math.max(
+    0,
+    order.totalCents -
+      order.refundedCents -
+      order.refundPendingCents -
+      (order.venueFeeKeptCents ?? 0),
+  )
+}
+
+/**
+ * How many tickets of an order line are left to refund: its quantity, less
+ * those refunded, those cancelled unpaid (SPEC3-XI §10.2: gone, never
+ * refunded) and those unresolved refunds already hold.
+ *
+ * @param {{quantity: number, refundedQuantity?: number, venueCancelledQuantity?: number}} item The order line.
+ * @param {number} [pending] Tickets of the line unresolved refunds hold.
+ * @returns {number} The count; negative only when the line's counters disagree.
+ */
+export function lineQuantityLeft(item, pending = 0) {
+  return item.quantity - (item.refundedQuantity ?? 0) - (item.venueCancelledQuantity ?? 0) - pending
 }
 
 /**
@@ -258,8 +313,29 @@ export const REFUND_BLOCKING_DISPUTE_STATES = Object.freeze([
 /** The three parts of an order's money, all zero. */
 const NO_PARTS = Object.freeze({ faceValueCents: 0, feeCents: 0, taxCents: 0 })
 
-/** The refund forms a request can take. */
-const FORMS = Object.freeze({ WHOLE: 'whole', AMOUNT: 'amount', LINES: 'lines' })
+/**
+ * The refund forms a request can take. `fee` is the booking fee on its own,
+ * refunded by the Desi-Event team (SPEC3 §7.4).
+ */
+export const FORMS = Object.freeze({
+  WHOLE: 'whole',
+  AMOUNT: 'amount',
+  LINES: 'lines',
+  FEE: 'fee',
+})
+
+/** How an order paid at the venue is recorded (`Order.paymentMethod`). */
+const AT_VENUE = 'AT_VENUE'
+
+/**
+ * Whether an order was booked to pay its ticket price at the venue.
+ *
+ * @param {{paymentMethod?: string}|null} order An order row.
+ * @returns {boolean} True for a pay-at-the-venue order.
+ */
+export function isAtVenue(order) {
+  return order?.paymentMethod === AT_VENUE
+}
 
 /**
  * Add up the three parts.
@@ -368,13 +444,19 @@ function notReserved(details) {
  * out from them: a refund split from numbers that disagree would post a ledger
  * batch that is wrong in a way nobody would look for.
  *
+ * A pay-at-the-venue order's face value online is 0: its ticket price, net of
+ * the discount, is what it owes at the door (`venueDueCents`), and its total
+ * is the booking fee and any tax on it. A card order owes nothing at the door,
+ * so its parts are what they always were.
+ *
  * @param {object} order An `Order` row.
  * @returns {{faceValueCents: number, feeCents: number, taxCents: number}} The parts.
  * @throws {Error} 409 `ORDER_TOTALS_INCONSISTENT` when they do not add up to `totalCents`.
  */
 export function orderParts(order) {
   const parts = {
-    faceValueCents: (order.subtotalCents ?? 0) - (order.discountCents ?? 0),
+    faceValueCents:
+      (order.subtotalCents ?? 0) - (order.discountCents ?? 0) - (order.venueDueCents ?? 0),
     feeCents: order.feesCents ?? 0,
     taxCents: order.taxCents ?? 0,
   }
@@ -388,6 +470,60 @@ export function orderParts(order) {
   }
 
   return parts
+}
+
+/**
+ * An order's net ticket price: its subtotal less its discount, whether it is
+ * paid by card or at the door (SPEC3 §10.2). Shares of the fee and the tax are
+ * apportioned by it, so a pay-at-the-venue order's tickets share its booking
+ * fee exactly as a card order's tickets share theirs.
+ *
+ * @param {object} order An `Order` row.
+ * @returns {number} Integer cents.
+ */
+export function orderBasis(order) {
+  return (order.subtotalCents ?? 0) - (order.discountCents ?? 0)
+}
+
+/**
+ * The basis a stored allocation spoke for: its own `basisCents` when it has
+ * one (every refund since paying at the venue was built), else its face value
+ * (every refund before it, all of card orders, where the two are the same).
+ *
+ * @param {unknown} allocation A `Refund.allocation`.
+ * @param {{faceValueCents: number}} parts Its parts.
+ * @returns {number} Integer cents.
+ */
+function basisOfAllocation(allocation, parts) {
+  const stored = allocation && typeof allocation === 'object' ? allocation.basisCents : undefined
+
+  return Number.isInteger(stored) && stored >= 0 ? stored : parts.faceValueCents
+}
+
+/**
+ * What a refund of named tickets is shared out by (SPEC3 §10.2): the order's
+ * basis, the basis other refunds already spoke for, and the tax a refund of
+ * the booking fee on its own already gave back, which is not shared out again.
+ *
+ * A card order's basis is its face value and what other refunds took of it,
+ * so its tickets' shares are worked out exactly as they always were; only a
+ * booking-fee refund's tax changes them, and only on an order taxed on its fee.
+ *
+ * @param {object} order An `Order` row.
+ * @param {{faceValueCents: number, feeCents: number, taxCents: number, basisCents?: number, feeFormTaxCents?: number}} spoken From {@link partsSpokenFor}.
+ * @returns {{atVenue: boolean, orderBasisCents: number, takenBasisCents: number|null, feeTaxTakenCents: number}} The working.
+ */
+export function shareBasisOf(order, spoken) {
+  const atVenue = isAtVenue(order)
+
+  return {
+    atVenue,
+    orderBasisCents: orderBasis(order),
+    // A card order counts what was taken of its face value, as it always
+    // did; a pay-at-the-venue order, the basis its refunds spoke for.
+    takenBasisCents: atVenue ? (spoken?.basisCents ?? 0) : null,
+    feeTaxTakenCents: spoken?.feeFormTaxCents ?? 0,
+  }
 }
 
 /**
@@ -420,11 +556,23 @@ export function isUnreservedLegacyRefund(refund, refundItemCount) {
  * counters the order carries. An unreserved cancellation refund is left out,
  * because the counters do not carry it either.
  *
+ * Beside the three parts it sums the basis they spoke for (`basisCents`,
+ * {@link basisOfAllocation}) and the tax the booking-fee refunds gave back
+ * (`feeFormTaxCents`), which a later refund of tickets does not share out
+ * again (SPEC3 §10.2).
+ *
+ * The booking fee kept when unpaid tickets were cancelled is spoken for too
+ * (SPEC3-XI §10.2): `{ faceValueCents: 0, feeCents: venueFeeKeptCents,
+ * taxCents: 0, basisCents: venueCancelledBasisCents }`. So what is left
+ * excludes kept money for every form — whole, lines, the booking fee on its
+ * own, a night's quote, the drivers — and the basis already taken counts the
+ * cancelled tickets, keeping every later share exact. 0 on a card order.
+ *
  * @param {object} tx A Prisma client or transaction client.
  * @param {object} order The order, with its totals.
  * @param {object} [options] Options.
  * @param {string|null} [options.excludeRefundId] A refund to leave out, when it is the one being decided.
- * @returns {Promise<{faceValueCents: number, feeCents: number, taxCents: number}>} The parts spoken for.
+ * @returns {Promise<{faceValueCents: number, feeCents: number, taxCents: number, basisCents: number, feeFormTaxCents: number}>} The parts spoken for.
  */
 export async function partsSpokenFor(tx, order, { excludeRefundId = null } = {}) {
   const rows = await tx.refund.findMany({
@@ -444,19 +592,27 @@ export async function partsSpokenFor(tx, order, { excludeRefundId = null } = {})
     }
   }
 
-  const spoken = { ...NO_PARTS }
+  const spoken = { ...NO_PARTS, basisCents: 0, feeFormTaxCents: 0 }
 
   for (const row of counted) {
     if (isUnreservedLegacyRefund(row, itemCounts.get(row.id) ?? 0)) continue
 
     const stored = partsOf(row.allocation)
-    const parts =
-      stored && sumParts(stored) === row.amountCents ? stored : splitRefund(order, row.amountCents)
+    const exact = stored && sumParts(stored) === row.amountCents
+    const parts = exact ? stored : splitRefund(order, row.amountCents)
 
     spoken.faceValueCents += parts.faceValueCents
     spoken.feeCents += parts.feeCents
     spoken.taxCents += parts.taxCents
+    spoken.basisCents += exact ? basisOfAllocation(row.allocation, parts) : parts.faceValueCents
+
+    if (exact && row.allocation?.form === FORMS.FEE) spoken.feeFormTaxCents += parts.taxCents
   }
+
+  // What unpaid tickets' cancellations kept: their share of the fee, for good,
+  // and the door price no longer owed for them.
+  spoken.feeCents += order.venueFeeKeptCents ?? 0
+  spoken.basisCents += order.venueCancelledBasisCents ?? 0
 
   return spoken
 }
@@ -487,9 +643,11 @@ export function partsLeft(parts, spoken) {
  *   value is the rest, so it is never negative. A face value above what is
  *   left moves into fee and then tax, within what is left of them.
  * - **lines** — named tickets. The face value is theirs, net of the discount;
- *   fee and tax follow in proportion to the face value, floored cumulatively
- *   from what earlier refunds already took, so successive line refunds add up
- *   to exactly the order's fee and tax.
+ *   fee and tax follow in proportion to their basis — the face value on a card
+ *   order, the net ticket price on a pay-at-the-venue order, whose face value
+ *   online is 0 — floored cumulatively from what earlier refunds already took,
+ *   so successive line refunds add up to exactly the order's fee and tax (the
+ *   tax less what a refund of the booking fee on its own already gave back).
  *
  * @param {object} options Options.
  * @param {{faceValueCents: number, feeCents: number, taxCents: number}} options.parts The order's parts.
@@ -497,27 +655,42 @@ export function partsLeft(parts, spoken) {
  * @param {'whole'|'amount'|'lines'} options.form Which form.
  * @param {number} [options.amountCents] The amount, for `whole` and `amount`.
  * @param {number} [options.lineFaceCents] The named tickets' net face value, for `lines`.
+ * @param {number|null} [options.lineBasisCents] The named tickets' basis, for `lines`; their face value when not given.
+ * @param {number|null} [options.takenBasisCents] The basis earlier refunds spoke for; the face value they took when not given.
+ * @param {number|null} [options.orderBasisCents] The order's basis ({@link orderBasis}); its face value when not given.
+ * @param {number} [options.feeTaxTakenCents] Tax given back by refunds of the booking fee on its own, not shared out again.
  * @returns {{faceValueCents: number, feeCents: number, taxCents: number}} The split. For `lines`, its sum is the refund amount.
  * @throws {Error} 409 `ORDER_TOTALS_INCONSISTENT` when the amount exceeds everything left.
  */
-export function refundPartsFor({ parts, left, form, amountCents = 0, lineFaceCents = 0 }) {
+export function refundPartsFor({
+  parts,
+  left,
+  form,
+  amountCents = 0,
+  lineFaceCents = 0,
+  lineBasisCents = null,
+  takenBasisCents = null,
+  orderBasisCents = null,
+  feeTaxTakenCents = 0,
+}) {
   if (form === FORMS.LINES) {
     const face = lineFaceCents
+    const basis = orderBasisCents ?? parts.faceValueCents
 
-    if (parts.faceValueCents <= 0) return { faceValueCents: face, feeCents: 0, taxCents: 0 }
+    if (basis <= 0) return { faceValueCents: face, feeCents: 0, taxCents: 0 }
 
-    const taken = parts.faceValueCents - left.faceValueCents
+    const taken = takenBasisCents ?? parts.faceValueCents - left.faceValueCents
+    const named = lineBasisCents ?? face
     const shareOf = (whole) =>
       Math.max(
         0,
-        Math.floor((whole * (taken + face)) / parts.faceValueCents) -
-          Math.floor((whole * taken) / parts.faceValueCents),
+        Math.floor((whole * (taken + named)) / basis) - Math.floor((whole * taken) / basis),
       )
 
     return {
       faceValueCents: face,
       feeCents: Math.min(left.feeCents, shareOf(parts.feeCents)),
-      taxCents: Math.min(left.taxCents, shareOf(parts.taxCents)),
+      taxCents: Math.min(left.taxCents, shareOf(Math.max(0, parts.taxCents - feeTaxTakenCents))),
     }
   }
 
@@ -711,10 +884,7 @@ export function allocateAcrossLines({
         (item.refundedCents ?? 0) -
         (pendingCentsByLine.get(item.id) ?? 0),
     ),
-    remainingQuantity: Math.max(
-      0,
-      item.quantity - (item.refundedQuantity ?? 0) - (pendingByLine.get(item.id) ?? 0),
-    ),
+    remainingQuantity: Math.max(0, lineQuantityLeft(item, pendingByLine.get(item.id) ?? 0)),
     amountCents: 0,
   }))
 
@@ -863,7 +1033,7 @@ export function priceNamedLines({
       throw unprocessable('That line is not on this order.', { orderItemId })
     }
 
-    const available = item.quantity - item.refundedQuantity - (pendingByLine.get(orderItemId) ?? 0)
+    const available = lineQuantityLeft(item, pendingByLine.get(orderItemId) ?? 0)
 
     if (quantity > available) {
       throw unprocessable(
@@ -948,7 +1118,8 @@ export function capNamedFace(named, capCents) {
  * @param {{faceValueCents: number, feeCents: number, taxCents: number}} options.parts The order's parts ({@link orderParts}).
  * @param {{faceValueCents: number, feeCents: number, taxCents: number}} options.left What is left of each ({@link partsLeft}).
  * @param {boolean} [options.capFaceToLeft] Bring the face value down to what the order has left ({@link capNamedFace}) instead of letting {@link requestRefund} refuse it.
- * @returns {{priced: object, named: object, split: {faceValueCents: number, feeCents: number, taxCents: number}, amountCents: number}} The tickets at their price, the tickets as asked for, the split and its sum.
+ * @param {{atVenue: boolean, orderBasisCents: number, takenBasisCents: number|null, feeTaxTakenCents: number}|null} [options.share] What the fee and tax are shared out by ({@link shareBasisOf}); a card order's face value when not given.
+ * @returns {{priced: object, named: object, basis: number, split: {faceValueCents: number, feeCents: number, taxCents: number}, amountCents: number}} The tickets at their price, the tickets as asked for, their basis (their price before any cap), the split and its sum.
  * @throws {Error} 422 for a line that is not on the order, or a quantity it cannot cover.
  */
 export function quoteNamedLines({
@@ -959,6 +1130,7 @@ export function quoteNamedLines({
   parts,
   left,
   capFaceToLeft = false,
+  share = null,
 }) {
   const priced = priceNamedLines({
     items,
@@ -967,10 +1139,30 @@ export function quoteNamedLines({
     discountCents,
     roomByLine: roomOnLines(items, discountCents, pending.cents),
   })
-  const named = capFaceToLeft ? capNamedFace(priced, left.faceValueCents) : priced
-  const split = refundPartsFor({ parts, left, form: FORMS.LINES, lineFaceCents: named.amountCents })
+  const basis = priced.amountCents
+  // A pay-at-the-venue order's tickets have no face value online: what they
+  // cost is paid at the door, so the lines give back nothing and the refund is
+  // their share of the booking fee and its tax, by their basis (SPEC3 §10.2).
+  const named = share?.atVenue
+    ? {
+        allocation: priced.allocation.map((line) => ({ ...line, amountCents: 0 })),
+        amountCents: 0,
+      }
+    : capFaceToLeft
+      ? capNamedFace(priced, left.faceValueCents)
+      : priced
+  const split = refundPartsFor({
+    parts,
+    left,
+    form: FORMS.LINES,
+    lineFaceCents: named.amountCents,
+    lineBasisCents: share?.atVenue ? basis : null,
+    takenBasisCents: share?.takenBasisCents ?? null,
+    orderBasisCents: share?.atVenue ? share.orderBasisCents : null,
+    feeTaxTakenCents: share?.feeTaxTakenCents ?? 0,
+  })
 
-  return { priced, named, split, amountCents: sumParts(split) }
+  return { priced, named, basis, split, amountCents: sumParts(split) }
 }
 
 /**
@@ -1041,22 +1233,36 @@ export async function paymentDisputeBlocks(tx, paymentId) {
  * gives back everything; a partial one gives back a proportional share of each
  * part, so a half refund returns half the tax and half the fee.
  *
+ * A pay-at-the-venue order's face value online is 0 ({@link orderParts}), so
+ * its split is fee and tax only, whatever the amount.
+ *
  * @param {object} order The order, with its totals.
  * @param {number} amountCents The refund amount.
  * @returns {{faceValueCents: number, feeCents: number, taxCents: number}} The split.
  */
 export function splitRefund(order, amountCents) {
+  const face = order.subtotalCents - (order.discountCents ?? 0) - (order.venueDueCents ?? 0)
+
   if (amountCents >= order.totalCents) {
     return {
-      faceValueCents: order.subtotalCents - (order.discountCents ?? 0),
+      faceValueCents: face,
       feeCents: order.feesCents ?? 0,
       taxCents: order.taxCents ?? 0,
     }
   }
 
   const share = amountCents / order.totalCents
-  const feeCents = Math.round((order.feesCents ?? 0) * share)
   const taxCents = Math.round((order.taxCents ?? 0) * share)
+
+  if (isAtVenue(order)) {
+    // Nothing paid online but the fee and its tax: the fee takes what the tax
+    // does not, so the parts still add up to the amount.
+    const feeCents = Math.min(order.feesCents ?? 0, amountCents - Math.min(taxCents, amountCents))
+
+    return { faceValueCents: 0, feeCents, taxCents: amountCents - feeCents }
+  }
+
+  const feeCents = Math.round((order.feesCents ?? 0) * share)
 
   return { faceValueCents: amountCents - feeCents - taxCents, feeCents, taxCents }
 }
@@ -1102,10 +1308,7 @@ async function writeRefundItems(
     const item = byId.get(line.orderItemId)
 
     if (form === FORMS.AMOUNT && item) {
-      const standing = Math.max(
-        0,
-        item.quantity - (item.refundedQuantity ?? 0) - (pendingByLine.get(item.id) ?? 0),
-      )
+      const standing = Math.max(0, lineQuantityLeft(item, pendingByLine.get(item.id) ?? 0))
 
       amountCents = Math.min(
         line.amountCents,
@@ -1121,6 +1324,73 @@ async function writeRefundItems(
   }
 
   return onLines
+}
+
+/**
+ * What tax a refund of the booking fee on its own gives back with it (SPEC3
+ * §7.4): all the tax left on a pay-at-the-venue order, which is charged on
+ * its fee alone; on a card order, the fee's share of everything it was taxed
+ * on (`orderBasis + fee`), floored, within the tax left. 0 for every order
+ * with no tax, which is every US order.
+ *
+ * @param {object} order The order.
+ * @param {{feeCents: number}} parts Its parts ({@link orderParts}).
+ * @param {{feeCents: number, taxCents: number}} left What is left of each ({@link partsLeft}).
+ * @returns {number} Integer cents.
+ */
+function taxOnFeeLeft(order, parts, left) {
+  if (isAtVenue(order)) return left.taxCents
+
+  const taxed = orderBasis(order) + parts.feeCents
+
+  if (taxed <= 0) return 0
+
+  return Math.min(left.taxCents, Math.floor(((order.taxCents ?? 0) * left.feeCents) / taxed))
+}
+
+/**
+ * What a refund of one order's booking fee by hand would give back now (SPEC3
+ * §7.4), worked out as {@link requestRefund} with `feeOnly` works it out: the
+ * fee left after every refund settled or in flight, and the tax it carried.
+ * Read under the order's row lock when it is about to be acted on.
+ *
+ * @param {object} db A Prisma client or transaction client.
+ * @param {object} order The order, with its totals.
+ * @returns {Promise<{feeCents: number, taxCents: number, amountCents: number, feeSpokenCents: number}>} The fee and tax left to refund, their sum, and the fee other refunds already took.
+ */
+export async function feeRefundQuote(db, order) {
+  const parts = orderParts(order)
+  const spoken = await partsSpokenFor(db, order)
+  const left = partsLeft(parts, spoken)
+  const taxCents = taxOnFeeLeft(order, parts, left)
+
+  return {
+    feeCents: left.feeCents,
+    taxCents,
+    amountCents: left.feeCents + taxCents,
+    feeSpokenCents: parts.feeCents - left.feeCents,
+  }
+}
+
+/**
+ * The basis a new refund speaks for, stored as `allocation.basisCents` (SPEC3
+ * §10.2): a card order's face value, whatever the form; a pay-at-the-venue
+ * order's named tickets' basis, or for the whole order the basis left; 0 for
+ * the booking fee on its own.
+ *
+ * @param {object} options Options.
+ * @param {string} options.form The refund's form.
+ * @param {{faceValueCents: number}} options.split Its split.
+ * @param {{atVenue: boolean, orderBasisCents: number, takenBasisCents: number|null}} options.share From {@link shareBasisOf}.
+ * @param {{basis: number}|null} options.quoted The named tickets' quote, for the lines form.
+ * @returns {number} Integer cents.
+ */
+function basisSpokenFor({ form, split, share, quoted }) {
+  if (form === FORMS.FEE) return 0
+  if (!share.atVenue) return split.faceValueCents
+  if (form === FORMS.LINES) return quoted?.basis ?? 0
+
+  return Math.max(0, share.orderBasisCents - (share.takenBasisCents ?? 0))
 }
 
 /**
@@ -1203,9 +1473,10 @@ function replayOf(existing, order) {
  * @param {string|null} [params.via] What asked, when it was not a person at the refund screen.
  * @param {boolean} [params.capFaceToLeft] Lines form: ask for no more face value than the order has left, rather than refusing tickets an earlier sum refund already paid back in part ({@link capNamedFace}). A cancelled night's refund asks for this.
  * @param {boolean} [params.promoteToWhole] Lines form: whether named tickets that come to everything the order has left become the whole form and withdraw every ticket still standing. True by default; a cancelled night's refund passes false, because the order's tickets for its other nights are kept (SPEC2-XI X-N).
+ * @param {boolean} [params.feeOnly] The booking fee on its own (SPEC3 §7.4): what is left of the fee and the tax it carried, no ticket withdrawn, never the whole form. Names neither an amount, lines nor `whole`.
  * @param {Date} params.now The instant.
  * @returns {Promise<{refund: object, created: boolean}>} The refund, and whether this call made it.
- * @throws {Error} 409 when the order has less left than was asked for or its payment is disputed; 422 for a bad amount.
+ * @throws {Error} 409 when the order has less left than was asked for or its payment is disputed; 409 `NO_FEE_TO_REFUND` for a booking fee with nothing left; 422 for a bad amount, and `AMOUNT_REFUND_NOT_FOR_VENUE_ORDERS` for a sum asked of a pay-at-the-venue order.
  */
 export async function requestRefund(tx, params) {
   const {
@@ -1213,6 +1484,7 @@ export async function requestRefund(tx, params) {
     payment,
     lines = null,
     whole = false,
+    feeOnly = false,
     reason,
     reasonNote = null,
     idempotencyKey,
@@ -1231,10 +1503,19 @@ export async function requestRefund(tx, params) {
 
   if (existing) return replayOf(existing, given)
 
-  if (whole && (lines || (params.amountCents !== undefined && params.amountCents !== null))) {
+  const namesAmount = params.amountCents !== undefined && params.amountCents !== null
+
+  if (whole && (lines || namesAmount)) {
     throw unprocessable('A refund of everything left names neither an amount nor lines.', {
       orderId: given.id,
     })
+  }
+
+  if (feeOnly && (whole || lines || namesAmount)) {
+    throw unprocessable(
+      'A refund of the booking fee names neither an amount, lines nor the whole order.',
+      { orderId: given.id },
+    )
   }
 
   // The order's row lock, then the order as it stands under it: its counters,
@@ -1260,15 +1541,28 @@ export async function requestRefund(tx, params) {
 
   const stored = await tx.order.findUnique({ where: { id: given.id }, include: { items: true } })
   const order = { ...given, ...(stored ?? {}) }
+  const atVenue = isAtVenue(order)
+
+  // A pay-at-the-venue order paid online only its booking fee and the tax on
+  // it: a sum asked of it would be Desi-Event's fee given back with no ticket
+  // withdrawn, and an amount equal to what is left would be promoted to the
+  // whole order. Its tickets are refunded by name or all together; its fee on
+  // its own only by the Desi-Event team (SPEC3 §9.7).
+  if (atVenue && !lines && !whole && !feeOnly) {
+    throw paymentTermsRefusal('AMOUNT_REFUND_NOT_FOR_VENUE_ORDERS')
+  }
+
   const items = order.items ?? []
   const discountCents = order.discountCents ?? 0
   const parts = orderParts(order)
-  const left = partsLeft(parts, await partsSpokenFor(tx, order))
+  const spoken = await partsSpokenFor(tx, order)
+  const left = partsLeft(parts, spoken)
+  const share = shareBasisOf(order, spoken)
   const pending = await pendingLines(tx, order.id)
   const remaining = refundableCents(order)
 
   const quoted = lines
-    ? quoteNamedLines({ items, lines, pending, discountCents, parts, left, capFaceToLeft })
+    ? quoteNamedLines({ items, lines, pending, discountCents, parts, left, capFaceToLeft, share })
     : null
 
   if (quoted && quoted.priced.amountCents <= 0) {
@@ -1284,7 +1578,22 @@ export async function requestRefund(tx, params) {
   let amountCents
   let split = null
 
-  if (named) {
+  if (feeOnly) {
+    // What is left of the booking fee, and the tax it carried (SPEC3 §7.4).
+    form = FORMS.FEE
+    split = {
+      faceValueCents: 0,
+      feeCents: left.feeCents,
+      taxCents: taxOnFeeLeft(order, parts, left),
+    }
+    amountCents = sumParts(split)
+
+    if (amountCents <= 0) {
+      throw httpError(409, 'NO_FEE_TO_REFUND', PAYMENT_TERMS_SENTENCES.noFeeLeft, {
+        orderId: order.id,
+      })
+    }
+  } else if (named) {
     split = quoted.split
     amountCents = quoted.amountCents
     // Named tickets whose share of the fee and the tax takes everything the
@@ -1368,23 +1677,31 @@ export async function requestRefund(tx, params) {
       reason,
       reasonNote,
       status: REFUND_STATES.REQUESTED,
-      allocation: { ...split, form, whole: form === FORMS.WHOLE },
+      allocation: {
+        ...split,
+        form,
+        whole: form === FORMS.WHOLE,
+        basisCents: basisSpokenFor({ form, split, share, quoted }),
+      },
       requestedById: actorId,
       idempotencyKey,
     },
   })
 
+  // The booking fee on its own withdraws no ticket and writes no line.
   const allocation =
-    named && form === FORMS.LINES
-      ? named.allocation
-      : allocateAcrossLines({
-          items,
-          amountCents: split.faceValueCents,
-          discountCents,
-          pendingByLine: pending.quantities,
-          pendingCentsByLine: pending.cents,
-          whole: form === FORMS.WHOLE,
-        })
+    form === FORMS.FEE
+      ? []
+      : named && form === FORMS.LINES
+        ? named.allocation
+        : allocateAcrossLines({
+            items,
+            amountCents: split.faceValueCents,
+            discountCents,
+            pendingByLine: pending.quantities,
+            pendingCentsByLine: pending.cents,
+            whole: form === FORMS.WHOLE,
+          })
 
   const onLines = await writeRefundItems(tx, {
     refundId: created.id,
@@ -1502,8 +1819,7 @@ export async function reserveAgain(tx, { refund, order = null }) {
 
     if (!line) throw balanceGone(details)
 
-    const ticketsLeft =
-      line.quantity - (line.refundedQuantity ?? 0) - (pending.quantities.get(line.id) ?? 0)
+    const ticketsLeft = lineQuantityLeft(line, pending.quantities.get(line.id) ?? 0)
     const moneyLeft =
       line.subtotalCents -
       (shareOf.get(line.id) ?? 0) -
@@ -1618,6 +1934,8 @@ export async function approveRefund(
       previousStatus: refund.status,
       reReserved,
       via,
+      // The booking fee refunded on its own says so on every step (SPEC3 §4.3).
+      ...(refund.allocation?.form === FORMS.FEE ? { form: FORMS.FEE } : {}),
       source: actorId ? 'operator' : 'system',
     },
   })
@@ -1977,7 +2295,9 @@ function refundLedgerBatch(input) {
 async function discountToReverse(tx, order) {
   const discount = order.discountCents ?? 0
 
-  if (discount <= 0) return 0
+  // A pay-at-the-venue order posted no discount: the promo lowered the price
+  // paid at the door, which is not platform money (SPEC3 §10.1).
+  if (discount <= 0 || isAtVenue(order)) return 0
 
   let target = discount
 
@@ -2019,6 +2339,31 @@ async function discountToReverse(tx, order) {
 }
 
 /**
+ * Take `FOR KEY SHARE` on an order's own night, when it has one: the lock a
+ * second update of the order in the same transaction takes anyway, through
+ * its foreign key, taken in its place in SPEC3-XI §2.1's order (nights before
+ * orders) rather than after the order. The night never changes for the life
+ * of the order, so reading it unlocked is enough.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {{id: string, eventSessionId?: string|null}} order The order.
+ * @returns {Promise<string|null>} The night locked, if any.
+ */
+export async function lockOrderNight(tx, order) {
+  const eventSessionId =
+    order?.eventSessionId !== undefined
+      ? order.eventSessionId
+      : ((await tx.order.findUnique({ where: { id: order.id }, select: { eventSessionId: true } }))
+          ?.eventSessionId ?? null)
+
+  if (!eventSessionId) return null
+
+  await tx.$queryRaw`SELECT "id" FROM "EventSession" WHERE "id" = ${eventSessionId} FOR KEY SHARE`
+
+  return eventSessionId
+}
+
+/**
  * Record a settled refund: the money, the tickets, the ledger.
  *
  * One transaction, conditional on the refund still being SUBMITTED. That single
@@ -2036,6 +2381,7 @@ async function discountToReverse(tx, order) {
  * @param {Date|null} [params.eventStartsAt] When the event starts, for the default policy.
  * @param {string|null} [params.actorId] Who settled it. Null for a system job.
  * @param {string|null} [params.requestId] For the audit trail.
+ * @param {string|null} [params.via] What sent it, when it was not a person at the refund screen (the booking fee refunded by hand: `platform_fee_refund`).
  * @param {Date} params.now The instant.
  * @returns {Promise<{settled: boolean, ticketsRevoked?: number, seatsReturned?: number, seatsWithheld?: number}>} What happened.
  */
@@ -2049,10 +2395,21 @@ export async function settleRefund(tx, params) {
     eventStartsAt = null,
     actorId = null,
     requestId = null,
+    via = null,
     now,
   } = params
 
   const policy = seatPolicyFor({ eventStartsAt, now, override: seatPolicy })
+
+  // The order's night first, `FOR KEY SHARE` (SPEC3-XI §2.1: nights before
+  // orders). This settlement writes the order more than once (its counters,
+  // then REFUNDED, then the referral marker), and PostgreSQL checks a row's
+  // foreign keys again when it is updated a second time in one transaction:
+  // that check takes `KEY SHARE` on the night, after the order. A night's
+  // cancellation or a deletion holds the night `FOR UPDATE` and waits for the
+  // order, so taken there the two would wait on each other. Taken here, before
+  // anything else, one of them simply goes first.
+  await lockOrderNight(tx, order)
 
   const applied = await transition(tx, {
     refund,
@@ -2092,11 +2449,31 @@ export async function settleRefund(tx, params) {
   // a free one, an every-night pass, one an earlier sum already paid back in
   // part — are kept (SPEC2-XI X-N). The door refuses every ticket of an order
   // that is not PAID, so such an order stays PAID while a ticket of it stands.
-  if (after.refundedCents >= after.totalCents && after.status !== 'REFUNDED') {
+  //
+  // The booking fee refunded on its own never moves the order: a buyer who
+  // paid at the door and was let in keeps a PAID order (SPEC3 §10.2).
+  //
+  // "In full" counts the booking fee Desi-Event kept when unpaid tickets were
+  // cancelled (SPEC3-XI §10.2): it is never refunded, so an order whose every
+  // other cent went back is refunded as far as it ever will be.
+  const feeOnly = refund.allocation?.form === FORMS.FEE
+  const refundedInFull = after.refundedCents + (after.venueFeeKeptCents ?? 0) >= after.totalCents
+
+  if (!feeOnly && refundedInFull && after.status !== 'REFUNDED') {
     if ((await standingTicketCount(tx, order.id)) === 0) {
       await tx.order.update({ where: { id: order.id }, data: { status: 'REFUNDED' } })
     }
   }
+
+  // The order's referral use, when it has now ended (SPEC3-XI XR4): after the
+  // last order, line, ticket and seat write of this settlement, so the code
+  // is its last row lock. Once, whichever path settles the refund.
+  await settleReferralUsesIfEnded(tx, {
+    entries: [{ orderId: order.id, cause: 'REFUNDED' }],
+    actorId,
+    requestId,
+    now,
+  })
 
   const split = refund.allocation ?? splitRefund(order, refund.amountCents)
 
@@ -2175,6 +2552,8 @@ export async function settleRefund(tx, params) {
       ...moved,
       discountReversedCents,
       capturedAfterClose: Boolean(lateCapture),
+      ...(feeOnly ? { form: FORMS.FEE } : {}),
+      ...(via ? { via } : {}),
       source: actorId ? 'operator' : 'system',
     },
   })
@@ -2706,6 +3085,7 @@ export async function assertRefundSendable(tx, { refund }) {
  * @param {string} [params.seatPolicy] An explicit seat policy.
  * @param {string|null} [params.actorId] Who sent it.
  * @param {string|null} [params.requestId] For the audit trail.
+ * @param {string|null} [params.via] What sent it, carried on the settlement's audit row.
  * @returns {Promise<{outcome: string, refund: object}>} What the provider said, and the refund as it now stands.
  * @throws {Error} 409 when the refund cannot be submitted, cannot settle, or another caller is submitting it.
  */
@@ -2719,6 +3099,7 @@ export async function submitRefund(prisma, providers, params) {
     seatPolicy,
     actorId = null,
     requestId = null,
+    via = null,
   } = params
 
   // Step one: SUBMITTED, in its own transaction, before anything is sent.
@@ -2763,6 +3144,7 @@ export async function submitRefund(prisma, providers, params) {
         eventStartsAt,
         actorId,
         requestId,
+        via,
         now: new Date(),
       })
     }

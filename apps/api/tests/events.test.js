@@ -129,6 +129,10 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'updatedAt',
       'venue',
       'venueId',
+      // Whether buyers may pay the ticket price at the door now, and nothing
+      // else about the switch (SPEC3 §9.2, §11.3): an anonymous reader never
+      // gets the event's `paymentTerms`.
+      'venuePayment',
       // Where "Visit the organiser's website" goes, as a host, or null. Never
       // the address: no `websiteUrl` and no `websiteRedirect` (the switch, with
       // the deciding administrator's name) for a stranger; both keys absent.

@@ -43,6 +43,8 @@ const PREVIEW_KEYS = [
   'event',
   'method',
   'outcome',
+  // What the ticket owes at the door, or null (SPEC3 §9.3).
+  'payment',
   'previewExpiresAt',
   'previewReference',
   'refusal',
@@ -59,6 +61,8 @@ const RESULT_KEYS = [
   'event',
   'method',
   'outcome',
+  // The payment taken at the door with this admission, or null (SPEC3 §9.3).
+  'payment',
   'seat',
   'session',
   'tier',

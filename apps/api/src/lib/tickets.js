@@ -201,6 +201,16 @@ export function admissionRefusalCode(ticket, order, event = null, session = null
   if (!ADMISSIBLE_STATES.includes(ticket.status)) {
     if (ticket.status === TICKET_STATES.CHECKED_IN) return null
 
+    // Cancelled because it was not paid for at the door (SPEC3-XI XU12): a
+    // REVOKED ticket the cancellation points at, or whose reason names it.
+    if (
+      ticket.status === TICKET_STATES.REVOKED &&
+      (Boolean(ticket.venueCancellationId) ||
+        String(ticket.revokedReason ?? '').startsWith(VENUE_UNPAID_PREFIX))
+    ) {
+      return 'UNPAID_CANCELLED'
+    }
+
     if (ticket.status === TICKET_STATES.CANCELLED) {
       if (event?.status === 'DELETED') return 'EVENT_DELETED'
       if (
@@ -262,8 +272,7 @@ export const ADMISSION_REFUSAL_SENTENCES = Object.freeze({
   PREVIEW_MISMATCH: 'The pass presented is not the one that was checked. Look it up again.',
   GROUP_CHANGED: 'Some tickets in this group changed after it was looked up.',
   // A ticket booked to pay at the venue and cancelled because it was not paid
-  // for (SPEC3-XI XU12). Which REVOKED ticket answers it is Stage B1-V's
-  // `admissionRefusalCode`; the sentence belongs to the vocabulary.
+  // for (SPEC3-XI XU12): a REVOKED ticket whose cancellation names it.
   UNPAID_CANCELLED: UNPAID_CANCELLED_SENTENCE,
 })
 
@@ -399,6 +408,9 @@ export async function admit(tx, params) {
     // trigger `desi_check_in_group_pass_matches` refuses a value naming a pass
     // for another order, or a ticket its buyer no longer holds.
     groupPassId = null,
+    // The payment taken at the door with this admission, when it owed one and
+    // this admission recorded it (SPEC3 §4.3): the audit names it.
+    venuePaymentId = null,
     now,
   } = params
 
@@ -492,6 +504,7 @@ export async function admit(tx, params) {
       groupPassId,
       everyNight,
       previousStatus: ticket.status,
+      ...(venuePaymentId ? { venuePaymentId } : {}),
     },
   })
 
@@ -711,6 +724,11 @@ export async function acceptTransfer(tx, params) {
     select: { displayName: true },
   })
 
+  // What is due at the door stays on the ticket (SPEC3-XI XT2): the successor
+  // owes exactly what its predecessor owed, starts with no payment, and its
+  // holder pays at the door. `desi_ticket_venue_due_guard` refuses a successor
+  // that owes anything else. A ticket paid at the door was let in, so it is
+  // never handed on and there is no payment to carry.
   const issued = await tx.ticket.create({
     data: {
       orderItemId: ticket.orderItemId,
@@ -721,6 +739,7 @@ export async function acceptTransfer(tx, params) {
       status: TICKET_STATES.VALID,
       supersedesTicketId: ticket.id,
       credentialVersion: 1,
+      venueDueCents: ticket.venueDueCents,
     },
   })
 
@@ -885,6 +904,12 @@ export const EVENT_DELETED_PREFIX = 'event-deleted:'
 export const SESSION_CANCELLED_PREFIX = 'session-cancelled:'
 
 /**
+ * The `revokedReason` prefix of a ticket cancelled because it was not paid for
+ * at the door, followed by the cancellation's id (SPEC3-XI XU1).
+ */
+export const VENUE_UNPAID_PREFIX = 'venue-unpaid:'
+
+/**
  * Withdraw tickets because their event was deleted or their night cancelled.
  *
  * VALID and TRANSFER_PENDING tickets become CANCELLED in the caller's
@@ -897,6 +922,14 @@ export const SESSION_CANCELLED_PREFIX = 'session-cancelled:'
  *
  * Conditional updates, so a ticket scanned or refunded a moment earlier is not
  * overwritten; the count is what this call withdrew.
+ *
+ * The offers are ended from what the update withdrew, read after it, never
+ * from a read before it. The update waits on each ticket's row, so an offer
+ * started while it waited (`startTransfer` holds the ticket until it commits)
+ * has moved the ticket to TRANSFER_PENDING and written its PENDING invitation
+ * by the time the update takes the row and withdraws it: a read taken before
+ * the update would have seen the ticket VALID and left that invitation
+ * standing on a dead ticket. After the update, the next statement sees it.
  *
  * @param {object} tx A Prisma transaction client.
  * @param {object} params Inputs.
@@ -911,10 +944,6 @@ export async function withdrawTickets(tx, { ticketIds, reason, now }) {
   if (ids.length === 0) return 0
 
   const withdrawable = [TICKET_STATES.VALID, TICKET_STATES.TRANSFER_PENDING]
-  const pending = await tx.ticket.findMany({
-    where: { id: { in: ids }, status: TICKET_STATES.TRANSFER_PENDING },
-    select: { id: true },
-  })
 
   const { count } = await tx.ticket.updateMany({
     where: { id: { in: ids }, status: { in: withdrawable } },
@@ -927,12 +956,18 @@ export async function withdrawTickets(tx, { ticketIds, reason, now }) {
     },
   })
 
-  if (pending.length > 0) {
-    await tx.ticketTransfer.updateMany({
-      where: { ticketId: { in: pending.map((ticket) => ticket.id) }, status: 'PENDING' },
-      data: { status: 'CANCELLED', cancelledAt: now },
-    })
-  }
+  if (count === 0) return 0
+
+  // Every invitation outstanding on a ticket this call withdrew, including one
+  // committed while the update above waited on its row.
+  await tx.ticketTransfer.updateMany({
+    where: {
+      ticketId: { in: ids },
+      status: 'PENDING',
+      ticket: { status: TICKET_STATES.CANCELLED, revokedReason: reason },
+    },
+    data: { status: 'CANCELLED', cancelledAt: now },
+  })
 
   return count
 }

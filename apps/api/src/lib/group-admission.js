@@ -36,12 +36,30 @@
  *
  * ## Locks, in one order
  *
- * The order `FOR SHARE` (a refund settling it updates the order before it
- * touches tickets, so the two take turns), the group pass `FOR SHARE` (a
- * replacement updates it), the named tickets `FOR UPDATE` sorted by id (every
- * single-ticket writer locks its one ticket), then the membership and scope
- * `FOR SHARE`, as a single admission does. No path takes these in another
- * order, so none can deadlock against this one.
+ * The nights the admissions are written on `FOR KEY SHARE`, sorted (the lock a
+ * `CheckIn` insert's foreign key takes anyway, taken first as a single
+ * admission takes its night, SPEC3 §9.5), the order `FOR SHARE` (a refund
+ * settling it updates the order before it touches tickets, so the two take
+ * turns), the group pass `FOR SHARE` (a replacement updates it), the named
+ * tickets' order lines `FOR KEY SHARE` sorted by id (the lock a ticket's
+ * foreign key takes when an admission updates it twice; a transfer
+ * acceptance holds a line `FOR UPDATE` before it locks its ticket), the named
+ * tickets `FOR UPDATE` sorted by id (every single-ticket writer locks its one
+ * ticket), then the membership and scope `FOR SHARE`, as a single admission
+ * does. No path takes these in another order, so none can deadlock against
+ * this one.
+ *
+ * ## Paying at the door for several tickets at once (SPEC3 §9.5)
+ *
+ * Each ticket says what it owes at the door and whether it was paid there,
+ * and the lookup sums what the admissible tickets still owe; the reference
+ * carries each one's share. The confirmation's `paymentCents` must equal the
+ * named tickets' shares together (else 422 `PAYMENT_AMOUNT_MISMATCH`), and,
+ * under the locks, the named tickets still unpaid must be exactly those the
+ * lookup found unpaid (else 409 `GROUP_CHANGED`). One payment (`DOOR_GROUP`)
+ * is recorded for exactly those tickets, then each is admitted. The group pass
+ * covers only the buyer's own tickets: one passed on is paid for at the door
+ * by whoever holds it, with their own ticket.
  *
  * @module @desi-event/api/lib/group-admission
  */
@@ -54,6 +72,7 @@ import {
   UNIFORM_NOT_FOUND,
   ADMISSION_INCLUDE,
   admissionConflict,
+  admissionNightOf,
   admissionOn,
   alreadyIn,
   assertDoorAuthority,
@@ -69,10 +88,18 @@ import {
   toAdmissionSession,
 } from './admission.js'
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
-import { databaseErrorCode, forbidden, notFound } from './errors.js'
+import {
+  databaseErrorCode,
+  databaseRefusal,
+  forbidden,
+  notFound,
+  paymentTermsRefusal,
+} from './errors.js'
 import { groupCodeDigest, groupCredentialDigest } from './group-pass-credentials.js'
-import { GROUP_ORDER_SELECT, groupMembers, orderTicketRows } from './group-passes.js'
+import { GROUP_ORDER_SELECT, groupMembers, orderTicketRows, supersededIds } from './group-passes.js'
 import { admissionRefusalCode, admit } from './tickets.js'
+import { isUnpaidVenueTicket } from './venue-payment-filters.js'
+import { VENUE_PAYMENT_VIA, doorAmount, recordVenuePayment } from './venue-payments.js'
 
 /**
  * How long one group confirmation may hold its locks.
@@ -176,7 +203,39 @@ function toGroupTicket(ticket, verdict, context) {
     session: toAdmissionSession(ticket),
     attendeeName: doorName(ticket.attendeeName),
     checkedInAt: admittedAt(ticket, context),
+    // What it owes at the door (0 when nothing) and whether it was paid there.
+    dueCents: ticket.venueDueCents ?? 0,
+    paid: Boolean(ticket.venuePaymentId),
   }
+}
+
+/**
+ * What a ticket still owes at the door: its share when it has no payment, else 0.
+ *
+ * @param {{venueDueCents?: number, venuePaymentId?: string|null}} ticket A ticket row.
+ * @returns {number} Cents.
+ */
+function unpaidShare(ticket) {
+  return (ticket.venueDueCents ?? 0) > 0 && !ticket.venuePaymentId ? ticket.venueDueCents : 0
+}
+
+/**
+ * The tickets of an order now held by other accounts than its buyer that
+ * still owe at the door: they pay with their own tickets (SPEC3-XI §9.5).
+ *
+ * @param {object} order The order, with `userId`.
+ * @param {Array<object>} rows Every ticket row on the order.
+ * @returns {number} How many.
+ */
+function handedOnUnpaid(order, rows) {
+  const superseded = supersededIds(rows)
+
+  return rows.filter(
+    (row) =>
+      !superseded.has(row.id) &&
+      (row.ownerUserId ?? null) !== (order.userId ?? null) &&
+      isUnpaidVenueTicket(row),
+  ).length
 }
 
 /**
@@ -295,6 +354,17 @@ export async function previewGroupAdmission({ prisma, env, actor, body, log, now
   const admissibleIds = listed
     .filter((ticket) => ticket.outcome === 'ADMISSIBLE')
     .map((ticket) => ticket.ticketId)
+  // What the admissible tickets still owe at the door, each, and together;
+  // and how many of the booking's tickets other people hold that still owe.
+  const byTicket = new Map(tickets.map((ticket) => [ticket.id, ticket]))
+  const admissibleDues = admissibleIds.map((id) => unpaidShare(byTicket.get(id)))
+  const owedCents = admissibleDues.reduce((sum, due) => sum + due, 0)
+  const handedOnUnpaidTickets = handedOnUnpaid(order, rows)
+  const currency = rows[0]?.orderItem?.order?.currency ?? null
+  const payment =
+    owedCents > 0 || handedOnUnpaidTickets > 0
+      ? { dueCents: owedCents, currency: currency ?? 'USD', handedOnUnpaidTickets }
+      : null
   const previewExpiresAt =
     admissibleIds.length > 0 ? new Date(now.getTime() + PREVIEW_TTL_MS) : null
   const previewReference = previewExpiresAt
@@ -307,6 +377,7 @@ export async function previewGroupAdmission({ prisma, env, actor, body, log, now
         actorId: actor.id,
         method: presentation.method,
         ticketIds: admissibleIds,
+        ticketDues: admissibleDues,
         night: named,
         expiresAt: previewExpiresAt,
       })
@@ -354,6 +425,7 @@ export async function previewGroupAdmission({ prisma, env, actor, body, log, now
     handedOn,
     previewReference,
     previewExpiresAt,
+    payment,
   }
 }
 
@@ -404,12 +476,24 @@ export async function confirmGroupAdmission({ prisma, env, actor, body, log, now
       GROUP_TRANSACTION_OPTIONS,
     )
   } catch (error) {
-    // A writer outside this module that did not take the ticket locks, or the
-    // group-pass trigger. Either way the group changed under the confirmation,
-    // nothing was admitted, and looking it up again shows what it is now.
+    // A writer outside this module that did not take the ticket locks, the
+    // group-pass trigger, or the database refusing a ticket whose payment at
+    // the door is not recorded (`check_in_payment_due`). Either way the group
+    // changed under the confirmation, nothing was admitted or recorded, and
+    // looking it up again shows what it is now. Any other refusal SPEC3 names
+    // (a payment that could not be recorded) goes to the error mapper.
+    const refused = databaseRefusal(error)
+
+    if (refused && refused.code !== 'PAYMENT_DUE') throw error
+
     const code = databaseErrorCode(error)
 
-    if (code !== 'P2002' && code !== 'P0001' && error?.details?.reason !== 'NOT_ADMISSIBLE') {
+    if (
+      !refused &&
+      code !== 'P2002' &&
+      code !== 'P0001' &&
+      error?.details?.reason !== 'NOT_ADMISSIBLE'
+    ) {
       throw error
     }
 
@@ -423,6 +507,7 @@ export async function confirmGroupAdmission({ prisma, env, actor, body, log, now
         eventId: claims.e,
         admitted: verdict.result.admitted,
         method: presentation.method,
+        paymentRecorded: Boolean(verdict.result.payment?.byThisRequest),
       },
       'group admitted',
     )
@@ -449,6 +534,14 @@ export async function confirmGroupAdmission({ prisma, env, actor, body, log, now
 
   if (verdict.kind === 'hidden') throw notFound(UNIFORM_NOT_FOUND)
 
+  // The amount sent is not what the named tickets owe together, as the
+  // lookup said (SPEC3 §9.5): the steward's mistake, not a change.
+  if (verdict.kind === 'payment_mismatch') {
+    throw paymentTermsRefusal('PAYMENT_AMOUNT_MISMATCH', {
+      values: { amount: doorAmount(verdict.dueCents, verdict.currency) },
+    })
+  }
+
   throw admissionConflict(verdict.reason)
 }
 
@@ -465,19 +558,52 @@ export async function confirmGroupAdmission({ prisma, env, actor, body, log, now
  * @returns {Promise<object>} A verdict: done, refused, forbidden or hidden.
  */
 async function decideGroup(tx, { actor, body, presentation, claims, now }) {
-  // The pass's order is fixed for the life of the row, so it is read without a
-  // lock to find what to lock first.
+  // The pass's order, its event and the named tickets' own nights are fixed
+  // for the life of the rows, so they are read without a lock to find what to
+  // lock first.
   const anchor = await tx.groupPass.findUnique({
     where: { id: claims.g },
-    select: { orderId: true },
+    select: { orderId: true, order: { select: { eventId: true } } },
   })
 
   if (!anchor) return { kind: 'hidden', reason: 'NOT_ADMISSIBLE' }
 
+  const ticketIds = [...new Set(body.ticketIds)].sort()
+  const named = await tx.ticket.findMany({
+    where: { id: { in: ticketIds } },
+    select: {
+      id: true,
+      orderItemId: true,
+      orderItem: { select: { ticketType: { select: { eventSessionId: true } } } },
+      eventSeat: { select: { eventSessionId: true } },
+    },
+  })
+  const doorNights = anchor.order ? await eventNights(tx, anchor.order.eventId) : []
+  const nightIds = [
+    ...new Set(
+      named.map((ticket) => admissionNightOf(ticket, doorNights, claims.n)).filter(Boolean),
+    ),
+  ].sort()
+
+  // The nights the admissions will be written on, then the order, as a single
+  // admission takes them (SPEC3 §9.3, SPEC3-XI §2.1).
+  for (const night of nightIds) {
+    await tx.$queryRaw`SELECT "id" FROM "EventSession" WHERE "id" = ${night} FOR KEY SHARE`
+  }
+
   await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${anchor.orderId} FOR SHARE`
   await tx.$queryRaw`SELECT "id" FROM "GroupPass" WHERE "id" = ${claims.g} FOR SHARE`
 
-  const ticketIds = [...new Set(body.ticketIds)].sort()
+  // The named tickets' order lines, `FOR KEY SHARE` and sorted: the lock each
+  // ticket's foreign key takes when an admission updates it twice in one
+  // transaction, taken in its place (order, pass, line, ticket — SPEC3-XI
+  // §2.1) so a transfer acceptance holding a line `FOR UPDATE` and waiting
+  // for its ticket never waits on this door the other way round.
+  const lineIds = [...new Set(named.map((ticket) => ticket.orderItemId).filter(Boolean))].sort()
+
+  if (lineIds.length > 0) {
+    await tx.$queryRaw`SELECT "id" FROM "OrderItem" WHERE "id" IN (${Prisma.join(lineIds)}) ORDER BY "id" FOR KEY SHARE`
+  }
 
   await tx.$queryRaw`SELECT "id" FROM "Ticket" WHERE "id" IN (${Prisma.join(ticketIds)}) ORDER BY "id" FOR UPDATE`
 
@@ -537,6 +663,21 @@ async function decideGroup(tx, { actor, body, presentation, claims, now }) {
   const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]))
   const nights = await eventNights(tx, event.id)
   const contexts = new Map()
+  const currency = rows[0]?.orderItem?.order?.currency ?? 'USD'
+
+  // What the lookup said each named ticket owed at the door, and the amount
+  // taken for them together: a different amount is the steward's mistake.
+  const claimedDues = new Map(claims.ts.map((id, index) => [id, claims.td?.[index] ?? 0]))
+  const claimedCents = ticketIds.reduce((sum, id) => sum + (claimedDues.get(id) ?? 0), 0)
+
+  if ((body.paymentCents ?? 0) !== claimedCents) {
+    return {
+      kind: 'payment_mismatch',
+      reason: 'PAYMENT_AMOUNT_MISMATCH',
+      dueCents: claimedCents,
+      currency,
+    }
+  }
 
   const toAdmit = []
   const already = []
@@ -567,6 +708,56 @@ async function decideGroup(tx, { actor, body, presentation, claims, now }) {
     toAdmit.push(ticket)
   }
 
+  let payment = null
+
+  if (toAdmit.length > 0) {
+    // The named tickets still unpaid must be exactly those the lookup found
+    // unpaid, owing what it said: a ticket paid and let in at the single door
+    // meanwhile changed the group, and nothing is recorded or admitted.
+    const unpaid = toAdmit.filter((ticket) => unpaidShare(ticket) > 0)
+    const claimedUnpaid = ticketIds.filter((id) => (claimedDues.get(id) ?? 0) > 0)
+    const same =
+      claimedUnpaid.length === unpaid.length &&
+      unpaid.every((ticket) => claimedDues.get(ticket.id) === unpaidShare(ticket))
+
+    if (!same) return { kind: 'refused', reason: 'GROUP_CHANGED' }
+
+    if (unpaid.length > 0) {
+      const recorded = await recordVenuePayment(tx, {
+        order: { id: order.id, currency },
+        event,
+        tickets: unpaid,
+        amountCents: claimedCents,
+        actorId: actor.id,
+        authority: authority.authority,
+        role: authority.role,
+        eventSessionId: contexts.get(unpaid[0].id)?.night ?? claims.n ?? null,
+        via: VENUE_PAYMENT_VIA.DOOR_GROUP,
+        gate: body.gate ?? null,
+        now,
+      })
+
+      payment = { recordedCents: claimedCents, venuePaymentId: recorded.id, byThisRequest: true }
+    }
+  } else {
+    // A retry after a lost answer: everything named is in already. Its
+    // payment, if the named tickets owed one, is the one recorded for them.
+    const owing = already.filter((ticket) => (ticket.venueDueCents ?? 0) > 0)
+    const recordedIds = new Set(owing.map((ticket) => ticket.venuePaymentId ?? null))
+
+    if (owing.length > 0 && recordedIds.size === 1 && !recordedIds.has(null)) {
+      payment = {
+        recordedCents: owing.reduce((sum, ticket) => sum + ticket.venueDueCents, 0),
+        venuePaymentId: [...recordedIds][0],
+        byThisRequest: false,
+      }
+    }
+  }
+
+  const paidNow = new Set(
+    payment?.byThisRequest ? toAdmit.filter((t) => unpaidShare(t) > 0).map((t) => t.id) : [],
+  )
+
   for (const ticket of toAdmit) {
     const context = contexts.get(ticket.id)
 
@@ -582,6 +773,7 @@ async function decideGroup(tx, { actor, body, presentation, claims, now }) {
       role: authority.role,
       organizationId: event.organizationId,
       groupPassId: pass.id,
+      venuePaymentId: paidNow.has(ticket.id) ? payment.venuePaymentId : null,
       now,
     })
   }
@@ -651,6 +843,7 @@ async function decideGroup(tx, { actor, body, presentation, claims, now }) {
           attendeeName: doorName(ticket.attendeeName),
         }
       }),
+      payment,
     },
   }
 }

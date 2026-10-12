@@ -24,6 +24,30 @@
  *      order still being PENDING, so two workers racing the same payment
  *      produce exactly one fulfilment.
  *
+ * ## Locks
+ *
+ * Settlement follows the one lock order every path keeps (SPEC3-XI §2.1): its
+ * tiers first, sorted, then its order, its seats, its new tickets, its holds,
+ * and a referral code last. It reads its lines' tiers (fixed for the life of
+ * the lines) and locks them **before** its conditional PENDING→PAID update: an
+ * order that moves no money has no payment, so a deletion or a night's
+ * cancellation holding those tiers would otherwise wait on this order while
+ * this settlement waited on their tiers (SPEC3-XI §2.3.3).
+ *
+ * A PENDING order ended instead (a declined card, a free booking that could
+ * not be completed) takes the same tiers and then its own night
+ * `FOR KEY SHARE` before its order: giving a referral use back writes the
+ * order a second time, and PostgreSQL's foreign-key check of that second
+ * write takes the night after the order otherwise (`lockAheadOfOrder`).
+ *
+ * ## Referral uses (SPEC3-XI XR4)
+ *
+ * A declined card, a free booking that could not be completed, and a booking
+ * whose event was cancelled while it was being completed each end the order
+ * without it being used, so each gives its referral code's use back, once,
+ * through `settleReferralUsesIfEnded` — after the transaction's last write to
+ * the order, its lines, tickets and seats, so the code is its last row lock.
+ *
  * A timeout is not a decline. A decline means no money moved; a timeout means
  * nobody knows. Those take different paths: a decline compensates immediately,
  * a timeout leaves the order PENDING and flags the payment for reconciliation,
@@ -34,10 +58,14 @@
  */
 
 import { orderPaidBatch } from '@desi-event/ledger'
+import { splitAcrossTickets } from '@desi-event/pricing'
 import { PROVIDER_ERROR_CODES } from '@desi-event/providers'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
+import { lockTicketTypes } from './inventory.js'
 import { postBatch } from './ledger.js'
+import { settleReferralUsesIfEnded } from './referral-uses.js'
+import { lockOrderNight } from './refunds.js'
 import { sellSeats } from './seating.js'
 import { issueTicketCredential } from './ticket-credentials.js'
 import { openReconciliation } from './webhook-handlers.js'
@@ -62,6 +90,38 @@ function byTicketTypeId(left, right) {
   if (left.ticketTypeId > right.ticketTypeId) return 1
 
   return 0
+}
+
+/**
+ * Take, before a PENDING order is ended, what SPEC3-XI §2.1 puts in front of
+ * the order: its lines' tiers, sorted, `FOR UPDATE` (as settlement takes them,
+ * §2.3.3), then the order's own night `FOR KEY SHARE`.
+ *
+ * Ending an order that named a referral code writes the order twice: its
+ * status, then the use's return marker. PostgreSQL checks a row's foreign keys
+ * again when one transaction updates it a second time, and that check takes
+ * `KEY SHARE` on the order's night after the order. A deletion or a night's
+ * cancellation holds the tiers and the night `FOR UPDATE` and then waits for
+ * this order in `cancelUnpaidOrders`, so taken there the two waited on each
+ * other (40P01, `referral-returns-integration` R12). Taken first, whichever
+ * comes second waits for the other to commit. The lines' tiers and the
+ * order's night never change, so reading them unlocked is enough.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {{id: string, eventSessionId?: string|null}} order The order.
+ * @returns {Promise<void>} Resolves once the locks are held.
+ */
+async function lockAheadOfOrder(tx, order) {
+  const lines = await tx.orderItem.findMany({
+    where: { orderId: order.id },
+    select: { ticketTypeId: true },
+  })
+
+  await lockTicketTypes(
+    tx,
+    lines.map((line) => line.ticketTypeId),
+  )
+  await lockOrderNight(tx, order)
 }
 
 /**
@@ -196,6 +256,12 @@ export async function sellHeldSeats(tx, { orderId }) {
  * discount is debited as contra-revenue, so the money given away stays visible
  * rather than disappearing into a smaller payable.
  *
+ * A pay-at-the-venue order puts only the booking fee, and any tax on it,
+ * online (SPEC3 §10.1): the batch has no organiser share and no discount (the
+ * promo lowered the door price, which is not platform money), so it is a
+ * fee-only batch — `processor_clearing` against `platform_fee_revenue`, and
+ * `tax_payable` for any tax. A total of 0 posts nothing.
+ *
  * The arithmetic is checked by `orderPaidBatch`, which refuses a split that does
  * not add up to what was captured. That matters more than it looks: a wrong
  * split that happened to balance would post and never be questioned.
@@ -218,12 +284,13 @@ export async function postOrderLedger(tx, { order, payment, now, actorId = null 
     select: { organizationId: true },
   })
 
+  const atVenue = order.paymentMethod === 'AT_VENUE'
   const batch = orderPaidBatch({
     capturedCents: order.totalCents,
-    organizerNetCents: order.subtotalCents,
+    organizerNetCents: atVenue ? 0 : order.subtotalCents,
     platformFeeCents: order.feesCents ?? 0,
     taxCents: order.taxCents ?? 0,
-    discountCents: order.discountCents ?? 0,
+    discountCents: atVenue ? 0 : (order.discountCents ?? 0),
     currency: order.currency,
     organizationId: event?.organizationId ?? null,
     reference: order.reference,
@@ -260,6 +327,7 @@ export async function postOrderLedger(tx, { order, payment, now, actorId = null 
  * @param {function(): string} params.generateTicketCode Ticket code factory.
  * @param {string} params.credentialSecret The deployment's `AUTH_SECRET`.
  * @param {Date} params.now Issuance instant.
+ * @param {number} [params.venueDueCents] Its share of its line's ticket price, to be paid at the door; 0 unless the order is paid at the venue. Never changes.
  * @returns {Promise<object>} The created ticket, without its credential.
  */
 export async function issueTicket(
@@ -272,6 +340,7 @@ export async function issueTicket(
     generateTicketCode,
     credentialSecret,
     now,
+    venueDueCents = 0,
   },
 ) {
   const ticket = await tx.ticket.create({
@@ -282,6 +351,7 @@ export async function issueTicket(
       ownerUserId,
       eventSeatId,
       status: 'VALID',
+      venueDueCents,
     },
   })
 
@@ -302,7 +372,11 @@ export async function issueTicket(
  *
  * The update is conditional on the order still being PENDING. That single
  * condition is what stops two workers — a webhook and a redirect, or two
- * retries — from issuing two sets of tickets for one payment.
+ * retries — from issuing two sets of tickets for one payment. The order's
+ * tiers are locked before it (see the module's "Locks").
+ *
+ * A pay-at-the-venue order's tickets each carry their share of their line's
+ * door price (`venueDueCents`); its ledger batch is fee-only.
  *
  * @param {object} tx A Prisma transaction client.
  * @param {object} params Settlement inputs.
@@ -319,7 +393,7 @@ export async function issueTicket(
 export async function settleCheckout(
   tx,
   {
-    order,
+    order: given,
     payment,
     result,
     now,
@@ -329,8 +403,21 @@ export async function settleCheckout(
     requestId = null,
   },
 ) {
+  // The tiers first, sorted, before the order (SPEC3-XI §2.3.3). The lines'
+  // tiers never change, so reading them unlocked is enough; every increment
+  // below is then a write under a lock already held.
+  const lines = await tx.orderItem.findMany({
+    where: { orderId: given.id },
+    select: { ticketTypeId: true },
+  })
+
+  await lockTicketTypes(
+    tx,
+    lines.map((line) => line.ticketTypeId),
+  )
+
   const { count } = await tx.order.updateMany({
-    where: { id: order.id, status: 'PENDING' },
+    where: { id: given.id, status: 'PENDING' },
     data: { status: 'PAID', paidAt: now },
   })
 
@@ -338,6 +425,10 @@ export async function settleCheckout(
   // tickets, not a second audit row, not a second inventory decrement.
   if (count === 0) return { settled: false }
 
+  // The order as it stands, for how it is paid: a caller may hold a narrower
+  // copy (the webhook's, the reconciliation's).
+  const order = await tx.order.findUnique({ where: { id: given.id } })
+  const atVenue = order.paymentMethod === 'AT_VENUE'
   const items = await tx.orderItem.findMany({ where: { orderId: order.id } })
 
   // The seats first, so a ticket can be minted against the seat it admits to.
@@ -392,6 +483,11 @@ export async function settleCheckout(
         )
       : new Map()
     const lineNames = Array.isArray(item.attendeeNames) ? item.attendeeNames : []
+    // Each ticket's share of its line's door price, in issue order, the first
+    // tickets taking the extra cent (SPEC3 §6.1): the tickets sum to the line.
+    const shares = atVenue
+      ? splitAcrossTickets(item.venueDueCents ?? 0, item.quantity)
+      : Array.from({ length: item.quantity }, () => 0)
 
     for (let index = 0; index < item.quantity; index += 1) {
       const eventSeatId = seats[index]?.id ?? null
@@ -405,16 +501,15 @@ export async function settleCheckout(
         generateTicketCode,
         credentialSecret,
         now,
+        venueDueCents: shares[index],
       })
     }
   }
 
-  // The sold counts last, one tier at a time in id order: the order
-  // `lockTicketTypes` takes tier locks in. The lines come back in whatever
-  // order the database finds them, and incrementing each line's tier as the
-  // loop above reached it let two settlements of two-tier orders lock the same
-  // two tiers the opposite way round, so PostgreSQL ended one of them as a
-  // deadlock and a captured payment was left on an unpaid order.
+  // The sold counts, one tier at a time in id order, under the tier locks
+  // taken first. The lines come back in whatever order the database finds
+  // them; the locks are already held, in `lockTicketTypes`' order, so this is
+  // a write and no longer a lock taken out of order.
   for (const item of [...items].sort(byTicketTypeId)) {
     await tx.ticketType.update({
       where: { id: item.ticketTypeId },
@@ -456,6 +551,22 @@ export async function settleCheckout(
     })
   }
 
+  // A booking that used a referral code and whose event was cancelled while it
+  // was being completed (a zero-online booking settling behind, or after, the
+  // cancellation that found it still PENDING) ended without being used: its
+  // use goes back now (SPEC3-XI XR4). The evaluation reads the event's
+  // committed status; any other booking stands and keeps its use. After the
+  // last write to the order, its lines, seats and tickets, so the code is the
+  // last row lock.
+  if (order.referralCodeId) {
+    await settleReferralUsesIfEnded(tx, {
+      entries: [{ orderId: order.id, cause: 'EVENT_CANCELLED' }],
+      actorId,
+      requestId,
+      now,
+    })
+  }
+
   await recordAudit(tx, {
     action: AUDIT_ACTIONS.ORDER_PAID,
     entityType: 'Order',
@@ -469,6 +580,14 @@ export async function settleCheckout(
       paymentId: payment?.id ?? null,
       totalCents: order.totalCents,
       currency: order.currency,
+      // How it was paid and what its booking fee came to (SPEC3 §4.3): the
+      // code's id, never its text.
+      paymentMethod: order.paymentMethod ?? 'CARD',
+      feeSource: order.feeSource ?? 'SITE_DEFAULT',
+      feeGrossCents: order.feeGrossCents ?? order.feesCents ?? 0,
+      feeWaivedCents: order.feeWaivedCents ?? 0,
+      referralCodeId: order.referralCodeId ?? null,
+      venueDueCents: order.venueDueCents ?? 0,
     },
   })
 
@@ -517,8 +636,9 @@ export async function clearAttendeeStaging(tx, { orderId, itemIds }) {
  * another card instead of losing their seats to the person behind them.
  *
  * A promo code the order used is given its use back, conditionally so a count
- * can never go below zero: a declined card must not burn a limited code. The
- * names staged for the tickets are cleared, since there will be no tickets.
+ * can never go below zero: a declined card must not burn a limited code. A
+ * referral code's use goes back too, once (`PAYMENT_FAILED`). The names staged
+ * for the tickets are cleared, since there will be no tickets.
  *
  * @param {object} tx A Prisma transaction client.
  * @param {object} params Compensation inputs.
@@ -534,6 +654,10 @@ export async function compensateCheckout(
   tx,
   { order, payment, failureCode, now, actorId = null, requestId = null },
 ) {
+  // The tiers and the night ahead of the order (SPEC3-XI §2.1): the order is
+  // written twice when its referral use goes back.
+  await lockAheadOfOrder(tx, order)
+
   const { count } = await tx.order.updateMany({
     where: { id: order.id, status: 'PENDING' },
     data: { status: 'CANCELLED', cancelledAt: now },
@@ -555,6 +679,16 @@ export async function compensateCheckout(
     : { count: 0 }
 
   await clearAttendeeStaging(tx, { orderId: order.id })
+
+  // A declined card must not burn a referral code's use either: the order
+  // ended without being used, so its use goes back, once (SPEC3-XI XR4),
+  // after the transaction's last write to the order and its lines.
+  await settleReferralUsesIfEnded(tx, {
+    entries: [{ orderId: order.id, cause: 'PAYMENT_FAILED' }],
+    actorId,
+    requestId,
+    now,
+  })
 
   await recordAudit(tx, {
     action: AUDIT_ACTIONS.ORDER_CANCELLED,
@@ -590,7 +724,8 @@ export async function compensateCheckout(
  *
  * A zero-total order has no payment and nothing was taken, so there is
  * nothing to reconcile: it is cancelled instead, which gives its holds back to
- * the buyer and its promo use back to the code.
+ * the buyer, its promo use back to the code and its referral use back
+ * (`NOT_COMPLETED`).
  *
  * Conditional on the order still being PENDING and the attempt still
  * INITIATED, so a settlement that did land (a webhook, say) is never undone.
@@ -618,6 +753,11 @@ export async function recordUnsettledCapture(
   if (current?.status !== 'PENDING') return { recorded: false }
 
   if (!payment) {
+    // The tiers and the night ahead of the order (SPEC3-XI §2.1): a deletion
+    // or a night's cancellation cancels this same PENDING order while holding
+    // both, and the order is written twice when its referral use goes back.
+    await lockAheadOfOrder(tx, order)
+
     const { count } = await tx.order.updateMany({
       where: { id: order.id, status: 'PENDING' },
       data: { status: 'CANCELLED', cancelledAt: now },
@@ -634,6 +774,15 @@ export async function recordUnsettledCapture(
       : { count: 0 }
 
     await clearAttendeeStaging(tx, { orderId: order.id })
+
+    // A booking that could not be completed gives its referral use back, once
+    // (SPEC3-XI XR4): it had no payment, and nothing was taken.
+    await settleReferralUsesIfEnded(tx, {
+      entries: [{ orderId: order.id, cause: 'NOT_COMPLETED' }],
+      actorId,
+      requestId,
+      now,
+    })
 
     await recordAudit(tx, {
       action: AUDIT_ACTIONS.ORDER_CANCELLED,
