@@ -162,13 +162,29 @@ export const REQUIRED_CLIENT_MODULES = Object.freeze({
     'previews and refunds a booking fee (`/v1/platform/orders/…/fee-refund`).',
 })
 
-/** Browser storage a show-once or bearer value must never reach. */
+/**
+ * Browser storage a show-once or bearer value must never reach: local and
+ * session storage, IndexedDB, the Cookie Store API, the Cache API, and a
+ * cookie written from script, whether set (`=`) or appended to (`+=`).
+ */
 const BROWSER_STORAGE =
-  /\b(?:localStorage|sessionStorage|indexedDB)\b|\bdocument\s*\.\s*cookie\s*=(?!=)/u
+  /\b(?:localStorage|sessionStorage|indexedDB|cookieStore)\b|\bcaches\s*(?:\?\.|\.)\s*(?:open|match|has|keys|delete)\s*\(|\bdocument\s*\.\s*cookie\s*\+?=(?!=)/u
+
+/**
+ * A module's text with its comments removed, as the storage and literal rules
+ * read it.
+ *
+ * @param {string} source The module's text.
+ * @returns {string} The code.
+ */
+function codeOf(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1')
+}
 
 /**
  * Whether a module's code (comments aside) touches browser storage: local or
- * session storage, IndexedDB, or a cookie written from script.
+ * session storage, IndexedDB, the Cookie Store, the Cache API, or a cookie
+ * written from script.
  *
  * Reading `document.cookie` is not storage (the API client reads the CSRF
  * cookie the server set); writing it is.
@@ -177,9 +193,108 @@ const BROWSER_STORAGE =
  * @returns {boolean} True when it does.
  */
 export function usesBrowserStorage(source) {
-  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1')
+  return BROWSER_STORAGE.test(codeOf(source))
+}
 
-  return BROWSER_STORAGE.test(code)
+/**
+ * What puts something in the address bar, and so in the history, the
+ * `Referer` of the next request and every log that sees the address: the
+ * History API, the App Router's navigation, `location` and `window.open`, and
+ * a server redirect. A `const location = …` is a name, not a write.
+ */
+const ADDRESS_BAR_WRITE =
+  /\bhistory\s*(?:\?\.|\.)\s*(?:pushState|replaceState)\s*\(|\b[\w$]*[Rr]outer\s*(?:\?\.|\.)\s*(?:push|replace|prefetch)\s*\(|\blocation\s*(?:\?\.|\.)\s*(?:assign|replace)\s*\(|\bwindow\s*(?:\?\.|\.)\s*open\s*\(|\b(?:redirect|permanentRedirect)\s*\(|(?<!\b(?:const|let|var)\s+)\blocation(?:\s*\.\s*(?:href|search|hash|pathname))?\s*=(?![=>])/gu
+
+/**
+ * The index of the bracket closing the one at `open`, strings and templates
+ * read past.
+ *
+ * @param {string} code The code.
+ * @param {number} open Index of `(`.
+ * @returns {number} Index of the matching `)`, or the end of the code.
+ */
+function closingBracket(code, open) {
+  let depth = 0
+
+  for (let at = open; at < code.length; at += 1) {
+    const char = code[at]
+
+    if (char === "'" || char === '"' || char === '`') {
+      at += 1
+      while (at < code.length && code[at] !== char) at += code[at] === '\\' ? 2 : 1
+      continue
+    }
+
+    if (char === '(' || char === '[' || char === '{') depth += 1
+
+    if (char === ')' || char === ']' || char === '}') {
+      depth -= 1
+      if (depth === 0) return at
+    }
+  }
+
+  return code.length
+}
+
+/**
+ * Every write to the address bar in a module's code (comments aside), with
+ * what it is given: a call's arguments, or what is assigned.
+ *
+ * @param {string} source The module's text.
+ * @returns {Array<{write: string, argument: string}>} The writes, in source order.
+ */
+export function addressBarWrites(source) {
+  const code = codeOf(source)
+  const writes = []
+
+  for (const match of code.matchAll(ADDRESS_BAR_WRITE)) {
+    const start = match.index + match[0].length
+    const called = match[0].endsWith('(')
+    const end = called
+      ? closingBracket(code, start - 1)
+      : Math.min(
+          ...[code.indexOf(';', start), code.indexOf('\n', start), code.length].filter(
+            (at) => at !== -1,
+          ),
+        )
+
+    writes.push({
+      write: match[0].replace(/[\s(=]+/gu, ''),
+      argument: code.slice(start, end).trim(),
+    })
+  }
+
+  return writes
+}
+
+/**
+ * The names in an address-bar write's argument that could hold a referral
+ * code: anything named for a referral (its id and a constant path aside), and
+ * the referral field's own `code` and `draft` (a code's id, `code.id`, aside).
+ * The words of a string are not names; what a template substitutes is.
+ *
+ * @param {string} argument The write's argument text.
+ * @returns {string[]} The names found.
+ */
+export function referralNamesIn(argument) {
+  const code = argument
+    .replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/gu, "''")
+    .replace(/`(?:\\.|[^`\\])*`/gu, (template) =>
+      [...template.matchAll(/\$\{([^}]*)\}/gu)].map((substitution) => substitution[1]).join(' '),
+    )
+  const found = []
+
+  for (const [chain] of code.matchAll(/[\w$]+(?:\s*(?:\?\.|\.)\s*[\w$]+)*/gu)) {
+    const parts = chain.split(/\s*(?:\?\.|\.)\s*/u)
+    const named = parts.some(
+      (part) => /referral/iu.test(part) && !/^[A-Z0-9_]+$/u.test(part) && !/Ids?$/u.test(part),
+    )
+    const field = /^(?:code|draft)$/u.test(parts[0]) && parts[1] !== 'id'
+
+    if (named || field) found.push(chain)
+  }
+
+  return found
 }
 
 /**

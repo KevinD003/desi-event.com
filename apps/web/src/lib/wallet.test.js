@@ -509,19 +509,23 @@ describe('a ticket booked to pay at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', 
     expect(venuePaymentNotes(paid)).toEqual(['Paid at the door.'])
   })
 
-  it('reads a cancelled one as not paid, saying who cancelled it and when', () => {
+  it('reads a cancelled one as not paid, saying who cancelled it, when and why', () => {
+    const reason = 'Not paid for at the door by the end of the night.'
     const cancelled = owing(
-      { cancelled: { at: '2026-10-08T15:00:00.000Z', by: 'ORGANISER' } },
+      { cancelled: { at: '2026-10-08T15:00:00.000Z', by: 'ORGANISER', reason } },
       { status: 'REVOKED' },
     )
 
     expect(ticketChip(cancelled)).toEqual({ label: 'Cancelled — not paid', tone: 'neutral' })
+    // Whoever holds it reads the reason here: somebody it was passed to has no
+    // order page to read it on (SPEC3-XI XU10).
     expect(venuePaymentNotes(cancelled, 'UTC')).toEqual([
       'The organiser cancelled this ticket on Thu, Oct 8, 2026 because it had not been paid for. You no longer owe $40.00 for it.',
+      `Reason given: “${reason}”`,
     ])
     expect(
       venuePaymentNotes(
-        owing({ cancelled: { at: '2026-10-08T15:00:00.000Z', by: 'DESI_EVENT' } }),
+        owing({ cancelled: { at: '2026-10-08T15:00:00.000Z', by: 'DESI_EVENT', reason } }),
         'UTC',
       )[0],
     ).toMatch(/^The Desi-Event team cancelled this ticket/u)

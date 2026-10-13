@@ -334,6 +334,30 @@ describe('tickets booked to pay at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', (
     ).toBeInTheDocument()
   })
 
+  it('says on the card why a ticket was cancelled unpaid, once', async () => {
+    const reason = 'Not paid for at the door by the end of the night.'
+
+    await renderWallet([
+      walletTicket({
+        status: 'REVOKED',
+        admits: false,
+        holderRelationship: 'RECEIVED',
+        orderReference: null,
+        revokedAt: '2030-10-11T05:00:00.000Z',
+        // The API sends no marker as a reason (`holderRevokedReason`): the
+        // reason given is the cancellation's own.
+        revokedReason: null,
+        venuePayment: {
+          ...OWING,
+          cancelled: { at: '2030-10-11T05:00:00.000Z', by: 'ORGANISER', reason },
+        },
+      }),
+    ])
+
+    expect(screen.getByText('Cancelled — not paid')).toBeInTheDocument()
+    expect(screen.getAllByText(`Reason given: “${reason}”`)).toHaveLength(1)
+  })
+
   it('says on the group pass what the buyer’s own tickets still owe at the door', async () => {
     await renderWallet([
       walletTicket({ venuePayment: OWING }),

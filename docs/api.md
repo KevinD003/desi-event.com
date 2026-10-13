@@ -1332,9 +1332,13 @@ is due, paid by the buyer and by others, passed on, cancelled, kept) and
 `venueCancellations`; an order's event carries its `country` and `region`, and
 handed-on rows of a pay-at-the-venue order carry `passedOn` (`OWES` with the
 amount, `PAID`, `CANCELLED`, `RETURNED` or `NOTHING_DUE`). The wallet and ticket
-routes add `venuePayment`; `tickets.startTransfer` refuses nothing for money
-due; the door routes take and answer the payment (`docs/CHECK_IN.md`) and refuse
-`UNPAID_CANCELLED`; `events.get` adds `venuePayment: { available }` (and
+routes add `venuePayment`, whose `cancelled` says when, by the organiser or the
+Desi-Event team, and the reason given (never a name; added 2026-10-13, so a
+holder a ticket was passed to reads why), and the wallet's `revokedReason` is
+only an organiser's own words, never a marker the server wrote;
+`tickets.startTransfer` refuses nothing for money due; the door routes take
+and answer the payment (`docs/CHECK_IN.md`) and refuse `UNPAID_CANCELLED`;
+`events.get` adds `venuePayment: { available }` (and
 `paymentTerms` for insiders); listings price with each event's own terms;
 `refunds.request` refuses an amount refund of a pay-at-the-venue order;
 `refunds.summary` lines add `cancelledQuantity`; analytics counts and the CSV

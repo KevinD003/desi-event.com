@@ -341,7 +341,7 @@ describe('orders, tickets and refunds', () => {
       dueCents: 2500,
       paid: false,
       currency: 'USD',
-      cancelled: { at: NOW, by: 'ORGANISER' },
+      cancelled: { at: NOW, by: 'ORGANISER', reason: 'Not paid for at the door by the end.' },
       paidAtDoorByYou: false,
     }
 
@@ -358,9 +358,12 @@ describe('orders, tickets and refunds', () => {
     expect(
       ticketSchema.parse({
         ...ticket,
-        venuePayment: { ...cancelled, cancelled: { at: NOW, by: 'ORGANISER', byName: 'Anil' } },
+        venuePayment: {
+          ...cancelled,
+          cancelled: { ...cancelled.cancelled, byName: 'Anil' },
+        },
       }).venuePayment.cancelled,
-    ).toEqual({ at: NOW, by: 'ORGANISER' })
+    ).toEqual(cancelled.cancelled)
     expect(
       ticketSchema.safeParse({
         ...ticket,

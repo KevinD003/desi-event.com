@@ -399,7 +399,7 @@ describe('LimitationsPage', () => {
     render(<LimitationsPage />)
 
     expect(entryFor('Refunding money paid at the venue').textContent).toBe(
-      'Refunding money paid at the venueStatus: NOT IMPLEMENTEDWhen a ticket is paid for at the door, the organiser keeps that money. Desi-Event records the amount but does not hold it and cannot refund it: if the order is refunded, the event is cancelled or a night is called off, only the booking fee paid online is refunded (simulated), and money paid at the door has to be returned by the organiser. A ticket that is not paid for stays booked until the organiser or the Desi-Event team cancels it; its place is then freed and sells again whenever its sales are open, and Desi-Event keeps the booking fee paid online for it. Nothing is cancelled automatically, and a buyer who does not come gets no refund of the booking fee.',
+      'Refunding money paid at the venueStatus: NOT IMPLEMENTEDWhen a ticket is paid for at the door, the organiser keeps that money. Desi-Event records the amount but does not hold it and cannot refund it: if the order is refunded, the event is cancelled or a night is called off, only the booking fee paid online is refunded (simulated; when the event is cancelled, once someone who may approve refunds approves it), and money paid at the door has to be returned by the organiser. A ticket that is not paid for stays booked until the organiser or the Desi-Event team cancels it; its place is then freed and sells again whenever its sales are open, and Desi-Event keeps the booking fee paid online for it. Nothing is cancelled automatically, and a buyer who does not come gets no refund of the booking fee.',
     )
   })
 
@@ -423,6 +423,10 @@ describe('LimitationsPage', () => {
       /only the organiser or the Desi-Event team can cancel its unpaid tickets/,
     )
     // The owner's answer to question 1: no limit per buyer, only the event's.
+    // An unpaid ticket of a night that is over keeps counting (decision J).
+    expect(unpaid).toMatch(
+      /An unpaid ticket whose night is over still counts against that limit and can no longer be cancelled/,
+    )
     expect(unpaid).toMatch(
       /up to the most unpaid tickets the Desi-Event team allows for that event/,
     )
@@ -441,14 +445,19 @@ describe('LimitationsPage', () => {
     expect(places).toMatch(/Cancelling unpaid tickets booked to pay at the door is the one action/)
   })
 
-  it('says the standard booking fee is a server setting, events can have their own, and orders keep the fee they were charged', () => {
+  it('says the standard booking fee’s percentage is a server setting and its $0.99 is fixed in the code, events can have their own, and orders keep the fee they were charged', () => {
     render(<LimitationsPage />)
 
     const fee = entryFor('Changing the standard booking fee on a screen').textContent
 
     expect(fee).toMatch(/Desi-Event’s charge, not the organiser’s/)
     expect(fee).toMatch(/5\.90% of the ticket price after any promo discount plus \$0\.99 a ticket/)
-    expect(fee).toMatch(/a setting on the server that no screen changes/)
+    // Only the percentage is a server setting: the $0.99 for US-dollar
+    // orders comes from the currency table in code (packages/pricing).
+    expect(fee).toMatch(
+      /No screen changes it: the percentage is a setting on the server, and the \$0\.99 a ticket for orders in US dollars is fixed in the code\./,
+    )
+    expect(fee).not.toMatch(/a setting on the server that no screen changes/)
     expect(fee).toMatch(/orders already placed keep the fee they were charged/)
   })
 

@@ -1242,6 +1242,48 @@ describe('a booking to pay at the venue, as its readers read it', () => {
     await app.close()
   })
 
+  it('tells the holder a ticket was passed to why it was cancelled, on their wallet and their ticket, and never who by name', async () => {
+    // Ticket 2 passed on to another account, then cancelled unpaid. That
+    // holder has no order page: their wallet and their ticket are where they
+    // read why (SPEC3-XI XU10, §9.11: the reason is shown to the buyer and to
+    // the tickets' holders).
+    const { app, prisma, ids, order, tickets } = await booking((world) => ({
+      holders: [null, world.owner.id],
+    }))
+    const passed = tickets[1]
+    const reason = 'Not paid for at the door by the end of the night.'
+
+    await cancelledUnpaidFixture(prisma, {
+      order,
+      tickets: [passed],
+      reason,
+      actor: { id: ids.platformAdministrator.id },
+      authority: 'PLATFORM_ROLE',
+      role: 'ADMIN',
+    })
+
+    const headers = bearer(await signIn(app, 'owner@rangoli.example'))
+    const wallet = await app.inject({ method: 'GET', url: '/v1/tickets', headers })
+    const one = await app.inject({ method: 'GET', url: `/v1/tickets/${passed.id}`, headers })
+
+    expect(wallet.statusCode).toBe(200)
+    expect(one.statusCode).toBe(200)
+
+    const expected = { at: expect.any(String), by: 'DESI_EVENT', reason }
+
+    const row = wallet.json().data.find((candidate) => candidate.id === passed.id)
+
+    expect(row.venuePayment.cancelled).toEqual(expected)
+    expect(one.json().data.ticket.venuePayment.cancelled).toEqual(expected)
+    // The cancellation's marker is not a reason anybody gave: the wallet
+    // printed it after "Reason given:". The ticket's own read never carries
+    // the column (`ticketSchema`).
+    expect(row.revokedReason).toBeNull()
+    expect(one.json().data.ticket).not.toHaveProperty('revokedReason')
+
+    await app.close()
+  })
+
   it('says on each ticket the buyer passed on what its holder owes now, and where the event is', async () => {
     const { app, order, tickets } = await booking((ids) => ({
       // Ticket 2 passed on and still owing; ticket 3 passed on, then paid at

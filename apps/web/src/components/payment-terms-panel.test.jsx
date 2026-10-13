@@ -326,6 +326,11 @@ describe('paying at the venue', () => {
     expect(
       screen.getByLabelText('Most tickets waiting to be paid at the door'),
     ).toHaveAccessibleDescription(VENUE_LIMIT_HINT)
+    // The limit counts every unpaid ticket, whatever its night, and one whose
+    // night is over can no longer be cancelled: whoever sets it is told.
+    expect(VENUE_LIMIT_HINT).toBe(
+      'Across all buyers. Once this many are booked and unpaid, buyers pay by card. Unpaid tickets for nights that are over still count.',
+    )
 
     await user.type(screen.getAllByLabelText(/^Reason/u)[1], REASON)
     await user.click(screen.getByRole('button', { name: 'Turn on paying at the venue' }))

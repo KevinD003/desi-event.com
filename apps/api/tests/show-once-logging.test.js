@@ -758,4 +758,256 @@ describe('a referral code and the logs (SPEC3 §13)', () => {
 
     expect(raw).not.toMatch(/Failing row/u)
   })
+
+  it('logs no refused code: one nobody made, one switched off and one for another event, as typed, lower-cased or padded, at the quote and at the charge', async () => {
+    const capture = captureStream()
+    const logger = createLogger({ name: 'api', level: 'debug', destination: capture })
+    const { app, ids } = await createTestApp({
+      logger,
+      rateLimit: {
+        global: { max: 10_000, timeWindow: '1 minute' },
+        // Eighteen wrong codes from one account, past the budget's ten: the
+        // budget has its own tests, and here every refusal must be answered.
+        referralAttempt: {
+          actorMax: 100,
+          addressMax: 100,
+          sharedMax: 1_000,
+          timeWindow: '10 minutes',
+        },
+      },
+    })
+    const admin = await platformAdmin(app)
+
+    /**
+     * @param {object} payload The administrator's form.
+     * @returns {Promise<object>} The code made.
+     */
+    const make = async (payload) => {
+      const made = await app.inject({
+        method: 'POST',
+        url: '/v1/platform/referral-codes',
+        headers: admin.headers,
+        payload,
+      })
+
+      expect(made.statusCode, made.body).toBe(201)
+
+      return made.json().data
+    }
+
+    // A refused code is the text most worth keeping out of a log: a guesser's
+    // near miss, or a real code that was switched off or names other events.
+    const unknown = generatedReferralText()
+    const off = generatedReferralText()
+    const elsewhere = generatedReferralText()
+    const offCode = await make({ referralCode: off, scope: 'ALL_EVENTS' })
+    const switched = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/referral-codes/${offCode.id}/switch-off`,
+      headers: admin.headers,
+      payload: {},
+    })
+
+    expect(switched.statusCode, switched.body).toBe(200)
+
+    await make({
+      referralCode: elsewhere,
+      scope: 'SELECTED_EVENTS',
+      eventIds: [ids.onlineEvent.id],
+    })
+
+    const buyer = bearer(await signIn(app, BUYER))
+    const basket = {
+      eventId: ids.publishedEvent.id,
+      items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+    }
+    let refusals = 0
+
+    for (const text of [unknown, off, elsewhere]) {
+      for (const referralCode of [text, text.toLowerCase(), `  ${text.toLowerCase()} `]) {
+        const quoted = await app.inject({
+          method: 'POST',
+          url: '/v1/orders/quote',
+          headers: buyer,
+          payload: { ...basket, referralCode },
+        })
+
+        expect(quoted.statusCode, quoted.body).toBe(200)
+        expect(quoted.json().data.referral.reason).toBe('NOT_ACCEPTED')
+
+        const charged = await app.inject({
+          method: 'POST',
+          url: '/v1/orders',
+          headers: buyer,
+          payload: { ...basket, buyerEmail: BUYER, buyerName: 'Priya Sharma', referralCode },
+        })
+
+        expect(charged.statusCode, charged.body).toBe(409)
+        expect(charged.json().error.code).toBe('REFERRAL_NOT_ACCEPTED')
+        refusals += 1
+      }
+    }
+
+    await app.close()
+
+    const raw = capture.raw()
+
+    // The log was being written about these refusals, one line each.
+    expect(
+      capture
+        .lines()
+        .filter((line) => line.msg === 'request rejected' && line.code === 'REFERRAL_NOT_ACCEPTED'),
+    ).toHaveLength(refusals)
+
+    for (const text of [unknown, off, elsewhere]) {
+      expectNoSecret(expect, raw, text)
+      expectNoSecret(expect, raw, text.toLowerCase())
+    }
+  })
+})
+
+describe('a referral code’s text outside its own row (SPEC3 §8.3)', () => {
+  const ADMIN = 'anil@desi-event.example'
+  const BUYER = 'priya@example.com'
+  const OWNER = 'owner@rangoli.example'
+
+  /**
+   * Every table of the stub but `referralCode` itself, serialised.
+   *
+   * @param {object} prisma The stub.
+   * @returns {Array<Array<string>>} Each table's name and its rows as lower-case JSON, in pairs.
+   */
+  function otherTables(prisma) {
+    return Object.entries(prisma._store)
+      .filter(([table]) => table !== 'referralCode')
+      .map(([table, rows]) => [
+        table,
+        JSON.stringify(rows, (key, value) =>
+          typeof value === 'bigint' ? value.toString() : value,
+        ).toLowerCase(),
+      ])
+  }
+
+  it('keeps the text and the label in the code’s own row: no audit row, queued notice, order, ticket or log line holds either after a card order, a pay-at-the-venue booking and the event’s cancellation', async () => {
+    const capture = captureStream()
+    const logger = createLogger({ name: 'api', level: 'debug', destination: capture })
+    const { app, prisma, ids } = await createTestApp({ logger })
+    const admin = bearer(await signIn(app, ADMIN))
+
+    await stepUp(app, ADMIN, admin)
+
+    const eventId = ids.publishedEvent.id
+    const venue = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/events/${eventId}/venue-payment`,
+      headers: admin,
+      payload: {
+        enabled: true,
+        limit: 50,
+        seen: { enabled: false, limit: null },
+        reason: 'Paying at the door for this test.',
+      },
+    })
+
+    expect(venue.statusCode, venue.body).toBe(200)
+
+    const typed = generatedReferralText()
+    const label = 'A distinctive label for no table but its own'
+    const made = await app.inject({
+      method: 'POST',
+      url: '/v1/platform/referral-codes',
+      headers: admin,
+      payload: { referralCode: typed, label, scope: 'ALL_EVENTS' },
+    })
+
+    expect(made.statusCode, made.body).toBe(201)
+
+    const codeId = made.json().data.id
+    const buyer = bearer(await signIn(app, BUYER))
+    const basket = { eventId, items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }] }
+    const post = (url, payload) => app.inject({ method: 'POST', url, headers: buyer, payload })
+    const quoted = await post('/v1/orders/quote', {
+      ...basket,
+      referralCode: ` ${typed.toLowerCase()} `,
+    })
+    const card = await post('/v1/orders', {
+      ...basket,
+      buyerEmail: BUYER,
+      buyerName: 'Priya Sharma',
+      referralCode: typed.toLowerCase(),
+    })
+    const atVenue = await post('/v1/orders', {
+      ...basket,
+      buyerEmail: BUYER,
+      buyerName: 'Priya Sharma',
+      paymentMethod: 'AT_VENUE',
+      referralCode: ` ${typed} `,
+    })
+
+    expect(quoted.statusCode, quoted.body).toBe(200)
+    expect(quoted.json().data.referral).toEqual({ applied: true, reason: null })
+    expect(card.statusCode, card.body).toBe(201)
+    expect(atVenue.statusCode, atVenue.body).toBe(201)
+    // Both orders named the code, by its id.
+    expect(prisma._store.order.filter((order) => order.referralCodeId === codeId)).toHaveLength(2)
+
+    // The owner cancels the event: a refund for the card order, a notice to
+    // each buyer, and the code's uses given back.
+    const owner = bearer(await signIn(app, OWNER))
+
+    await stepUp(app, OWNER, owner)
+
+    const queuedBefore = prisma._store.notificationOutbox.length
+    const cancelled = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${eventId}/cancel`,
+      headers: owner,
+      payload: { reasonCode: 'VENUE_UNAVAILABLE', reason: 'The hall flooded.' },
+    })
+
+    expect(cancelled.statusCode, cancelled.body).toBe(200)
+
+    await app.close()
+
+    // The paths ran: the orders were paid and audited, and notices queued.
+    const actions = prisma._store.auditLog.map((row) => row.action)
+
+    expect(actions.filter((action) => action === 'order.paid').length).toBeGreaterThanOrEqual(2)
+    expect(prisma._store.notificationOutbox.length).toBeGreaterThan(queuedBefore)
+
+    // The text, in either case, and the label: in the code's own row, and in
+    // no other table — audit rows, queued notices, orders, tickets, refunds
+    // and whatever is added later alike.
+    const needles = [typed.toLowerCase(), label.toLowerCase()]
+    /** @type {string[]} */
+    const holders = []
+
+    for (const [table, text] of otherTables(prisma)) {
+      if (needles.some((needle) => text.includes(needle))) holders.push(table)
+    }
+
+    expect(holders).toEqual([])
+    expect(prisma._store.referralCode.some((row) => row.code === typed)).toBe(true)
+
+    // Nor any log line.
+    const raw = capture.raw()
+
+    for (const secret of [typed, typed.toLowerCase(), label]) {
+      expectNoSecret(expect, raw, secret)
+    }
+  })
+
+  it('finds the text wherever it is put, in either case, and leaves the code’s own row out', () => {
+    const typed = generatedReferralText()
+    const store = {
+      referralCode: [{ id: 'r1', code: typed }],
+      auditLog: [{ id: 'a1', metadata: { waiver: typed.toLowerCase() } }],
+      notificationOutbox: [{ id: 'n1', payload: { size: 10n } }],
+    }
+    const found = otherTables({ _store: store }).filter(([, text]) =>
+      text.includes(typed.toLowerCase()),
+    )
+
+    expect(found.map(([table]) => table)).toEqual(['auditLog'])
+  })
 })

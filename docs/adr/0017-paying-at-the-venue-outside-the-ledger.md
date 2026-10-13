@@ -55,8 +55,15 @@ statement under a per-event advisory lock, counting PENDING bookings' shares and
 PAID bookings' unpaid, standing tickets (409 `VENUE_PAYMENT_FULL`). Without it,
 free accounts — and, with a referral code, accounts paying nothing online —
 could book a whole event for nothing; with it, what an abuser can hold is what
-the administrator chose. Sign-in stays required: the wallet, the door's holder,
-transfers and the group pass all need an account.
+the administrator chose. The count has no condition on a ticket's night
+(`unpaidVenueTickets`, `apps/api/src/lib/venue-booking-limits.js`): an unpaid
+ticket whose night is over still counts against the event's limit, and it can
+no longer be cancelled (`VENUE_NIGHT_OVER`, §5), so on an event with several
+nights the no-shows of earlier nights reduce what later nights can book until
+an administrator raises the limit. Leaving tickets of nights that are over out
+of the count is an owner decision, recorded in the owner report (decision J).
+Sign-in stays required: the wallet, the door's holder, transfers and the group
+pass all need an account.
 
 ### 2. What a pay-at-the-venue order is (DV2–DV4)
 
@@ -153,7 +160,11 @@ built as **Cancel unpaid tickets**:
   append-only `VenueBookingCancellation` row records who, when, why, which
   tickets and the amounts (sum checked at commit by
   `desi_venue_booking_cancellation_sum` and from the ticket side). The buyer,
-  and every other account holding a cancelled ticket, is told why. The door
+  and every other account holding a cancelled ticket, is told why: the buyer on
+  the order page, every holder on the ticket's wallet card and page
+  (`venuePayment.cancelled`: when, by the organiser or the Desi-Event team, and
+  the reason given, never a name). The `venue_booking.cancelled` notice queued
+  for each of them is not emailed in this build. The door
   then refuses the ticket `UNPAID_CANCELLED` when it is looked up by its
   printed code; a scan of its old pass finds nothing.
 
@@ -238,20 +249,21 @@ platform, and a ledger account holding it would invite someone to pay it out.
 Every transaction these features add or change takes its row locks in one
 global order, earliest first:
 
-| #   | Row                                              | Notes                                                                                                                                                                                                                                                                  |
-| --- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `Event` (`FOR NO KEY UPDATE`)                    | night cancellation, deletion, event cancellation, the fee and switch setters. An organiser's tier write re-checks the event's own fee currency under this row (DF3; ADR 0016 §1)                                                                                       |
-| 2   | `TicketType`, sorted, `FOR UPDATE`               | checkout, night cancellation, deletion, cancel-unpaid, settlement (**moved first**), and a booking with nothing to pay online cancelled unsettled (`recordUnsettledCapture`) or a declined card (`compensateCheckout`)                                                 |
-| 3   | `EventSession`, sorted                           | `FOR UPDATE`: checkout, night cancellation, deletion. `FOR KEY SHARE`: the door, cancel-unpaid (the tickets' nights **and the order's own**), `settleRefund` (the order's night, **first**), `recordUnsettledCapture` and `compensateCheckout` (after their tiers)     |
-| 4   | `TicketHold`, then `PromoCode`                   | checkout, hold release and expiry                                                                                                                                                                                                                                      |
-| 5   | `Order`, sorted when several                     | `FOR UPDATE`: refunds, night cancellation and deletion (every PAID order they touch, right after their nights), event cancellation (PENDING orders too), cancel-unpaid, `tickets.revoke`, settlement, the referral re-lock. `FOR SHARE`: the single and the group door |
-| 5a  | `GroupPass` `FOR SHARE`                          | the group door                                                                                                                                                                                                                                                         |
-| 6   | `OrderItem`                                      | `FOR UPDATE`: refunds, transfer acceptance, cancel-unpaid. `FOR KEY SHARE`: **the door, single and group**, and **night cancellation and deletion** (the lines of the PAID orders they locked)                                                                         |
-| 7   | `Ticket`, sorted, `FOR UPDATE` or `UPDATE`       | the door, offers, acceptance, withdrawals, refunds, revocation, settlement's inserts, cancel-unpaid                                                                                                                                                                    |
-| 8   | `EventSeat` (`UPDATE`)                           | refunds, settlement, cancel-unpaid                                                                                                                                                                                                                                     |
-| 9   | membership and scope `FOR SHARE`                 | the door's tail                                                                                                                                                                                                                                                        |
-| 10  | `ReferralCode`, ascending id, **last row locks** | checkout's one code; `settleReferralUsesIfEnded`, once per transaction after its last order, line, ticket and seat write                                                                                                                                               |
-| 11  | the event's venue-booking advisory lock          | checkout only                                                                                                                                                                                                                                                          |
+| #   | Row                                               | Notes                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `Event` (`FOR NO KEY UPDATE`)                     | night cancellation, deletion, event cancellation, the fee and switch setters. An organiser's tier write re-checks the event's own fee currency under this row (DF3; ADR 0016 §1)                                                                                                                                                                                                                           |
+| 2   | `TicketType`, sorted, `FOR UPDATE`                | checkout, night cancellation, deletion, cancel-unpaid, settlement (**moved first**), and a booking with nothing to pay online cancelled unsettled (`recordUnsettledCapture`) or a declined card (`compensateCheckout`)                                                                                                                                                                                     |
+| 3   | `EventSession`, sorted                            | `FOR UPDATE`: checkout, night cancellation, deletion. `FOR KEY SHARE`: the door, cancel-unpaid (the tickets' nights **and the order's own**), `settleRefund` (the order's night, **first**), `recordUnsettledCapture` and `compensateCheckout` (after their tiers)                                                                                                                                         |
+| 4   | `TicketHold`, then `PromoCode`                    | checkout, hold release and expiry                                                                                                                                                                                                                                                                                                                                                                          |
+| 4b  | `Refund` (`FOR UPDATE` or a conditional `UPDATE`) | a refund's own steps — approval, submission, settlement (after the order's night), failure, time-out, cancelling, repair and the send check (`assertRefundSendable`) — each before its order (`apps/api/src/lib/refunds.js`). A refund created in the same transaction after its order's lock (a booking fee refunded by hand, the refund driver's replacement) is a new row no other transaction can hold |
+| 5   | `Order`, sorted when several                      | `FOR UPDATE`: refunds, night cancellation and deletion (every PAID order they touch, right after their nights), event cancellation (PENDING orders too), cancel-unpaid, `tickets.revoke`, settlement, the referral re-lock. `FOR SHARE`: the single and the group door                                                                                                                                     |
+| 5a  | `GroupPass` `FOR SHARE`                           | the group door                                                                                                                                                                                                                                                                                                                                                                                             |
+| 6   | `OrderItem`                                       | `FOR UPDATE`: refunds, transfer acceptance, cancel-unpaid. `FOR KEY SHARE`: **the door, single and group**, and **night cancellation and deletion** (the lines of the PAID orders they locked)                                                                                                                                                                                                             |
+| 7   | `Ticket`, sorted, `FOR UPDATE` or `UPDATE`        | the door, offers, acceptance, withdrawals, refunds, revocation, settlement's inserts, cancel-unpaid                                                                                                                                                                                                                                                                                                        |
+| 8   | `EventSeat` (`UPDATE`)                            | refunds, settlement, cancel-unpaid                                                                                                                                                                                                                                                                                                                                                                         |
+| 9   | membership and scope `FOR SHARE`                  | the door's tail                                                                                                                                                                                                                                                                                                                                                                                            |
+| 10  | `ReferralCode`, ascending id, **last row locks**  | checkout's one code; `settleReferralUsesIfEnded`, once per transaction after its last order, line, ticket and seat write                                                                                                                                                                                                                                                                                   |
+| 11  | the event's venue-booking advisory lock           | checkout only                                                                                                                                                                                                                                                                                                                                                                                              |
 
 Two transactions that take subsets of this list in this order cannot wait on
 each other in a cycle; sorted acquisition within a kind keeps several rows of
@@ -293,8 +305,10 @@ Recorded deviations that cannot close a cycle: event cancellation locks its
 orders unsorted, but it holds the `Event` row first, as night cancellation and
 deletion do, and holds no referral code until its batch; night cancellation and
 deletion lock PAID orders before they release holds and their HELD seats, which
-no path locks before waiting on a PAID order. A `40P01` that still occurs is the
-retryable 503 every busy path answers; the race tests assert none occurs.
+no path locks before waiting on a PAID order. A `40P01` that still occurs is
+answered 409 `TRY_AGAIN` (nothing was written; `apps/api/src/lib/errors.js`,
+`RETRYABLE_CODES`), not the 503 `SERVICE_UNAVAILABLE` a wait that runs out of
+time answers; the race tests assert none occurs.
 
 ## Consequences
 

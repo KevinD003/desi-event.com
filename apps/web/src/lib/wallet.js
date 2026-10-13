@@ -26,7 +26,7 @@
  * of "Ready to use", whoever holds it: what is due stays with the ticket when it
  * is passed on, and it is offered on like any other ticket. One cancelled
  * because nobody paid for it reads "Cancelled — not paid", with who cancelled
- * it and when. A holder who paid at the door for a ticket later refunded or
+ * it, when and the reason they gave. A holder who paid at the door for a ticket later refunded or
  * withdrawn is told that money is with the organiser. Every figure comes from
  * the ticket's own `venuePayment`, which the server writes.
  *
@@ -192,7 +192,8 @@ const ENDED_STATUSES = new Set(['REFUNDED', 'REVOKED', 'CANCELLED'])
 
 /**
  * The sentences a ticket booked to pay at the door carries, on its wallet card
- * and its page (SPEC3 §12.7, SPEC3-XI §12.7).
+ * and its page (SPEC3 §12.7, SPEC3-XI §12.7): for one cancelled because it was
+ * not paid for, who cancelled it and when, then the reason given.
  *
  * @param {object} ticket A ticket with `status`, `venuePayment` and its `event` (for the timezone).
  * @param {string} [timeZone] The event's timezone, when the ticket does not carry its event.
@@ -207,9 +208,14 @@ export function venuePaymentNotes(ticket, timeZone = ticket?.event?.timezone || 
 
   if (venue.cancelled) {
     const by = venue.cancelled.by === 'DESI_EVENT' ? 'The Desi-Event team' : 'The organiser'
+    const reason = typeof venue.cancelled.reason === 'string' ? venue.cancelled.reason.trim() : ''
 
+    // The reason given, as the buyer's order page words it: whoever holds the
+    // ticket reads it here, and somebody it was passed to has nowhere else to
+    // read it (SPEC3-XI XU10).
     return [
       `${by} cancelled this ticket on ${formatEventDate(venue.cancelled.at, timeZone)} because it had not been paid for. You no longer owe ${due} for it.`,
+      ...(reason ? [`Reason given: “${reason}”`] : []),
     ]
   }
 

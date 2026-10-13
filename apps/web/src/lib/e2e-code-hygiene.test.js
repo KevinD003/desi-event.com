@@ -55,6 +55,7 @@ import {
 } from '@desi-event/schemas/payment-terms'
 
 import { reachableFrom } from './browser-bundle.js'
+import { LIMITATIONS } from './limitations.js'
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const e2e = join(webRoot, 'e2e')
@@ -378,6 +379,117 @@ describe('referral codes in end-to-end specs (SPEC3 §13)', () => {
   const LITERAL_FILL = /\.fill\(\s*(['"`])((?:\\.|(?!\1)[^\\])*)\1\s*[,)]/gu
 
   /**
+   * The limitations whose titles name referral codes: the public page lists
+   * them and two specs hold it to the list, which reaches no code. Their
+   * titles, as string literals, are the only mention of a referral a spec may
+   * make with artefacts on.
+   */
+  const REFERRAL_LIMITATION_TITLES = LIMITATIONS.map((limitation) => limitation.name).filter(
+    (name) => /referral/iu.test(name),
+  )
+
+  /**
+   * Whether a spec reaches a referral code: it names one the way the screens
+   * and the contract do, or it mentions a referral in its code at all — a
+   * locator such as `getByLabel(/referral/i)`, a test id, a seed's
+   * `referral…` — the limitation titles aside (review GC D5).
+   *
+   * @param {string} source The spec, comments removed.
+   * @returns {boolean} True when it does.
+   */
+  function reachesReferralCode(source) {
+    let code = source
+
+    for (const title of REFERRAL_LIMITATION_TITLES) {
+      for (const quote of ["'", '"', '`']) code = code.split(`${quote}${title}${quote}`).join("''")
+    }
+
+    return NAMES_A_REFERRAL_CODE.test(code) || /referral/iu.test(code)
+  }
+
+  /** A call that types into the page: filled, typed, pressed key by key or inserted. */
+  const TYPING_CALL = /\.(fill|type|pressSequentially|insertText)\(\s*/gu
+
+  /**
+   * Whether a value, as a buyer might type it, is shaped like a referral code.
+   *
+   * @param {string} value The text.
+   * @returns {boolean} True when it is.
+   */
+  function codeShaped(value) {
+    const typed = value.trim().toUpperCase()
+
+    return REFERRAL_CODE_PATTERN.test(typed) && !typed.includes('--')
+  }
+
+  /**
+   * Every literal shaped like a referral code that a spec types or sends,
+   * however it gets there (review GC D5): written into a typing call or held
+   * in a name first; typed into something named for a referral (in the
+   * statement, or through a name bound to such a locator), or typed key by
+   * key anywhere in a spec that reaches a code; or sent under a
+   * `referralCode` key, in a request body or anywhere else.
+   *
+   * @param {string} source The spec, comments removed.
+   * @returns {string[]} The literals.
+   */
+  function typedCodeLiterals(source) {
+    /** @type {Map<string, string>} */
+    const strings = new Map()
+    /** @type {string[]} */
+    const locators = []
+
+    for (const match of source.matchAll(
+      /\b(?:const|let|var)\s+([\w$]+)\s*=\s*(?:(['"`])((?:\\.|(?!\2)[^\\])*)\2|([^;\n]*))/gu,
+    )) {
+      if (match[2]) strings.set(match[1], match[3])
+      else if (/referral/iu.test(match[4] ?? '')) locators.push(match[1])
+    }
+
+    const valueAt = (at) => {
+      const text = source.slice(at)
+      const quoted = text.match(/^(['"`])((?:\\.|(?!\1)[^\\])*)\1/u)
+
+      if (quoted) return quoted[2]
+
+      const name = text.match(/^[\w$]+/u)?.[0]
+
+      return name && strings.has(name) ? strings.get(name) : null
+    }
+    const reaches = reachesReferralCode(source)
+    const found = []
+
+    for (const match of source.matchAll(TYPING_CALL)) {
+      const value = valueAt(match.index + match[0].length)
+
+      if (value === null || !codeShaped(value)) continue
+
+      const start = Math.max(
+        source.lastIndexOf(';', match.index),
+        source.lastIndexOf('\n\n', match.index),
+        source.lastIndexOf('await ', match.index),
+        0,
+      )
+      const statement = source.slice(start, match.index)
+      const intoReferral =
+        /referral/iu.test(statement) ||
+        locators.some((name) =>
+          new RegExp(`(?<![\\w$])${name.replaceAll('$', '\\$')}(?![\\w$])`, 'u').test(statement),
+        )
+
+      if (intoReferral || (match[1] !== 'fill' && reaches)) found.push(value)
+    }
+
+    for (const match of source.matchAll(/\breferral_?code['"`]?\s*:\s*/giu)) {
+      const value = valueAt(match.index + match[0].length)
+
+      if (value !== null && codeShaped(value)) found.push(value)
+    }
+
+    return found
+  }
+
+  /**
    * Every `.fill(` in a spec that types a literal shaped like a referral code
    * into something named for one: the field's label, a test id, a variable.
    * The statement is read from its start, so a locator chained over several
@@ -462,10 +574,11 @@ describe('referral codes in end-to-end specs (SPEC3 §13)', () => {
       const source = withoutComments(readFileSync(join(e2e, file), 'utf8'))
 
       expect(literalCodeFills(source), 'a referral code written into the spec').toEqual([])
+      expect(typedCodeLiterals(source), 'a referral code typed or sent from the spec').toEqual([])
       expect(generatedCodeLiterals(source), 'a generated code copied into the spec').toEqual([])
       expect(gotosWithCode(source), 'an address with a code in it').toEqual([])
 
-      if (NAMES_A_REFERRAL_CODE.test(source)) {
+      if (NAMES_A_REFERRAL_CODE.test(source) || reachesReferralCode(source)) {
         expect(turnsArtefactsOff(source), 'reaches a referral code with artefacts on').toBe(true)
       }
     },
@@ -552,6 +665,75 @@ describe('referral codes in end-to-end specs (SPEC3 §13)', () => {
       expect(
         NAMES_A_REFERRAL_CODE.test(withoutComments('// referral codes come later\nconst a = 1')),
       ).toBe(false)
+    })
+
+    it('sees a spec reach a code through any mention of a referral, the limitation titles aside', () => {
+      expect(REFERRAL_LIMITATION_TITLES).toEqual(['Rewards for referral codes'])
+      expect(reachesReferralCode("  ['Rewards for referral codes', 'NOT IMPLEMENTED'],\n")).toBe(
+        false,
+      )
+      expect(reachesReferralCode('  await page.getByLabel(/referral/i).fill(code)\n')).toBe(true)
+      expect(reachesReferralCode("  await page.getByTestId('referral-box').fill(code)\n")).toBe(
+        true,
+      )
+      expect(reachesReferralCode('  const { code } = await seedReferral()\n')).toBe(true)
+      expect(reachesReferralCode("  await page.goto('/events/navratri-night-one')\n")).toBe(false)
+    })
+
+    it('refuses a code typed from the spec however it gets there, and takes one read from the page or the seed', () => {
+      // Held in a name first, then filled.
+      expect(
+        typedCodeLiterals(
+          "const TYPED_CODE = 'DIWALI-FEST'\n\ntest('t', async ({ page }) => {\n  await page.getByLabel('Referral code (optional)').fill(TYPED_CODE)\n})\n",
+        ),
+      ).toEqual(['DIWALI-FEST'])
+      // Typed key by key.
+      expect(
+        typedCodeLiterals(
+          "  await page.getByLabel('Referral code (optional)').pressSequentially('DIWALI-FEST')\n",
+        ),
+      ).toEqual(['DIWALI-FEST'])
+      // Through a locator held in a name.
+      expect(
+        typedCodeLiterals(
+          "  const box = page.getByLabel(/referral/i)\n  await box.fill('diwali-fest')\n",
+        ),
+      ).toEqual(['diwali-fest'])
+      // Typed by the keyboard in a spec that reaches a code.
+      expect(
+        typedCodeLiterals(
+          "  await page.getByLabel(/referral/i).focus()\n  await page.keyboard.type('DIWALI-FEST')\n",
+        ),
+      ).toEqual(['DIWALI-FEST'])
+      // Sent in a request body, written there or held in a name.
+      expect(
+        typedCodeLiterals(
+          "  await request.post('/api/v1/orders/quote', { data: { eventId: 'x', items: [], referralCode: 'DIWALI-FEST' } })\n",
+        ),
+      ).toEqual(['DIWALI-FEST'])
+      expect(
+        typedCodeLiterals(
+          "  const CODE = 'DIWALI-FEST'\n  await request.post(url, { data: { referralCode: CODE } })\n",
+        ),
+      ).toEqual(['DIWALI-FEST'])
+
+      // Read from the seed or the page, or typed elsewhere: not a written code.
+      expect(
+        typedCodeLiterals(
+          '  const { code } = await seedReferral()\n  await page.getByLabel(/referral/i).fill(code)\n',
+        ),
+      ).toEqual([])
+      expect(
+        typedCodeLiterals(
+          "  const SLUG = 'night-one'\n  await page.getByLabel('Search events').fill(SLUG)\n",
+        ),
+      ).toEqual([])
+      expect(
+        typedCodeLiterals("  await page.getByLabel('Promo code').pressSequentially('FREEALL')\n"),
+      ).toEqual([])
+      expect(
+        typedCodeLiterals('  await request.post(url, { data: { referralCode: seed.code } })\n'),
+      ).toEqual([])
     })
   })
 })

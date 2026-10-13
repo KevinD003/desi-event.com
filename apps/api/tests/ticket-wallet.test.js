@@ -770,6 +770,51 @@ describe('the wallet presenter', () => {
     expect(row.isOnline).toBe(true)
   })
 
+  it('gives the reason a person gave for withdrawing a ticket, never the server’s own marker', () => {
+    const read = (changes) =>
+      toWalletTicket({ ...joined, ...changes }, { viewerUserId: 'usr_buyer' })
+
+    // An organiser's withdrawal (`tickets.revoke`): their words, as typed.
+    expect(
+      read({ status: 'REVOKED', revokedReason: 'Bought with a card that was later disputed.' })
+        .revokedReason,
+    ).toBe('Bought with a card that was later disputed.')
+
+    // What the server writes for itself — a refund's, a cancelled night's, a
+    // deleted event's — is a marker, not a reason anybody gave: the wallet
+    // printed it after "Reason given:".
+    for (const [status, revokedReason] of [
+      ['REFUNDED', 'refund:rf_1'],
+      ['CANCELLED', 'session-cancelled:ses_1'],
+      ['CANCELLED', 'event-deleted:evt_1:2026-10-01T00:00:00.000Z'],
+    ]) {
+      expect(read({ status, revokedReason }).revokedReason, revokedReason).toBeNull()
+    }
+
+    // Cancelled because it was not paid for at the door: the marker names the
+    // cancellation; the reason given is the cancellation's own, under
+    // `venuePayment.cancelled` (SPEC3-XI XU10).
+    const cancelled = read({
+      status: 'REVOKED',
+      revokedReason: 'venue-unpaid:vbc_1',
+      venueDueCents: 4000,
+      venuePaymentId: null,
+      venueCancellationId: 'vbc_1',
+      venueCancellation: {
+        createdAt: new Date('2026-10-08T15:00:00.000Z'),
+        authority: 'ORGANIZATION_ROLE',
+        reason: 'Not paid for at the door by the end of the night.',
+      },
+    })
+
+    expect(cancelled.revokedReason).toBeNull()
+    expect(cancelled.venuePayment.cancelled).toEqual({
+      at: '2026-10-08T15:00:00.000Z',
+      by: 'ORGANISER',
+      reason: 'Not paid for at the door by the end of the night.',
+    })
+  })
+
   it('drops every credential column', () => {
     const row = toWalletTicket(joined, { viewerUserId: 'usr_buyer' })
 

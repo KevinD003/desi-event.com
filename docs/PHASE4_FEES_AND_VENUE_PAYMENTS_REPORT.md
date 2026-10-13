@@ -56,8 +56,11 @@ promo code.
   booking fee, with a reason. The tickets stay valid and the order stays paid.
   Nobody can refund the fee of their own order, or of an order for an
   organisation they belong to.
-- The standard fee itself (5.90% + $0.99) stays a setting on the server: no
-  screen changes it, as you confirmed.
+- The standard fee itself (5.90% + $0.99) is not changed on any screen, as you
+  confirmed. Its percentage is a setting on the server (`PLATFORM_FEE_BPS`);
+  the $0.99 a ticket for US-dollar orders is fixed in the code's currency table
+  (`packages/pricing/src/currencies.js`), so changing it is a code change (ADR
+  0016).
 
 ### Referral codes that remove the booking fee
 
@@ -95,6 +98,8 @@ promo code.
   same "Booking fee and payment" section, with "Turn on paying at the venue",
   a reason, and the most tickets that may be waiting to be paid at the door at
   one time, across all buyers. There is no limit per buyer, as you answered.
+  An unpaid ticket whose night is over still counts against this limit (see
+  "What this build cannot do honestly").
   "Save limit" changes the number; "Turn off paying at the venue" stops new
   bookings of this kind and leaves the existing ones as they are. An online
   event has no venue, so it is not offered there.
@@ -138,8 +143,10 @@ promo code.
   that fee, which is nothing, because the online booking fee of a
   pay-at-the-venue booking carries no tax (your answer to question 9) — so
   nothing is refunded. The buyer, and anybody a cancelled ticket was passed to,
-  is told why, with the reason given. Nothing is cancelled automatically, and a
-  buyer who does not come gets nothing back: their booking fee is kept.
+  is told why, with the reason given: the buyer on their order page, whoever
+  holds the ticket on its wallet card and page. Nothing is cancelled
+  automatically, and a buyer who does not come gets nothing back: their booking
+  fee is kept.
 - **Card payments** keep today's tax: zero for events in the US, because US
   sales tax is not worked out by this site. "No tax at the venue" was checked on
   a test event in Ontario, Canada, where the demonstration tax is 13%: by card
@@ -158,11 +165,13 @@ promo code.
 ## What this build cannot do honestly
 
 - Desi-Event does not hold money paid at the door and cannot refund it. When
-  such an order is refunded, or its event or night is called off, the booking
-  fee is refunded (simulated) and the organiser must return the money taken at
-  the door. When a passed-on ticket was paid at the door by its new holder,
-  that money is the organiser's to return as well; if the event or night is
-  called off, both the buyer and that holder are told so.
+  such an order is refunded, its night is called off or its event deleted, the
+  booking fee is refunded (simulated); when its event is cancelled, a refund of
+  the booking fee is asked for, and it is sent (simulated) once someone who may
+  approve refunds approves it. Either way the organiser must return the money
+  taken at the door. When a passed-on ticket was paid at the door by its new
+  holder, that money is the organiser's to return as well; if the event or
+  night is called off, both the buyer and that holder are told so.
 - The site adds no tax to tickets paid at the venue; the organiser may still owe
   sales tax on those sales.
 - Payments are simulated (no Stripe); referral rewards are not paid to anyone.
@@ -172,7 +181,12 @@ promo code.
   limit without paying the ticket price, and with a referral code without
   paying anything online; the event's limit, and cancelling, are what bound
   that.
-- When an order is refunded, reserved seats go back on sale but
+- An unpaid ticket whose night is over still counts against the event's limit
+  and can no longer be cancelled, so on an event with several nights the
+  no-shows of earlier nights reduce what later nights can book until an
+  administrator raises the limit (decision J below).
+- When an order is refunded, reserved seats go back on sale (except in the 24
+  hours before the event, when a refunded seat is held back) but
   general-admission places do not — as for every refund on the site today.
   Cancelling unpaid tickets is the one action that puts general-admission
   places back.
@@ -231,8 +245,9 @@ which a test holds to the page.
 
 5. Organisers see that a booking fee was waived by a referral code, not which
    code (question 4).
-6. The standard booking fee stays a server setting; only an event's own fee is
-   set on screen (question 5).
+6. The standard booking fee is not set on any screen; only an event's own fee
+   is (question 5). Its percentage is a server setting; its $0.99 a ticket for
+   US-dollar orders is fixed in the code.
 7. How administrators are rewarded for their codes is not built (question 6).
 8. An event's own booking fee can be at most 30% plus $100 a ticket (question
    8).
@@ -282,6 +297,12 @@ which a test holds to the page.
   too. The alternative is to allow it only once the ticket's night's doors are
   open; before that the organiser would refund the tickets instead, which gives
   the fee back.
+- **J. Unpaid tickets of nights that are over keep counting** against the
+  event's pay-at-the-venue limit: the limit counts every unpaid ticket, whatever
+  its night, and a ticket whose night is over can no longer be cancelled. On an
+  event with several nights, the no-shows of earlier nights therefore use up
+  places later nights could book, until an administrator raises the limit. The
+  alternative is to leave tickets of nights that are over out of the count.
 
 ## What needs your accounts or your machines
 
@@ -342,4 +363,31 @@ Then, for example:
 
 ## Verification
 
-To be filled in by the integrator with the gate run on the final commit.
+Every step of CI's verify job was run on 13 October 2026, from 05:17 to 05:39
+UTC, in CI's order, on freshly made private databases, with payments simulated
+(`PAYMENT_MODE=MOCK`). The tree was commit `58ccaf0` with 93 changed files in
+the working tree, the same 93 files that were then committed as `d909fdf` and
+`6bf215d`. Every step passed:
+
+- 13,829 test cases across 16 packages ran, none failed and none was skipped
+  (3,866 in the API, 4,496 in the web app);
+- coverage held every threshold: the API 93.28% of statements, 83.93% of
+  branches, 97.5% of functions and 95.42% of lines, against 80, 75, 80 and 80;
+  the web app 87.73%, 81.6%, 81.48% and 88.57%, with no threshold set;
+- the database checks: 348 of 348 on a fresh database and 98 of 98 on one
+  upgraded from the previous release;
+- the language policy, the CI invariants, the secret scan, formatting, lint,
+  the API contract (208 routes), the OpenAPI document, the browser bundle scan,
+  the dependency audit ("No known vulnerabilities found"), the payment kill
+  switch and the reliability smoke (holds on general admission and reserved
+  seats, and check-in, each under load).
+
+That run fixed two failures it found first: the load suite's "no overselling"
+check still counted cancelled unpaid tickets as sold, and a moderate advisory
+in a dependency of the sign-in tokens (fast-jwt, raised to 6.3.4). The browser
+suites (Playwright) were not run in that gate.
+
+The changes made afterwards, by the reviews of the guards and of these
+documents on 13 October, were checked with the suites and checks they touch —
+the full API and web suites among them — not by a second full run of the
+verify job.

@@ -59,7 +59,7 @@ export const LIMITATIONS = Object.freeze([
     name: 'Refunding money paid at the venue',
     status: 'NOT IMPLEMENTED',
     meaning:
-      'When a ticket is paid for at the door, the organiser keeps that money. Desi-Event records the amount but does not hold it and cannot refund it: if the order is refunded, the event is cancelled or a night is called off, only the booking fee paid online is refunded (simulated), and money paid at the door has to be returned by the organiser. A ticket that is not paid for stays booked until the organiser or the Desi-Event team cancels it; its place is then freed and sells again whenever its sales are open, and Desi-Event keeps the booking fee paid online for it. Nothing is cancelled automatically, and a buyer who does not come gets no refund of the booking fee.',
+      'When a ticket is paid for at the door, the organiser keeps that money. Desi-Event records the amount but does not hold it and cannot refund it: if the order is refunded, the event is cancelled or a night is called off, only the booking fee paid online is refunded (simulated; when the event is cancelled, once someone who may approve refunds approves it), and money paid at the door has to be returned by the organiser. A ticket that is not paid for stays booked until the organiser or the Desi-Event team cancels it; its place is then freed and sells again whenever its sales are open, and Desi-Event keeps the booking fee paid online for it. Nothing is cancelled automatically, and a buyer who does not come gets no refund of the booking fee.',
   },
   {
     id: 'tax-on-venue-tickets',
@@ -73,7 +73,7 @@ export const LIMITATIONS = Object.freeze([
     name: 'Cancelling your own unpaid booking',
     status: 'NOT IMPLEMENTED',
     meaning:
-      'A buyer cannot cancel a booking they have not paid for at the door, and neither can anyone they passed a ticket to: only the organiser or the Desi-Event team can cancel its unpaid tickets, until the ticket’s night (or, for an event with no nights listed, the event) is over. Anybody signed in can book tickets to pay at the door without paying the ticket price, and with a referral code without paying anything online, up to the most unpaid tickets the Desi-Event team allows for that event; that limit, and cancelling, are what stop a booking holding places nobody pays for. The booking fee Desi-Event keeps when unpaid tickets are cancelled is not refunded afterwards, not even by the Desi-Event team.',
+      'A buyer cannot cancel a booking they have not paid for at the door, and neither can anyone they passed a ticket to: only the organiser or the Desi-Event team can cancel its unpaid tickets, until the ticket’s night (or, for an event with no nights listed, the event) is over. Anybody signed in can book tickets to pay at the door without paying the ticket price, and with a referral code without paying anything online, up to the most unpaid tickets the Desi-Event team allows for that event; that limit, and cancelling, are what stop a booking holding places nobody pays for. An unpaid ticket whose night is over still counts against that limit and can no longer be cancelled, so on an event with several nights the tickets nobody came for on earlier nights reduce what later nights can book until the Desi-Event team raises the limit. The booking fee Desi-Event keeps when unpaid tickets are cancelled is not refunded afterwards, not even by the Desi-Event team.',
   },
   {
     id: 'general-admission-refunds',
@@ -87,7 +87,7 @@ export const LIMITATIONS = Object.freeze([
     name: 'Changing the standard booking fee on a screen',
     status: 'NOT IMPLEMENTED',
     meaning:
-      'The booking fee buyers pay is Desi-Event’s charge, not the organiser’s. The Desi-Event team can give an event a booking fee of its own; every other event uses the standard booking fee, in this build 5.90% of the ticket price after any promo discount plus $0.99 a ticket, which is a setting on the server that no screen changes. A change to an event’s booking fee applies to orders placed after it: orders already placed keep the fee they were charged.',
+      'The booking fee buyers pay is Desi-Event’s charge, not the organiser’s. The Desi-Event team can give an event a booking fee of its own; every other event uses the standard booking fee, in this build 5.90% of the ticket price after any promo discount plus $0.99 a ticket. No screen changes it: the percentage is a setting on the server, and the $0.99 a ticket for orders in US dollars is fixed in the code. A change to an event’s booking fee applies to orders placed after it: orders already placed keep the fee they were charged.',
   },
   {
     id: 'referral-rewards',

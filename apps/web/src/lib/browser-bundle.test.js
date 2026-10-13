@@ -20,10 +20,12 @@ import {
   FORBIDDEN,
   FORBIDDEN_CLIENT_LITERALS,
   REQUIRED_CLIENT_MODULES,
+  addressBarWrites,
   declaresUseClient,
   forbiddenLiteralsIn,
   forbiddenReason,
   reachableFrom,
+  referralNamesIn,
   resolveSpecifier,
   specifiersIn,
   usesBrowserStorage,
@@ -367,8 +369,14 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §0.4, §1
     }
   })
 
-  it('keeps a referral code out of browser storage: the field, the administrators’ screens and all they reach', () => {
-    const roots = [
+  /**
+   * Where a referral code is typed, held or shown: the checkout field, the
+   * administrators' screens, and the two checkouts that hold the code.
+   *
+   * @returns {string[]} Repo-relative modules.
+   */
+  function referralRoots() {
+    return [
       'apps/web/src/components/referral-code-field.jsx',
       ...filesUnder('apps/web/src/app/admin/referral-codes').filter(
         (path) => /\.jsx?$/u.test(path) && !path.includes('.test.'),
@@ -376,6 +384,10 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §0.4, §1
       'apps/web/src/components/checkout-basket.jsx',
       'apps/web/src/components/seat-checkout.jsx',
     ]
+  }
+
+  it('keeps a referral code out of browser storage: the field, the administrators’ screens and all they reach', () => {
+    const roots = referralRoots()
     const storing = []
 
     for (const file of reachableFrom(roots).keys()) {
@@ -391,6 +403,64 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §0.4, §1
     expect(usesBrowserStorage('// never localStorage\nconst a = 1')).toBe(false)
     expect(usesBrowserStorage('document.cookie = `referral=${code}`')).toBe(true)
     expect(usesBrowserStorage('const csrf = document.cookie.match(pattern)')).toBe(false)
+    // The Cookie Store, a cookie appended to, and the Cache API (review GC D4).
+    expect(usesBrowserStorage("globalThis.cookieStore?.set('referral', code)")).toBe(true)
+    expect(usesBrowserStorage("await cookieStore.set({ name: 'referral', value: code })")).toBe(
+      true,
+    )
+    expect(usesBrowserStorage('document.cookie += `; referral=${code}`')).toBe(true)
+    expect(usesBrowserStorage("const box = await caches.open('referral')")).toBe(true)
+    expect(usesBrowserStorage('if (document.cookie === before) return')).toBe(false)
+    expect(usesBrowserStorage("const copy = 'Browser caches keep pages.'")).toBe(false)
+  })
+
+  it('keeps a referral code out of the address bar: no history, router or location write in the field, the administrators’ screens or all they reach names one', () => {
+    const writes = []
+
+    for (const file of reachableFrom(referralRoots()).keys()) {
+      if (!file.startsWith('apps/web/')) continue
+
+      for (const { write, argument } of addressBarWrites(
+        readFileSync(resolve(ROOT, file), 'utf8'),
+      )) {
+        writes.push(`${file}: ${write}(${argument})`)
+        expect(referralNamesIn(argument), `${file}: ${write}(${argument})`).toEqual([])
+      }
+    }
+
+    // Every write those modules make, read and listed (SPEC3 §8.3, "never in a
+    // URL"): a new one fails here until it is read, so a code moved into
+    // another name before it reaches the address bar is seen too.
+    expect(writes).toEqual(["apps/web/src/components/sign-out-button.jsx: router.replace('/')"])
+
+    // The rule sees the writes it is for, and what each is given.
+    expect(
+      addressBarWrites(
+        "window.history.replaceState(null, '', `?referral=${encodeURIComponent(code)}`)",
+      ),
+    ).toEqual([
+      {
+        write: 'history.replaceState',
+        argument: "null, '', `?referral=${encodeURIComponent(code)}`",
+      },
+    ])
+    expect(addressBarWrites('router.push(`/events/${slug}?r=${referralCode}`)')).toHaveLength(1)
+    expect(addressBarWrites('window.location.href = `/checkout?code=${draft}`\n')).toEqual([
+      { write: 'location.href', argument: '`/checkout?code=${draft}`' },
+    ])
+    expect(addressBarWrites("location.assign('/')")).toHaveLength(1)
+    expect(addressBarWrites('const location = usePathname()')).toEqual([])
+    expect(addressBarWrites('places.map((location) => location.name)')).toEqual([])
+    expect(addressBarWrites('if (location === here) return')).toEqual([])
+    expect(addressBarWrites('// router.push(code)\nconst a = 1')).toEqual([])
+
+    expect(referralNamesIn("null, '', `?referral=${encodeURIComponent(code)}`")).toEqual(['code'])
+    expect(referralNamesIn('`/events/${slug}?r=${referralCode}`')).toEqual(['referralCode'])
+    expect(referralNamesIn('`/checkout?code=${draft}`')).toEqual(['draft'])
+    expect(referralNamesIn('`/x?r=${referral.code}`')).toEqual(['referral.code'])
+    expect(referralNamesIn("'/admin/referral-codes'")).toEqual([])
+    expect(referralNamesIn('`${REFERRAL_CODES_PATH}/${encodeURIComponent(code.id)}`')).toEqual([])
+    expect(referralNamesIn('`/admin/events/${referralCodeId}`')).toEqual([])
   })
 })
 

@@ -1178,26 +1178,30 @@ export const WALLET_INCLUDE = Object.freeze({
     take: 1,
     select: { id: true, status: true, toEmail: true, expiresAt: true },
   },
-  // When and by whom a ticket was cancelled because it was not paid at the
-  // door (SPEC3-XI XU): never the reason's author's name on the wallet.
-  venueCancellation: { select: { createdAt: true, authority: true } },
+  // When, by whom and why a ticket was cancelled because it was not paid at
+  // the door (SPEC3-XI XU10): the reason given, never its author's name.
+  venueCancellation: { select: { createdAt: true, authority: true, reason: true } },
 })
 
 /**
  * What a ticket owes at the door, as its holder reads it (SPEC3 §11.3,
- * SPEC3-XI §11.2): the amount, whether it was paid, when and by whom it was
- * cancelled because it was not paid, and whether the reader paid it at the
+ * SPEC3-XI §11.2): the amount, whether it was paid, when, by whom and why it
+ * was cancelled because it was not paid, and whether the reader paid it at the
  * door themselves. A ticket paid at the door has been let in and can never be
  * handed on again, so whoever holds a paid ticket paid for it (XT7). Null for
  * a ticket that owes nothing there (a card order's, or a $0 share).
+ *
+ * The reason given travels with the ticket (XU10, §9.11): somebody it was
+ * passed to has no order page to read it on, and this build emails no notice.
+ * Who gave it is never named here.
  *
  * @param {object} ticket A `Ticket` row with `venueDueCents`, `venuePaymentId`, `venueCancellationId` and `ownerUserId`.
  * @param {object} options Options.
  * @param {string|null} options.viewerUserId The account reading it.
  * @param {string} options.currency The order's currency.
- * @param {{createdAt: Date|string, authority: string}|null} [options.cancellation] The cancellation that cancelled it, when it was; the ticket's own `venueCancellation` when not given.
+ * @param {{createdAt: Date|string, authority: string, reason: string}|null} [options.cancellation] The cancellation that cancelled it, when it was; the ticket's own `venueCancellation` when not given.
  * @returns {object|null} A `ticketVenuePaymentSchema` payload, or null.
- * @throws {TypeError} For a cancelled ticket read without its cancellation: guessing who cancelled it would tell a holder something untrue.
+ * @throws {TypeError} For a cancelled ticket read without its cancellation, or without the cancellation's reason: guessing either would tell a holder something untrue.
  */
 export function ticketVenuePayment(ticket, { viewerUserId, currency, cancellation }) {
   const dueCents = ticket.venueDueCents ?? 0
@@ -1210,6 +1214,10 @@ export function ticketVenuePayment(ticket, { viewerUserId, currency, cancellatio
     throw new TypeError('ticketVenuePayment needs a cancelled ticket with its cancellation')
   }
 
+  if (cancelledBy && typeof cancelledBy.reason !== 'string') {
+    throw new TypeError('ticketVenuePayment needs the cancellation with its reason')
+  }
+
   const paid = (ticket.venuePaymentId ?? null) !== null
 
   return {
@@ -1220,10 +1228,35 @@ export function ticketVenuePayment(ticket, { viewerUserId, currency, cancellatio
       ? {
           at: new Date(cancelledBy.createdAt).toISOString(),
           by: cancelledBy.authority === 'PLATFORM_ROLE' ? 'DESI_EVENT' : 'ORGANISER',
+          reason: cancelledBy.reason,
         }
       : null,
     paidAtDoorByYou: paid && Boolean(viewerUserId) && ticket.ownerUserId === viewerUserId,
   }
+}
+
+/**
+ * The reason somebody gave for withdrawing a ticket, as its holder reads it,
+ * or null.
+ *
+ * `revokedReason` holds two kinds of text. An organiser's withdrawal
+ * (`tickets.revoke`) stores the words they typed. Everything else stores a
+ * marker the server wrote for itself — `refund:<id>` on a refunded ticket,
+ * `session-cancelled:<id>` and `event-deleted:<id>…` on one withdrawn with its
+ * night or event, `venue-unpaid:<id>` on one cancelled because it was not paid
+ * at the door. A marker is not a reason anybody gave, and the wallet prints
+ * this field after "Reason given:". So it is passed on only for a REVOKED
+ * ticket that was not cancelled unpaid; a ticket cancelled unpaid carries the
+ * reason given under `venuePayment.cancelled` instead.
+ *
+ * @param {{status: string, revokedReason?: string|null, venueCancellationId?: string|null}} ticket The ticket row.
+ * @returns {string|null} The reason given, or null.
+ */
+export function holderRevokedReason(ticket) {
+  if (ticket.status !== 'REVOKED') return null
+  if ((ticket.venueCancellationId ?? null) !== null) return null
+
+  return ticket.revokedReason ?? null
 }
 
 /**
@@ -1345,7 +1378,7 @@ export function toWalletTicket(ticket, { viewerUserId }) {
         }
       : null,
     revokedAt: ticket.revokedAt ?? null,
-    revokedReason: ticket.revokedReason ?? null,
+    revokedReason: holderRevokedReason(ticket),
     session: ticketSession(ticket),
     onlineJoinUrl: joinUrlFor(ticket, order, event),
     // What it owes at the door, whether it was paid or cancelled unpaid, and

@@ -644,14 +644,22 @@ export const orderVenueCancellationSchema = z.object({
 
 /**
  * A ticket's amount due at the door, whether it was paid, whether it was
- * cancelled unpaid (when and by whom), and whether the holder reading it paid
- * it at the door themselves (XT7). Null for one that owes nothing.
+ * cancelled unpaid (when, by whom and the reason given), and whether the holder
+ * reading it paid it at the door themselves (XT7). Null for one that owes
+ * nothing.
+ *
+ * The reason travels with the ticket because somebody a ticket was passed to
+ * has no order page to read it on, and this build sends no notice by email:
+ * the cancel form tells the organiser the reason is shown to anybody holding
+ * the tickets (SPEC3-XI XU10, §9.11). Never the name of who cancelled it.
  */
 export const ticketVenuePaymentSchema = z.object({
   dueCents: centsSchema,
   paid: z.boolean(),
   currency: currencySchema,
-  cancelled: z.object({ at: timestampSchema, by: z.enum([...VENUE_CANCELLED_BY]) }).nullable(),
+  cancelled: z
+    .object({ at: timestampSchema, by: z.enum([...VENUE_CANCELLED_BY]), reason: z.string() })
+    .nullable(),
   paidAtDoorByYou: z.boolean(),
 })
 

@@ -1667,6 +1667,60 @@ when()('cancelling unpaid tickets against passing them on and refunds (C7, C8, C
   )
 
   it(
+    'C7d. the holder a ticket was passed to reads why it was cancelled, on their wallet and their ticket, and never who by name (SPEC3-XI XU10, §9.11)',
+    { timeout: 120_000 },
+    async () => {
+      const world = await venueWorld('c7d')
+      const actor = await actorFor(owner)
+      const buyerHeaders = await headersFor(buyer)
+      const recipientHeaders = await headersFor(recipient)
+      const { order, tickets } = await booking(world, { quantity: 1 })
+      const [ticket] = tickets
+      const offered = await offer(ticket, buyerHeaders)
+
+      expect(offered.statusCode, offered.body).toBe(201)
+
+      const accepted = await app.inject({
+        method: 'POST',
+        url: '/v1/ticket-transfers/accept',
+        headers: recipientHeaders,
+        payload: { token: offered.json().data.delivery.invitationCode },
+      })
+
+      expect(accepted.statusCode, accepted.body).toBe(200)
+
+      const [successor] = await prisma.ticket.findMany({
+        where: { supersedesTicketId: ticket.id },
+      })
+
+      await cancel(order, [successor], { actor })
+
+      const wallet = await app.inject({
+        method: 'GET',
+        url: '/v1/tickets',
+        headers: recipientHeaders,
+      })
+      const one = await app.inject({
+        method: 'GET',
+        url: `/v1/tickets/${successor.id}`,
+        headers: recipientHeaders,
+      })
+
+      expect(wallet.statusCode, wallet.body).toBe(200)
+      expect(one.statusCode, one.body).toBe(200)
+
+      const expected = { at: expect.any(String), by: 'ORGANISER', reason: REASON }
+      const row = wallet.json().data.find((candidate) => candidate.id === successor.id)
+
+      expect(row.venuePayment.cancelled).toEqual(expected)
+      expect(one.json().data.ticket.venuePayment.cancelled).toEqual(expected)
+      // The cancellation's marker (`venue-unpaid:<id>`) is not a reason anybody
+      // gave, so the wallet does not offer it as one.
+      expect(row.revokedReason).toBeNull()
+    },
+  )
+
+  it(
     'C8. cancel against refunds.request on the same order, both arrival orders: REFUND_IN_PROGRESS, or the refund leaves the kept share out (the order FOR UPDATE)',
     { timeout: 120_000 },
     async () => {

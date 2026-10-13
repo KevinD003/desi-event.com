@@ -332,7 +332,13 @@ describe('a ticket booked to pay at the door (SPEC3-XI §12.7)', () => {
         ticket: {
           ...detail().ticket,
           status: 'REVOKED',
-          venuePayment: venue({ cancelled: { at: '2026-10-09T02:30:00.000Z', by: 'ORGANISER' } }),
+          venuePayment: venue({
+            cancelled: {
+              at: '2026-10-09T02:30:00.000Z',
+              by: 'ORGANISER',
+              reason: 'Not paid for at the door by the end of the night.',
+            },
+          }),
         },
         onlineJoinUrl: null,
       }),
@@ -344,6 +350,13 @@ describe('a ticket booked to pay at the door (SPEC3-XI §12.7)', () => {
     expect(
       within(whereItStands()).getByText(
         'The organiser cancelled this ticket on Thu, Oct 8, 2026 because it had not been paid for. You no longer owe $40.00 for it.',
+      ),
+    ).toBeInTheDocument()
+    // Why, too: a holder the ticket was passed to has no order page to read
+    // it on (SPEC3-XI XU10).
+    expect(
+      within(whereItStands()).getByText(
+        'Reason given: “Not paid for at the door by the end of the night.”',
       ),
     ).toBeInTheDocument()
   })

@@ -851,8 +851,10 @@ process, for the reasons above:
 - a referral code switched off (the audit row);
 - a cancellation of unpaid tickets (`VenueBookingCancellation.reason`, the audit
   row, and the `venue_booking.cancelled` notice queued for the buyer and each
-  other holder, which prints it). It is shown to the buyer and to every holder
-  of a cancelled ticket, and its box says so.
+  other holder, which prints it). It is shown to the buyer on their order page
+  and to every holder of a cancelled ticket on its wallet card and its page
+  (`venuePayment.cancelled.reason`), never with who wrote it, and its box says
+  so.
 
 **Referral codes' labels** are notes for administrators (1–120 characters),
 never copied into an audit row, and kept as typed.

@@ -4597,6 +4597,252 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
     expect(WILDCARD_KEYS).toContain('referralCode')
   })
 
+  /** A log call, by whatever logger: `request.log`, `app.log`, `logger` or a `log` handed in. */
+  const ANY_LOG_CALL =
+    /\b(?:log|logger)\s*(?:\?\.|\.)\s*(?:trace|debug|info|warn|error|fatal)\s*(?:\?\.)?\s*\(/gu
+
+  /**
+   * The modules, outside the referral modules, where a buyer's code arrives as
+   * text or is resolved to its row: the checkout route, its pricing (which
+   * reads the row), its settlement, and the wrong-codes budget (which reads
+   * the body). Each log call there is pinned key by key.
+   */
+  const CODE_ARRIVES = [
+    'apps/api/src/routes/orders.js',
+    'apps/api/src/lib/checkout-pricing.js',
+    'apps/api/src/lib/checkout.js',
+    'apps/api/src/plugins/rate-limit.js',
+  ]
+
+  /**
+   * What, in a log call's arguments, could carry a referral code's text: any
+   * name with `referral` in it that is not an id (a `referralCode`, a
+   * resolved `referral`, its `.row`, a `referralText`), and a request body
+   * handed over whole rather than one named field of it. The words of a
+   * message are left out: "referral code created" names nothing.
+   *
+   * @param {string} args The text between the call's brackets, comments blanked.
+   * @returns {string[]} What was found.
+   */
+  function referralTextInLog(args) {
+    const code = withoutStringText(args)
+    const found = []
+
+    for (const [name] of code.matchAll(/[\w$]*referral[\w$]*/giu)) {
+      if (!/Ids?$/u.test(name)) found.push(name)
+    }
+
+    for (const [expression] of code.matchAll(
+      /(?:\.\.\.\s*)?(?:[\w$]+\s*(?:\?\.|\.)\s*)*\bbody\b(?!\s*(?:\?\.|\.)\s*[\w$])/gu,
+    )) {
+      found.push(expression)
+    }
+
+    return found
+  }
+
+  /**
+   * Code with the text of its strings dropped: a quoted string becomes `''`,
+   * and a template keeps only what it substitutes, so `${referral}` inside a
+   * message still counts and the message's own words do not.
+   *
+   * @param {string} code The text, comments blanked.
+   * @returns {string} The text without string contents.
+   */
+  function withoutStringText(code) {
+    let out = ''
+    let at = 0
+
+    while (at < code.length) {
+      const char = code[at]
+
+      if (char === "'" || char === '"') {
+        let end = at + 1
+
+        while (end < code.length && code[end] !== char) end += code[end] === '\\' ? 2 : 1
+        out += "''"
+        at = end + 1
+      } else if (char === '`') {
+        let end = at + 1
+
+        out += '`'
+
+        while (end < code.length && code[end] !== '`') {
+          if (code[end] === '\\') {
+            end += 2
+          } else if (code[end] === '$' && code[end + 1] === '{') {
+            const close = balancedEnd(code, end + 1)
+
+            out += ` ${withoutStringText(code.slice(end + 2, close))} `
+            end = close + 1
+          } else {
+            end += 1
+          }
+        }
+
+        out += '`'
+        at = end + 1
+      } else {
+        out += char
+        at += 1
+      }
+    }
+
+    return out
+  }
+
+  it('never hands any server log call a referral code’s text, its resolved row or a whole request body, and pins every log call where a code arrives', () => {
+    /** @type {Record<string, Array<string[]|string>>} */
+    const arriving = Object.fromEntries(CODE_ARRIVES.map((file) => [file, []]))
+    let calls = 0
+
+    for (const file of sourceFiles({ packages: true })) {
+      if (file.startsWith('apps/web/')) continue
+
+      const code = readCode(file)
+
+      for (const match of code.matchAll(ANY_LOG_CALL)) {
+        const open = match.index + match[0].length - 1
+        const args = code.slice(open + 1, balancedEnd(code, open)).trim()
+        const at = `${file}:${lineOf(code, match.index)}`
+
+        calls += 1
+        expect(referralTextInLog(args), at).toEqual([])
+
+        if (arriving[file]) {
+          arriving[file].push(
+            args.startsWith('{')
+              ? objectEntries(args, 0).map((entry) =>
+                  entry.kind === 'spread' ? `...${args.slice(entry.start, entry.end)}` : entry.key,
+                )
+              : 'a message alone',
+          )
+        }
+      }
+    }
+
+    // The rule read the server's logging, not nothing.
+    expect(calls).toBeGreaterThan(100)
+
+    // Where the buyer's text arrives, every log call says which order, never
+    // what was typed (review GC D1): a new call, or a new key on one, fails
+    // here until it is read and added.
+    expect(arriving).toEqual({
+      'apps/api/src/routes/orders.js': [
+        ['orderId', 'reference', 'status'],
+        ['orderId', 'reference', 'reason'],
+        ['orderId', 'reference', 'paymentId', 'reason'],
+        ['orderId', 'reference', 'paymentId'],
+        ['orderId', 'reference', 'totalCents'],
+      ],
+      'apps/api/src/lib/checkout-pricing.js': [],
+      'apps/api/src/lib/checkout.js': [],
+      'apps/api/src/plugins/rate-limit.js': [],
+    })
+
+    // The scan sees the leaks it is for, and passes what is not one.
+    expect(
+      referralTextInLog("{ tried: request.body.referralCode }, 'referral code not accepted'"),
+    ).toEqual(['referralCode'])
+    expect(referralTextInLog("{ attempt: referral.row.code }, 'refused'")).toEqual(['referral'])
+    expect(referralTextInLog("{ typed: referralText }, 'refused'")).toEqual(['referralText'])
+    expect(referralTextInLog("{ request: request.body }, 'refused'")).toEqual(['request.body'])
+    expect(referralTextInLog("{ ...body }, 'refused'")).toEqual(['...body'])
+    expect(referralTextInLog('`refused ${priced.referral}`')).toEqual(['referral'])
+    expect(
+      referralTextInLog(
+        "{ referralCodeId, orderIds: [...orders] }, 'a referral code had fewer uses than its orders gave back'",
+      ),
+    ).toEqual([])
+    expect(
+      referralTextInLog("{ eventId: request.params.id, source: body.source }, 'changed'"),
+    ).toEqual([])
+  })
+
+  it('names a code by its id alone in an order’s audit rows: order.paid’s metadata key by key, and every audit where a code arrives free of its text', () => {
+    // Every audit row written where the buyer's code arrives or is resolved.
+    let audits = 0
+
+    for (const file of CODE_ARRIVES) {
+      const code = readCode(file)
+
+      for (const match of code.matchAll(/(?<!function\s+)\brecordAudit\s*\(/gu)) {
+        const open = match.index + match[0].length - 1
+        const args = code.slice(open + 1, balancedEnd(code, open))
+
+        audits += 1
+        expect(codeTextIn(args), `${file}:${lineOf(code, match.index)}`).toEqual([])
+      }
+    }
+
+    expect(audits).toBeGreaterThanOrEqual(5)
+
+    // `order.paid`, wherever it is written, key by key (review GC D2): the
+    // checkout's names the code by `referralCodeId` and nothing else, and a
+    // new key — a code's text under any name — fails here until it is read.
+    /** @type {Record<string, Array<string[]|null>>} */
+    const paid = {}
+
+    for (const file of sourceFiles({ packages: true })) {
+      const code = readCode(file)
+
+      for (const match of code.matchAll(/(?<!function\s+)\brecordAudit\s*\(/gu)) {
+        const open = match.index + match[0].length - 1
+        const args = code.slice(open + 1, balancedEnd(code, open))
+
+        if (!/\bAUDIT_ACTIONS\s*\.\s*ORDER_PAID\b/u.test(args)) continue
+
+        for (const start of braceStarts(args)) {
+          for (const entry of objectEntries(args, start)) {
+            if (entry.key !== 'metadata') continue
+
+            paid[file] = [
+              ...(paid[file] ?? []),
+              entry.kind === 'property' && args[entry.start] === '{'
+                ? objectEntries(args, entry.start).map((inner) =>
+                    inner.kind === 'spread'
+                      ? `...${args.slice(inner.start, inner.end)}`
+                      : inner.key,
+                  )
+                : null,
+            ]
+          }
+        }
+      }
+    }
+
+    expect(paid).toEqual({
+      'apps/api/src/lib/checkout.js': [
+        [
+          'requestId',
+          'at',
+          'previousStatus',
+          'newStatus',
+          'paymentId',
+          'totalCents',
+          'currency',
+          'paymentMethod',
+          'feeSource',
+          'feeGrossCents',
+          'feeWaivedCents',
+          'referralCodeId',
+          'venueDueCents',
+        ],
+      ],
+      'apps/api/src/lib/webhook-handlers.js': [['source', 'webhookEventId', 'providerStatus']],
+    })
+
+    // And it is the code's id, read from the order.
+    const checkout = readCode('apps/api/src/lib/checkout.js')
+    const paidAudit = checkout.search(/\baction:\s*AUDIT_ACTIONS\s*\.\s*ORDER_PAID\b/u)
+    const metadata = checkout.indexOf('{', checkout.indexOf('metadata:', paidAudit))
+    const referral = objectEntries(checkout, metadata).find(
+      (entry) => entry.key === 'referralCodeId',
+    )
+
+    expect(checkout.slice(referral.start, referral.end).trim()).toBe('order.referralCodeId ?? null')
+  })
+
   /** Payload keys no queued notice may carry: a code, a token, a credential or an address. */
   const SECRET_PAYLOAD_KEY =
     /^(?:code|referralCode|referralCodeId|token|tokenHash|invitationCode|credential|groupCode|secret|email|buyerEmail|recipientEmail|toEmail|address)$/u
@@ -4725,6 +4971,124 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
       'paidAtDoorByOthersCents',
       'currency',
     ])
+  })
+
+  it('pins every queued notice’s payload, key by key, in every module that writes one', () => {
+    /** @type {Record<string, Array<string[]|null>>} */
+    const queued = {}
+
+    for (const file of sourceFiles({ packages: true })) {
+      const code = readCode(file)
+
+      for (const write of writesTo(code, 'NotificationOutbox')) {
+        if (!['create', 'createMany', 'createManyAndReturn', 'upsert'].includes(write.operation)) {
+          continue
+        }
+
+        for (const keys of payloadsIn(write.args)) {
+          // A conditional spread is pinned by its whole text, its layout aside.
+          queued[file] = [
+            ...(queued[file] ?? []),
+            keys && keys.map((key) => key.replace(/\s+/gu, ' ')),
+          ]
+        }
+      }
+    }
+
+    // A key the notices do not have today — a code's text under a neutral
+    // name included (review GC D3) — fails here until it is read and added.
+    // The pay-at-the-venue keys `...extra` brings are pinned above, and it is
+    // given in one place.
+    expect(queued).toEqual({
+      'apps/api/src/lib/event-cancellation.js': [
+        [
+          'eventId',
+          'eventTitle',
+          'orderId',
+          'orderReference',
+          'reasonCode',
+          'reason',
+          'previousStartsAt',
+          'startsAt',
+          'byPlatform',
+          '...extra',
+        ],
+        [
+          'eventId',
+          'eventTitle',
+          'recipient',
+          'paidAtDoorCents',
+          'currency',
+          '...(night ? { sessionLabel: night.label ?? null } : {})',
+        ],
+      ],
+      'apps/api/src/lib/event-material-change.js': [
+        [
+          'eventId',
+          'eventTitle',
+          'orderId',
+          'orderReference',
+          'changedFields',
+          'changed',
+          'before',
+          'after',
+          'reason',
+          'byPlatform',
+          '...(session ? { sessionId: session.id, sessionStartsAt: session.startsAt instanceof Date ? session.startsAt.toISOString() : (session.startsAt ?? null), } : {})',
+          '...(sessions ? { sessions } : {})',
+        ],
+      ],
+      'apps/api/src/lib/session-cancellation.js': [
+        [
+          'eventId',
+          'eventTitle',
+          'orderId',
+          'orderReference',
+          'sessionId',
+          'sessionLabel',
+          'sessionStartsAt',
+          'reason',
+          'outcome',
+          'refunded',
+          'keptEveryNight',
+          'byPlatform',
+          '...(venue ? { atVenue: true, onlineRefund: ONLINE_REFUND_BY_OUTCOME[outcome] ?? null, paidAtDoorCents: venue.buyerCents, paidAtDoorByOthersCents: venue.othersCents, currency: order.currency, } : {})',
+        ],
+      ],
+      [VENUE_BOOKINGS]: [
+        [
+          'eventId',
+          'eventTitle',
+          'recipient',
+          'orderReference',
+          'ticketCount',
+          'dueCents',
+          'feeKeptCents',
+          'currency',
+          'reason',
+          'by',
+          'othersRemain',
+        ],
+        [
+          'eventId',
+          'eventTitle',
+          'recipient',
+          'ticketCount',
+          'dueCents',
+          'currency',
+          'reason',
+          'by',
+        ],
+      ],
+      'apps/api/src/routes/tickets.js': [
+        ['ticketId', 'transferId', 'expiresAt', 'venueDueCents', 'currency'],
+      ],
+    })
+
+    const cancellation = readCode('apps/api/src/lib/event-cancellation.js')
+
+    expect(cancellation.match(/\bextra:\s*\{/gu)).toHaveLength(1)
+    expect(cancellation.match(/\.\.\.\s*extra\b/gu)).toHaveLength(1)
   })
 
   it('names a code’s text referralCode only in the administrators’ answers, and takes it only in a POST body', () => {

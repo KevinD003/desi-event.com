@@ -163,11 +163,17 @@ describe('VenuePaymentNote (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
     ).toBeInTheDocument()
   })
 
-  it('shows a cancelled ticket as not paid, with who cancelled it', () => {
+  it('shows a cancelled ticket as not paid, with who cancelled it and why', () => {
     render(
       <VenuePaymentNote
         ticket={venueTicket(
-          { cancelled: { at: '2026-10-08T15:00:00.000Z', by: 'DESI_EVENT' } },
+          {
+            cancelled: {
+              at: '2026-10-08T15:00:00.000Z',
+              by: 'DESI_EVENT',
+              reason: 'Not paid for at the door by the end of the night.',
+            },
+          },
           { status: 'REVOKED' },
         )}
         timeZone="UTC"
@@ -179,6 +185,9 @@ describe('VenuePaymentNote (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
       screen.getByText(
         'The Desi-Event team cancelled this ticket on Thu, Oct 8, 2026 because it had not been paid for. You no longer owe $40.00 for it.',
       ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Reason given: “Not paid for at the door by the end of the night.”'),
     ).toBeInTheDocument()
   })
 

@@ -816,9 +816,14 @@ ADRs 0016 and 0017. What each screen says, and the rules behind it.
   venue."; "Tax" stays only where the order does not say where the event is.
 - **The wallet and the ticket page** show "Pay at the door: {amount}" on a
   ticket that owes, and "Withdrawn — this ticket no longer works at the door"
-  on a withdrawn one, never the raw word "CANCELLED". A holder who paid at the
-  door for a passed-on ticket is told on its page that the money is with the
-  organiser.
+  on a withdrawn one, never the raw word "CANCELLED". A ticket cancelled unpaid
+  shows "Cancelled — not paid", who cancelled it and when (never by name), and
+  "Reason given: “{reason}”" — whoever holds it, so somebody it was passed to,
+  who has no order page, reads the reason there (updated 2026-10-13). A holder
+  who paid at the door for a passed-on ticket is told on its page that the
+  money is with the organiser. The wallet's "Reason given:" line under a
+  withdrawn ticket shows only an organiser's own words, never a marker the
+  server wrote (a refund's, a cancelled night's, a deleted event's).
 - **Passing a ticket on** tells the sender before sending that the new holder
   pays the door price; the one-time code panel says "Tell them: whoever holds
   this ticket pays {amount} at the door."; the receiver is told again after

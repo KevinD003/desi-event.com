@@ -299,10 +299,10 @@ card now" or "Pay at the venue" when the event offers both.
 | `CARD`     | ticket price after the promo, the booking fee, and tax on both      | nothing                                             |
 | `AT_VENUE` | the booking fee and any tax on it — no tax on it in this build (R1) | the ticket price after the promo, shared per ticket |
 
-CHECK `order_venue_payment_shape` holds the second row: `totalCents = feesCents
-
-- taxCents`and`venueDueCents = subtotalCents − discountCents > 0`. The door
-  part never reaches the payment provider or the ledger (ADR 0017 §8).
+CHECK `order_venue_payment_shape` holds the second row:
+`totalCents = feesCents + taxCents` and
+`venueDueCents = subtotalCents − discountCents > 0`. The door part never
+reaches the payment provider or the ledger (ADR 0017 §8).
 
 ### The online part, and when it is nothing
 

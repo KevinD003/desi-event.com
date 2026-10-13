@@ -1012,7 +1012,10 @@ minutes that is never skipped.
   administrator whose membership in the organisation lacks `order:refund` is
   refused rather than allowed through platform authority.
 
-Each is a 403 `CONFLICT_OF_INTEREST`, tested.
+The first, second and fourth are a 403 `CONFLICT_OF_INTEREST`; a maker naming
+their own code gets the same `NOT_ACCEPTED` as any code that does not apply
+(`apps/api/src/lib/referral-codes.js`, `applies()`), so the answer does not say
+the code exists (DR10, ADR 0016 §5). Each is tested.
 
 ### Capabilities and step-up
 
@@ -1036,10 +1039,36 @@ literal survives under `apps/api/src`; no `returnReferralUse(` exists and only
 or label to an audit or a log call; settlement locks its tiers before its order;
 the worker's ticket issuer refuses pay-at-the-venue orders.
 
+Widened on 2026-10-13 after the guards review:
+
+- **Logs.** No log call in the API, the worker or the packages names a referral
+  value or hands over a whole request body, and each log call in the modules
+  where a buyer's code arrives (`routes/orders.js`, `lib/checkout-pricing.js`,
+  `lib/checkout.js`, `plugins/rate-limit.js`) is pinned key by key.
+- **Audit and outbox.** `order.paid`'s metadata and every queued notice's
+  payload are pinned key by key, so a code's text under a new name fails the
+  scan.
+- **At run time.** `show-once-logging.test.js` sends refused codes (one nobody
+  made, one switched off, one for another event; as typed, lower-cased and
+  padded) through the quote and the charge and finds none in the logs. After a
+  card order, a pay-at-the-venue booking and the event's cancellation, it finds
+  a code's text and label in no table but the code's own row.
+- **Browser.** `browser-bundle.test.js` keeps a code out of local and session
+  storage, IndexedDB, the Cookie Store, the Cache API and cookies written or
+  appended from script. In the modules that hold a code, it also checks every
+  address-bar write (the History API, the router, `location`): none may name a
+  code, and each one is listed.
+- **End-to-end specs.** `e2e-code-hygiene.test.js` refuses a code-shaped
+  literal that a spec types, presses or sends, however it gets there. Any spec
+  that mentions a referral must turn screenshots, traces and video off; the
+  limitations page's titles are the one exception.
+
 ### Free text
 
 Reasons for a booking fee, a pay-at-the-venue change, a booking-fee refund, a
 referral code switched off and a cancellation of unpaid tickets, and referral
 codes' labels, are stored as typed like the reasons above, and are not redacted
 (`docs/PRIVACY_AND_RETENTION.md`). The cancellation's reason is shown to the
-buyer and to each holder of a cancelled ticket; the forms say so.
+buyer (their order page) and to each holder of a cancelled ticket (its wallet
+card and page, `venuePayment.cancelled.reason`, without the name of who wrote
+it); the forms say so.

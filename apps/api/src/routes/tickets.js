@@ -85,8 +85,11 @@ import { settleReferralUsesIfEnded } from '../lib/referral-uses.js'
 import { confirmGroupAdmission, previewGroupAdmission } from '../lib/group-admission.js'
 import { defineRoute } from '../lib/register.js'
 
-/** A ticket's cancellation unpaid, as its holder is told it: when, and by whom. */
-const VENUE_CANCELLATION_SELECT = Object.freeze({ createdAt: true, authority: true })
+/**
+ * A ticket's cancellation unpaid, as its holder is told it: when, by whom and
+ * the reason given (SPEC3-XI XU10). Never the name of who gave it.
+ */
+const VENUE_CANCELLATION_SELECT = Object.freeze({ createdAt: true, authority: true, reason: true })
 
 /** Everything a scan needs in order to authorise itself. */
 const TICKET_INCLUDE = Object.freeze({
@@ -355,8 +358,8 @@ export function registerTicketRoutes(
           ticket: {
             ...stripRelations(ticket),
             // What it owes at the door, whether it was paid there and by the
-            // reader, and whether it was cancelled because it was not paid
-            // for; null when it owes nothing there.
+            // reader, and whether (and why) it was cancelled because it was
+            // not paid for; null when it owes nothing there.
             venuePayment: ticketVenuePayment(ticket, {
               currency: ticket.orderItem.order.currency,
               viewerUserId: request.actor.id,

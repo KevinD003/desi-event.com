@@ -64,9 +64,14 @@ export const FEE_INTRODUCTION =
 export const VENUE_INTRODUCTION =
   'When it’s on, buyers can choose to pay the ticket price at the door. They still pay the booking fee online, unless a referral code removes it. No sales tax is added to tickets paid at the venue; the organiser may still owe sales tax on those sales.'
 
-/** The limit's hint (SPEC3-XI §12.3): across all buyers, with no limit per account. */
+/**
+ * The limit's hint (SPEC3-XI §12.3): across all buyers, with no limit per
+ * account. The last sentence says what the count includes: an unpaid ticket
+ * whose night is over still counts, and can no longer be cancelled
+ * (`unpaidVenueTickets`, `VENUE_NIGHT_OVER`).
+ */
 export const VENUE_LIMIT_HINT =
-  'Across all buyers. Once this many are booked and unpaid, buyers pay by card.'
+  'Across all buyers. Once this many are booked and unpaid, buyers pay by card. Unpaid tickets for nights that are over still count.'
 
 /** What turning paying at the venue off leaves as it is. */
 export const VENUE_OFF_NOTE =

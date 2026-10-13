@@ -765,17 +765,29 @@ describe('the views responses are built from', () => {
     ).toBe(false)
   })
 
-  it('tells a ticket’s holder it was cancelled, and whether they paid it at the door', () => {
+  it('tells a ticket’s holder it was cancelled and why, and whether they paid it at the door', () => {
     const view = {
       dueCents: 4500,
       paid: false,
       currency: 'USD',
-      cancelled: { at: '2026-10-09T10:00:00.000Z', by: 'DESI_EVENT' },
+      cancelled: {
+        at: '2026-10-09T10:00:00.000Z',
+        by: 'DESI_EVENT',
+        reason: 'Not paid for at the door by the end of the night.',
+      },
       paidAtDoorByYou: false,
     }
 
     expect(ticketVenuePaymentSchema.parse(view)).toEqual(view)
     expect(ticketVenuePaymentSchema.safeParse({ ...view, cancelled: null }).success).toBe(true)
+    // The reason travels with every cancellation a holder reads: somebody the
+    // ticket was passed to has no order page to read it on (SPEC3-XI XU10).
+    expect(
+      ticketVenuePaymentSchema.safeParse({
+        ...view,
+        cancelled: { at: view.cancelled.at, by: view.cancelled.by },
+      }).success,
+    ).toBe(false)
     expect(
       ticketVenuePaymentSchema.safeParse({ ...view, paidAtDoorByYou: undefined }).success,
     ).toBe(false)
