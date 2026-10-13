@@ -10,6 +10,18 @@ The platform is three deployable applications — a Fastify REST API, a Next.js
 storefront and a BullMQ worker — sitting on thirteen shared packages,
 PostgreSQL and Redis, in one pnpm workspace.
 
+The booking fee buyers pay is Desi-Event's charge, which the Desi-Event team can
+set for each event at any time, for new orders only, and the team hands out
+referral codes that remove it from one order. Where the team switches
+it on for an event, buyers can pay the ticket price at the door instead: the
+booking fee is paid online (simulated), no sales tax is added, and the steward
+records the payment in the same step that lets the ticket in. Money taken at
+the door stays with the organiser and never enters the platform's ledger; unpaid
+tickets can be cancelled by the organiser or the team, freeing their places
+([ADR 0016](docs/adr/0016-per-event-booking-fee-and-referral-codes.md),
+[ADR 0017](docs/adr/0017-paying-at-the-venue-outside-the-ledger.md),
+[the owner's report](docs/PHASE4_FEES_AND_VENUE_PAYMENTS_REPORT.md)).
+
 ## Payments are in mock mode, and production payments are unreachable
 
 Read this before anything else. **No money can move through this repository.**
@@ -121,7 +133,7 @@ cp .env.example .env
 set -a; . ./.env; set +a   # export the variables into this shell — see below
 
 pnpm db:migrate            # create the schema
-pnpm db:seed               # 26 users, 11 organisations, 24 events, 13 orders (USD)
+pnpm db:seed               # 26 users, 11 organisations, 24 events, 17 orders (USD)
 pnpm dev                   # api, web and worker together
 ```
 
