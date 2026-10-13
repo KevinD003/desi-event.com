@@ -73231,7 +73231,7 @@
       "patch": {
         "operationId": "referralCodes.update",
         "summary": "Change a referral code",
-        "description": "Its label (null removes it), which events it works for (`scope` with `eventIds`, or `eventIds` alone for a SELECTED_EVENTS code), its expiry (null removes it; a time already past is refused with 422) and its total limit (null removes it; below the uses that count now is refused with 422 `REFERRAL_LIMIT_BELOW_USES`). The text cannot change: switch the code off and make a new one. `expectedUpdatedAt` is when the administrator read it: a change since answers 409 `REFERRAL_CODE_CHANGED`. The code’s row is locked, so an edit and a checkout using the code take turns, and orders already placed keep their waiver. Held by `referral_code:manage` with a second factor within the PAYMENT_TERMS window, on the referral-code hourly budget. Answers the code with every event of its scope, as `referralCodes.get` names them. Audited `referral_code.updated` with what changed, never the text or the label; answers `cache-control: no-store, private`.\n\nRequires the `referral_code:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Its label (null removes it), which events it works for (`scope` with `eventIds`, or `eventIds` alone for a SELECTED_EVENTS code), its expiry (null removes it; a time already past is refused with 422) and its total limit (null removes it; below the uses that count now is refused with 422 `REFERRAL_LIMIT_BELOW_USES`). The text cannot change: switch the code off and make a new one. `expectedUpdatedAt` is when the administrator read it: a change since answers 409 `REFERRAL_CODE_CHANGED`. The code’s row is locked, so an edit and a checkout using the code take turns, and orders already placed keep their waiver. Held by `referral_code:manage` with a second factor within the PAYMENT_TERMS window, on the referral-code hourly budget. Answers the code with every event of its scope, as `referralCodes.get` names them. Waits behind other changes to the code (a checkout using it, a use given back) for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing changed). Audited `referral_code.updated` with what changed, never the text or the label; answers `cache-control: no-store, private`.\n\nRequires the `referral_code:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "referral-codes"
         ],
@@ -73533,6 +73533,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -73635,7 +73645,7 @@
       "post": {
         "operationId": "referralCodes.switchOff",
         "summary": "Switch a referral code off",
-        "description": "Stops the code being accepted by quotes and orders priced after this is saved; orders already placed keep their waiver. There is no delete: a code is switched off. An optional reason of 10 to 500 characters. Needs no second factor, because it only reduces what is on offer. Idempotent: a code already off answers 200 and writes nothing. Held by `referral_code:manage`, on the referral-code hourly budget. Audited `referral_code.switched_off`; answers `cache-control: no-store, private`.\n\nRequires the `referral_code:manage` capability.",
+        "description": "Stops the code being accepted by quotes and orders priced after this is saved; orders already placed keep their waiver. There is no delete: a code is switched off. An optional reason of 10 to 500 characters. Needs no second factor, because it only reduces what is on offer. Idempotent: a code already off answers 200 and writes nothing. Waits behind other changes to the code for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing changed). Held by `referral_code:manage`, on the referral-code hourly budget. Audited `referral_code.switched_off`; answers `cache-control: no-store, private`.\n\nRequires the `referral_code:manage` capability.",
         "tags": [
           "referral-codes"
         ],
@@ -73917,6 +73927,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -73963,7 +73983,7 @@
       "post": {
         "operationId": "referralCodes.switchOn",
         "summary": "Switch a referral code back on",
-        "description": "A code whose expiry has passed answers 409 `REFERRAL_CODE_EXPIRED`: change its expiry first, or make a new code. Idempotent: a code already on answers 200 and writes nothing. Held by `referral_code:manage` with a second factor within the PAYMENT_TERMS window, on the referral-code hourly budget. Audited `referral_code.switched_on`; answers `cache-control: no-store, private`.\n\nRequires the `referral_code:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "A code whose expiry has passed answers 409 `REFERRAL_CODE_EXPIRED`: change its expiry first, or make a new code. Idempotent: a code already on answers 200 and writes nothing. Waits behind other changes to the code for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing changed). Held by `referral_code:manage` with a second factor within the PAYMENT_TERMS window, on the referral-code hourly budget. Audited `referral_code.switched_on`; answers `cache-control: no-store, private`.\n\nRequires the `referral_code:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "referral-codes"
         ],
@@ -74248,6 +74268,16 @@
           },
           "429": {
             "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -75426,7 +75456,7 @@
       "get": {
         "operationId": "venueBookings.unpaid",
         "summary": "Bookings waiting to be paid at the door, with their tickets",
-        "description": "An event’s bookings with tickets booked to pay at the venue and not paid for yet, a page at a time (`page`, `perPage`), or the one booking named by its reference (`order`), for the organiser’s “Payments at the venue” page, the Desi-Event team’s “Bookings waiting to be paid at the door” and the cancel dialog. Each booking gives when it was placed, the booking fee paid online for it, its unpaid tickets and what they owe, and each unpaid ticket: its label (“Ticket 2 of 3”), its night or every night, what it owes, whether the buyer or somebody they passed it to holds it, whether an offer to pass it on is open, and whether it can still be cancelled (`notCancellable: NIGHT_OVER` once its night, or the event when it has no nights, has ended). Buyer and attendee names are given to the organisation only; a Desi-Event administrator reads none (`buyerName` and `attendeeName` null). Readable by an organisation member whose own role may refund the organisation’s orders (`order:refund`: OWNER, ADMIN) and by platform administrators holding `venue_booking:cancel` (ADMIN, SUPER_ADMIN), the same people who may cancel; anybody else gets 404, which discloses no booking. Needs a second factor within the FINANCE_VIEW window, asked for before anything else is answered. Answers `cache-control: no-store, private`.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "An event’s bookings with tickets booked to pay at the venue and not paid for yet, a page at a time (`page`, `perPage`), or the one booking named by its reference (`order`), for the organiser’s “Payments at the venue” page, the Desi-Event team’s “Bookings waiting to be paid at the door” and the cancel dialog. Each booking gives when it was placed, the booking fee paid online for it (`feesCents`) and what of that fee it still holds (`feeHeldCents`: what a cancellation could keep; 0 once the fee was refunded, although it was paid), its unpaid tickets and what they owe, and each unpaid ticket: its label (“Ticket 2 of 3”), its night or every night, what it owes, whether the buyer or somebody they passed it to holds it, whether an offer to pass it on is open, and whether it can still be cancelled (`notCancellable: NIGHT_OVER` once its night, or the event when it has no nights, has ended). Buyer and attendee names are given to the organisation only; a Desi-Event administrator reads none (`buyerName` and `attendeeName` null). Readable by an organisation member whose own role may refund the organisation’s orders (`order:refund`: OWNER, ADMIN) and by platform administrators holding `venue_booking:cancel` (ADMIN, SUPER_ADMIN), the same people who may cancel; anybody else gets 404, which discloses no booking. Needs a second factor within the FINANCE_VIEW window, asked for before anything else is answered. Answers `cache-control: no-store, private`.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "events"
         ],
@@ -75480,6 +75510,11 @@
                                 ]
                               },
                               "feesCents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000000000
+                              },
+                              "feeHeldCents": {
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 1000000000
@@ -75575,6 +75610,7 @@
                               "placedAt",
                               "buyerName",
                               "feesCents",
+                              "feeHeldCents",
                               "unpaidTickets",
                               "unpaidCents",
                               "tickets"
@@ -75752,7 +75788,7 @@
       "post": {
         "operationId": "venueBookings.cancel",
         "summary": "Cancel unpaid tickets of a pay-at-the-venue booking",
-        "description": "Cancels the chosen tickets (`ticketIds`, 1 to 100 distinct, all of the one booking; 422 `TICKET_NOT_IN_BOOKING` otherwise) of a booking made to pay at the venue that have not been paid for at the door, with a reason of 10 to 500 characters shown to the buyer and to anybody holding those tickets. Each ticket stops admitting (its pass no longer works, an open offer to pass it on is withdrawn), nobody owes its price any more, and its place is freed: a reserved seat becomes available and a general-admission place returns to its tier, selling again whenever its sales are open (`placesOnSale`: ALL, SOME or NONE of the freed places are on sale now; `eventSalesStopped` when the event’s sales are paused or it is sold out). Desi-Event keeps the booking fee paid online for those tickets (`feeKeptCents`); that share is never refunded afterwards by any path. Nothing else is refunded: a pay-at-the-venue booking pays only the booking fee online, with no tax on it in this build; a booking that does carry tax on its booking fee is refused 409 `VENUE_CANCEL_TAXED` (refund its tickets instead). Nothing is posted to the ledger. When the booking then has nothing left, its referral use is given back. A card order answers 409 `NOT_A_VENUE_BOOKING`; an event not live 409 `VENUE_CANCEL_NOT_LIVE`; a ticket whose night is over (or, for an event with no nights, the event) 409 `VENUE_NIGHT_OVER`; a ticket paid at the door, let in, passed on or cancelled meanwhile 409 `VENUE_BOOKING_CHANGED` with `error.details.ticketIds`, nothing cancelled; a refund of the booking being processed 409 `REFUND_IN_PROGRESS`. The same tickets already cancelled together answer that cancellation again with `replayed: true` and nothing written. Held by an organisation member whose own role may refund the organisation’s orders (`order:refund`: OWNER, ADMIN), recorded as `ORGANIZATION_ROLE`, or by a platform administrator holding `venue_booking:cancel` (ADMIN, SUPER_ADMIN), recorded as `PLATFORM_ROLE`; a platform administrator who belongs to the event’s organisation in a role that may not refund is refused with 403 `CONFLICT_OF_INTEREST`; anybody else gets 404. Needs a second factor within the FINANCE_ACTION window, asked for before anything else is answered; sixty an hour per person. Waits behind other changes to the booking for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing cancelled). Audited `venue_booking.cancelled`; the buyer and every other holder are told. Answers `cache-control: no-store, private`.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Cancels the chosen tickets (`ticketIds`, 1 to 100 distinct, all of the one booking; 422 `TICKET_NOT_IN_BOOKING` otherwise) of a booking made to pay at the venue that have not been paid for at the door, with a reason of 10 to 500 characters shown to the buyer and to anybody holding those tickets. Each ticket stops admitting (its pass no longer works, an open offer to pass it on is withdrawn), nobody owes its price any more, and its place is freed: a reserved seat becomes available and a general-admission place returns to its tier, selling again whenever its sales are open (`placesOnSale`: ALL, SOME or NONE of the freed places are on sale now; `eventSalesStopped` when the event’s sales are paused or it is sold out). Desi-Event keeps the booking fee paid online for those tickets (`feeKeptCents`), out of what of the fee the booking still holds (0 when the fee was already refunded); that share is never refunded afterwards by any path. Nothing else is refunded: a pay-at-the-venue booking pays only the booking fee online, with no tax on it in this build; a booking that does carry tax on its booking fee is refused 409 `VENUE_CANCEL_TAXED` (refund its tickets instead). Nothing is posted to the ledger. When the booking then has nothing left, its referral use is given back. A card order answers 409 `NOT_A_VENUE_BOOKING`; an event not live 409 `VENUE_CANCEL_NOT_LIVE`; a ticket whose night is over (or, for an event with no nights, the event) 409 `VENUE_NIGHT_OVER`; a ticket paid at the door, let in, passed on or cancelled meanwhile 409 `VENUE_BOOKING_CHANGED` with `error.details.ticketIds`, nothing cancelled; a refund of the booking being processed 409 `REFUND_IN_PROGRESS`. The same tickets already cancelled together answer that cancellation again with `replayed: true` and nothing written. Held by an organisation member whose own role may refund the organisation’s orders (`order:refund`: OWNER, ADMIN), recorded as `ORGANIZATION_ROLE`, or by a platform administrator holding `venue_booking:cancel` (ADMIN, SUPER_ADMIN), recorded as `PLATFORM_ROLE`; a platform administrator who belongs to the event’s organisation in a role that may not refund is refused with 403 `CONFLICT_OF_INTEREST`; anybody else gets 404. Needs a second factor within the FINANCE_ACTION window, asked for before anything else is answered; sixty an hour per person. Waits behind other changes to the booking for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing cancelled). Audited `venue_booking.cancelled`; the buyer and every other holder are told, each only of what is theirs: the buyer of their own tickets and what they no longer owe, of the tickets they passed on apart, and of whether the booking fee paid online for them is kept, was refunded earlier, or was never paid. Answers `cache-control: no-store, private`.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "orders"
         ],
@@ -82307,6 +82343,7 @@
                                     "PAID",
                                     "PASSED_ON",
                                     "CANCELLED",
+                                    "ENDED",
                                     "NONE"
                                   ]
                                 }
@@ -82366,6 +82403,16 @@
                                 "minimum": 0,
                                 "maximum": 1000000000
                               },
+                              "passedOnTickets": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100
+                              },
+                              "passedOnBasisCents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000000000
+                              },
                               "feeKeptCents": {
                                 "type": "integer",
                                 "minimum": 0,
@@ -82380,6 +82427,8 @@
                               "by",
                               "ticketCount",
                               "basisCents",
+                              "passedOnTickets",
+                              "passedOnBasisCents",
                               "feeKeptCents",
                               "reason"
                             ],
@@ -83799,6 +83848,7 @@
                                       "PAID",
                                       "PASSED_ON",
                                       "CANCELLED",
+                                      "ENDED",
                                       "NONE"
                                     ]
                                   }
@@ -83858,6 +83908,16 @@
                                   "minimum": 0,
                                   "maximum": 1000000000
                                 },
+                                "passedOnTickets": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 100
+                                },
+                                "passedOnBasisCents": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 1000000000
+                                },
                                 "feeKeptCents": {
                                   "type": "integer",
                                   "minimum": 0,
@@ -83872,6 +83932,8 @@
                                 "by",
                                 "ticketCount",
                                 "basisCents",
+                                "passedOnTickets",
+                                "passedOnBasisCents",
                                 "feeKeptCents",
                                 "reason"
                               ],
@@ -85346,7 +85408,7 @@
       "get": {
         "operationId": "orders.get",
         "summary": "Get an order by reference",
-        "description": "Looks an order up by its customer-facing reference (e.g. `DE-8F3K2Q`). Visible to the buyer and to organisation members holding `order:view`. For the account that bought it, `groupPass` says whether the order has a group pass to show (two to fifty tickets the buyer still holds that would admit for a new one; one, once it was taken out) and, when not, why; it is null for every other reader and never carries the pass itself. Each line names its tier and its night. For the buyer only, a paid order for an online event carries `onlineJoinUrl` while one of the tickets they hold still admits. `eventChanges` lists what changed about the event since the order was placed and touches it (event-wide changes, its night’s, and every night’s for an every-night ticket), newest first, saying whether the organiser or the Desi-Event team made each change. The order says how it is paid (`paymentMethod`), its booking fee before and after any referral code (`feeGrossCents`, `feeWaivedCents`), whether one was applied (`referralApplied`, never which), the booking fee’s numbers (`fee`, null for an order whose terms were not recorded), what its tax was charged on (`tax`), and, for an order booked to pay at the venue, what is owed and was paid at the door (`venuePayment`): the door price in all; what the buyer paid at the door for the tickets they hold, apart from what people they passed tickets to paid (`paidByOthers*`); the buyer’s own tickets still to pay, apart from those passed on and still owing (`passedOnUnpaid*`); the tickets cancelled unpaid and the booking fee kept for them; and a `state` of TO_PAY, PAID, PASSED_ON, CANCELLED or NONE. Each ticket the buyer passed on carries `passedOn`, read from the ticket its holder has now: OWES (with what its holder pays at the door), PAID, CANCELLED, NOTHING_DUE or RETURNED (back with the buyer). The event summary carries the `country` and `region` of the event’s venue, the place its tax is named for, both null for an online event. `venueCancellations` lists its unpaid tickets cancelled (when, by the organiser or the Desi-Event team, how many, the door price no longer owed, the booking fee kept and the reason given). Organisation readers (`order:view`) also get `feeSource`, and the name of whoever cancelled.",
+        "description": "Looks an order up by its customer-facing reference (e.g. `DE-8F3K2Q`). Visible to the buyer and to organisation members holding `order:view`. For the account that bought it, `groupPass` says whether the order has a group pass to show (two to fifty tickets the buyer still holds that would admit for a new one; one, once it was taken out) and, when not, why; it is null for every other reader and never carries the pass itself. Each line names its tier and its night. For the buyer only, a paid order for an online event carries `onlineJoinUrl` while one of the tickets they hold still admits. `eventChanges` lists what changed about the event since the order was placed and touches it (event-wide changes, its night’s, and every night’s for an every-night ticket), newest first, saying whether the organiser or the Desi-Event team made each change. The order says how it is paid (`paymentMethod`), its booking fee before and after any referral code (`feeGrossCents`, `feeWaivedCents`), whether one was applied (`referralApplied`, never which), the booking fee’s numbers (`fee`, null for an order whose terms were not recorded), what its tax was charged on (`tax`), and, for an order booked to pay at the venue, what is owed and was paid at the door (`venuePayment`): the door price in all; what the buyer paid at the door for the tickets they hold, apart from what people they passed tickets to paid (`paidByOthers*`); the buyer’s own tickets still to pay, apart from those passed on and still owing (`passedOnUnpaid*`); the tickets cancelled unpaid and the booking fee kept for them; and a `state` of TO_PAY, PAID, PASSED_ON, CANCELLED, ENDED (nothing left to pay at the door: its event was cancelled or deleted, or none of its tickets holds a place any more; such a booking owes nothing) or NONE. Each ticket the buyer passed on carries `passedOn`, read from the ticket its holder has now: OWES (with what its holder pays at the door), PAID, CANCELLED, NOTHING_DUE or RETURNED (back with the buyer). The event summary carries the `country` and `region` of the event’s venue, the place its tax is named for, both null for an online event. `venueCancellations` lists its unpaid tickets cancelled (when, by the organiser or the Desi-Event team, how many, the door price no longer owed, how many of them the buyer had passed on to other people and their door price — owed by their holders, not by the buyer — the booking fee kept and the reason given). Organisation readers (`order:view`) also get `feeSource`, and the name of whoever cancelled.",
         "tags": [
           "orders"
         ],
@@ -85639,6 +85701,7 @@
                                     "PAID",
                                     "PASSED_ON",
                                     "CANCELLED",
+                                    "ENDED",
                                     "NONE"
                                   ]
                                 }
@@ -85698,6 +85761,16 @@
                                 "minimum": 0,
                                 "maximum": 1000000000
                               },
+                              "passedOnTickets": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100
+                              },
+                              "passedOnBasisCents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000000000
+                              },
                               "feeKeptCents": {
                                 "type": "integer",
                                 "minimum": 0,
@@ -85712,6 +85785,8 @@
                               "by",
                               "ticketCount",
                               "basisCents",
+                              "passedOnTickets",
+                              "passedOnBasisCents",
                               "feeKeptCents",
                               "reason"
                             ],
@@ -89344,7 +89419,7 @@
       "post": {
         "operationId": "tickets.checkIn",
         "summary": "Admit a previewed ticket",
-        "description": "Admits a ticket exactly once. The same pass or code must be presented again together with the preview's `previewReference`, and every fact is re-derived inside the admitting transaction: the ticket, its status, its event and organisation, and the caller's membership and scope, the last two locked until the admission commits. A preview is not an authorisation token. The method is recorded from what was presented — `QR_SCAN` for the secure credential, `MANUAL_CODE` for the printed reference — and cannot be chosen by the client; the recorded instant is the server's. An already-admitted ticket answers 200 with `ALREADY_CHECKED_IN` and the original instant. A ticket that may not be admitted is a 409 whose `details.reason` is one of `ADMISSION_REFUSAL_REASONS`. A platform super administrator may admit at any event; its platform role is re-read inside the admitting transaction, so a demotion since the preview refuses the confirmation, and the admission is recorded with `PLATFORM_ROLE` authority and a separate entry on the event's record. SUPPORT, MODERATOR, FINANCE_ADMIN and ADMIN (the platform administrator, who reviews and invites organisers but admits nobody) are refused and the attempt is audited. Rate-limited per scanner and never cached. Names the ticket's night (`session`), as the preview does. The night (`eventSessionId`) must be the one the preview was for (else `PREVIEW_MISMATCH`): a ticket for one night admits once, on that night; a ticket good for every night admits once on each night, recorded on the named night, and stays VALID between nights. A ticket that owes a payment at the door is let in only with that payment recorded in the same step: `payment.amountCents` must equal what it owes (422 `PAYMENT_AMOUNT_MISMATCH`), without it the answer is 409 `PAYMENT_DUE`, and a payment that could not be recorded because the booking changed meanwhile answers 409 `PAYMENT_NOT_RECORDED`, with nothing recorded and nobody let in. A payment is recorded once: a retry finds the ticket admitted, and `payment.byThisRequest` says which request recorded it. A ticket cancelled after its preview because it was not paid for is refused `UNPAID_CANCELLED`, and no payment is recorded for it.",
+        "description": "Admits a ticket exactly once. The same pass or code must be presented again together with the preview's `previewReference`, and every fact is re-derived inside the admitting transaction: the ticket, its status, its event and organisation, and the caller's membership and scope, the last two locked until the admission commits. A preview is not an authorisation token. The method is recorded from what was presented — `QR_SCAN` for the secure credential, `MANUAL_CODE` for the printed reference — and cannot be chosen by the client; the recorded instant is the server's. An already-admitted ticket answers 200 with `ALREADY_CHECKED_IN` and the original instant. A ticket that may not be admitted is a 409 whose `details.reason` is one of `ADMISSION_REFUSAL_REASONS`. A platform super administrator may admit at any event; its platform role is re-read inside the admitting transaction, so a demotion since the preview refuses the confirmation, and the admission is recorded with `PLATFORM_ROLE` authority and a separate entry on the event's record. SUPPORT, MODERATOR, FINANCE_ADMIN and ADMIN (the platform administrator, who reviews and invites organisers but admits nobody) are refused and the attempt is audited. Rate-limited per scanner and never cached. Names the ticket's night (`session`), as the preview does. The night (`eventSessionId`) must be the one the preview was for (else `PREVIEW_MISMATCH`): a ticket for one night admits once, on that night; a ticket good for every night admits once on each night, recorded on the named night, and stays VALID between nights. A ticket that owes a payment at the door is let in only with that payment recorded in the same step: `payment.amountCents` must equal what it owes (422 `PAYMENT_AMOUNT_MISMATCH`), without it the answer is 409 `PAYMENT_DUE`, and a payment that could not be recorded because the booking changed meanwhile answers 409 `PAYMENT_NOT_RECORDED`, with nothing recorded and nobody let in. A payment is recorded once: a retry finds the ticket admitted, and `payment.byThisRequest` says which request recorded it. A ticket cancelled after its preview because it was not paid for is refused `UNPAID_CANCELLED`, and no payment is recorded for it. Waits behind other changes to the ticket’s night or order (a night’s cancellation, a deletion) for a few seconds at most (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nobody let in and nothing recorded).",
         "tags": [
           "tickets"
         ],
@@ -89647,6 +89722,16 @@
           },
           "429": {
             "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -90220,7 +90305,7 @@
       "post": {
         "operationId": "tickets.checkInGroup",
         "summary": "Admit people from a previewed group",
-        "description": "Admits the tickets named in `ticketIds` — the people actually at the door — in one transaction, each exactly once. Every named ticket must have been admissible in the preview, else 409 `PREVIEW_MISMATCH`. Everything is re-derived under lock: the order, the group pass and its version (a replaced pass is `PREVIEW_MISMATCH`), each ticket, and the caller's authority. A ticket already admitted is reported, not refused, so a retry after a lost answer is safe. If any named ticket stopped admitting for another reason — refunded, withdrawn, handed on — nothing is admitted and the answer is 409 `GROUP_CHANGED`: look the group up again. The method follows from what was presented, as for a single ticket, and the night must be the preview's (else `PREVIEW_MISMATCH`); a ticket good for every night is admitted once on each night. Rate-limited per scanner and never cached. `paymentCents` is what was taken at the door for the named tickets that owe a payment and have none: required when any does, and equal to what they owe together (422 `PAYMENT_AMOUNT_MISMATCH`). One payment is recorded for exactly those tickets, with their admission.",
+        "description": "Admits the tickets named in `ticketIds` — the people actually at the door — in one transaction, each exactly once. Every named ticket must have been admissible in the preview, else 409 `PREVIEW_MISMATCH`. Everything is re-derived under lock: the order, the group pass and its version (a replaced pass is `PREVIEW_MISMATCH`), each ticket, and the caller's authority. A ticket already admitted is reported, not refused, so a retry after a lost answer is safe. If any named ticket stopped admitting for another reason — refunded, withdrawn, handed on — nothing is admitted and the answer is 409 `GROUP_CHANGED`: look the group up again. The method follows from what was presented, as for a single ticket, and the night must be the preview's (else `PREVIEW_MISMATCH`); a ticket good for every night is admitted once on each night. Rate-limited per scanner and never cached. `paymentCents` is what was taken at the door for the named tickets that owe a payment and have none: required when any does, and equal to what they owe together (422 `PAYMENT_AMOUNT_MISMATCH`). One payment is recorded for exactly those tickets, with their admission. Waits behind other changes to the group’s night or order for a few seconds at most (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nobody let in and nothing recorded).",
         "tags": [
           "tickets"
         ],
@@ -90556,6 +90641,16 @@
           },
           "429": {
             "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -93250,7 +93345,7 @@
       "post": {
         "operationId": "tickets.revoke",
         "summary": "Withdraw a ticket",
-        "description": "An organiser saying this particular ticket no longer admits anybody. Distinct from a refund, which is about money, and from a cancellation, which is about the event — revoking does not give anything back, and a reason is required because nothing else will say why somebody was turned away. The pass dies with it. When the order then has no ticket left and nothing left to refund, its referral use is given back. Requires `ticket:revoke`.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "An organiser saying this particular ticket no longer admits anybody. Distinct from a refund, which is about money, and from a cancellation, which is about the event — revoking does not give anything back, and a reason is required because nothing else will say why somebody was turned away. The pass dies with it. When the order then has no ticket left and nothing left to refund, its referral use is given back. Waits behind other changes to the ticket’s order for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, the ticket still valid). Requires `ticket:revoke`.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "tickets"
         ],
@@ -93458,6 +93553,16 @@
           },
           "409": {
             "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
             "content": {
               "application/json": {
                 "schema": {

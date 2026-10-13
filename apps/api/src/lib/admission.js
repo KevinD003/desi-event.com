@@ -134,6 +134,7 @@ import {
 } from './errors.js'
 import { likeLiteral } from './like-pattern.js'
 import { credentialDigest } from './ticket-credentials.js'
+import { boundLockWait, outOfTimeRefusal } from './transaction-budget.js'
 import {
   ADMISSION_REFUSAL_SENTENCES,
   TICKET_STATES,
@@ -1149,6 +1150,25 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
 }
 
 /**
+ * The longest a door's confirmation waits, in milliseconds: for one lock
+ * (`lockMs`), and for one statement (`statementMs`). The door takes the night
+ * and the order before the ticket, and a night's cancellation or an event's
+ * deletion can hold both for its whole budget; without a bound the steward
+ * waited that long and was then told nothing useful (final door review,
+ * finding 2). Within the single door's five-second transaction.
+ *
+ * @type {Readonly<{statementMs: number, lockMs: number}>}
+ */
+export const DOOR_LOCK_WAIT = Object.freeze({ statementMs: 5_000, lockMs: 4_000 })
+
+/**
+ * What a steward is told when a confirmation waited too long behind another
+ * change: a 503 with `Retry-After`. The transaction was rolled back whole.
+ */
+export const DOOR_BUSY_SENTENCE =
+  'Another change to this booking or night was being saved at the same moment, so nobody was let in and no payment was recorded. Look the ticket up again in a moment.'
+
+/**
  * Admit a previewed ticket, exactly once.
  *
  * The transaction returns a verdict rather than throwing, so that a refusal can
@@ -1163,7 +1183,7 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
  * @param {object} [options.log] A request logger.
  * @param {Date} [options.now] The instant.
  * @returns {Promise<object>} A payload satisfying `checkInResponseSchema`'s `data`.
- * @throws {Error} 403 without authority, the uniform 404, or a 409 carrying a refusal reason.
+ * @throws {Error} 403 without authority, the uniform 404, a 409 carrying a refusal reason, or a 503 when it waited too long behind another change.
  */
 export async function confirmAdmission({ prisma, env, actor, body, log, now = new Date() }) {
   await assertDoorAuthority(prisma, actor, 'check_in')
@@ -1195,6 +1215,12 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
       decide(tx, { actor, body, presentation, claims, now }),
     )
   } catch (error) {
+    // Waited too long behind another change to the night or the order:
+    // rolled back whole, nobody let in and nothing recorded.
+    const busy = outOfTimeRefusal(error, DOOR_BUSY_SENTENCE)
+
+    if (busy !== error) throw busy
+
     // The database refusing to let in a ticket whose payment at the door is
     // not recorded (`check_in_payment_due`) is the door's own refusal, told
     // as such and audited (SPEC3 §5.5). Every other refusal SPEC3 names — a
@@ -1370,6 +1396,9 @@ export function admissionNightOf(ticket, nights, named) {
  * @returns {Promise<object>} A verdict: admitted, already, refused, payment_due, payment_mismatch, forbidden or hidden.
  */
 async function decide(tx, { actor, body, presentation, claims, now }) {
+  // Every wait below is bounded before the first lock is asked for.
+  await boundLockWait(tx, DOOR_LOCK_WAIT)
+
   const named = claims.n
 
   // What the first locks need, read without a lock because it is fixed for

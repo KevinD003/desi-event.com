@@ -1347,7 +1347,10 @@ fee's (409 `FEE_TERMS_CURRENCY`).
 
 **Busy answers.** A bounded wait that runs out answers 503
 `SERVICE_UNAVAILABLE` with `Retry-After` (the fee, the switch, cancelling unpaid
-tickets, refunding a fee); the specifications called it `TRY_AGAIN`.
+tickets, refunding a fee, editing or switching a referral code, revoking a
+ticket, and the single and group door, which wait at most four seconds for a
+lock: a steward is told within moments that nobody was let in and no payment
+was recorded); the specifications called it `TRY_AGAIN`.
 `TRY_AGAIN` is sent only by `referralCodes.create` (503, five generated codes
 taken in a row) and by a retryable database conflict (409).
 

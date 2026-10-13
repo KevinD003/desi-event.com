@@ -294,8 +294,15 @@ export async function settleReferralUsesIfEnded(
 
   for (const referralCodeId of [...byCode.keys()].sort(ascending)) {
     const orders = byCode.get(referralCodeId)
+    // FOR NO KEY UPDATE, never FOR UPDATE: a caller that wrote its order
+    // before the marker made the marker the order's second update, and
+    // PostgreSQL's foreign-key re-check of that update already holds this code
+    // FOR KEY SHARE. Two such transactions ending different orders that name
+    // this code would each wait for the other's key share under FOR UPDATE
+    // (40P01); NO KEY UPDATE ignores key shares and still serialises returns,
+    // uses and edits (SPEC3-XI §2.1).
     const [code] =
-      await tx.$queryRaw`SELECT "useCount" FROM "ReferralCode" WHERE "id" = ${referralCodeId} FOR UPDATE`
+      await tx.$queryRaw`SELECT "useCount" FROM "ReferralCode" WHERE "id" = ${referralCodeId} FOR NO KEY UPDATE`
     const held = Number(code?.useCount ?? 0)
     const lowered = Math.min(orders.length, Math.max(held, 0))
 

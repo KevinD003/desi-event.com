@@ -35,8 +35,9 @@
  * ## Bookings paid at the venue (SPEC3 §9.9)
  *
  * A pay-at-the-venue booking's online part is its booking fee (and any tax on
- * it), so its night's refund is that share; one with nothing left online is
- * told so (`NOTHING_PAID_ONLINE`), and free tickets are those with no ticket
+ * it), so its night's refund is that share; one that paid nothing online is
+ * told so (`NOTHING_PAID_ONLINE`), one whose fee was all refunded earlier is
+ * told that (`FEE_REFUNDED_EARLIER`), and free tickets are those with no ticket
  * price at all. Its notice also says what was paid at the door for the
  * night's tickets, which stays with the organiser.
  *
@@ -118,9 +119,15 @@ export const ORDERS_CHANGED_SENTENCE =
  *   are withdrawn.
  * - `NOTHING_OWED`: a paid order with nothing left to refund for the night
  *   (already refunded, or a promo code left the night's tickets worth nothing).
- * - `NOTHING_PAID_ONLINE`: a booking paid at the venue with nothing left of
- *   what was paid online for the night's tickets (a booking fee waived or
- *   already refunded); its tickets for the night are withdrawn.
+ * - `NOTHING_PAID_ONLINE`: a booking paid at the venue that paid nothing
+ *   online (its booking fee waived, or none); its tickets for the night are
+ *   withdrawn.
+ * - `FEE_REFUNDED_EARLIER`: a booking paid at the venue whose whole booking
+ *   fee paid online was refunded before the night was cancelled (by an
+ *   administrator, say), none of it kept; its tickets for the night are
+ *   withdrawn. A booking that paid online and has some of it left for other
+ *   tickets, or kept when unpaid tickets were cancelled, is `NOTHING_OWED`:
+ *   nothing is left to refund for the night's tickets, and something was paid.
  * - `DISPUTED`: the payment is disputed, so the refund is left to the finance
  *   team, who are given a reconciliation task.
  * - `UNPAID`: an unpaid order for the night, cancelled.
@@ -135,6 +142,7 @@ export const NIGHT_OUTCOMES = Object.freeze([
   'UNPAID',
   'NOT_SENT',
   'NOTHING_PAID_ONLINE',
+  'FEE_REFUNDED_EARLIER',
 ])
 
 /**
@@ -146,6 +154,7 @@ export const NIGHT_OUTCOMES = Object.freeze([
 const ONLINE_REFUND_BY_OUTCOME = Object.freeze({
   REFUNDED: 'REQUESTED',
   NOTHING_PAID_ONLINE: 'NONE_PAID',
+  FEE_REFUNDED_EARLIER: 'ALREADY_REFUNDED',
   FREE: 'NONE_PAID',
   DISPUTED: 'DISPUTED',
 })
@@ -153,16 +162,36 @@ const ONLINE_REFUND_BY_OUTCOME = Object.freeze({
 /**
  * The outcome for an order whose night's tickets are withdrawn with nothing
  * refunded: free tickets (no ticket price after the promo), a pay-at-the-venue
- * booking with nothing left online, or a paid order with nothing left to
- * refund for them.
+ * booking with nothing left online ({@link atVenueNothingLeftOutcome}), or a
+ * paid order with nothing left to refund for them.
  *
  * @param {object} order The order.
- * @returns {'FREE'|'NOTHING_PAID_ONLINE'|'NOTHING_OWED'} The outcome.
+ * @returns {'FREE'|'NOTHING_PAID_ONLINE'|'FEE_REFUNDED_EARLIER'|'NOTHING_OWED'} The outcome.
  */
-function nothingRefundedOutcome(order) {
+export function nothingRefundedOutcome(order) {
   if ((order.subtotalCents ?? 0) - (order.discountCents ?? 0) <= 0) return 'FREE'
 
-  return order.paymentMethod === 'AT_VENUE' ? 'NOTHING_PAID_ONLINE' : 'NOTHING_OWED'
+  return order.paymentMethod === 'AT_VENUE' ? atVenueNothingLeftOutcome(order) : 'NOTHING_OWED'
+}
+
+/**
+ * What a pay-at-the-venue booking with nothing to refund for a cancelled
+ * night's tickets is told. Whether anything was paid online is the order's own
+ * total, never what is left of it (SPEC3 §9.9, as event cancellation decides
+ * it): a booking fee refunded by hand was still paid.
+ *
+ * @param {object} order The order, with its totals.
+ * @returns {'NOTHING_PAID_ONLINE'|'FEE_REFUNDED_EARLIER'|'NOTHING_OWED'} The outcome.
+ */
+export function atVenueNothingLeftOutcome(order) {
+  if ((order.totalCents ?? 0) <= 0) return 'NOTHING_PAID_ONLINE'
+
+  const refundedWhole =
+    refundableCents(order) <= 0 &&
+    (order.venueFeeKeptCents ?? 0) === 0 &&
+    (order.refundPendingCents ?? 0) === 0
+
+  return refundedWhole ? 'FEE_REFUNDED_EARLIER' : 'NOTHING_OWED'
 }
 
 /** Ticket states a night's cancellation withdraws. */
@@ -767,7 +796,7 @@ export async function cancelSession(prisma, options) {
         zeroValue += 1
         outcomes.set(
           order.id,
-          order.paymentMethod === 'AT_VENUE' ? 'NOTHING_PAID_ONLINE' : 'NOTHING_OWED',
+          order.paymentMethod === 'AT_VENUE' ? atVenueNothingLeftOutcome(order) : 'NOTHING_OWED',
         )
         continue
       }

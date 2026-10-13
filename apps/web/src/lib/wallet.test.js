@@ -552,6 +552,30 @@ describe('a ticket booked to pay at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', 
     ).toEqual(['Paid at the door.'])
   })
 
+  it('owes nothing at the door of an event that was cancelled or deleted', () => {
+    for (const status of ['CANCELLED', 'DELETED']) {
+      const calledOff = owing({}, { event: { ...ticket().event, status } })
+
+      expect(owesAtDoor(calledOff), status).toBe(false)
+      expect(ticketChip(calledOff)).toEqual({
+        label: 'Event cancelled — nothing to pay',
+        tone: 'neutral',
+      })
+      expect(venuePaymentNotes(calledOff)).toEqual([
+        'This event was cancelled, so you no longer owe $40.00 for this ticket at the door.',
+      ])
+      // Paid at the door by this holder before the event was called off:
+      // the money is the organiser's to return.
+      expect(
+        venuePaymentNotes(
+          owing({ paid: true, paidAtDoorByYou: true }, { event: { ...ticket().event, status } }),
+        ),
+      ).toEqual([
+        'The $40.00 you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      ])
+    }
+  })
+
   it('says nothing for a ticket that owes nothing', () => {
     const card = ticket({ venuePayment: null })
 

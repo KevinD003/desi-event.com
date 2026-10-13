@@ -53,11 +53,15 @@ import { PAYMENT_TERMS_SENTENCES, forbidden, notFound, paymentTermsRefusal } fro
 import { memberHolds, platformHolds } from './event-authority.js'
 import { lockTicketTypes } from './inventory.js'
 import { settleReferralUsesIfEnded } from './referral-uses.js'
-import { orderBasis, orderParts, partsLeft, partsSpokenFor } from './refunds.js'
+import { basisLeftWhenLast, orderBasis, orderParts, partsLeft, partsSpokenFor } from './refunds.js'
 import { sessionWindowState } from './session-inventory.js'
 import { VENUE_UNPAID_PREFIX } from './tickets.js'
 import { TRANSACTION_BUDGETS, budgetedTransaction } from './transaction-budget.js'
-import { BOOKED_UNPAID_ORDER_WHERE, toVenueCancellation } from './venue-payment-filters.js'
+import {
+  BOOKED_UNPAID_ORDER_WHERE,
+  EVENT_STILL_ON_WHERE,
+  toVenueCancellation,
+} from './venue-payment-filters.js'
 
 /** The template the buyer and the other holders are told with (SPEC3-XI §9.9). */
 export const VENUE_BOOKING_CANCELLED_TEMPLATE = 'venue_booking.cancelled'
@@ -153,19 +157,24 @@ export function venueCancellationAuthority(actor, event) {
  * @param {{faceValueCents: number, feeCents: number, taxCents: number, basisCents?: number}} options.spoken What refunds and earlier cancellations hold (`partsSpokenFor`).
  * @param {number} options.orderBasisCents The order's basis (`orderBasis`).
  * @param {number} options.lineBasisCents The cancelled tickets' basis: the sum of their dues.
+ * @param {boolean} [options.lastShare] They are the last tickets the booking has to give back (`basisLeftWhenLast`): they keep all the fee it still holds.
  * @returns {{feeKeptCents: number}} The fee kept.
  */
-export function keptShareOf({ parts, spoken, orderBasisCents, lineBasisCents }) {
+export function keptShareOf({ parts, spoken, orderBasisCents, lineBasisCents, lastShare = false }) {
   const basis = orderBasisCents ?? 0
   const fee = parts?.feeCents ?? 0
 
-  if (basis <= 0 || fee <= 0 || lineBasisCents <= 0) return { feeKeptCents: 0 }
+  if (basis <= 0 || fee <= 0) return { feeKeptCents: 0 }
 
   const held = partsLeft(parts, {
     faceValueCents: spoken?.faceValueCents ?? 0,
     feeCents: spoken?.feeCents ?? 0,
     taxCents: spoken?.taxCents ?? 0,
   })
+
+  if (lastShare) return { feeKeptCents: held.feeCents }
+
+  if (lineBasisCents <= 0) return { feeKeptCents: 0 }
   const taken = Math.max(0, spoken?.basisCents ?? 0)
   const share = Math.max(
     0,
@@ -173,6 +182,56 @@ export function keptShareOf({ parts, spoken, orderBasisCents, lineBasisCents }) 
   )
 
   return { feeKeptCents: Math.max(0, Math.min(held.feeCents, share)) }
+}
+
+/**
+ * What the buyer of a booking is told about the booking fee they paid online,
+ * when some of its unpaid tickets are cancelled (SPEC3-XI §9.9, `onlineFee`).
+ * Whether anything was paid online is the order's own total, never what is
+ * left of it: a fee an administrator already refunded by hand leaves nothing
+ * to keep, and it was still paid.
+ *
+ * - `KEPT`: a share of the fee is kept for these tickets.
+ * - `NONE_PAID`: nothing was paid online (the fee was waived, or there was none).
+ * - `REFUNDED_EARLIER`: the whole fee paid online had already been refunded.
+ * - `NONE_KEPT`: some of the fee is held for the booking's other tickets, or an
+ *   earlier cancellation kept it, and none of it is kept for these.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const VENUE_ONLINE_FEE_OUTCOMES = Object.freeze([
+  'KEPT',
+  'NONE_PAID',
+  'REFUNDED_EARLIER',
+  'NONE_KEPT',
+])
+
+/**
+ * Which of {@link VENUE_ONLINE_FEE_OUTCOMES} a cancellation's buyer notice
+ * carries. Pure: read from the order as it stood before the cancellation, and
+ * what refunds and earlier cancellations already took of it.
+ *
+ * @param {object} options Options.
+ * @param {object} options.order The order before this cancellation's writes.
+ * @param {{feeCents: number}} options.spoken What refunds and earlier cancellations hold (`partsSpokenFor`).
+ * @param {number} options.feeKeptCents What this cancellation keeps.
+ * @returns {'KEPT'|'NONE_PAID'|'REFUNDED_EARLIER'|'NONE_KEPT'} The outcome.
+ */
+export function onlineFeeOutcomeOf({ order, spoken, feeKeptCents }) {
+  if ((feeKeptCents ?? 0) > 0) return 'KEPT'
+  if ((order?.totalCents ?? 0) <= 0) return 'NONE_PAID'
+
+  const held = partsLeft(orderParts(order), {
+    faceValueCents: spoken?.faceValueCents ?? 0,
+    feeCents: spoken?.feeCents ?? 0,
+    taxCents: spoken?.taxCents ?? 0,
+  })
+
+  // Nothing of the fee left, and none of it kept by an earlier cancellation:
+  // every cent of it went back to the buyer.
+  if (held.feeCents <= 0 && (order.venueFeeKeptCents ?? 0) === 0) return 'REFUNDED_EARLIER'
+
+  return 'NONE_KEPT'
 }
 
 /**
@@ -356,6 +415,8 @@ export async function unpaidVenueBookings(db, options) {
   const where = {
     ...BOOKED_UNPAID_ORDER_WHERE,
     eventId: event.id,
+    // A cancelled or deleted event's bookings owe nothing at the door.
+    event: EVENT_STILL_ON_WHERE,
     ...(orderReference ? { reference: orderReference } : {}),
   }
   const sessions = await db.eventSession.findMany({ where: { eventId: event.id } })
@@ -377,6 +438,10 @@ export async function unpaidVenueBookings(db, options) {
         userId: true,
         buyerName: true,
         feesCents: true,
+        totalCents: true,
+        refundedCents: true,
+        refundPendingCents: true,
+        venueFeeKeptCents: true,
         items: {
           orderBy: { id: 'asc' },
           select: {
@@ -443,6 +508,7 @@ export async function unpaidVenueBookings(db, options) {
       placedAt: order.createdAt.toISOString(),
       buyerName: platform ? null : (withoutAddresses(order.buyerName ?? '') ?? ''),
       feesCents: order.feesCents ?? 0,
+      feeHeldCents: feeHeldOf(order),
       unpaidTickets: tickets.length,
       unpaidCents: tickets.reduce((sum, ticket) => sum + ticket.dueCents, 0),
       tickets,
@@ -459,6 +525,25 @@ export async function unpaidVenueBookings(db, options) {
     bookings,
     pagination: buildPaginationMeta({ page, perPage, total }),
   }
+}
+
+/**
+ * How much of a booking's fee paid online it still holds: what was charged,
+ * less what refunds took (settled or on their way) and what earlier
+ * cancellations kept. What a cancellation of its unpaid tickets could keep;
+ * 0 once an administrator refunded the fee by hand, although it was paid.
+ *
+ * @param {{feesCents?: number, totalCents?: number, refundedCents?: number, refundPendingCents?: number, venueFeeKeptCents?: number}} order The order.
+ * @returns {number} The cents, never negative.
+ */
+export function feeHeldOf(order) {
+  const left =
+    (order.totalCents ?? 0) -
+    (order.refundedCents ?? 0) -
+    (order.refundPendingCents ?? 0) -
+    (order.venueFeeKeptCents ?? 0)
+
+  return Math.max(0, Math.min(order.feesCents ?? 0, left))
 }
 
 /**
@@ -657,11 +742,29 @@ export async function cancelUnpaidVenueTickets(prisma, options) {
     // 6. Writes. The share of the booking fee kept, counted from what refunds
     // and earlier cancellations already took (none pending: refused above).
     const basisCents = tickets.reduce((sum, ticket) => sum + ticket.venueDueCents, 0)
+    const spoken = await partsSpokenFor(tx, order)
+    // When these are the last tickets the booking has to give back, they keep
+    // what is left of the fee: a refund of the others by name priced them by
+    // position, and a promo code can split a line's door price so that the
+    // two ways disagree by a cent, which would otherwise be stranded.
+    const taking = new Map()
+
+    for (const ticket of tickets) {
+      taking.set(ticket.orderItemId, (taking.get(ticket.orderItemId) ?? 0) + 1)
+    }
+
+    const lastBasis = basisLeftWhenLast({
+      items: await tx.orderItem.findMany({ where: { orderId: order.id } }),
+      taking,
+      orderBasisCents: orderBasis(order),
+      takenBasisCents: spoken.basisCents ?? 0,
+    })
     const { feeKeptCents } = keptShareOf({
       parts: orderParts(order),
-      spoken: await partsSpokenFor(tx, order),
+      spoken,
       orderBasisCents: orderBasis(order),
-      lineBasisCents: basisCents,
+      lineBasisCents: lastBasis ?? basisCents,
+      lastShare: lastBasis !== null,
     })
 
     const cancellation = await tx.venueBookingCancellation.create({
@@ -795,6 +898,7 @@ export async function cancelUnpaidVenueTickets(prisma, options) {
       tickets,
       by,
       reason,
+      onlineFee: onlineFeeOutcomeOf({ order, spoken, feeKeptCents }),
     })
 
     await recordAudit(tx, {
@@ -935,9 +1039,13 @@ async function replayOf(tx, { cancellationId, event, readerKind, now }) {
  * @param {Array<object>} options.tickets The cancelled tickets, as read before the cancellation.
  * @param {'ORGANISER'|'DESI_EVENT'} options.by Who cancelled them.
  * @param {string} options.reason The reason given.
+ * @param {string} options.onlineFee What the buyer is told of the fee paid online ({@link onlineFeeOutcomeOf}).
  * @returns {Promise<number>} How many rows were written.
  */
-async function writeCancellationNotices(tx, { cancellation, order, event, tickets, by, reason }) {
+async function writeCancellationNotices(
+  tx,
+  { cancellation, order, event, tickets, by, reason, onlineFee },
+) {
   const prose = withoutAddresses(reason)
   const common = {
     template: VENUE_BOOKING_CANCELLED_TEMPLATE,
@@ -952,6 +1060,20 @@ async function writeCancellationNotices(tx, { cancellation, order, event, ticket
     },
   })
   let written = 0
+  // The buyer's own tickets and those they passed on, apart (XT7): a ticket
+  // passed on is owed by its holder, so the buyer is told only what they no
+  // longer owe, and how many of the others went with them.
+  const buyerId = order.userId ?? null
+  const theirs = { count: 0, dueCents: 0 }
+  const passedOn = { count: 0, dueCents: 0 }
+
+  for (const ticket of tickets) {
+    const holder = ticket.ownerUserId ?? null
+    const side = !holder || holder === buyerId ? theirs : passedOn
+
+    side.count += 1
+    side.dueCents += ticket.venueDueCents
+  }
 
   if (order.buyerEmail) {
     const created = await tx.notificationOutbox.createMany({
@@ -967,9 +1089,12 @@ async function writeCancellationNotices(tx, { cancellation, order, event, ticket
             eventTitle: event.title,
             recipient: 'BUYER',
             orderReference: order.reference,
-            ticketCount: tickets.length,
-            dueCents: cancellation.basisCents,
+            ticketCount: theirs.count,
+            dueCents: theirs.dueCents,
+            passedOnTickets: passedOn.count,
+            passedOnDueCents: passedOn.dueCents,
             feeKeptCents: cancellation.feeKeptCents,
+            onlineFee,
             currency: order.currency,
             reason: prose,
             by,

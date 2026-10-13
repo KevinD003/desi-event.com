@@ -1257,9 +1257,14 @@ describe('who is told (SPEC3-XI XU11, §9.9)', () => {
       eventTitle: expect.any(String),
       recipient: 'BUYER',
       orderReference: bought.order.reference,
-      ticketCount: 2,
-      dueCents: 2 * PRICE,
+      // Only the buyer's own ticket was owed by the buyer: the one passed on
+      // is named apart, and its holder is told about it (XT7).
+      ticketCount: 1,
+      dueCents: PRICE,
+      passedOnTickets: 1,
+      passedOnDueCents: PRICE,
       feeKeptCents: 2 * FEE,
+      onlineFee: 'KEPT',
       currency: CURRENCY,
       reason: REASON,
       by: 'DESI_EVENT',

@@ -895,6 +895,14 @@ describe('the busy refusal, named by the code the API sends', () => {
       'paymentTerms.setVenuePayment',
       'platformFees.refund',
       'venueBookings.cancel',
+      // The final door review (finding 2): each waits behind a row another
+      // change can hold for its whole budget, and answers a bounded 503.
+      'referralCodes.update',
+      'referralCodes.switchOff',
+      'referralCodes.switchOn',
+      'tickets.revoke',
+      'tickets.checkIn',
+      'tickets.checkInGroup',
     ]) {
       const route = routeById(id)
 

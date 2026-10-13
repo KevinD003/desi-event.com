@@ -2190,6 +2190,12 @@ export const venueBookingsResponseSchema = z.object({
         placedAt: timestampSchema,
         buyerName: addressFree(z.string()).nullable(),
         feesCents: centsSchema,
+        /**
+         * What of the booking fee paid online the booking still holds: what a
+         * cancellation of its unpaid tickets could keep. 0 once it was all
+         * refunded, although `feesCents` was paid.
+         */
+        feeHeldCents: centsSchema,
         unpaidTickets: z.int().min(0),
         unpaidCents: centsSchema,
         tickets: z.array(venueBookingTicketSchema),

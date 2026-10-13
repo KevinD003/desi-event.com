@@ -206,6 +206,15 @@ export function lookupFailure(status) {
 }
 
 /**
+ * What a steward is told when the door was busy (503) and the API sent no
+ * sentence of its own.
+ *
+ * @type {string}
+ */
+export const DOOR_BUSY =
+  'Another change to this booking was being saved at the same moment, so nobody was let in and no payment was recorded. Look it up again in a moment.'
+
+/**
  * What to tell a steward when a confirmation is not answered with a result.
  *
  * A refusal of the payment (`PAYMENT_DUE`, `PAYMENT_AMOUNT_MISMATCH`,
@@ -244,6 +253,16 @@ export function confirmFailure(status, reason = null, refusal = {}) {
       uncertain: false,
       reason: code,
     }
+  }
+
+  // Busy: the confirmation waited as long as the door may behind another
+  // change to the booking or the night, and nothing of it was kept — nobody
+  // let in, no payment recorded. Said in the API's own words, and answered by
+  // looking the ticket up again; never logged as a refusal.
+  if (status === 503) {
+    const said = typeof message === 'string' ? message.trim() : ''
+
+    return { sentence: said || DOOR_BUSY, lookAgain: true, uncertain: false, reason: null }
   }
 
   if (status === 409) {

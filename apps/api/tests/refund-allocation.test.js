@@ -38,6 +38,7 @@ import {
   seatPolicyFor,
   shareBasisOf,
   splitRefund,
+  withdrawalOrder,
 } from '../src/lib/refunds.js'
 
 /**
@@ -1042,5 +1043,23 @@ describe('a booking fee kept when unpaid tickets were cancelled (SPEC3-XI §10.2
     const whole = allocateAcrossLines({ items: KEPT_LINES, amountCents: 0, whole: true })
 
     expect(whole.reduce((sum, row) => sum + row.quantity, 0)).toBe(1)
+  })
+})
+
+describe('withdrawalOrder', () => {
+  it('withdraws the tickets not paid at the door first, each group oldest first', () => {
+    const tickets = [
+      { id: 'a', venuePaymentId: 'pay-1' },
+      { id: 'b', venuePaymentId: null },
+      { id: 'c', venuePaymentId: 'pay-2' },
+      { id: 'd' },
+    ]
+
+    expect(withdrawalOrder(tickets).map((ticket) => ticket.id)).toEqual(['b', 'd', 'a', 'c'])
+    // A card order's tickets carry no door payment: oldest first, as before.
+    expect(withdrawalOrder([{ id: 'x' }, { id: 'y' }]).map((ticket) => ticket.id)).toEqual([
+      'x',
+      'y',
+    ])
   })
 })

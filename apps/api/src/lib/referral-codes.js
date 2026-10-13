@@ -43,9 +43,11 @@ import {
   databaseErrorCode,
   exposedServerError,
   notFound,
+  PAYMENT_TERMS_SENTENCES,
   paymentTermsRefusal,
   unprocessable,
 } from './errors.js'
+import { TRANSACTION_BUDGETS, budgetedTransaction } from './transaction-budget.js'
 
 /** A text no code can have (`referral_code_shape` refuses it): what a malformed entry is looked up as. */
 const NO_SUCH_TEXT = '-'
@@ -176,7 +178,9 @@ export async function evaluateReferral(db, { code, event, actor, now, lock }) {
   let applicable = applies(row, { inScope, actor, now })
 
   if (applicable && lock) {
-    await db.$queryRaw`SELECT "id" FROM "ReferralCode" WHERE "id" = ${row.id} FOR UPDATE`
+    // NO KEY UPDATE: an order's foreign-key check takes this row FOR KEY SHARE
+    // and must never wait on it (SPEC3-XI §2.1); the count still serialises.
+    await db.$queryRaw`SELECT "id" FROM "ReferralCode" WHERE "id" = ${row.id} FOR NO KEY UPDATE`
 
     // Read again under the lock: another checkout, an edit or a switch-off
     // may have committed meanwhile.
@@ -347,8 +351,20 @@ export async function createReferralCode(prisma, { body, actor, now, requestId =
  * @returns {Promise<object>} The row, with its scope rows.
  * @throws {Error} 404 for no such code.
  */
+/**
+ * How long an edit or a switch of a code may wait behind another change to it
+ * (a checkout using it, a refund or cancellation giving a use back), and what
+ * the administrator is told when it waited too long: a 503 with `Retry-After`,
+ * nothing changed (final door review, finding 2).
+ */
+const REFERRAL_CODE_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal: PAYMENT_TERMS_SENTENCES.referralCodeTryAgain,
+})
+
 async function lockedCode(tx, id) {
-  await tx.$queryRaw`SELECT "id" FROM "ReferralCode" WHERE "id" = ${id} FOR UPDATE`
+  // NO KEY UPDATE, like every lock on a row orders reference (SPEC3-XI §2.1).
+  await tx.$queryRaw`SELECT "id" FROM "ReferralCode" WHERE "id" = ${id} FOR NO KEY UPDATE`
 
   const row = await tx.referralCode.findUnique({ where: { id }, include: { events: true } })
 
@@ -380,10 +396,10 @@ function iso(value) {
  * @param {Date} params.now The moment.
  * @param {string|null} [params.requestId] For the audit row.
  * @returns {Promise<object>} The row after the change.
- * @throws {Error} 404; 409 `REFERRAL_CODE_CHANGED`; 422 `REFERRAL_LIMIT_BELOW_USES`, `REFERRAL_EVENT_NOT_ELIGIBLE`, a past expiry, or events named for a code for all events.
+ * @throws {Error} 404; 409 `REFERRAL_CODE_CHANGED`; 422 `REFERRAL_LIMIT_BELOW_USES`, `REFERRAL_EVENT_NOT_ELIGIBLE`, a past expiry, or events named for a code for all events; 503 when it waited too long.
  */
 export function updateReferralCode(prisma, { id, body, actor, now, requestId = null }) {
-  return prisma.$transaction(async (tx) => {
+  return budgetedTransaction(prisma, REFERRAL_CODE_BUDGET, async (tx) => {
     const row = await lockedCode(tx, id)
 
     if (new Date(row.updatedAt).getTime() !== new Date(body.expectedUpdatedAt).getTime()) {
@@ -490,13 +506,13 @@ export function updateReferralCode(prisma, { id, body, actor, now, requestId = n
  * @param {Date} params.now The moment.
  * @param {string|null} [params.requestId] For the audit row.
  * @returns {Promise<object>} The row as it now stands.
- * @throws {Error} 404; 409 `REFERRAL_CODE_EXPIRED`.
+ * @throws {Error} 404; 409 `REFERRAL_CODE_EXPIRED`; 503 when it waited too long.
  */
 export function switchReferralCode(
   prisma,
   { id, active, reason = null, actor, now, requestId = null },
 ) {
-  return prisma.$transaction(async (tx) => {
+  return budgetedTransaction(prisma, REFERRAL_CODE_BUDGET, async (tx) => {
     const row = await lockedCode(tx, id)
 
     if (row.active === active) return row

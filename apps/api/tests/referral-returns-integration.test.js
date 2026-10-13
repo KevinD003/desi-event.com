@@ -1410,6 +1410,166 @@ when()('a referral use given back once, whoever ends the order (SPEC3-XI XR)', (
     },
   )
 
+  // R14–R17 (final door review, finding 1): two transactions ending two
+  // DIFFERENT orders, on two events, that name ONE code. Each writes its order
+  // a second time (the marker, or settleRefund's REFUNDED), so PostgreSQL's
+  // foreign-key re-check of that second write takes the code `FOR KEY SHARE`
+  // before the batch locks it. With the code locked `FOR UPDATE` in step 5 the
+  // two share holders each waited for the other (40P01); `FOR NO KEY UPDATE`
+  // does not conflict with the key share and still serialises the counts.
+  // The barrier is the code row, held until both sides queue behind it.
+
+  it(
+    'R14. the organiser cancels a waived booking’s unpaid tickets on E1 while an administrator cancels another on E2, one code, both arrival orders: no deadlock, two returns',
+    { timeout: 120_000 },
+    async () => {
+      for (const ownerFirst of [true, false]) {
+        const referral = await code()
+        const one = await world(`r14a${ownerFirst ? 'o' : 'a'}`)
+        const two = await world(`r14b${ownerFirst ? 'o' : 'a'}`)
+        // Read after the worlds, so the owner's actor carries their memberships.
+        const organiser = await actorFor(owner)
+        const admin = await actorFor(administrator)
+        const first = await waivedBooking(one, referral, 2)
+        const second = await waivedBooking(two, referral, 2)
+
+        expect(await expectIdentity(referral.id)).toBe(2)
+
+        const byOwner = () => cancelUnpaid(first.order, first.tickets, organiser)
+        const byAdmin = () => cancelUnpaid(second.order, second.tickets, admin)
+        const results = await race(
+          { table: 'ReferralCode', id: referral.id },
+          ...(ownerFirst ? [byOwner, byAdmin] : [byAdmin, byOwner]),
+        )
+
+        expectNoDeadlock(results)
+        expect(results.map((result) => result.status)).toEqual([200, 200])
+        await expectReturnedOnce(first.order.id, 'VENUE_UNPAID_CANCELLED')
+        await expectReturnedOnce(second.order.id, 'VENUE_UNPAID_CANCELLED')
+        expect(await expectIdentity(referral.id)).toBe(0)
+      }
+    },
+  )
+
+  it(
+    'R15. two whole refunds ending two waived card orders on two events, one code, settling at once: no deadlock, two returns',
+    { timeout: 120_000 },
+    async () => {
+      for (const round of [0, 1]) {
+        const referral = await code()
+        const one = await world(`r15a${round}`)
+        const two = await world(`r15b${round}`)
+        const { order: first } = await waivedCard(one, referral)
+        const { order: second } = await waivedCard(two, referral)
+        const readyFirst = await refundReady(first, first.items)
+        const readySecond = await refundReady(second, second.items)
+
+        expect(await expectIdentity(referral.id)).toBe(2)
+
+        const sides = [() => settle(one, first, readyFirst), () => settle(two, second, readySecond)]
+        const results = await race(
+          { table: 'ReferralCode', id: referral.id },
+          ...(round ? sides.reverse() : sides),
+        )
+
+        expectNoDeadlock(results)
+        expect(results.map((result) => result.status)).toEqual([200, 200])
+
+        for (const order of [first, second]) {
+          expect((await prisma.order.findUnique({ where: { id: order.id } })).status).toBe(
+            'REFUNDED',
+          )
+          await expectReturnedOnce(order.id)
+        }
+
+        expect(await expectIdentity(referral.id)).toBe(0)
+      }
+    },
+  )
+
+  it(
+    'R16. a refund ending a waived card order on E1 against the cancellation of a waived booking’s unpaid tickets on E2, one code, both arrival orders: no deadlock, two returns',
+    { timeout: 120_000 },
+    async () => {
+      for (const refundFirst of [true, false]) {
+        const referral = await code()
+        const one = await world(`r16a${refundFirst ? 'r' : 'c'}`)
+        const two = await world(`r16b${refundFirst ? 'r' : 'c'}`)
+        const actor = await actorFor(owner)
+        const { order: card } = await waivedCard(one, referral)
+        const booked = await waivedBooking(two, referral, 2)
+        const ready = await refundReady(card, card.items)
+
+        expect(await expectIdentity(referral.id)).toBe(2)
+
+        const refunding = () => settle(one, card, ready)
+        const cancelling = () => cancelUnpaid(booked.order, booked.tickets, actor)
+        const results = await race(
+          { table: 'ReferralCode', id: referral.id },
+          ...(refundFirst ? [refunding, cancelling] : [cancelling, refunding]),
+        )
+
+        expectNoDeadlock(results)
+        expect(results.map((result) => result.status)).toEqual([200, 200])
+        await expectReturnedOnce(card.id)
+        await expectReturnedOnce(booked.order.id, 'VENUE_UNPAID_CANCELLED')
+        expect(await expectIdentity(referral.id)).toBe(0)
+      }
+    },
+  )
+
+  it(
+    'R17. two zero-total bookings on two events, one code, both left unsettled at once (NOT_COMPLETED): no deadlock, two returns',
+    { timeout: 120_000 },
+    async () => {
+      for (const round of [0, 1]) {
+        const referral = await code()
+        const pending = []
+
+        for (const label of ['a', 'b']) {
+          const place = await world(`r17${label}${round}`)
+
+          pending.push(
+            await prisma.$transaction((tx) =>
+              pendingZeroTotalOrder(tx, {
+                world: place,
+                referralCode: referral,
+                tag: tag('pending'),
+                userId: buyer.id,
+                lines: [{ ticketTypeId: place.tiers[0].id, quantity: 1, unitPriceCents: PRICE }],
+              }),
+            ),
+          )
+        }
+
+        expect(await expectIdentity(referral.id)).toBe(2)
+
+        const unsettled = (order) => () =>
+          prisma.$transaction((tx) =>
+            recordUnsettledCapture(tx, {
+              order,
+              payment: null,
+              result: { outcome: CAPTURE_OUTCOMES.TIMEOUT, rawStatus: 'ZERO_TOTAL' },
+              reason: 'Left unsettled by the referral returns suite.',
+              now: new Date(),
+            }),
+          )
+        const sides = [unsettled(pending[0].order), unsettled(pending[1].order)]
+        const results = await race(
+          { table: 'ReferralCode', id: referral.id },
+          ...(round ? sides.reverse() : sides),
+        )
+
+        expectNoDeadlock(results)
+        expect(results.map((result) => result.status)).toEqual([200, 200])
+
+        for (const { order } of pending) await expectReturnedOnce(order.id, 'NOT_COMPLETED')
+
+        expect(await expectIdentity(referral.id)).toBe(0)
+      }
+    },
+  )
+
   it(
     'R7. every code this file made: its count is the orders naming it with no return marked, never below zero',
     { timeout: 120_000 },

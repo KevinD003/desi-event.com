@@ -52,6 +52,7 @@ import { dayDate } from './traffic.js'
 import { trafficSummary, trafficWindow } from './traffic-report.js'
 import {
   BOOKED_UNPAID_ORDER_WHERE,
+  EVENT_STILL_ON_WHERE,
   PAID_ORDER_WHERE,
   UNPAID_VENUE_TICKET_WHERE,
 } from './venue-payment-filters.js'
@@ -684,7 +685,13 @@ export async function conversionFunnel(prisma, params) {
     // the door and none of its standing tickets still waits for one (SPEC3
     // §9.10); until then it is counted apart, below.
     prisma.order.count({ where: { event: scope, ...PAID_ORDER_WHERE, ...window } }),
-    prisma.order.count({ where: { event: scope, ...BOOKED_UNPAID_ORDER_WHERE, ...window } }),
+    prisma.order.count({
+      where: {
+        ...BOOKED_UNPAID_ORDER_WHERE,
+        event: { ...scope, ...EVENT_STILL_ON_WHERE },
+        ...window,
+      },
+    }),
   ])
 
   return {
@@ -726,7 +733,13 @@ export async function venuePaymentFigures(prisma, params) {
       where: {
         ...UNPAID_VENUE_TICKET_WHERE,
         orderItem: {
-          order: { event: scope, status: 'PAID', paymentMethod: 'AT_VENUE', currency },
+          // A cancelled or deleted event's bookings owe nothing at the door.
+          order: {
+            event: { ...scope, ...EVENT_STILL_ON_WHERE },
+            status: 'PAID',
+            paymentMethod: 'AT_VENUE',
+            currency,
+          },
         },
       },
       select: { venueDueCents: true },

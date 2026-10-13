@@ -67,6 +67,7 @@ const BOOKING = {
   placedAt: '2026-10-10T10:00:00.000Z',
   buyerName: 'Asha Rao',
   feesCents: 729,
+  feeHeldCents: 729,
   unpaidTickets: 3,
   unpaidCents: 13500,
   tickets: [
@@ -270,8 +271,25 @@ describe('what it reads, and what is ticked to start with', () => {
     expect(dialog).toHaveTextContent("This can't be undone.")
   })
 
+  it('never says the fee is kept, nor that nothing was paid, once the fee paid online was refunded', async () => {
+    apiFetch.mockResolvedValueOnce(
+      answer(200, list({ ...BOOKING, feesCents: 729, feeHeldCents: 0 })),
+    )
+    await open()
+
+    const dialog = screen.getByRole('dialog')
+
+    expect(dialog).toHaveTextContent(
+      'Nothing is left of the booking fee paid online for this booking, so nothing is kept or refunded.',
+    )
+    expect(dialog).not.toHaveTextContent(/keeps the booking fee/u)
+    expect(dialog).not.toHaveTextContent(/Nothing was paid online/u)
+  })
+
   it('says nothing was paid online for a booking whose fee was waived', async () => {
-    apiFetch.mockResolvedValueOnce(answer(200, list({ ...BOOKING, feesCents: 0, buyerName: null })))
+    apiFetch.mockResolvedValueOnce(
+      answer(200, list({ ...BOOKING, feesCents: 0, feeHeldCents: 0, buyerName: null })),
+    )
     await open()
 
     const dialog = screen.getByRole('dialog')

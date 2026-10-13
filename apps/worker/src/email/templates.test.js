@@ -335,6 +335,71 @@ describe('unpaid tickets cancelled (SPEC3-XI §9.9)', () => {
     expect(rendered.text).not.toContain('Your other tickets')
   })
 
+  it('never says nothing was paid online when the fee was paid and refunded earlier, or is still held', () => {
+    const say = (onlineFee) =>
+      renderEmail({
+        template: 'venue_booking.cancelled',
+        data: { ...buyer, ticketCount: 2, dueCents: 9000, feeKeptCents: 0, onlineFee },
+      }).text
+
+    expect(say('REFUNDED_EARLIER')).toContain(
+      'The booking fee you paid online was refunded earlier, so none of it is kept for them.',
+    )
+    expect(say('NONE_KEPT')).toContain('None of the booking fee you paid online is kept for them.')
+    expect(say('NONE_PAID')).toContain('Nothing was paid online for them.')
+
+    for (const onlineFee of ['REFUNDED_EARLIER', 'NONE_KEPT']) {
+      expect(say(onlineFee)).not.toContain('Nothing was paid online')
+    }
+  })
+
+  it('tells the buyer only what they no longer owe, apart from the tickets they passed on', () => {
+    const rendered = renderEmail({
+      template: 'venue_booking.cancelled',
+      data: {
+        ...buyer,
+        ticketCount: 1,
+        dueCents: 4500,
+        passedOnTickets: 1,
+        passedOnDueCents: 4500,
+        feeKeptCents: 728,
+        onlineFee: 'KEPT',
+        othersRemain: false,
+      },
+    })
+
+    expect(rendered.text).toContain(
+      'The organiser cancelled 1 ticket on your order DE-3N01 because it was not paid for at the door. You no longer owe USD 45.00 for it.',
+    )
+    expect(rendered.text).toContain('1 ticket you passed on to someone else was cancelled too.')
+    expect(rendered.text).not.toContain('USD 90.00')
+    // The fee was paid for both, so it speaks of both.
+    expect(rendered.text).toContain(
+      'The booking fee you paid online for them, USD 7.28, is kept by Desi-Event and is not refunded.',
+    )
+  })
+
+  it('tells the buyer when only tickets they passed on were cancelled, and never that they owed them', () => {
+    const rendered = renderEmail({
+      template: 'venue_booking.cancelled',
+      data: {
+        ...buyer,
+        ticketCount: 0,
+        dueCents: 0,
+        passedOnTickets: 2,
+        passedOnDueCents: 9000,
+        feeKeptCents: 0,
+        onlineFee: 'NONE_PAID',
+      },
+    })
+
+    expect(rendered.text).toContain(
+      'The organiser cancelled 2 tickets on your order DE-3N01 that you passed on to other people, because they were not paid for at the door.',
+    )
+    expect(rendered.text).not.toContain('You no longer owe')
+    expect(rendered.text).toContain('Nothing was paid online for them.')
+  })
+
   it('tells another holder only about the tickets they hold', () => {
     const rendered = renderEmail({
       template: 'venue_booking.cancelled',
@@ -505,6 +570,12 @@ describe('bookings paid at the venue when the event or a night is called off (SP
     expect(night({ outcome: 'REFUNDED', refunded: true })).not.toContain('refunded in full')
     expect(night({ outcome: 'NOTHING_PAID_ONLINE', refunded: false })).toContain(
       'Your tickets from order DE-4V01 for that night are withdrawn. Nothing was paid online for them.',
+    )
+    // A booking fee refunded earlier was still paid: never "nothing was paid".
+    expect(
+      night({ outcome: 'FEE_REFUNDED_EARLIER', refunded: false, onlineRefund: 'ALREADY_REFUNDED' }),
+    ).toContain(
+      'Your tickets from order DE-4V01 for that night are withdrawn. The booking fee you paid online was refunded earlier.',
     )
     // Free tickets (no ticket price at all) are still told they were free.
     expect(night({ outcome: 'FREE', refunded: false })).toContain(

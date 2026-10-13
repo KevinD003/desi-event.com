@@ -103,16 +103,20 @@ export const REFERRAL_QUOTE_REASONS = Object.freeze(['NOT_ACCEPTED', 'NOTHING_TO
 
 /**
  * What a pay-at-the-venue order's buyer-facing state reads from
- * (`venuePaymentStateOf`), by precedence: the buyer's own tickets still to pay;
- * some paid at the door (by the buyer or by people they passed tickets to);
- * tickets passed on and still owing; tickets cancelled unpaid; nothing (and
- * always nothing for a card order). SPEC3-XI §4.6.
+ * (`venuePaymentStateOf`), by precedence: the booking ended with nothing left
+ * to pay at the door, because its event was cancelled or deleted; the buyer's
+ * own tickets still to pay; some paid at the door (by the buyer or by people
+ * they passed tickets to); tickets passed on and still owing; tickets
+ * cancelled unpaid; the booking ended because none of its tickets stands any
+ * more (its night was cancelled, or they were withdrawn); nothing (and always
+ * nothing for a card order). SPEC3-XI §4.6.
  */
 export const VENUE_PAYMENT_STATES = Object.freeze([
   'TO_PAY',
   'PAID',
   'PASSED_ON',
   'CANCELLED',
+  'ENDED',
   'NONE',
 ])
 
@@ -638,6 +642,14 @@ export const orderVenueCancellationSchema = z.object({
   byName: z.string().nullable().optional(),
   ticketCount: z.int().min(1).max(VENUE_CANCEL_LIMITS.maxTickets),
   basisCents: centsSchema,
+  /**
+   * Of `ticketCount` and `basisCents`, the tickets the buyer had passed on to
+   * other people, and their door price: owed by their holders, not by the
+   * buyer (XT7). The order page tells the buyer only the rest is no longer
+   * owed by them.
+   */
+  passedOnTickets: z.int().min(0).max(VENUE_CANCEL_LIMITS.maxTickets),
+  passedOnBasisCents: centsSchema,
   feeKeptCents: centsSchema,
   reason: z.string(),
 })

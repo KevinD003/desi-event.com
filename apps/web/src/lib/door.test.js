@@ -12,6 +12,7 @@ import {
   atVenueSentences,
   authorityLabel,
   bookingOwesSentence,
+  DOOR_BUSY,
   confirmFailure,
   doorEventLabel,
   groupLookupSentence,
@@ -271,6 +272,24 @@ describe('money at the door (SPEC3 §12.8, SPEC3-XI §12.8)', () => {
     expect(confirmFailure(409, null, { code: 'PAYMENT_DUE' }).sentence).toMatch(
       /before letting it in/u,
     )
+  })
+
+  it('says a busy door (503) in the API’s own words, as nothing recorded, and offers a fresh lookup rather than a refusal', () => {
+    const sentence =
+      'Another change to this booking or night was being saved at the same moment, so nobody was let in and no payment was recorded. Look the ticket up again in a moment.'
+
+    for (const payment of [true, false]) {
+      expect(
+        confirmFailure(503, null, { code: 'SERVICE_UNAVAILABLE', message: sentence, payment }),
+      ).toEqual({ sentence, lookAgain: true, uncertain: false, reason: null })
+    }
+
+    // No sentence arrived: still nothing recorded, never "the lookup failed".
+    const told = confirmFailure(503, null, { code: 'SERVICE_UNAVAILABLE' })
+
+    expect(told.sentence).toBe(DOOR_BUSY)
+    expect(told.sentence).toMatch(/no payment was recorded/u)
+    expect(told.lookAgain).toBe(true)
   })
 
   it('keeps the refused admission’s reason, so the card can name it', () => {

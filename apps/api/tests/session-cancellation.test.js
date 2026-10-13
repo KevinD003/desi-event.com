@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { nightFor } from '../src/lib/admission.js'
+import {
+  atVenueNothingLeftOutcome,
+  nothingRefundedOutcome,
+} from '../src/lib/session-cancellation.js'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { addRows, makeWorld, minutesFromNow, threeNightEventFixture } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
@@ -990,5 +994,47 @@ describe('the lock law and the referral uses (SPEC3-XI §2.3.1, XR4)', () => {
     expect(notice.payload).toMatchObject({ outcome: 'NOTHING_PAID_ONLINE', atVenue: true })
 
     await app.close()
+  })
+})
+
+describe('a night withdrawn with nothing refunded: what a booking paid at the venue is told (codes review)', () => {
+  /**
+   * A pay-at-the-venue booking of two $40 tickets with a $6.70 fee.
+   *
+   * @param {object} [overrides] Columns to change.
+   * @returns {object} The order.
+   */
+  function booked(overrides = {}) {
+    return {
+      paymentMethod: 'AT_VENUE',
+      subtotalCents: 8_000,
+      discountCents: 0,
+      totalCents: 670,
+      refundedCents: 0,
+      refundPendingCents: 0,
+      venueFeeKeptCents: 0,
+      ...overrides,
+    }
+  }
+
+  it('says nothing was paid online only for a booking that paid nothing online', () => {
+    expect(nothingRefundedOutcome(booked({ totalCents: 0 }))).toBe('NOTHING_PAID_ONLINE')
+    expect(atVenueNothingLeftOutcome(booked({ totalCents: 0 }))).toBe('NOTHING_PAID_ONLINE')
+  })
+
+  it('says the fee was refunded earlier when an administrator refunded all of it by hand', () => {
+    expect(nothingRefundedOutcome(booked({ refundedCents: 670 }))).toBe('FEE_REFUNDED_EARLIER')
+  })
+
+  it('says only that nothing is left to refund when part of the fee was kept, or is held for other tickets', () => {
+    expect(nothingRefundedOutcome(booked({ refundedCents: 335, venueFeeKeptCents: 335 }))).toBe(
+      'NOTHING_OWED',
+    )
+    expect(atVenueNothingLeftOutcome(booked())).toBe('NOTHING_OWED')
+  })
+
+  it('keeps free tickets and card orders as they were', () => {
+    expect(nothingRefundedOutcome(booked({ subtotalCents: 0, totalCents: 0 }))).toBe('FREE')
+    expect(nothingRefundedOutcome(booked({ paymentMethod: 'CARD' }))).toBe('NOTHING_OWED')
   })
 })

@@ -29,8 +29,10 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest'
 
 import { buildApp } from '../src/app.js'
 import { CAPTURE_OUTCOMES, settleCheckout } from '../src/lib/checkout.js'
+import { OUT_OF_TIME_RETRY_AFTER_SECONDS, PAYMENT_TERMS_SENTENCES } from '../src/lib/errors.js'
 import { settleReferralUsesIfEnded } from '../src/lib/referral-uses.js'
 import { startSession } from '../src/lib/sessions.js'
+import { LOCK_WAIT_MS } from '../src/lib/transaction-budget.js'
 import { testEnv } from './helpers/app.js'
 import { connectTestDatabase } from './helpers/database.js'
 import { createFeeEvent, pendingZeroTotalOrder, referralCodeFixture } from './helpers/fee-orders.js'
@@ -886,3 +888,109 @@ when()('settlement takes its tiers before its order (SPEC3-XI §2.3.3)', () => {
     }
   })
 })
+
+when()(
+  'an edit or a switch of a code that cannot wait behind another change to it (final door review, finding 2)',
+  () => {
+    it(
+      'answers 503 with its own sentence and Retry-After after its lock wait, while the code is still held, and changes nothing',
+      { timeout: 90_000 },
+      async () => {
+        const { row } = await referralCodeFixture(prisma, {
+          createdById: admin.user.id,
+          maxUses: 5,
+        })
+        const { row: off } = await referralCodeFixture(prisma, {
+          createdById: admin.user.id,
+          active: false,
+        })
+
+        const holders = []
+        let answers = null
+        const started = Date.now()
+
+        // Held from outside for longer than any of them may wait: a checkout or
+        // a returner would let go within moments; this one does not.
+        for (const codeId of [row.id, off.id]) {
+          let open
+          const gate = new Promise((resolve) => {
+            open = resolve
+          })
+          let ready
+          const locked = new Promise((resolve) => {
+            ready = resolve
+          })
+          const done = prisma.$transaction(
+            async (tx) => {
+              await tx.$queryRaw`SELECT "id" FROM "ReferralCode" WHERE "id" = ${codeId} FOR UPDATE`
+              ready()
+              await gate
+            },
+            { timeout: 60_000, maxWait: 10_000 },
+          )
+
+          await locked
+          holders.push({ open, done })
+        }
+
+        try {
+          const timed = (request) =>
+            request.then((response) => ({ response, ms: Date.now() - started }))
+
+          answers = await Promise.race([
+            Promise.all([
+              timed(
+                app.inject({
+                  method: 'POST',
+                  url: `/v1/platform/referral-codes/${row.id}/switch-off`,
+                  headers: admin.headers,
+                  payload: {},
+                }),
+              ),
+              timed(
+                app.inject({
+                  method: 'PATCH',
+                  url: `/v1/platform/referral-codes/${row.id}`,
+                  headers: admin.headers,
+                  payload: { maxUses: 9, expectedUpdatedAt: row.updatedAt.toISOString() },
+                }),
+              ),
+              timed(
+                app.inject({
+                  method: 'POST',
+                  url: `/v1/platform/referral-codes/${off.id}/switch-on`,
+                  headers: admin.headers,
+                }),
+              ),
+            ]),
+            new Promise((resolve) => {
+              setTimeout(() => resolve(null), LOCK_WAIT_MS + 25_000)
+            }),
+          ])
+        } finally {
+          for (const holder of holders) holder.open()
+          await Promise.all(holders.map((holder) => holder.done))
+        }
+
+        expect(answers, 'they were still waiting on the codes').not.toBeNull()
+
+        for (const { response, ms } of answers) {
+          expect(response.statusCode, response.body).toBe(503)
+          expect(ms).toBeGreaterThanOrEqual(LOCK_WAIT_MS - 250)
+          expect(response.headers['retry-after']).toBe(String(OUT_OF_TIME_RETRY_AFTER_SECONDS))
+          expect(response.json().error).toMatchObject({
+            code: 'SERVICE_UNAVAILABLE',
+            message: PAYMENT_TERMS_SENTENCES.referralCodeTryAgain,
+          })
+          expect(response.body).not.toMatch(/P20\d\d|55P03|57014|lock timeout|expired transaction/)
+        }
+
+        expect(await prisma.referralCode.findUnique({ where: { id: row.id } })).toMatchObject({
+          active: true,
+          maxUses: 5,
+        })
+        expect((await prisma.referralCode.findUnique({ where: { id: off.id } })).active).toBe(false)
+      },
+    )
+  },
+)

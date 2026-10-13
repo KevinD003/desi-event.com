@@ -245,7 +245,7 @@ fresh quote, shows the new total and asks the buyer to pay again with a new
 attempt key.
 
 **A promo code is locked before it is counted.** Rows are locked in one order —
-ticket types, then event sessions, then the promo code (`SELECT … FOR UPDATE`) —
+ticket types, then event sessions, then the promo code (`SELECT … FOR NO KEY UPDATE`) —
 and the code is read again under its lock, so two checkouts racing for the last
 use of a capped code cannot both take it. The database is the backstop: the
 `promo_code_redemptions_within_cap` CHECK refuses a `redemptionCount` above

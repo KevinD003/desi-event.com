@@ -247,6 +247,7 @@ function nightOutcomeLine(data) {
     UNPAID: `${orderPhrase(data, true)} was not paid, so it is cancelled and nothing is charged.`,
     NOT_SENT: `Your tickets from ${order} for that night are withdrawn. Their refund was not sent automatically, so contact the organiser about it.`,
     NOTHING_PAID_ONLINE: `Your tickets from ${order} for that night are withdrawn. Nothing was paid online for them.`,
+    FEE_REFUNDED_EARLIER: `Your tickets from ${order} for that night are withdrawn. The booking fee you paid online was refunded earlier.`,
   }
 
   if (typeof data?.outcome === 'string' && Object.hasOwn(lines, data.outcome)) {
@@ -375,40 +376,112 @@ function holderDoorLines(data, night) {
  * @returns {string[]} The body lines.
  */
 function venueCancellationLines(data) {
-  const count = Number.isInteger(data?.ticketCount) && data.ticketCount > 0 ? data.ticketCount : 1
-  const several = count > 1
-  const them = several ? 'them' : 'it'
-  const theyWere = several ? 'they were' : 'it was'
-  const tickets = `${count} ${several ? 'tickets' : 'ticket'}`
   const currency = field(data, 'currency', 'INR')
-  const due = formatCents(data?.dueCents, currency) ?? 'the price'
   const by = data?.by === 'DESI_EVENT' ? 'The Desi-Event team' : 'The organiser'
   const reason = field(data, 'reason', '')
   const reasonLine = reason === '' ? '' : `Reason given: ${reason}`
 
   if (data?.recipient === 'HOLDER') {
+    const count = Number.isInteger(data?.ticketCount) && data.ticketCount > 0 ? data.ticketCount : 1
+    const words = ticketWords(count)
+    const due = formatCents(data?.dueCents, currency) ?? 'the price'
+
     return [
       'Hello,',
-      `${by} cancelled ${tickets} you hold for ${field(data, 'eventTitle', 'your event')} because ${theyWere} not paid for at the door. You no longer owe ${due} for ${them}.`,
+      `${by} cancelled ${words.tickets} you hold for ${field(data, 'eventTitle', 'your event')} because ${words.theyWere} not paid for at the door. You no longer owe ${due} for ${words.them}.`,
       reasonLine,
     ]
   }
 
   const reference = field(data, 'orderReference', '')
+  const onOrder = `on your order${reference === '' ? '' : ` ${reference}`}`
+  // The buyer's own tickets apart from those they passed on (SPEC3-XI XT7):
+  // only their own were owed by them. A notice queued before the split carried
+  // every cancelled ticket as the buyer's.
+  const passedOn =
+    Number.isInteger(data?.passedOnTickets) && data.passedOnTickets > 0 ? data.passedOnTickets : 0
+  const counted =
+    Number.isInteger(data?.ticketCount) && data.ticketCount >= 0 ? data.ticketCount : 1
+  const own = counted + passedOn > 0 ? counted : 1
+  const ownWords = ticketWords(own)
+  const passedWords = ticketWords(passedOn)
+  const all = ticketWords(own + passedOn)
+  const due = formatCents(data?.dueCents, currency) ?? 'the price'
+  const toOthers = passedOn === 1 ? 'someone else' : 'other people'
+  const lines = ['Hello,']
+
+  if (own > 0) {
+    lines.push(
+      `${by} cancelled ${ownWords.tickets} ${onOrder} because ${ownWords.theyWere} not paid for at the door. You no longer owe ${due} for ${ownWords.them}.`,
+    )
+
+    if (passedOn > 0) {
+      lines.push(
+        `${passedWords.tickets} you passed on to ${toOthers} ${passedOn === 1 ? 'was' : 'were'} cancelled too.`,
+      )
+    }
+  } else {
+    lines.push(
+      `${by} cancelled ${passedWords.tickets} ${onOrder} that you passed on to ${toOthers}, because ${passedWords.theyWere} not paid for at the door.`,
+    )
+  }
+
+  lines.push(onlineFeeLine(data, currency, all.them), reasonLine)
+  lines.push(
+    data?.othersRemain === true ? 'Your other tickets on this order are not affected.' : '',
+  )
+
+  return lines
+}
+
+/**
+ * "1 ticket" / "2 tickets", and the words that go with one or several.
+ *
+ * @param {number} count How many.
+ * @returns {{tickets: string, them: string, theyWere: string}} The words.
+ */
+function ticketWords(count) {
+  const several = count !== 1
+
+  return {
+    tickets: `${count} ${several ? 'tickets' : 'ticket'}`,
+    them: several ? 'them' : 'it',
+    theyWere: several ? 'they were' : 'it was',
+  }
+}
+
+/**
+ * What a buyer's notice of unpaid tickets cancelled says about the booking fee
+ * paid online (SPEC3-XI §9.9, `onlineFee`): kept for them, nothing paid online,
+ * refunded earlier, or none of it kept for them. Whether anything was paid
+ * online is never read from what was kept: a fee refunded by hand keeps
+ * nothing, and was still paid. A notice queued without `onlineFee` says what
+ * it said before.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @param {string} currency The currency.
+ * @param {string} them "it" or "them", for every cancelled ticket.
+ * @returns {string} The line.
+ */
+function onlineFeeLine(data, currency, them) {
   const feeKept =
     Number.isInteger(data?.feeKeptCents) && data.feeKeptCents > 0
       ? formatCents(data.feeKeptCents, currency)
       : null
 
-  return [
-    'Hello,',
-    `${by} cancelled ${tickets} on your order${reference === '' ? '' : ` ${reference}`} because ${theyWere} not paid for at the door. You no longer owe ${due} for ${them}.`,
-    feeKept === null
-      ? `Nothing was paid online for ${them}.`
-      : `The booking fee you paid online for ${them}, ${feeKept}, is kept by Desi-Event and is not refunded.`,
-    reasonLine,
-    data?.othersRemain === true ? 'Your other tickets on this order are not affected.' : '',
-  ]
+  if (feeKept !== null) {
+    return `The booking fee you paid online for ${them}, ${feeKept}, is kept by Desi-Event and is not refunded.`
+  }
+
+  if (data?.onlineFee === 'REFUNDED_EARLIER') {
+    return `The booking fee you paid online was refunded earlier, so none of it is kept for ${them}.`
+  }
+
+  if (data?.onlineFee === 'NONE_KEPT') {
+    return `None of the booking fee you paid online is kept for ${them}.`
+  }
+
+  return `Nothing was paid online for ${them}.`
 }
 
 /**

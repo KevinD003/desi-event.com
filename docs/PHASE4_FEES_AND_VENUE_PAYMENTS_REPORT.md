@@ -128,7 +128,9 @@ promo code.
   the organisation's owners, administrators and finance members) lists every
   payment taken at the door, every booking still unpaid, and every unpaid
   ticket cancelled. It is the organiser's own count: Desi-Event does not hold
-  that money.
+  that money. **A cancelled or deleted event owes nothing at the door**: its
+  bookings are not counted as unpaid there or in the analytics, and the
+  buyer's order reads "Cancelled — nothing to pay".
 - **Unpaid tickets** can be cancelled by the organiser (an owner or
   administrator of their team) or a Desi-Event administrator, at any time while
   the event is live and until the ticket's night is over (for an event with no
@@ -304,6 +306,15 @@ which a test holds to the page.
   places later nights could book, until an administrator raises the limit. The
   alternative is to leave tickets of nights that are over out of the count.
 
+- **K. A refund of some tickets of a booking to pay at the venue takes the
+  unpaid ones first.** A ticket good for every night is still valid after it
+  was paid for at the door and let in on the first night. When the organiser
+  refunds some of a booking's tickets, the tickets not yet paid at the door
+  are withdrawn first; a ticket already paid for is withdrawn only when the
+  refund asks for more tickets than are unpaid, and then the buyer is told the
+  money they paid at the door is with the organiser. The alternative is to
+  refuse a refund that would withdraw a ticket already paid at the door.
+
 ## What needs your accounts or your machines
 
 - **Real payments:** your own Stripe account, with its Connect onboarding and
@@ -391,3 +402,26 @@ The changes made afterwards, by the reviews of the guards and of these
 documents on 13 October, were checked with the suites and checks they touch —
 the full API and web suites among them — not by a second full run of the
 verify job.
+
+The final review of the door, the locks and concurrency found two more things,
+both fixed. Two changes ending different orders, on different events, that
+used the same referral code could block each other until the database stopped
+one of them: a refund being recorded after the payment provider had already
+paid it, for example, was then left to reconciliation. The code is now locked
+in a way those changes do not trip over (ADR 0017 §9), and four new races prove
+it. And editing or switching a referral code, revoking a ticket, and the door
+now each wait a bounded time behind another change — the door at most a few
+seconds — and say plainly that nothing was done and to try again.
+
+The final review of the codes, authority, privacy and copy found two things a
+buyer or an organiser was told wrongly about money; both are fixed. When a
+Desi-Event administrator had already refunded a booking's fee by hand,
+cancelling its unpaid tickets, or its night, told the buyer "Nothing was paid
+online", and the cancel dialog said Desi-Event keeps the fee. The buyer is now
+told the fee was refunded earlier (or that none of it is kept for those
+tickets), "Nothing was paid online" is said only when nothing was, and the
+dialog reads what of the fee the booking still holds. And when some of the
+cancelled tickets had been passed on to other people, the buyer was told they
+no longer owe those tickets' price too; the buyer is now told only what they
+no longer owe for their own tickets, and the ones they passed on are named
+apart (their holders are told separately, as before).

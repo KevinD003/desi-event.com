@@ -126,17 +126,38 @@ export const TICKET_STATUS_WORDS = Object.freeze({
 /** The states in which a ticket that owes its price can still be paid for at the door. */
 const OWING_STATUSES = new Set(['VALID', 'TRANSFER_PENDING'])
 
+/** Event statuses under which nothing is owed at the door: the event will not happen. */
+const CALLED_OFF_EVENT_STATUSES = new Set(['CANCELLED', 'DELETED'])
+
+/**
+ * Whether the ticket's event was cancelled or deleted. A booking to pay at the
+ * venue whose online part was waived or kept keeps its tickets VALID when its
+ * event is cancelled, and they owe nobody anything.
+ *
+ * @param {object} ticket A ticket with its `event`.
+ * @returns {boolean} True when the event will not happen.
+ */
+function eventCalledOff(ticket) {
+  return CALLED_OFF_EVENT_STATUSES.has(ticket?.event?.status)
+}
+
 /**
  * Whether a ticket still owes its price at the door: booked to pay there, not
- * paid, not cancelled, and still one that admits.
+ * paid, not cancelled, still one that admits, and for an event still on.
  *
- * @param {object} ticket A ticket with `status` and `venuePayment`.
+ * @param {object} ticket A ticket with `status`, `venuePayment` and its `event`.
  * @returns {boolean} True when its holder pays at the door.
  */
 export function owesAtDoor(ticket) {
   const venue = ticket?.venuePayment ?? null
 
-  return Boolean(venue) && !venue.paid && !venue.cancelled && OWING_STATUSES.has(ticket.status)
+  return (
+    Boolean(venue) &&
+    !venue.paid &&
+    !venue.cancelled &&
+    OWING_STATUSES.has(ticket.status) &&
+    !eventCalledOff(ticket)
+  )
 }
 
 /**
@@ -152,6 +173,10 @@ export function venuePaymentChip(ticket) {
 
   if (!venue) return null
   if (venue.cancelled) return { label: 'Cancelled — not paid', tone: 'neutral' }
+
+  if (!venue.paid && OWING_STATUSES.has(ticket.status) && eventCalledOff(ticket)) {
+    return { label: 'Event cancelled — nothing to pay', tone: 'neutral' }
+  }
 
   if (owesAtDoor(ticket)) {
     return {
@@ -222,7 +247,15 @@ export function venuePaymentNotes(ticket, timeZone = ticket?.event?.timezone || 
   if (owesAtDoor(ticket))
     return ['Pay this at the door. The steward records it before letting you in.']
 
-  if (venue.paid && venue.paidAtDoorByYou && ENDED_STATUSES.has(ticket.status)) {
+  if (!venue.paid && OWING_STATUSES.has(ticket.status) && eventCalledOff(ticket)) {
+    return [`This event was cancelled, so you no longer owe ${due} for this ticket at the door.`]
+  }
+
+  if (
+    venue.paid &&
+    venue.paidAtDoorByYou &&
+    (ENDED_STATUSES.has(ticket.status) || eventCalledOff(ticket))
+  ) {
     return [
       `The ${due} you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
     ]

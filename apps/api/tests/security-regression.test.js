@@ -4268,7 +4268,7 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
       'OrderItem KEY SHARE',
       'Ticket UPDATE',
     ],
-    'apps/api/src/lib/checkout-pricing.js': ['PromoCode UPDATE'],
+    'apps/api/src/lib/checkout-pricing.js': ['PromoCode NO KEY UPDATE'],
     'apps/api/src/lib/event-authoring.js': ['EventSession UPDATE'],
     'apps/api/src/lib/event-authority.js': ['EventPlatformEdit SHARE'],
     'apps/api/src/lib/event-cancellation.js': ['Order UPDATE', 'Order UPDATE'],
@@ -4289,8 +4289,11 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
       'Membership UPDATE',
     ],
     'apps/api/src/lib/payment-terms.js': ['Event NO KEY UPDATE'],
-    'apps/api/src/lib/referral-codes.js': ['ReferralCode UPDATE', 'ReferralCode UPDATE'],
-    'apps/api/src/lib/referral-uses.js': ['Order UPDATE', 'ReferralCode UPDATE'],
+    'apps/api/src/lib/referral-codes.js': [
+      'ReferralCode NO KEY UPDATE',
+      'ReferralCode NO KEY UPDATE',
+    ],
+    'apps/api/src/lib/referral-uses.js': ['Order UPDATE', 'ReferralCode NO KEY UPDATE'],
     'apps/api/src/lib/refunds.js': [
       'Order UPDATE',
       'Order UPDATE',
@@ -4393,6 +4396,19 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
 
     expect(unbound).toEqual([])
     expect(locks).toEqual(RAW_ROW_LOCKS)
+
+    // A code an order names is never locked FOR UPDATE (final door review,
+    // finding 1): an order written twice in one transaction holds its codes
+    // FOR KEY SHARE through PostgreSQL's foreign-key re-check, so a returner's
+    // FOR UPDATE on the code waited on another returner's key share while that
+    // one waited on its own (40P01). NO KEY UPDATE ignores key shares.
+    expect(
+      Object.entries(locks).flatMap(([file, taken]) =>
+        taken
+          .filter((lock) => /^(?:ReferralCode|PromoCode) UPDATE$/u.test(lock))
+          .map((lock) => `${file}: ${lock}`),
+      ),
+    ).toEqual([])
     expect(writes).toEqual(RAW_WRITES)
     expect(other).toEqual(RAW_OTHER)
 
@@ -4940,7 +4956,10 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
         'orderReference',
         'ticketCount',
         'dueCents',
+        'passedOnTickets',
+        'passedOnDueCents',
         'feeKeptCents',
+        'onlineFee',
         'currency',
         'reason',
         'by',
@@ -5063,7 +5082,10 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
           'orderReference',
           'ticketCount',
           'dueCents',
+          'passedOnTickets',
+          'passedOnDueCents',
           'feeKeptCents',
+          'onlineFee',
           'currency',
           'reason',
           'by',

@@ -82,8 +82,20 @@ import {
 } from '../lib/tickets.js'
 import { confirmAdmission, listAdmissionEvents, previewAdmission } from '../lib/admission.js'
 import { settleReferralUsesIfEnded } from '../lib/referral-uses.js'
+import { TRANSACTION_BUDGETS, budgetedTransaction } from '../lib/transaction-budget.js'
 import { confirmGroupAdmission, previewGroupAdmission } from '../lib/group-admission.js'
 import { defineRoute } from '../lib/register.js'
+
+/**
+ * How long revoking a ticket may wait behind another change to its order, and
+ * what the organiser is told when it waited too long: a 503 with
+ * `Retry-After`, the ticket still valid.
+ */
+const REVOKE_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Another change to this ticket’s order was being saved at the same moment, so the ticket was not revoked. Try again in a moment.',
+})
 
 /**
  * A ticket's cancellation unpaid, as its holder is told it: when, by whom and
@@ -789,7 +801,10 @@ export function registerTicketRoutes(
       })
 
       const orderId = ticket.orderItem.order.id
-      const revoked = await prisma.$transaction(async (tx) => {
+      // Bounded: the order's row can be held by a night's cancellation or a
+      // deletion for their whole budget, and the organiser is told within
+      // the wait that nothing was revoked (final door review, finding 2).
+      const revoked = await budgetedTransaction(prisma, REVOKE_BUDGET, async (tx) => {
         // The order first, then the ticket (SPEC3-XI §2.3.5): every other
         // writer of an order and its tickets takes them in that order, and
         // the referral use below is decided under this lock.

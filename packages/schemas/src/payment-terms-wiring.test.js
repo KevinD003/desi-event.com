@@ -269,6 +269,8 @@ describe('orders, tickets and refunds', () => {
       by: 'DESI_EVENT',
       ticketCount: 1,
       basisCents: 4500,
+      passedOnTickets: 0,
+      passedOnBasisCents: 0,
       feeKeptCents: 364,
       reason: 'Not paid before the doors opened.',
     }
@@ -287,6 +289,13 @@ describe('orders, tickets and refunds', () => {
     expect(
       orderSchema.safeParse({ ...order, venueCancellations: [{ ...cancellation, ticketCount: 0 }] })
         .success,
+    ).toBe(false)
+    // The tickets the buyer passed on are always said apart (XT7).
+    expect(
+      orderSchema.safeParse({
+        ...order,
+        venueCancellations: [{ ...cancellation, passedOnTickets: undefined }],
+      }).success,
     ).toBe(false)
   })
 
@@ -962,6 +971,7 @@ describe('unpaid pay-at-the-venue bookings (SPEC3-XI §11.2)', () => {
         placedAt: NOW,
         buyerName: null,
         feesCents: 729,
+        feeHeldCents: 729,
         unpaidTickets: 2,
         unpaidCents: 9000,
         tickets: [ticket, { ...ticket, ticketId: id(3), label: 'Ticket 2 of 2' }],
@@ -972,6 +982,12 @@ describe('unpaid pay-at-the-venue bookings (SPEC3-XI §11.2)', () => {
 
   it('lists bookings with their tickets, names left out for a platform reader', () => {
     expect(venueBookingsResponseSchema.safeParse({ data: list }).success).toBe(true)
+    // What of the fee the booking still holds is always said, apart from what it paid.
+    expect(
+      venueBookingsResponseSchema.safeParse({
+        data: { ...list, bookings: [{ ...list.bookings[0], feeHeldCents: undefined }] },
+      }).success,
+    ).toBe(false)
     // The event's zone travels with the list, so its dates read as the event keeps time.
     expect(
       venueBookingsResponseSchema.safeParse({ data: { ...list, timezone: undefined } }).success,

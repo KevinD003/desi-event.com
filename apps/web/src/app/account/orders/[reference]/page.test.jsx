@@ -40,6 +40,7 @@ const { readSession } = await import('../../../../lib/session.js')
 const {
   default: OrderPage,
   venueCancellationSentences,
+  venueEndedSentences,
   venueEndingSentences,
 } = await import('./page.jsx')
 
@@ -1251,6 +1252,35 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
     expect(screen.getByText('Cancelled — not paid at the door')).toBeInTheDocument()
   })
 
+  it('reads what the order paid online, so a fee refunded earlier is never called nothing paid', async () => {
+    getMyOrder.mockResolvedValue(
+      atVenue(
+        { state: 'CANCELLED', cancelledTickets: 2, cancelledCents: 8_000, feeKeptCents: 0 },
+        {
+          venueCancellations: [
+            {
+              at: '2026-10-08T15:00:00.000Z',
+              by: 'ORGANISER',
+              ticketCount: 2,
+              basisCents: 8_000,
+              passedOnTickets: 0,
+              passedOnBasisCents: 0,
+              feeKeptCents: 0,
+              reason: 'Not paid by the deadline we set.',
+            },
+          ],
+        },
+      ),
+    )
+
+    await renderPage()
+
+    const block = screen.getByRole('heading', { name: 'Unpaid tickets cancelled' }).parentElement
+
+    expect(block).toHaveTextContent('None of the booking fee you paid online is kept for them.')
+    expect(block).not.toHaveTextContent(/Nothing was paid online/u)
+  })
+
   it('writes a cancellation by the Desi-Event team of one ticket with nothing paid online', () => {
     expect(
       venueCancellationSentences(
@@ -1270,6 +1300,76 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
       'Nothing was paid online for it.',
       'Reason given: “Duplicate booking.”',
     ])
+  })
+
+  it('never says nothing was paid online for a booking that paid its fee online and kept none of it', () => {
+    const sentences = venueCancellationSentences(
+      {
+        at: '2026-10-08T15:00:00.000Z',
+        by: 'ORGANISER',
+        ticketCount: 2,
+        basisCents: 8_000,
+        passedOnTickets: 0,
+        passedOnBasisCents: 0,
+        feeKeptCents: 0,
+        reason: 'Not paid by the deadline we set.',
+      },
+      'USD',
+      'UTC',
+      { paidOnlineCents: 670 },
+    )
+
+    expect(sentences).toContain('None of the booking fee you paid online is kept for them.')
+    expect(sentences.join(' ')).not.toContain('Nothing was paid online')
+  })
+
+  it('tells the buyer only what they no longer owe, apart from the tickets they passed on', () => {
+    expect(
+      venueCancellationSentences(
+        {
+          at: '2026-10-08T15:00:00.000Z',
+          by: 'ORGANISER',
+          ticketCount: 2,
+          basisCents: 8_000,
+          passedOnTickets: 1,
+          passedOnBasisCents: 4_000,
+          feeKeptCents: 662,
+          reason: 'Not paid by the deadline we set.',
+        },
+        'USD',
+        'UTC',
+        { paidOnlineCents: 662 },
+      ),
+    ).toEqual([
+      'The organiser cancelled 1 ticket on Thu, Oct 8, 2026 because it was not paid for. You no longer owe $40.00 for it.',
+      '1 ticket you passed on to someone else was cancelled too.',
+      'The booking fee paid for them online, $6.62, is kept by Desi-Event and is not refunded.',
+      'Reason given: “Not paid by the deadline we set.”',
+    ])
+  })
+
+  it('names tickets passed on, and nothing owed by the buyer, when only those were cancelled', () => {
+    const sentences = venueCancellationSentences(
+      {
+        at: '2026-10-08T15:00:00.000Z',
+        by: 'DESI_EVENT',
+        ticketCount: 2,
+        basisCents: 8_000,
+        passedOnTickets: 2,
+        passedOnBasisCents: 8_000,
+        feeKeptCents: 0,
+        reason: 'Duplicate booking.',
+      },
+      'USD',
+      'UTC',
+      { paidOnlineCents: 0 },
+    )
+
+    expect(sentences[0]).toBe(
+      'The Desi-Event team cancelled 2 tickets you passed on to other people on Thu, Oct 8, 2026 because they were not paid for.',
+    )
+    expect(sentences.join(' ')).not.toContain('You no longer owe')
+    expect(sentences).toContain('Nothing was paid online for them.')
   })
 
   it('says how a refunded booking ended, and where door money went', async () => {
@@ -1299,6 +1399,41 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
 
     expect(screen.getByText('Booking fee refunded — simulated')).toBeInTheDocument()
     expect(screen.queryByText(/This order was refunded in full/u)).toBeNull()
+  })
+
+  it('reads a booking whose event was cancelled as ended with nothing to pay, never as owing', async () => {
+    getMyOrder.mockResolvedValue(
+      atVenue(
+        { state: 'ENDED', unpaidTickets: 0, unpaidCents: 0 },
+        { totalCents: 0, feesCents: 0, event: { ...LATER, status: 'CANCELLED' } },
+      ),
+    )
+
+    await renderPage()
+
+    expect(screen.getByText('Cancelled — nothing to pay')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This event was cancelled, so nothing is owed at the door for these tickets.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('To pay at the door')).toBeNull()
+    expect(screen.queryByText(/Booked — pay/u)).toBeNull()
+    expect(screen.queryByText('Paid — simulated')).toBeNull()
+  })
+
+  it('says where door money went on a booking that ended', () => {
+    expect(
+      venueEndedSentences({
+        status: 'PAID',
+        currency: 'USD',
+        event: { status: 'ON_SALE' },
+        venuePayment: { state: 'ENDED', paidCents: 4_000, paidByOthersCents: 0 },
+      }),
+    ).toEqual([
+      'None of these tickets can be used any more, so nothing is owed at the door for them.',
+      'The $40.00 you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+    ])
   })
 
   it('says a legacy order’s fee terms were not recorded', async () => {

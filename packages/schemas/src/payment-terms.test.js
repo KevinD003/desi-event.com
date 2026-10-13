@@ -105,8 +105,15 @@ describe('the vocabulary SPEC3-XI §4.6 names', () => {
     expect(Object.isFrozen(VENUE_CANCEL_LIMITS)).toBe(true)
   })
 
-  it('reads a booking in five states, by precedence', () => {
-    expect(VENUE_PAYMENT_STATES).toEqual(['TO_PAY', 'PAID', 'PASSED_ON', 'CANCELLED', 'NONE'])
+  it('reads a booking in six states, ENDED among them for a booking with nothing left to pay', () => {
+    expect(VENUE_PAYMENT_STATES).toEqual([
+      'TO_PAY',
+      'PAID',
+      'PASSED_ON',
+      'CANCELLED',
+      'ENDED',
+      'NONE',
+    ])
   })
 
   it('gives every cause a use can come back for, NOT_COMPLETED included, as the database names them', () => {
@@ -752,11 +759,16 @@ describe('the views responses are built from', () => {
       by: 'ORGANISER',
       ticketCount: 2,
       basisCents: 9000,
+      passedOnTickets: 1,
+      passedOnBasisCents: 4500,
       feeKeptCents: 729,
       reason: 'Not paid before the doors opened.',
     }
 
     expect(orderVenueCancellationSchema.parse(cancellation)).toEqual(cancellation)
+    expect(
+      orderVenueCancellationSchema.safeParse({ ...cancellation, passedOnBasisCents: -1 }).success,
+    ).toBe(false)
     expect(orderVenueCancellationSchema.safeParse({ ...cancellation, by: 'FINANCE' }).success).toBe(
       false,
     )

@@ -263,26 +263,101 @@ export function venueEndingSentences(order) {
 }
 
 /**
+ * What a booking to pay at the venue that ended with nothing left to pay says
+ * (`venuePayment.state` ENDED) while the order itself stays paid: its event was
+ * cancelled or deleted, or none of its tickets can be used any more. Money
+ * paid at the door is with the organiser, as on a refunded booking.
+ *
+ * @param {object} order The order, with `venuePayment` and its `event`.
+ * @returns {string[]} The sentences, in order.
+ */
+export function venueEndedSentences(order) {
+  const venue = order.venuePayment ?? null
+  const money = (cents) => formatAmount(cents, order.currency)
+  const status = order.event?.status ?? null
+  const sentences = [
+    status === 'CANCELLED' || status === 'DELETED'
+      ? 'This event was cancelled, so nothing is owed at the door for these tickets.'
+      : 'None of these tickets can be used any more, so nothing is owed at the door for them.',
+  ]
+
+  if ((venue?.paidCents ?? 0) > 0) {
+    sentences.push(
+      `The ${money(venue.paidCents)} you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+    )
+  }
+
+  if ((venue?.paidByOthersCents ?? 0) > 0) {
+    sentences.push(
+      `${money(venue.paidByOthersCents)} was paid at the door by people you passed tickets to; it is with the organiser.`,
+    )
+  }
+
+  return sentences
+}
+
+/**
  * What one cancellation of unpaid tickets says to the buyer (SPEC3-XI §12.7).
+ *
+ * Only the buyer's own tickets were owed by the buyer: those they passed on
+ * (`passedOnTickets`, `passedOnBasisCents`) were owed by their holders (XT7),
+ * so they are named apart and their price is not counted as the buyer's.
+ * Whether anything was paid online is the order's own total
+ * (`paidOnlineCents`), never what was kept: a booking fee refunded earlier
+ * keeps nothing for these tickets, and was still paid.
  *
  * @param {object} cancellation One of `order.venueCancellations`.
  * @param {string} currency The order's currency.
  * @param {string} timeZone The event's timezone, for the date.
+ * @param {object} [options] Options.
+ * @param {number} [options.paidOnlineCents] What the order paid online (`order.totalCents`).
  * @returns {string[]} The sentences, in order.
  */
-export function venueCancellationSentences(cancellation, currency, timeZone) {
-  const one = cancellation.ticketCount === 1
-  const them = one ? 'it' : 'them'
+export function venueCancellationSentences(
+  cancellation,
+  currency,
+  timeZone,
+  { paidOnlineCents = 0 } = {},
+) {
   const by = cancellation.by === 'DESI_EVENT' ? 'The Desi-Event team' : 'The organiser'
   const money = (cents) => formatAmount(cents, currency)
+  const on = formatEventDate(cancellation.at, timeZone)
+  const passedOn = Math.max(0, cancellation.passedOnTickets ?? 0)
+  const own = Math.max(0, cancellation.ticketCount - passedOn)
+  const ownCents = Math.max(0, cancellation.basisCents - (cancellation.passedOnBasisCents ?? 0))
+  const them = cancellation.ticketCount === 1 ? 'it' : 'them'
+  const toOthers = passedOn === 1 ? 'someone else' : 'other people'
+  const sentences = []
 
-  return [
-    `${by} cancelled ${cancellation.ticketCount} ${ticketWord(cancellation.ticketCount)} on ${formatEventDate(cancellation.at, timeZone)} because ${one ? 'it was' : 'they were'} not paid for. You no longer owe ${money(cancellation.basisCents)} for ${them}.`,
-    cancellation.feeKeptCents > 0
-      ? `The booking fee paid for ${them} online, ${money(cancellation.feeKeptCents)}, is kept by Desi-Event and is not refunded.`
-      : `Nothing was paid online for ${them}.`,
-    `Reason given: “${cancellation.reason}”`,
-  ]
+  if (own > 0) {
+    sentences.push(
+      `${by} cancelled ${own} ${ticketWord(own)} on ${on} because ${own === 1 ? 'it was' : 'they were'} not paid for. You no longer owe ${money(ownCents)} for ${own === 1 ? 'it' : 'them'}.`,
+    )
+
+    if (passedOn > 0) {
+      sentences.push(
+        `${passedOn} ${ticketWord(passedOn)} you passed on to ${toOthers} ${passedOn === 1 ? 'was' : 'were'} cancelled too.`,
+      )
+    }
+  } else {
+    sentences.push(
+      `${by} cancelled ${passedOn} ${ticketWord(passedOn)} you passed on to ${toOthers} on ${on} because ${passedOn === 1 ? 'it was' : 'they were'} not paid for.`,
+    )
+  }
+
+  if (cancellation.feeKeptCents > 0) {
+    sentences.push(
+      `The booking fee paid for ${them} online, ${money(cancellation.feeKeptCents)}, is kept by Desi-Event and is not refunded.`,
+    )
+  } else if ((paidOnlineCents ?? 0) > 0) {
+    sentences.push(`None of the booking fee you paid online is kept for ${them}.`)
+  } else {
+    sentences.push(`Nothing was paid online for ${them}.`)
+  }
+
+  sentences.push(`Reason given: “${cancellation.reason}”`)
+
+  return sentences
 }
 
 /**
@@ -343,7 +418,9 @@ function VenueCancellations({ order, zone }) {
         <h3 id={headingId} className="font-semibold text-ink">
           Unpaid tickets cancelled
         </h3>
-        {venueCancellationSentences(cancellation, order.currency, zone).map((sentence) => (
+        {venueCancellationSentences(cancellation, order.currency, zone, {
+          paidOnlineCents: order.totalCents ?? 0,
+        }).map((sentence) => (
           <p key={sentence} className="mt-2 text-sm break-words text-ink">
             {sentence}
           </p>
@@ -815,6 +892,14 @@ export default async function OrderPage({ params }) {
               : 'Until a ticket is paid for at the door, the organiser or Desi-Event can cancel it.'}
           </p>
         ) : null}
+
+        {atVenue && order.status === 'PAID' && venue?.state === 'ENDED'
+          ? venueEndedSentences(order).map((sentence) => (
+              <p key={sentence} className="mt-2 max-w-prose text-sm text-ink">
+                {sentence}
+              </p>
+            ))
+          : null}
 
         {atVenue && (order.status === 'REFUNDED' || order.status === 'CANCELLED') ? (
           venueEndingSentences(order).map((sentence) => (

@@ -588,6 +588,9 @@ export const PAYMENT_TERMS_SENTENCES = Object.freeze({
   /** 409 `PAYMENT_TERMS_CHANGED`, when the switch or its limit moved since it was read. */
   venuePaymentChanged:
     "Another administrator changed this event's payment settings after you opened the page. Reload to see them. Nothing was changed.",
+  /** 503 `SERVICE_UNAVAILABLE` (with `Retry-After`), when an edit or a switch of a referral code waited too long behind another change to it. */
+  referralCodeTryAgain:
+    'Another change to this referral code was being saved at the same moment, so nothing was changed. Try again in a moment.',
   /** 503 `SERVICE_UNAVAILABLE` (with `Retry-After`), when cancelling unpaid tickets waited too long (SPEC3-XI XU10 called it `TRY_AGAIN`). */
   venueCancelTryAgain:
     'Another change to this booking was being saved at the same moment, so nothing was cancelled. Try again in a moment.',

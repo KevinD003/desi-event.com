@@ -135,7 +135,9 @@ export function eventFeeConfig(env, event, currency) {
  * @returns {Promise<void>} Resolves once the row is locked.
  */
 export async function lockPromoCode(tx, promoCodeId) {
-  await tx.$queryRaw`SELECT id FROM "PromoCode" WHERE id = ${promoCodeId} FOR UPDATE`
+  // NO KEY UPDATE: an order's foreign-key check takes this row FOR KEY SHARE
+  // and must never wait on it (SPEC3-XI §2.1); redemptions still serialise.
+  await tx.$queryRaw`SELECT id FROM "PromoCode" WHERE id = ${promoCodeId} FOR NO KEY UPDATE`
 }
 
 /**

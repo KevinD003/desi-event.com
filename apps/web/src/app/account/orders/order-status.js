@@ -98,8 +98,9 @@ export function paidAtVenue(order) {
  * venue that is placed reads from where it stands at the door
  * (`venuePayment.state`, the server's `venuePaymentStateOf`), so nothing reads
  * "Paid" for a booking that still owes money: the buyer's own tickets to pay,
- * paid at the door, passed on to people who pay with their own tickets, or
- * cancelled because they were not paid. Refunded, only the booking fee went
+ * paid at the door, passed on to people who pay with their own tickets,
+ * cancelled because they were not paid, or ended with nothing to pay (its
+ * event or night called off, its tickets withdrawn). Refunded, only the booking fee went
  * back (simulated), or part of it when some was kept for cancelled tickets.
  *
  * @param {object} order The order, with `paymentMethod` and `venuePayment`.
@@ -130,6 +131,10 @@ export function orderStatusFor(order) {
       return { label: 'Passed on — the new holder pays at the door', tone: 'info' }
     case 'CANCELLED':
       return { label: 'Cancelled — not paid at the door', tone: 'neutral' }
+    case 'ENDED':
+      // Its event or night was called off, or its tickets were withdrawn,
+      // before anything was owed at the door: never "Paid", never "pay".
+      return { label: 'Cancelled — nothing to pay', tone: 'neutral' }
     default:
       return orderStatusMeaning(order.status)
   }

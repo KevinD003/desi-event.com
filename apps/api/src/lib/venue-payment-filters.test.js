@@ -205,6 +205,82 @@ describe('venuePaymentStateOf', () => {
     ).toMatchObject({ dueCents: 4000, unpaidTickets: 0, unpaidCents: 0, state: 'NONE' })
   })
 
+  it('says ENDED, owing nothing, for a booking whose event was cancelled or deleted, its tickets still standing', () => {
+    for (const status of ['CANCELLED', 'DELETED']) {
+      const order = orderWith(
+        { paymentMethod: 'AT_VENUE', venueDueCents: 8000, event: { status } },
+        [
+          { venueDueCents: 4000, venuePaymentId: null, status: 'VALID' },
+          { ownerUserId: OTHER, venueDueCents: 4000, venuePaymentId: null, status: 'VALID' },
+        ],
+      )
+
+      expect(venuePaymentStateOf(order), status).toMatchObject({
+        unpaidTickets: 0,
+        unpaidCents: 0,
+        passedOnUnpaidTickets: 0,
+        passedOnUnpaidCents: 0,
+        state: 'ENDED',
+      })
+    }
+
+    // Read without its event, the caller says the event's status.
+    expect(
+      venuePaymentStateOf(
+        orderWith({ paymentMethod: 'AT_VENUE', venueDueCents: 4000 }, [
+          { venueDueCents: 4000, venuePaymentId: null, status: 'VALID' },
+        ]),
+        { eventStatus: 'CANCELLED' },
+      ).state,
+    ).toBe('ENDED')
+    // Money taken at the door before the event was called off stays counted.
+    expect(
+      venuePaymentStateOf(
+        orderWith(
+          { paymentMethod: 'AT_VENUE', venueDueCents: 4000, event: { status: 'CANCELLED' } },
+          [{ venueDueCents: 4000, venuePaymentId: 'vp', status: 'VALID' }],
+        ),
+      ),
+    ).toMatchObject({ paidCents: 4000, paidTickets: 1, state: 'ENDED' })
+    // An event still on: the same booking owes.
+    expect(
+      venuePaymentStateOf(
+        orderWith(
+          { paymentMethod: 'AT_VENUE', venueDueCents: 4000, event: { status: 'ON_SALE' } },
+          [{ venueDueCents: 4000, venuePaymentId: null, status: 'VALID' }],
+        ),
+      ).state,
+    ).toBe('TO_PAY')
+  })
+
+  it('says ENDED for a booking none of whose tickets holds a place, nothing paid or cancelled unpaid (its night cancelled)', () => {
+    expect(
+      venuePaymentStateOf(
+        orderWith({ paymentMethod: 'AT_VENUE', venueDueCents: 8000 }, [
+          { venueDueCents: 4000, venuePaymentId: null, status: 'CANCELLED' },
+          { venueDueCents: 4000, venuePaymentId: null, status: 'CANCELLED' },
+        ]),
+      ),
+    ).toMatchObject({ unpaidTickets: 0, state: 'ENDED' })
+    // A ticket of $0 still standing keeps it a booking with nothing to pay.
+    expect(
+      venuePaymentStateOf(
+        orderWith({ paymentMethod: 'AT_VENUE', venueDueCents: 4000 }, [
+          { venueDueCents: 4000, venuePaymentId: null, status: 'REFUNDED' },
+          { venueDueCents: 0, venuePaymentId: null, status: 'VALID' },
+        ]),
+      ).state,
+    ).toBe('NONE')
+    // A card order never ends this way.
+    expect(
+      venuePaymentStateOf(
+        orderWith({ paymentMethod: 'CARD', event: { status: 'CANCELLED' } }, [
+          { venueDueCents: 0, venuePaymentId: null, status: 'REFUNDED' },
+        ]),
+      ).state,
+    ).toBe('NONE')
+  })
+
   it('keeps money taken at the door on a ticket refunded afterwards', () => {
     expect(
       venuePaymentStateOf(

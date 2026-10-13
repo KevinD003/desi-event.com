@@ -254,6 +254,13 @@ describe('settleReferralUsesIfEnded (XR3)', () => {
       [C2, 'lock'],
       [C2, 'write'],
     ])
+    // NO KEY UPDATE, never UPDATE: an order written twice holds its code FOR
+    // KEY SHARE through the foreign-key check, and a FOR UPDATE here would
+    // wait on another returner's key share while it waited on this one's (the
+    // final door review's 40P01; R14–R17 race it on PostgreSQL).
+    expect(codeEntries.filter((entry) => entry.kind === 'lock').map((entry) => entry.mode)).toEqual(
+      ['NO KEY UPDATE', 'NO KEY UPDATE'],
+    )
     expect(new Set(log.map((entry) => entry.transaction)).size).toBe(1)
     expect(log[0].transaction).not.toBeNull()
 

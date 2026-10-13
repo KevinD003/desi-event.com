@@ -46,6 +46,8 @@ import { memberHolds, platformHolds } from './event-authority.js'
 import { venueCancellationAuthority } from './venue-bookings.js'
 import {
   BOOKED_UNPAID_ORDER_WHERE,
+  ENDED_EVENT_STATUSES,
+  EVENT_STILL_ON_WHERE,
   STANDING_TICKET_STATUSES,
   UNPAID_VENUE_TICKET_WHERE,
   isUnpaidVenueTicket,
@@ -60,9 +62,6 @@ export const VENUE_PAYMENT_VIA = Object.freeze({
 
 /** Order statuses whose bookings were refunded or cancelled: their door money is the organiser's to return. */
 const ENDED_ORDER_STATUSES = Object.freeze(['REFUNDED', 'CANCELLED'])
-
-/** Event statuses under which every booking was refunded or cancelled. */
-const ENDED_EVENT_STATUSES = Object.freeze(['CANCELLED', 'DELETED'])
 
 /** How many cancellations of unpaid tickets the report lists (SPEC3-XI §9.8). */
 export const REPORT_CANCELLATIONS_LIMIT = 50
@@ -432,14 +431,27 @@ export async function venuePaymentsReport(db, options) {
   const { event, actor, reader, page = 1, perPage = 20, now = new Date() } = options
   const { skip, take } = toSkipTake({ page, perPage })
   const ended = eventEnded(event, now)
+  // A cancelled or deleted event's bookings owe nothing at the door: the
+  // event will not happen, whatever their tickets' status says.
   const unpaidWhere = {
     ...UNPAID_VENUE_TICKET_WHERE,
-    orderItem: { order: { eventId: event.id, status: 'PAID', paymentMethod: 'AT_VENUE' } },
+    orderItem: {
+      order: {
+        eventId: event.id,
+        status: 'PAID',
+        paymentMethod: 'AT_VENUE',
+        event: EVENT_STILL_ON_WHERE,
+      },
+    },
   }
   const refundedWhere = ENDED_EVENT_STATUSES.includes(event.status)
     ? { eventId: event.id }
     : { eventId: event.id, order: { status: { in: [...ENDED_ORDER_STATUSES] } } }
-  const ordersWhere = { ...BOOKED_UNPAID_ORDER_WHERE, eventId: event.id }
+  const ordersWhere = {
+    ...BOOKED_UNPAID_ORDER_WHERE,
+    eventId: event.id,
+    event: EVENT_STILL_ON_WHERE,
+  }
 
   const [
     currency,

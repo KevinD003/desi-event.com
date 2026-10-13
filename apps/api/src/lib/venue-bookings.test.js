@@ -11,10 +11,12 @@ import { describe, expect, it } from 'vitest'
 
 import { addRows, makeWorld } from '../../tests/helpers/fixtures.js'
 import { createPrismaStub, cuid } from '../../tests/helpers/prisma-stub.js'
-import { orderParts, refundPartsFor } from './refunds.js'
+import { basisLeftWhenLast, orderParts, refundPartsFor } from './refunds.js'
 import {
   cancelUnpaidVenueTickets,
+  feeHeldOf,
   keptShareOf,
+  onlineFeeOutcomeOf,
   placesOnSaleOf,
   venueCancellationAuthority,
 } from './venue-bookings.js'
@@ -146,6 +148,87 @@ describe('keptShareOf: the booking fee kept for cancelled unpaid tickets (SPEC3-
 
     expect(feeKeptCents).toBe(269)
     expect(rest).toEqual({})
+  })
+
+  it('4 × $40.01 at 50 % off (fee 868, dues 2001/2001/2000/2000): the cents split by position and by ticket meet in the last share, in either order', () => {
+    const parts = venueParts(868)
+    const line = { id: 'line', quantity: 4, refundedQuantity: 0, venueCancelledQuantity: 0 }
+
+    // Cancel the cheaper two first: their own dues, 4,000, keep 433.
+    const kept = keptShareOf({
+      parts,
+      spoken: NOTHING_SPOKEN,
+      orderBasisCents: 8_002,
+      lineBasisCents: 4_000,
+    }).feeKeptCents
+
+    expect(kept).toBe(433)
+
+    // The other two, refunded by name, are the last: they take the basis
+    // left, 4,002 (priced by position they would be 4,001), and the fee left.
+    const last = basisLeftWhenLast({
+      items: [{ ...line, venueCancelledQuantity: 2 }],
+      taking: new Map([['line', 2]]),
+      orderBasisCents: 8_002,
+      takenBasisCents: 4_000,
+    })
+
+    expect(last).toBe(4_002)
+
+    const refund = refundPartsFor({
+      parts,
+      left: { faceValueCents: 0, feeCents: 868 - kept, taxCents: 0 },
+      form: 'lines',
+      lineBasisCents: last,
+      takenBasisCents: 4_000,
+      orderBasisCents: 8_002,
+      lastShare: true,
+    })
+
+    expect(kept + refund.feeCents).toBe(868)
+
+    // The other order: the dearer two refunded first by position (basis
+    // 4,001, fee 434), then the cheaper two cancelled as the last.
+    const refundedFirst = refundPartsFor({
+      parts,
+      left: { faceValueCents: 0, feeCents: 868, taxCents: 0 },
+      form: 'lines',
+      lineBasisCents: 4_001,
+      takenBasisCents: 0,
+      orderBasisCents: 8_002,
+    }).feeCents
+    const keptLast = keptShareOf({
+      parts,
+      spoken: { faceValueCents: 0, feeCents: refundedFirst, taxCents: 0, basisCents: 4_001 },
+      orderBasisCents: 8_002,
+      lineBasisCents: 4_001,
+      lastShare: true,
+    }).feeKeptCents
+
+    expect(refundedFirst + keptLast).toBe(868)
+  })
+
+  it('a ticket still on the order keeps the last-share rule off', () => {
+    const line = { id: 'line', quantity: 3, refundedQuantity: 1, venueCancelledQuantity: 0 }
+
+    expect(
+      basisLeftWhenLast({
+        items: [line],
+        taking: new Map([['line', 1]]),
+        orderBasisCents: 9_000,
+        takenBasisCents: 3_000,
+      }),
+    ).toBeNull()
+    // Held by an unresolved refund counts as taken.
+    expect(
+      basisLeftWhenLast({
+        items: [line],
+        pendingByLine: new Map([['line', 1]]),
+        taking: new Map([['line', 1]]),
+        orderBasisCents: 9_000,
+        takenBasisCents: 6_000,
+      }),
+    ).toBe(3_000)
   })
 })
 
@@ -419,5 +502,70 @@ describe('a booking taxed on its booking fee (SPEC3-XI XU6, open question F)', (
     expect(prisma._store.venueBookingCancellation ?? []).toHaveLength(0)
     expect(prisma._store.ticket.filter((row) => row.status === 'REVOKED')).toHaveLength(0)
     expect(prisma._store.ticketType.find((row) => row.id === tier.id).quantitySold).toBe(2)
+  })
+})
+
+describe('what the buyer is told of the booking fee paid online (codes review: a fee refunded by hand)', () => {
+  /**
+   * A pay-at-the-venue order of two $40 tickets with a $6.70 fee.
+   *
+   * @param {object} [overrides] Columns to change.
+   * @returns {object} The order.
+   */
+  function booked(overrides = {}) {
+    return {
+      subtotalCents: 8_000,
+      discountCents: 0,
+      venueDueCents: 8_000,
+      feesCents: 670,
+      taxCents: 0,
+      totalCents: 670,
+      refundedCents: 0,
+      refundPendingCents: 0,
+      venueFeeKeptCents: 0,
+      ...overrides,
+    }
+  }
+
+  it('says the fee is kept when a share of it is', () => {
+    expect(onlineFeeOutcomeOf({ order: booked(), spoken: NOTHING_SPOKEN, feeKeptCents: 335 })).toBe(
+      'KEPT',
+    )
+  })
+
+  it('says nothing was paid online only when the order paid nothing online', () => {
+    const waived = booked({ feesCents: 0, totalCents: 0 })
+
+    expect(onlineFeeOutcomeOf({ order: waived, spoken: NOTHING_SPOKEN, feeKeptCents: 0 })).toBe(
+      'NONE_PAID',
+    )
+  })
+
+  it('says the fee was refunded earlier when every cent of it went back, although nothing is kept', () => {
+    const order = booked({ refundedCents: 670 })
+    const spoken = { ...NOTHING_SPOKEN, feeCents: 670 }
+
+    expect(onlineFeeOutcomeOf({ order, spoken, feeKeptCents: 0 })).toBe('REFUNDED_EARLIER')
+  })
+
+  it('never says refunded earlier when part of the fee was kept by an earlier cancellation', () => {
+    const order = booked({ refundedCents: 335, venueFeeKeptCents: 335 })
+    const spoken = { ...NOTHING_SPOKEN, feeCents: 670 }
+
+    expect(onlineFeeOutcomeOf({ order, spoken, feeKeptCents: 0 })).toBe('NONE_KEPT')
+  })
+
+  it('says none of it is kept for these when the fee is still held but their share is nothing', () => {
+    expect(onlineFeeOutcomeOf({ order: booked(), spoken: NOTHING_SPOKEN, feeKeptCents: 0 })).toBe(
+      'NONE_KEPT',
+    )
+  })
+
+  it('feeHeldOf: the fee still held, 0 once it was refunded by hand although it was paid', () => {
+    expect(feeHeldOf(booked())).toBe(670)
+    expect(feeHeldOf(booked({ refundedCents: 670 }))).toBe(0)
+    expect(feeHeldOf(booked({ venueFeeKeptCents: 335 }))).toBe(335)
+    expect(feeHeldOf(booked({ refundPendingCents: 670 }))).toBe(0)
+    expect(feeHeldOf(booked({ feesCents: 0, totalCents: 0 }))).toBe(0)
   })
 })

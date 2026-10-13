@@ -49,7 +49,7 @@ import { maySeeDrafts } from './event-insiders.js'
 import { TRANSACTION_BUDGETS, budgetedTransaction } from './transaction-budget.js'
 import { isTransactionClient } from './transaction-client.js'
 import { venuePaymentAvailable } from './venue-booking-limits.js'
-import { UNPAID_VENUE_TICKET_WHERE } from './venue-payment-filters.js'
+import { EVENT_STILL_ON_WHERE, UNPAID_VENUE_TICKET_WHERE } from './venue-payment-filters.js'
 import { FORMER_ADMINISTRATOR_NAME } from './website-redirect.js'
 
 // Whether paying at the venue is offered lives beside its limit, so the
@@ -457,7 +457,14 @@ export async function venueBookingCounts(db, eventId) {
     db.ticket.count({
       where: {
         ...UNPAID_VENUE_TICKET_WHERE,
-        orderItem: { order: { eventId, paymentMethod: 'AT_VENUE', status: 'PAID' } },
+        orderItem: {
+          order: {
+            eventId,
+            paymentMethod: 'AT_VENUE',
+            status: 'PAID',
+            event: EVENT_STILL_ON_WHERE,
+          },
+        },
       },
     }),
     db.venuePayment.aggregate({

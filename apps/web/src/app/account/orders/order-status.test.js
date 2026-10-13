@@ -276,6 +276,15 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
     })
   })
 
+  it('reads a booking that ended with nothing to pay as cancelled, never as paid or owing', () => {
+    // Its event cancelled with the tickets still standing, or its only night
+    // cancelled and the tickets withdrawn: the API says ENDED and owes 0.
+    const ended = atVenue({ state: 'ENDED', unpaidTickets: 0, unpaidCents: 0 })
+
+    expect(orderStatusFor(ended)).toEqual({ label: 'Cancelled — nothing to pay', tone: 'neutral' })
+    expect(orderStatusFor(ended).label).not.toMatch(/Paid|pay \$/u)
+  })
+
   it('says the booking fee was refunded, or partly when a share was kept', () => {
     expect(orderStatusFor(atVenue({}, { status: 'REFUNDED' }))).toEqual({
       label: 'Booking fee refunded — simulated',

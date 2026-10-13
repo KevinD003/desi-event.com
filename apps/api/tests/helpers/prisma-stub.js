@@ -2546,7 +2546,7 @@ export function createPrismaStub(seed = {}) {
    * whose order ended without being used (XR2); the order's conditional marker
    * `UPDATE "Order" SET "referralUseReturnedAt" … RETURNING "referralCodeId"`
    * sets it only when the order names a code and has no marker yet; and a
-   * code's `SELECT "useCount" … FOR UPDATE` answers its count. Every lock and
+   * code's `SELECT "useCount" … FOR NO KEY UPDATE` answers its count. Every lock and
    * every row a raw `UPDATE` changes is written to {@link lockLog}.
    *
    * The count is recognised by the marker `venue-booking-count` anywhere in its
@@ -2592,12 +2592,13 @@ export function createPrismaStub(seed = {}) {
       return held.map((id) => ({ id }))
     }
 
-    const codeCount = /^SELECT "useCount" FROM "ReferralCode" WHERE "id" = \? FOR UPDATE$/u.exec(
-      text,
-    )
+    const codeCount =
+      /^SELECT "useCount" FROM "ReferralCode" WHERE "id" = \? FOR (UPDATE|NO KEY UPDATE)$/u.exec(
+        text,
+      )
 
     if (codeCount) {
-      recordLock('ReferralCode', values[0], 'UPDATE', 'lock')
+      recordLock('ReferralCode', values[0], codeCount[1], 'lock')
 
       const code = tables.referralCode.find((row) => row.id === values[0])
 

@@ -7,8 +7,9 @@
  * The organiser who may refund the organisation's orders, or the Desi-Event
  * team, chooses tickets of one booking that still owe their door price and
  * cancels them: each stops admitting, nobody owes its price any more, its
- * place is freed, and Desi-Event keeps the booking fee paid online for it.
- * Nothing is refunded. It cannot be undone.
+ * place is freed, and Desi-Event keeps the booking fee paid online for it —
+ * what the booking still holds of it (`feeHeldCents`): a fee refunded earlier
+ * is not kept again. Nothing is refunded. It cannot be undone.
  *
  * ## What it reads, and when it asks for a second factor
  *
@@ -394,7 +395,10 @@ export function CancelUnpaidTicketsDialog({ eventId, orderReference, onClose, on
   }
 
   const count = chosen.length
-  const fees = booking?.feesCents ?? 0
+  // What the booking paid online, and what of that fee it still holds: a
+  // cancellation keeps a share of what is held, never of a fee refunded earlier.
+  const paidFee = booking?.feesCents ?? 0
+  const heldFee = booking?.feeHeldCents ?? 0
   const subtitle = `Booking ${orderReference}${booking?.buyerName ? ` — ${booking.buyerName}` : ''}`
 
   return (
@@ -526,9 +530,11 @@ export function CancelUnpaidTicketsDialog({ eventId, orderReference, onClose, on
                 them frees their places, and nobody owes their price any more.
               </p>
               <p>
-                {fees > 0
+                {heldFee > 0
                   ? 'Desi-Event keeps the booking fee paid online for them; nothing is refunded.'
-                  : 'Nothing was paid online for them, so nothing is refunded.'}
+                  : paidFee > 0
+                    ? 'Nothing is left of the booking fee paid online for this booking, so nothing is kept or refunded.'
+                    : 'Nothing was paid online for them, so nothing is refunded.'}
               </p>
               <p className="font-medium">This can't be undone.</p>
             </div>

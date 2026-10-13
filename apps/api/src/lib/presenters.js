@@ -1032,6 +1032,26 @@ export function toOrder(order, { buyerAddress = true, joinUrl = false, reader = 
   const held = onThisOrder.filter((ticket) => heldByTheBuyer(ticket, order))
   const cancellations = new Map(venueCancellations.map((row) => [row.id, row]))
 
+  // Of each cancellation of unpaid tickets, those the buyer had passed on to
+  // somebody else, and their door price: owed by their holders, never by the
+  // buyer (SPEC3-XI XT7), so the buyer is told apart what they no longer owe.
+  // Counted from the cancelled rows themselves, as the buyer's notice counts
+  // them: a holder that is not the buyer's account.
+  const passedOnBy = new Map()
+
+  for (const ticket of onThisOrder) {
+    const cancellationId = ticket.venueCancellationId ?? null
+    const holder = ticket.ownerUserId ?? null
+
+    if (!cancellationId || !holder || holder === (order.userId ?? null)) continue
+
+    const entry = passedOnBy.get(cancellationId) ?? { tickets: 0, basisCents: 0 }
+
+    entry.tickets += 1
+    entry.basisCents += ticket.venueDueCents ?? 0
+    passedOnBy.set(cancellationId, entry)
+  }
+
   // Each ticket by the one it replaced, so a passed-on row of a booking to pay
   // at the venue can say where its ticket stands now (`passedOnState`).
   const successorOf = new Map(
@@ -1073,9 +1093,11 @@ export function toOrder(order, { buyerAddress = true, joinUrl = false, reader = 
     fee: orderFeeTerms(order),
     tax: orderTaxView(order),
     venuePayment: atVenue ? venuePaymentStateOf(order) : null,
-    venueCancellations: venueCancellations.map((row) =>
-      toVenueCancellation(row, { reader: reader === 'BUYER' ? 'BUYER' : reader }),
-    ),
+    venueCancellations: venueCancellations.map((row) => ({
+      ...toVenueCancellation(row, { reader: reader === 'BUYER' ? 'BUYER' : reader }),
+      passedOnTickets: passedOnBy.get(row.id)?.tickets ?? 0,
+      passedOnBasisCents: passedOnBy.get(row.id)?.basisCents ?? 0,
+    })),
     ...(reader === 'BUYER' ? {} : { feeSource: feeSource ?? 'SITE_DEFAULT' }),
   }
 }

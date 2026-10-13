@@ -71,6 +71,7 @@ import {
   PREVIEW_TTL_MS,
   UNIFORM_NOT_FOUND,
   ADMISSION_INCLUDE,
+  DOOR_LOCK_WAIT,
   admissionConflict,
   admissionNightOf,
   admissionOn,
@@ -96,6 +97,7 @@ import {
   paymentTermsRefusal,
 } from './errors.js'
 import { groupCodeDigest, groupCredentialDigest } from './group-pass-credentials.js'
+import { boundLockWait, outOfTimeRefusal } from './transaction-budget.js'
 import { GROUP_ORDER_SELECT, groupMembers, orderTicketRows, supersededIds } from './group-passes.js'
 import { admissionRefusalCode, admit } from './tickets.js'
 import { isUnpaidVenueTicket } from './venue-payment-filters.js'
@@ -111,6 +113,14 @@ import { VENUE_PAYMENT_VIA, doorAmount, recordVenuePayment } from './venue-payme
  * @type {Readonly<{timeout: number, maxWait: number}>}
  */
 export const GROUP_TRANSACTION_OPTIONS = Object.freeze({ timeout: 15_000, maxWait: 5_000 })
+
+/**
+ * What a steward is told when a group's confirmation waited too long behind
+ * another change: a 503 with `Retry-After`. The transaction was rolled back
+ * whole.
+ */
+export const GROUP_DOOR_BUSY_SENTENCE =
+  'Another change to this group’s booking or night was being saved at the same moment, so nobody in the group was let in and no payment was recorded. Look the group up again in a moment.'
 
 /**
  * Which secret was presented for a group, and the method that follows.
@@ -440,7 +450,7 @@ export async function previewGroupAdmission({ prisma, env, actor, body, log, now
  * @param {object} [options.log] A request logger.
  * @param {Date} [options.now] The instant.
  * @returns {Promise<object>} A payload satisfying `groupCheckInResponseSchema`'s `data`.
- * @throws {Error} 403 without authority, the uniform 404, or a 409 carrying a refusal reason.
+ * @throws {Error} 403 without authority, the uniform 404, a 409 carrying a refusal reason, or a 503 when it waited too long behind another change.
  */
 export async function confirmGroupAdmission({ prisma, env, actor, body, log, now = new Date() }) {
   await assertDoorAuthority(prisma, actor, 'group_check_in')
@@ -476,6 +486,12 @@ export async function confirmGroupAdmission({ prisma, env, actor, body, log, now
       GROUP_TRANSACTION_OPTIONS,
     )
   } catch (error) {
+    // Waited too long behind another change to the night or the order:
+    // rolled back whole, nobody let in and nothing recorded.
+    const busy = outOfTimeRefusal(error, GROUP_DOOR_BUSY_SENTENCE)
+
+    if (busy !== error) throw busy
+
     // A writer outside this module that did not take the ticket locks, the
     // group-pass trigger, or the database refusing a ticket whose payment at
     // the door is not recorded (`check_in_payment_due`). Either way the group
@@ -558,6 +574,9 @@ export async function confirmGroupAdmission({ prisma, env, actor, body, log, now
  * @returns {Promise<object>} A verdict: done, refused, forbidden or hidden.
  */
 async function decideGroup(tx, { actor, body, presentation, claims, now }) {
+  // Every wait below is bounded before the first lock is asked for.
+  await boundLockWait(tx, DOOR_LOCK_WAIT)
+
   // The pass's order, its event and the named tickets' own nights are fixed
   // for the life of the rows, so they are read without a lock to find what to
   // lock first.

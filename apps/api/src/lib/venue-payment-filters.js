@@ -48,6 +48,26 @@ function deepFreeze(value) {
 export const STANDING_TICKET_STATUSES = deepFreeze(['VALID', 'TRANSFER_PENDING'])
 
 /**
+ * Event statuses under which a booking has nothing left to pay at the door:
+ * the event will not happen. A booking whose online part was all kept, or was
+ * waived with a referral code, keeps its tickets VALID when its event is
+ * cancelled (nothing is refunded, so nothing withdraws them), and they owe
+ * nobody anything.
+ */
+export const ENDED_EVENT_STATUSES = deepFreeze(['CANCELLED', 'DELETED'])
+
+/**
+ * An `Event` filter for events whose bookings may still owe at the door: not
+ * cancelled, not deleted. Every count of money still to be paid at the door
+ * adds it, beside {@link UNPAID_VENUE_TICKET_WHERE} or
+ * {@link BOOKED_UNPAID_ORDER_WHERE}, on the order's event.
+ */
+export const EVENT_STILL_ON_WHERE = deepFreeze({ status: { notIn: [...ENDED_EVENT_STATUSES] } })
+
+/** The ticket statuses that still hold a place: standing, or let in. */
+const HELD_TICKET_STATUSES = deepFreeze(['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'])
+
+/**
  * A ticket that owes a payment at the door, has none recorded, and still
  * stands. A `Ticket` filter.
  */
@@ -122,17 +142,28 @@ export function isUnpaidVenueTicket(ticket) {
  * - `cancelledCents`, `cancelledTickets`: the door price no longer owed for
  *   the tickets cancelled unpaid.
  * - `feeKeptCents`: the booking fee Desi-Event kept for those tickets.
- * - `state`, by precedence: `TO_PAY` while a ticket of the buyer's own still
- *   owes; else `PAID` once anything was taken at the door, by the buyer or by
- *   others; else `PASSED_ON` while a passed-on ticket still owes; else
- *   `CANCELLED` when tickets were cancelled unpaid; else `NONE`. Always `NONE`
- *   for a card order.
+ * - `state`, by precedence: `ENDED` when the order's event was cancelled or
+ *   deleted (nothing is owed at the door of an event that will not happen,
+ *   whatever was paid there before); else `TO_PAY` while a ticket of the
+ *   buyer's own still owes; else `PAID` once anything was taken at the door,
+ *   by the buyer or by others; else `PASSED_ON` while a passed-on ticket still
+ *   owes; else `CANCELLED` when tickets were cancelled unpaid; else `ENDED`
+ *   when the order's tickets were issued and none holds a place any more (its night was
+ *   cancelled, or its tickets were refunded or withdrawn); else `NONE`.
+ *   Always `NONE` for a card order; `ENDED` only for an order whose
+ *   `paymentMethod` is `AT_VENUE`. A booking that ended never reads as paid.
  *
- * @param {{paymentMethod?: string, userId: string|null, venueDueCents?: number, venueFeeKeptCents?: number, items: Array<{tickets: Array<{ownerUserId: string|null, venueDueCents?: number, venuePaymentId?: string|null, venueCancellationId?: string|null, status?: string}>}>}} order An order with its buyer, its lines and their tickets.
- * @returns {{dueCents: number, paidCents: number, paidTickets: number, paidByOthersCents: number, paidByOthersTickets: number, unpaidTickets: number, unpaidCents: number, passedOnUnpaidTickets: number, passedOnUnpaidCents: number, cancelledTickets: number, cancelledCents: number, feeKeptCents: number, state: 'TO_PAY'|'PAID'|'PASSED_ON'|'CANCELLED'|'NONE'}} The state.
+ * The event is the order's own (`order.event.status`) unless `eventStatus` is
+ * given; read without either, only the tickets decide. While the event is
+ * cancelled or deleted, its standing tickets owe nothing: `unpaid*` and
+ * `passedOnUnpaid*` are 0.
+ *
+ * @param {{paymentMethod?: string, userId: string|null, venueDueCents?: number, venueFeeKeptCents?: number, event?: {status?: string}|null, items: Array<{tickets: Array<{ownerUserId: string|null, venueDueCents?: number, venuePaymentId?: string|null, venueCancellationId?: string|null, status?: string}>}>}} order An order with its buyer, its lines and their tickets.
+ * @param {{eventStatus?: string|null}} [options] The event's status, when the order was read without its event.
+ * @returns {{dueCents: number, paidCents: number, paidTickets: number, paidByOthersCents: number, paidByOthersTickets: number, unpaidTickets: number, unpaidCents: number, passedOnUnpaidTickets: number, passedOnUnpaidCents: number, cancelledTickets: number, cancelledCents: number, feeKeptCents: number, state: 'TO_PAY'|'PAID'|'PASSED_ON'|'CANCELLED'|'ENDED'|'NONE'}} The state.
  * @throws {TypeError} For an order read without its buyer, lines or tickets, or a ticket read without its holder: counting none would say "nothing owed" of an order that owes, and guessing a holder would tell the buyer of money someone else paid.
  */
-export function venuePaymentStateOf(order) {
+export function venuePaymentStateOf(order, { eventStatus } = {}) {
   if (!order || !Array.isArray(order.items)) {
     throw new TypeError('venuePaymentStateOf needs the order with its lines and their tickets')
   }
@@ -142,6 +173,11 @@ export function venuePaymentStateOf(order) {
   }
 
   const buyer = order.userId ?? null
+  // Only a booking known to be paid at the venue can end with nothing to pay.
+  const atVenue = order.paymentMethod === 'AT_VENUE'
+  const eventEnded = ENDED_EVENT_STATUSES.includes(eventStatus ?? order.event?.status ?? null)
+  let held = 0
+  let seen = 0
   const counts = {
     paidCents: 0,
     paidTickets: 0,
@@ -168,6 +204,10 @@ export function venuePaymentStateOf(order) {
       const due = ticket.venueDueCents ?? 0
       const own = (ticket.ownerUserId ?? null) === buyer
 
+      seen += 1
+
+      if (HELD_TICKET_STATUSES.includes(ticket.status)) held += 1
+
       if ((ticket.venuePaymentId ?? null) !== null) {
         if (own) {
           counts.paidCents += due
@@ -179,7 +219,7 @@ export function venuePaymentStateOf(order) {
       } else if ((ticket.venueCancellationId ?? null) !== null) {
         counts.cancelledCents += due
         counts.cancelledTickets += 1
-      } else if (isUnpaidVenueTicket(ticket)) {
+      } else if (isUnpaidVenueTicket(ticket) && !(eventEnded && atVenue)) {
         if (own) {
           counts.unpaidCents += due
           counts.unpaidTickets += 1
@@ -194,10 +234,12 @@ export function venuePaymentStateOf(order) {
   let state = 'NONE'
 
   if (order.paymentMethod === 'CARD') state = 'NONE'
+  else if (eventEnded && atVenue) state = 'ENDED'
   else if (counts.unpaidTickets > 0) state = 'TO_PAY'
   else if (counts.paidTickets + counts.paidByOthersTickets > 0) state = 'PAID'
   else if (counts.passedOnUnpaidTickets > 0) state = 'PASSED_ON'
   else if (counts.cancelledTickets > 0) state = 'CANCELLED'
+  else if (seen > 0 && held === 0 && atVenue) state = 'ENDED'
 
   return {
     dueCents: order.venueDueCents ?? 0,

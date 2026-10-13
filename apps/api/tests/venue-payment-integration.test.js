@@ -24,16 +24,23 @@ import { afterAll, beforeAll, expect, it } from 'vitest'
 import { buildApp } from '../src/app.js'
 import { loadActor } from '../src/lib/actor.js'
 import {
+  DOOR_BUSY_SENTENCE,
+  DOOR_LOCK_WAIT,
   PREVIEW_TTL_MS,
   confirmAdmission,
   previewAdmission,
   signPreviewReference,
 } from '../src/lib/admission.js'
+import { conversionFunnel, venuePaymentFigures } from '../src/lib/analytics.js'
 import { AUDIT_ACTIONS } from '../src/lib/audit.js'
 import { CAPTURE_OUTCOMES, settleCheckout } from '../src/lib/checkout.js'
-import { databaseRefusal } from '../src/lib/errors.js'
+import { OUT_OF_TIME_RETRY_AFTER_SECONDS, databaseRefusal } from '../src/lib/errors.js'
 import { findImbalances } from '../src/lib/finance-reporting.js'
-import { confirmGroupAdmission, previewGroupAdmission } from '../src/lib/group-admission.js'
+import {
+  GROUP_DOOR_BUSY_SENTENCE,
+  confirmGroupAdmission,
+  previewGroupAdmission,
+} from '../src/lib/group-admission.js'
 import { issueGroupPass } from '../src/lib/group-pass-credentials.js'
 import { availableBalance, openDispute, payableCents } from '../src/lib/payouts.js'
 import {
@@ -45,7 +52,11 @@ import {
   submitOutsideTransaction,
 } from '../src/lib/refunds.js'
 import { startSession } from '../src/lib/sessions.js'
+import { LOCK_WAIT_MS } from '../src/lib/transaction-budget.js'
+import { venueBookingCounts } from '../src/lib/payment-terms.js'
 import { mintTicketCredential } from '../src/lib/ticket-credentials.js'
+import { VENUE_CANCEL_AUTHORITIES, unpaidVenueBookings } from '../src/lib/venue-bookings.js'
+import { venuePaymentsReport } from '../src/lib/venue-payments.js'
 import { testEnv } from './helpers/app.js'
 import { connectTestDatabase } from './helpers/database.js'
 import {
@@ -1419,6 +1430,291 @@ when()('the door and the money after the order (SPEC3 §14.3)', () => {
   })
 })
 
+/**
+ * A two-night event whose first night is open now, with a tier good for every
+ * night, and the buyer's booking of two of its tickets (no night named).
+ *
+ * @param {string} label Distinguishes it.
+ * @returns {Promise<{world: object, order: object, tickets: object[]}>} The rows.
+ */
+async function everyNightBooking(label) {
+  const world = await venueWorld(label, { nights: 2, startsInDays: 0 })
+  const [first] = world.nights
+  const opened = new Date(Date.now() - 3_600_000)
+
+  await prisma.eventSession.update({
+    where: { id: first.id },
+    data: { startsAt: opened, endsAt: new Date(Date.now() + 3 * 3_600_000) },
+  })
+  await prisma.event.update({ where: { id: world.event.id }, data: { startsAt: opened } })
+
+  const tier = await prisma.ticketType.create({
+    data: {
+      eventId: world.event.id,
+      eventSessionId: null,
+      name: `Every night ${tag('tier')}`,
+      priceCents: PRICE,
+      currency: FEE_ORDER_CURRENCY,
+      quantityTotal: 100,
+      maxPerOrder: 10,
+      status: 'ON_SALE',
+    },
+  })
+  const { order, tickets } = await atVenueOrder(
+    prisma,
+    { event: world.event, session: { id: null }, tiers: {}, promoCode: null },
+    {
+      tag: tag('booking'),
+      payments,
+      credentialSecret: SECRET,
+      userId: buyer.id,
+      lines: [{ ticketTypeId: tier.id, quantity: 2, unitPriceCents: PRICE }],
+    },
+  )
+
+  return { world, order, tickets }
+}
+
+/**
+ * Request a lines refund of `quantity` tickets of the order's one line, as the
+ * refund dialog sends it, and approve it.
+ *
+ * @param {object} order The order.
+ * @param {number} quantity How many tickets.
+ * @returns {Promise<object>} The approved refund.
+ */
+async function approvedLineRefund(order, quantity) {
+  const payment = await prisma.payment.findFirst({ where: { orderId: order.id } })
+  const items = await prisma.orderItem.findMany({ where: { orderId: order.id } })
+  const { refund } = await prisma.$transaction(async (tx) =>
+    requestRefund(tx, {
+      order: { ...(await tx.order.findUnique({ where: { id: order.id } })), items },
+      payment,
+      lines: [{ orderItemId: items[0].id, quantity }],
+      reason: 'CUSTOMER_REQUEST',
+      idempotencyKey: `venue-line-${tag('line')}`,
+      actorId: owner.id,
+      now: new Date(),
+    }),
+  )
+
+  await prisma.$transaction((tx) =>
+    approveRefund(tx, { refund, actorId: owner.id, now: new Date() }),
+  )
+
+  return prisma.refund.findUnique({ where: { id: refund.id } })
+}
+
+/**
+ * Send an approved refund to the in-memory provider and settle it.
+ *
+ * @param {object} world From {@link venueWorld}.
+ * @param {object} order The order.
+ * @param {object} approved The approved refund.
+ * @returns {Promise<void>}
+ */
+async function sendAndSettle(world, order, approved) {
+  const payment = await prisma.payment.findFirst({ where: { orderId: order.id } })
+
+  await prisma.$transaction(async (tx) =>
+    markSubmitted(tx, {
+      refund: await tx.refund.findUnique({ where: { id: approved.id } }),
+      now: new Date(),
+    }),
+  )
+
+  const submitted = await prisma.refund.findUnique({ where: { id: approved.id } })
+  const result = await submitOutsideTransaction(payments, submitted, payment)
+
+  expect(result.outcome).toBe(REFUND_OUTCOMES.SUCCEEDED)
+
+  await prisma.$transaction(async (tx) =>
+    settleRefund(tx, {
+      refund: submitted,
+      order: await tx.order.findUnique({ where: { id: order.id } }),
+      result,
+      organizationId: world.organization.id,
+      eventStartsAt: world.event.startsAt,
+      actorId: owner.id,
+      now: new Date(),
+    }),
+  )
+}
+
+when()('a lines refund beside a ticket good for every night paid at the door', () => {
+  it('11b. one ticket of the line refunded after its sibling was paid and let in on night 1: the unpaid ticket is withdrawn, the paid one keeps admitting', async () => {
+    const { world, order, tickets } = await everyNightBooking('everynightpaid')
+    const [paid, unpaid] = tickets
+    const body = await looked(scanner, paid, { eventSessionId: world.nights[0].id })
+    const door = await confirmAs(scanner, { ...body, payment: { amountCents: paid.venueDueCents } })
+
+    expect(door.outcome).toBe('ADMITTED')
+    // Good for every night: still VALID after it was paid for and let in.
+    expect(await ticketRow(paid.id)).toMatchObject({ status: 'VALID' })
+    expect((await ticketRow(paid.id)).venuePaymentId).not.toBeNull()
+
+    await sendAndSettle(world, order, await approvedLineRefund(order, 1))
+
+    expect((await ticketRow(paid.id)).status).toBe('VALID')
+    expect((await ticketRow(unpaid.id)).status).toBe('REFUNDED')
+    expect(
+      (await findImbalances(prisma, { organizationId: world.organization.id })).imbalances,
+    ).toEqual([])
+  })
+
+  it('11c. the refund asked for before the door payment and settled after it: still the unpaid ticket is withdrawn', async () => {
+    const { world, order, tickets } = await everyNightBooking('everynightlate')
+    const [paid, unpaid] = tickets
+    const approved = await approvedLineRefund(order, 1)
+    const body = await looked(scanner, paid, { eventSessionId: world.nights[0].id })
+    const door = await confirmAs(scanner, { ...body, payment: { amountCents: paid.venueDueCents } })
+
+    expect(door.outcome).toBe('ADMITTED')
+
+    await sendAndSettle(world, order, approved)
+
+    expect((await ticketRow(paid.id)).status).toBe('VALID')
+    expect((await ticketRow(paid.id)).venuePaymentId).not.toBeNull()
+    expect((await ticketRow(unpaid.id)).status).toBe('REFUNDED')
+  })
+})
+
+/**
+ * A booking of two $40 tickets with its booking fee waived by a referral code:
+ * nothing paid online, so nothing is refunded when its event or night is
+ * called off.
+ *
+ * @param {object} world From {@link venueWorld}.
+ * @param {number} [night] The night its line is for.
+ * @returns {Promise<object>} From `atVenueOrder`.
+ */
+function waivedBooking(world, night = 0) {
+  return atVenueOrder(
+    prisma,
+    { event: world.event, session: world.nights[night], tiers: {}, promoCode: null },
+    {
+      tag: tag('booking'),
+      payments,
+      credentialSecret: SECRET,
+      userId: buyer.id,
+      waived: true,
+      lines: [{ ticketTypeId: world.tiers[night].id, quantity: 2, unitPriceCents: PRICE }],
+    },
+  )
+}
+
+/**
+ * The buyer's own read of one order, from the orders list.
+ *
+ * @param {string} reference The order's reference.
+ * @returns {Promise<object>} The order as `GET /v1/orders` lists it.
+ */
+async function buyerListed(reference) {
+  const list = await app.inject({
+    method: 'GET',
+    url: '/v1/orders',
+    headers: await headersFor(buyer),
+  })
+
+  expect(list.statusCode, list.body).toBe(200)
+
+  return list.json().data.find((row) => row.reference === reference)
+}
+
+when()('a booking that ended with nothing paid owes nothing at the door', () => {
+  it('17. its event cancelled, its tickets still VALID: the buyer reads ENDED, and no figure counts it as unpaid', async () => {
+    const world = await venueWorld('endedevent')
+    const { order, tickets } = await waivedBooking(world)
+    const cancelled = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${world.event.id}/cancel`,
+      headers: world.ownerHeaders,
+      payload: { reasonCode: 'OTHER', reason: 'Called off by the venue payment suite.' },
+    })
+
+    expect(cancelled.statusCode, cancelled.body).toBe(200)
+    // Nothing was paid online, so nothing withdrew them.
+    for (const ticket of tickets) expect((await ticketRow(ticket.id)).status).toBe('VALID')
+
+    const listed = await buyerListed(order.reference)
+
+    expect(listed.venuePayment).toMatchObject({
+      unpaidTickets: 0,
+      unpaidCents: 0,
+      state: 'ENDED',
+    })
+
+    const event = await prisma.event.findUnique({
+      where: { id: world.event.id },
+      include: { sessions: true },
+    })
+    const report = await venuePaymentsReport(prisma, {
+      event,
+      actor: await actorFor(owner),
+      reader: 'ORGANISATION',
+    })
+
+    expect(report.summary).toMatchObject({
+      unpaidTickets: 0,
+      unpaidCents: 0,
+      notPaidByEndTickets: 0,
+      notPaidByEndCents: 0,
+    })
+    expect(report.unpaidOrders).toEqual([])
+
+    const scope = { organizationId: world.organization.id, eventId: world.event.id }
+
+    expect(await venuePaymentFigures(prisma, { ...scope, currency: 'USD' })).toMatchObject({
+      ticketsUnpaid: 0,
+      unpaidCents: 0,
+    })
+    expect((await conversionFunnel(prisma, { ...scope, now: new Date() })).atVenue).toEqual({
+      bookedUnpaid: 0,
+    })
+
+    const unpaid = await unpaidVenueBookings(prisma, {
+      event,
+      reader: { authority: VENUE_CANCEL_AUTHORITIES.ORGANIZATION_ROLE },
+    })
+
+    expect(unpaid.bookings).toEqual([])
+    expect((await venueBookingCounts(prisma, world.event.id)).unpaidTickets).toBe(0)
+  })
+
+  it('17b. its only night cancelled, its tickets withdrawn: the buyer reads ENDED, never paid', async () => {
+    const world = await venueWorld('endednight', { nights: 2 })
+    const { order } = await waivedBooking(world)
+    const night = world.nights[0]
+    const preview = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${world.event.id}/sessions/${night.id}/cancellation`,
+      headers: world.ownerHeaders,
+    })
+
+    expect(preview.statusCode, preview.body).toBe(200)
+
+    const revision = (await prisma.event.findUnique({ where: { id: world.event.id } })).revision
+    const cancelled = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${world.event.id}/sessions/${night.id}/cancel`,
+      headers: world.ownerHeaders,
+      payload: {
+        revision,
+        reason: 'The band could not travel that night.',
+        confirm: true,
+        expectedOrders: preview.json().data.orders,
+      },
+    })
+
+    expect(cancelled.statusCode, cancelled.body).toBe(200)
+
+    const listed = await buyerListed(order.reference)
+
+    expect(listed.status).toBe('PAID')
+    expect(listed.venuePayment).toMatchObject({ unpaidTickets: 0, state: 'ENDED' })
+  })
+})
+
 when()('a ticket passed on while it still owes at the door (SPEC3-XI §14.3)', () => {
   /**
    * Offer a ticket to the suite's recipient as its buyer.
@@ -1852,6 +2148,202 @@ when()('the lock fixes of SPEC3-XI §2.3 (tests 12, 13 and 16)', () => {
           ).toBe(0)
         }
       }
+    },
+  )
+})
+
+/**
+ * Hold one row `FOR UPDATE` from outside for up to a minute, longer than any
+ * budget under test, until told to let go.
+ *
+ * @param {string} table The table.
+ * @param {string} id The row.
+ * @returns {Promise<{pid: number, release: function(): Promise<void>}>} The holder.
+ */
+async function holdLong(table, id) {
+  let open
+  const gate = new Promise((resolve) => {
+    open = resolve
+  })
+  let ready
+  const locked = new Promise((resolve, reject) => {
+    ready = { resolve, reject }
+  })
+  const done = prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRawUnsafe(`SELECT "id" FROM "${table}" WHERE "id" = $1 FOR UPDATE`, id)
+
+      const [{ pid }] = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`
+
+      ready.resolve(Number(pid))
+      await gate
+    },
+    { timeout: 60_000, maxWait: 10_000 },
+  )
+
+  done.catch((error) => ready.reject(error))
+
+  const pid = await locked
+
+  return {
+    pid,
+    release: async () => {
+      open()
+      await done
+    },
+  }
+}
+
+/**
+ * A call's outcome and when it came, or null when it did not come within
+ * `ms` (the row is let go only after this).
+ *
+ * @param {Promise<unknown>} call The call.
+ * @param {number} ms How long to wait for it.
+ * @returns {Promise<{answer: object, ms: number}|null>} The outcome and how long it took.
+ */
+async function answeredWithin(call, ms) {
+  const started = Date.now()
+  const answer = outcome(call).then((result) => ({ answer: result, ms: Date.now() - started }))
+
+  return Promise.race([
+    answer,
+    new Promise((resolve) => {
+      setTimeout(() => resolve(null), ms)
+    }),
+  ])
+}
+
+when()('a write that cannot wait behind another change (final door review, finding 2)', () => {
+  it('18. the single door with a payment, behind its order held by another change: 503 within its lock wait, nobody let in, nothing recorded', async () => {
+    const world = await venueWorld('doorbusy')
+    const { order, tickets } = await booking(world)
+    const [ticket] = tickets
+    const body = await looked(scanner, ticket)
+    const held = await holdLong('Order', order.id)
+    let told
+
+    try {
+      told = await answeredWithin(
+        confirmAs(scanner, { ...body, payment: { amountCents: ticket.venueDueCents } }),
+        DOOR_LOCK_WAIT.statementMs + 5_000,
+      )
+    } finally {
+      await held.release()
+    }
+
+    // Answered while the order was still held, after waiting its bound.
+    expect(told, 'the door was still waiting on the order').not.toBeNull()
+    expect(told.ms).toBeGreaterThanOrEqual(DOOR_LOCK_WAIT.lockMs - 250)
+    expect(told.answer).toMatchObject({
+      status: 503,
+      code: 'SERVICE_UNAVAILABLE',
+      body: DOOR_BUSY_SENTENCE,
+    })
+    expect(await doorPayments(order.id)).toEqual([])
+    expect(await prisma.checkIn.count({ where: { ticketId: ticket.id } })).toBe(0)
+    expect((await ticketRow(ticket.id)).status).toBe('VALID')
+
+    // Let go, the same steward admits them with the payment, once.
+    const again = await outcome(
+      confirmAs(scanner, {
+        ...(await looked(scanner, ticket)),
+        payment: { amountCents: ticket.venueDueCents },
+      }),
+    )
+
+    expect(again.status, JSON.stringify(again)).toBe(200)
+    expect(again.data.outcome).toBe('ADMITTED')
+    expect(await doorPayments(order.id)).toHaveLength(1)
+  })
+
+  it('18b. the group door with a payment, behind its order held by another change: 503 within its lock wait, nobody let in, nothing recorded', async () => {
+    const world = await venueWorld('groupbusy')
+    const { order, tickets } = await booking(world)
+    const pass = await groupPassFor(order)
+    const group = await previewGroupAdmission({
+      prisma,
+      env: ENV,
+      actor: await actorFor(scanner),
+      body: { credential: pass.credential },
+    })
+    const held = await holdLong('Order', order.id)
+    let told
+
+    try {
+      told = await answeredWithin(
+        (async () =>
+          confirmGroupAdmission({
+            prisma,
+            env: ENV,
+            actor: await actorFor(scanner),
+            body: {
+              credential: pass.credential,
+              previewReference: group.previewReference,
+              ticketIds: tickets.map((ticket) => ticket.id),
+              paymentCents: group.payment.dueCents,
+            },
+          }))(),
+        DOOR_LOCK_WAIT.statementMs + 5_000,
+      )
+    } finally {
+      await held.release()
+    }
+
+    expect(told, 'the group door was still waiting on the order').not.toBeNull()
+    expect(told.answer).toMatchObject({
+      status: 503,
+      code: 'SERVICE_UNAVAILABLE',
+      body: GROUP_DOOR_BUSY_SENTENCE,
+    })
+    expect(await doorPayments(order.id)).toEqual([])
+    expect(
+      await prisma.checkIn.count({
+        where: { ticketId: { in: tickets.map((ticket) => ticket.id) } },
+      }),
+    ).toBe(0)
+  })
+
+  it(
+    '18c. tickets.revoke behind its order held by another change: 503 with its own sentence and Retry-After after its lock wait, the ticket still valid',
+    { timeout: 90_000 },
+    async () => {
+      const world = await venueWorld('revokebusy')
+      const { order, tickets } = await booking(world)
+      const [ticket] = tickets
+      const held = await holdLong('Order', order.id)
+      const started = Date.now()
+      let told
+
+      try {
+        told = await Promise.race([
+          app
+            .inject({
+              method: 'POST',
+              url: `/v1/tickets/${ticket.id}/revoke`,
+              headers: world.ownerHeaders,
+              payload: { reason: REASON },
+            })
+            .then((response) => ({ response, ms: Date.now() - started })),
+          new Promise((resolve) => {
+            setTimeout(() => resolve(null), LOCK_WAIT_MS + 20_000)
+          }),
+        ])
+      } finally {
+        await held.release()
+      }
+
+      expect(told, 'the revocation was still waiting on the order').not.toBeNull()
+      expect(told.ms).toBeGreaterThanOrEqual(LOCK_WAIT_MS - 250)
+      expect(told.response.statusCode, told.response.body).toBe(503)
+      expect(told.response.headers['retry-after']).toBe(String(OUT_OF_TIME_RETRY_AFTER_SECONDS))
+      expect(told.response.json().error).toMatchObject({
+        code: 'SERVICE_UNAVAILABLE',
+        message:
+          'Another change to this ticket’s order was being saved at the same moment, so the ticket was not revoked. Try again in a moment.',
+      })
+      expect(told.response.body).not.toMatch(/P20\d\d|55P03|57014|lock timeout|expired transaction/)
+      expect((await ticketRow(ticket.id)).status).toBe('VALID')
     },
   )
 })

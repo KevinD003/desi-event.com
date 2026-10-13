@@ -624,3 +624,11 @@ so taken after the ticket the two deadlocked (race test 14). Two stewards both
 hold the order `FOR SHARE` and take turns on the ticket: one records and
 admits, the other is told the ticket is already in. The whole law, every path's
 place in it and the reasons are in ADR 0017 §9.
+
+A confirmation waits at most four seconds for any one of those locks (and five
+for any one statement): a night's cancellation or an event's deletion can hold
+the night and the order for its whole budget, so a door queued behind one is
+answered 503 `SERVICE_UNAVAILABLE` with `Retry-After` within moments — nobody
+let in, no payment recorded — and the workspace says so in the API's words and
+offers a fresh lookup (`DOOR_LOCK_WAIT` in `apps/api/src/lib/admission.js`;
+tests 18 and 18b in `venue-payment-integration.test.js`).

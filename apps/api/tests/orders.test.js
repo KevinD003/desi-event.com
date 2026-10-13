@@ -1176,6 +1176,9 @@ describe('a booking to pay at the venue, as its readers read it', () => {
         by: 'DESI_EVENT',
         ticketCount: 1,
         basisCents: tickets[0].venueDueCents,
+        // The buyer's own ticket: none of it was passed on (XT7).
+        passedOnTickets: 0,
+        passedOnBasisCents: 0,
         feeKeptCents: kept,
         reason,
       },

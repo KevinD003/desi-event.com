@@ -659,6 +659,7 @@ export function partsLeft(parts, spoken) {
  * @param {number|null} [options.takenBasisCents] The basis earlier refunds spoke for; the face value they took when not given.
  * @param {number|null} [options.orderBasisCents] The order's basis ({@link orderBasis}); its face value when not given.
  * @param {number} [options.feeTaxTakenCents] Tax given back by refunds of the booking fee on its own, not shared out again.
+ * @param {boolean} [options.lastShare] For `lines`: the named tickets are the last the order has to give back ({@link basisLeftWhenLast}), so they take the fee and tax left whole.
  * @returns {{faceValueCents: number, feeCents: number, taxCents: number}} The split. For `lines`, its sum is the refund amount.
  * @throws {Error} 409 `ORDER_TOTALS_INCONSISTENT` when the amount exceeds everything left.
  */
@@ -672,12 +673,18 @@ export function refundPartsFor({
   takenBasisCents = null,
   orderBasisCents = null,
   feeTaxTakenCents = 0,
+  lastShare = false,
 }) {
   if (form === FORMS.LINES) {
     const face = lineFaceCents
     const basis = orderBasisCents ?? parts.faceValueCents
 
     if (basis <= 0) return { faceValueCents: face, feeCents: 0, taxCents: 0 }
+
+    // The last tickets of a pay-at-the-venue order take what is left of the
+    // fee and its tax: the cents rounding left behind have no other ticket to
+    // go with, and without them the order could never end REFUNDED.
+    if (lastShare) return { faceValueCents: face, feeCents: left.feeCents, taxCents: left.taxCents }
 
     const taken = takenBasisCents ?? parts.faceValueCents - left.faceValueCents
     const named = lineBasisCents ?? face
@@ -1139,7 +1146,21 @@ export function quoteNamedLines({
     discountCents,
     roomByLine: roomOnLines(items, discountCents, pending.cents),
   })
-  const basis = priced.amountCents
+  // The last tickets a pay-at-the-venue order has to give back speak for the
+  // basis left, not their price by position: a promo code's discount can
+  // split a line's door price unevenly between its tickets, and a cancellation
+  // of unpaid tickets counts their own dues, so prices by position and by
+  // ticket can disagree by a cent. The last share squares them.
+  const lastBasis = share?.atVenue
+    ? basisLeftWhenLast({
+        items,
+        pendingByLine: pending.quantities,
+        taking: wantedByLine(lines),
+        orderBasisCents: share.orderBasisCents,
+        takenBasisCents: share.takenBasisCents ?? 0,
+      })
+    : null
+  const basis = lastBasis ?? priced.amountCents
   // A pay-at-the-venue order's tickets have no face value online: what they
   // cost is paid at the door, so the lines give back nothing and the refund is
   // their share of the booking fee and its tax, by their basis (SPEC3 §10.2).
@@ -1160,9 +1181,60 @@ export function quoteNamedLines({
     takenBasisCents: share?.takenBasisCents ?? null,
     orderBasisCents: share?.atVenue ? share.orderBasisCents : null,
     feeTaxTakenCents: share?.feeTaxTakenCents ?? 0,
+    lastShare: lastBasis !== null,
   })
 
   return { priced, named, basis, split, amountCents: sumParts(split) }
+}
+
+/**
+ * How many tickets of each line a request names.
+ *
+ * @param {Array<{orderItemId: string, quantity: number}>} lines What to give back.
+ * @returns {Map<string, number>} Line id to quantity.
+ */
+function wantedByLine(lines) {
+  const wanted = new Map()
+
+  for (const line of lines) {
+    wanted.set(line.orderItemId, (wanted.get(line.orderItemId) ?? 0) + line.quantity)
+  }
+
+  return wanted
+}
+
+/**
+ * The basis left on a pay-at-the-venue order when the tickets about to be
+ * refunded or cancelled are the last it has to give back: every line's
+ * quantity left (less what unresolved refunds hold) is taken by them. Null
+ * otherwise, and the tickets speak for their own basis.
+ *
+ * A ticket still counted on its line — one let in, one standing — keeps the
+ * rule from applying, so its share of the fee is never handed to another.
+ *
+ * @param {object} options Options.
+ * @param {Array<object>} options.items Every line of the order, as it stands.
+ * @param {Map<string, number>} [options.pendingByLine] Tickets unresolved refunds hold, per line.
+ * @param {Map<string, number>} options.taking Tickets this refund or cancellation takes, per line.
+ * @param {number} options.orderBasisCents The order's basis ({@link orderBasis}).
+ * @param {number} options.takenBasisCents The basis refunds and cancellations already spoke for.
+ * @returns {number|null} The basis left, or null when tickets would still be left.
+ */
+export function basisLeftWhenLast({
+  items,
+  pendingByLine = new Map(),
+  taking,
+  orderBasisCents,
+  takenBasisCents,
+}) {
+  if (!items || items.length === 0) return null
+
+  const last = items.every(
+    (item) =>
+      lineQuantityLeft(item, pendingByLine.get(item.id) ?? 0) - (taking.get(item.id) ?? 0) <= 0,
+  )
+
+  return last ? Math.max(0, orderBasisCents - takenBasisCents) : null
 }
 
 /**
@@ -2030,6 +2102,28 @@ export async function submitOutsideTransaction(payments, refund, payment) {
 }
 
 /**
+ * The order in which a refund withdraws a line's standing tickets: tickets
+ * not paid at the door first, then the rest, each group oldest first.
+ *
+ * A ticket good for every night stays VALID after it is paid for at the door
+ * and let in (`admission.js`), so a line can hold a ticket whose price is with
+ * the organiser beside one that still owes it. A refund of one ticket of that
+ * line gives back a share of the booking fee and must withdraw the one still
+ * owed for; withdrawing the paid one would kill a ticket the buyer has paid
+ * for in cash and leave them owing the price again on the other. A card
+ * order's tickets have no door payment, so they keep the oldest-first order.
+ *
+ * @param {Array<{venuePaymentId?: string|null}>} tickets A line's standing tickets, oldest first.
+ * @returns {Array<object>} The same tickets in withdrawal order (a new array; stable).
+ */
+export function withdrawalOrder(tickets) {
+  const unpaid = tickets.filter((ticket) => (ticket.venuePaymentId ?? null) === null)
+  const paid = tickets.filter((ticket) => (ticket.venuePaymentId ?? null) !== null)
+
+  return [...unpaid, ...paid]
+}
+
+/**
  * Give the tickets and seats back, according to policy.
  *
  * Whole tickets only, and the seat policy is explicit. A seat is never silently
@@ -2078,11 +2172,12 @@ export async function revokeAndReturn(tx, { refund, seatPolicy, now }) {
     // OrderItem, Tickets — the one order every writer follows.
     await tx.$queryRaw`SELECT "id" FROM "OrderItem" WHERE "id" = ${item.orderItemId} FOR UPDATE`
 
-    const tickets = await tx.ticket.findMany({
-      where: { orderItemId: item.orderItemId, ...settleable },
-      orderBy: { createdAt: 'asc' },
-      take: item.quantity,
-    })
+    const tickets = withdrawalOrder(
+      await tx.ticket.findMany({
+        where: { orderItemId: item.orderItemId, ...settleable },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ).slice(0, item.quantity)
 
     for (const ticket of tickets) {
       // Conditional on the ticket still being refundable, not on the exact

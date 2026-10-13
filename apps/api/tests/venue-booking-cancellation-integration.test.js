@@ -2206,3 +2206,387 @@ async function seatedWorld(label) {
     eventSeatId: eventSeat.id,
   }
 }
+
+/**
+ * A 50 % promo code for the world's event.
+ *
+ * @param {object} world From {@link venueWorld}.
+ * @returns {Promise<object>} The promo code row.
+ */
+function halfOffFor(world) {
+  return prisma.promoCode.create({
+    data: {
+      organizationId: world.organization.id,
+      eventId: world.event.id,
+      code: `HALF${tag('promo')}`.toUpperCase().slice(0, 32),
+      type: 'PERCENTAGE',
+      value: 5000,
+    },
+  })
+}
+
+/**
+ * A lines refund of `quantity` tickets of the order's one line, requested,
+ * approved, sent and settled as `refunds.submit` settles one.
+ *
+ * @param {object} world From {@link venueWorld}.
+ * @param {object} order The order.
+ * @param {number} quantity How many tickets.
+ * @returns {Promise<object>} The refund row, settled.
+ */
+async function lineRefundSettled(world, order, quantity) {
+  const payment = await prisma.payment.findFirst({ where: { orderId: order.id } })
+  const items = await prisma.orderItem.findMany({ where: { orderId: order.id } })
+  const { refund } = await prisma.$transaction(async (tx) =>
+    requestRefund(tx, {
+      order: { ...(await tx.order.findUnique({ where: { id: order.id } })), items },
+      payment,
+      lines: [{ orderItemId: items[0].id, quantity }],
+      reason: 'CUSTOMER_REQUEST',
+      idempotencyKey: `cancel-suite-line-${tag('refund')}`,
+      actorId: owner.id,
+      now: new Date(),
+    }),
+  )
+
+  await prisma.$transaction((tx) =>
+    approveRefund(tx, { refund, actorId: owner.id, now: new Date() }),
+  )
+  await prisma.$transaction(async (tx) =>
+    markSubmitted(tx, {
+      refund: await tx.refund.findUnique({ where: { id: refund.id } }),
+      now: new Date(),
+    }),
+  )
+
+  const submitted = await prisma.refund.findUnique({ where: { id: refund.id } })
+  const result = await submitOutsideTransaction(payments, submitted, payment)
+
+  expect(result.outcome).toBe(REFUND_OUTCOMES.SUCCEEDED)
+  await settled(world, order, { refund: submitted, result })
+
+  return prisma.refund.findUnique({ where: { id: refund.id } })
+}
+
+when()('the last share of a booking fee split unevenly by a promo code (C16)', () => {
+  it(
+    'C16. 4 × $40.01 at 50 % off: the cheaper two cancelled unpaid and the other two refunded by name, in both orders, give back or keep every cent of the fee',
+    { timeout: 120_000 },
+    async () => {
+      for (const cancelFirst of [true, false]) {
+        const world = await venueWorld(cancelFirst ? 'c16cancel' : 'c16refund')
+
+        await prisma.ticketType.update({
+          where: { id: world.tiers[0].id },
+          data: { priceCents: 4_001 },
+        })
+
+        const promoCode = await halfOffFor(world)
+        const { order, tickets } = await atVenueOrder(
+          prisma,
+          { event: world.event, session: world.nights[0], tiers: {}, promoCode },
+          {
+            tag: tag('booking'),
+            payments,
+            credentialSecret: SECRET,
+            userId: buyer.id,
+            withPromo: true,
+            lines: [{ ticketTypeId: world.tiers[0].id, quantity: 4, unitPriceCents: 4_001 }],
+          },
+        )
+        // The line's door price, 8002, splits 2001/2001/2000/2000 by ticket
+        // but 2001/2000/2001/2000 by position: the two ways disagree by a cent.
+        const dues = tickets.map((ticket) => ticket.venueDueCents)
+
+        expect(dues).toEqual([2001, 2001, 2000, 2000])
+        expect(order.feesCents).toBeGreaterThan(0)
+
+        const cheaper = tickets.filter((ticket) => ticket.venueDueCents === 2000)
+        const label = cancelFirst ? 'cancel first' : 'refund first'
+
+        if (cancelFirst) {
+          await cancel(order, cheaper)
+          await lineRefundSettled(world, order, 2)
+        } else {
+          await lineRefundSettled(world, order, 2)
+          await cancel(order, cheaper)
+        }
+
+        const money = await moneyOf(order.id)
+        const row = await orderRow(order.id)
+
+        // Every cent of the fee is either kept or given back: none stranded.
+        expect(money.refunds + money.kept, `${label}: ${JSON.stringify(money)}`).toBe(
+          order.totalCents,
+        )
+
+        for (const ticket of tickets) {
+          expect(['REFUNDED', 'REVOKED']).toContain((await ticketRow(ticket.id)).status)
+        }
+
+        // A refund settling the last tickets ends the order REFUNDED; a
+        // cancellation never moves the order (XU7), so it stays PAID with
+        // nothing left to refund.
+        expect(row.status, label).toBe(cancelFirst ? 'REFUNDED' : 'PAID')
+        expect(row.totalCents - row.refundedCents - row.venueFeeKeptCents).toBe(0)
+        expect(
+          (await findImbalances(prisma, { organizationId: world.organization.id })).imbalances,
+        ).toEqual([])
+      }
+    },
+  )
+})
+
+/**
+ * The buyer's notice of one cancellation, as the outbox holds it.
+ *
+ * @param {object} order The booking.
+ * @param {'BUYER'|'HOLDER'} recipient Whose.
+ * @returns {Promise<object[]>} The payloads, oldest first.
+ */
+async function cancellationNotices(order, recipient) {
+  const rows = await prisma.notificationOutbox.findMany({
+    where: { template: 'venue_booking.cancelled' },
+    orderBy: { createdAt: 'asc' },
+  })
+
+  return rows
+    .map((row) => row.payload)
+    .filter(
+      (payload) =>
+        payload?.recipient === recipient &&
+        payload?.eventId === order.eventId &&
+        (recipient === 'HOLDER' || payload?.orderReference === order.reference),
+    )
+}
+
+when()(
+  'what the buyer is told about money (codes review: fee refunded by hand, tickets passed on)',
+  () => {
+    it(
+      'C17. a booking fee refunded by hand, then an unpaid ticket cancelled, then its night cancelled: the dialog reads no fee held, and no notice says nothing was paid online',
+      { timeout: 120_000 },
+      async () => {
+        const world = await venueWorld('c17', { nights: 2 })
+        const { order, tickets } = await booking(world, { quantity: 3 })
+
+        expect(order.totalCents).toBeGreaterThan(0)
+        expect(order.feesCents).toBe(order.totalCents)
+
+        // Desi-Event's finance team refunds the whole booking fee by hand.
+        const finance = await person(`finance${tag('c17')}`, {
+          role: 'FINANCE_ADMIN',
+          privileged: true,
+        })
+        const financeHeaders = await headersFor(finance)
+        const preview = await app.inject({
+          method: 'GET',
+          url: `/v1/platform/orders/${order.reference}/fee`,
+          headers: financeHeaders,
+        })
+
+        expect(preview.statusCode, preview.body).toBe(200)
+
+        const figures = preview.json().data
+        const refund = await app.inject({
+          method: 'POST',
+          url: `/v1/platform/orders/${order.reference}/fee-refund`,
+          headers: financeHeaders,
+          payload: {
+            reason: 'Goodwill: the buyer was charged the fee twice.',
+            expectedRefundableCents: figures.refundableFeeCents + figures.taxOnFeeCents,
+          },
+        })
+
+        expect(refund.statusCode, refund.body).toBe(200)
+        expect(refund.json().data.refund).toMatchObject({
+          status: 'SUCCEEDED',
+          amountCents: order.totalCents,
+        })
+
+        // The cancel dialog reads what the booking still holds, not what it paid.
+        const listed = await app.inject({
+          method: 'GET',
+          url: `/v1/events/${world.event.id}/venue-bookings`,
+          headers: world.ownerHeaders,
+        })
+
+        expect(listed.statusCode, listed.body).toBe(200)
+
+        const [listedBooking] = listed
+          .json()
+          .data.bookings.filter((row) => row.orderReference === order.reference)
+
+        expect(listedBooking).toMatchObject({ feesCents: order.feesCents, feeHeldCents: 0 })
+
+        // One unpaid ticket cancelled: nothing is left to keep.
+        const cancelled = await cancel(order, [tickets[0]])
+
+        expect(cancelled.feeKeptCents).toBe(0)
+
+        const [notice] = await cancellationNotices(order, 'BUYER')
+
+        expect(notice).toMatchObject({
+          ticketCount: 1,
+          dueCents: PRICE,
+          passedOnTickets: 0,
+          passedOnDueCents: 0,
+          feeKeptCents: 0,
+          onlineFee: 'REFUNDED_EARLIER',
+          othersRemain: true,
+        })
+
+        // The buyer's order still says it paid online, which is what the order
+        // page reads to tell the two apart.
+        const read = await app.inject({
+          method: 'GET',
+          url: `/v1/orders/${order.reference}`,
+          headers: await headersFor(buyer),
+        })
+
+        expect(read.statusCode, read.body).toBe(200)
+        expect(read.json().data.totalCents).toBe(order.totalCents)
+        expect(read.json().data.venueCancellations).toEqual([
+          expect.objectContaining({
+            ticketCount: 1,
+            basisCents: PRICE,
+            passedOnTickets: 0,
+            passedOnBasisCents: 0,
+            feeKeptCents: 0,
+          }),
+        ])
+
+        // Then the night itself is cancelled: the other two tickets are withdrawn.
+        const nightPreview = await app.inject({
+          method: 'GET',
+          url: `/v1/events/${world.event.id}/sessions/${world.nights[0].id}/cancellation`,
+          headers: world.ownerHeaders,
+        })
+
+        expect(nightPreview.statusCode, nightPreview.body).toBe(200)
+
+        const { revision } = await prisma.event.findUnique({ where: { id: world.event.id } })
+        const night = await app.inject({
+          method: 'POST',
+          url: `/v1/events/${world.event.id}/sessions/${world.nights[0].id}/cancel`,
+          headers: world.ownerHeaders,
+          payload: {
+            revision,
+            reason: 'The band could not travel that night.',
+            confirm: true,
+            expectedOrders: nightPreview.json().data.orders,
+          },
+        })
+
+        expect(night.statusCode, night.body).toBe(200)
+
+        const nightNotice = await prisma.notificationOutbox.findFirst({
+          where: {
+            template: 'event.session_cancelled',
+            dedupeKey: `session-cancelled:${world.nights[0].id}:${order.id}`,
+          },
+        })
+
+        expect(nightNotice?.payload).toMatchObject({
+          atVenue: true,
+          outcome: 'FEE_REFUNDED_EARLIER',
+          onlineRefund: 'ALREADY_REFUNDED',
+        })
+      },
+    )
+
+    it(
+      'C18. a booking that paid nothing online, and one whose fee is still held, are told so when unpaid tickets are cancelled',
+      { timeout: 120_000 },
+      async () => {
+        const world = await venueWorld('c18')
+        const waived = await atVenueOrder(
+          prisma,
+          { event: world.event, session: world.nights[0], tiers: {}, promoCode: null },
+          {
+            tag: tag('booking'),
+            payments,
+            credentialSecret: SECRET,
+            userId: buyer.id,
+            waived: true,
+            lines: [{ ticketTypeId: world.tiers[0].id, quantity: 1, unitPriceCents: PRICE }],
+          },
+        )
+        const held = await booking(world, { quantity: 2 })
+
+        expect(waived.order.totalCents).toBe(0)
+
+        await cancel(waived.order, waived.tickets)
+        await cancel(held.order, [held.tickets[0]])
+
+        expect(await cancellationNotices(waived.order, 'BUYER')).toEqual([
+          expect.objectContaining({ feeKeptCents: 0, onlineFee: 'NONE_PAID' }),
+        ])
+        expect(await cancellationNotices(held.order, 'BUYER')).toEqual([
+          expect.objectContaining({ feeKeptCents: expect.any(Number), onlineFee: 'KEPT' }),
+        ])
+        expect((await cancellationNotices(held.order, 'BUYER'))[0].feeKeptCents).toBeGreaterThan(0)
+      },
+    )
+
+    it(
+      'C19. a ticket passed on and the buyer’s own cancelled together: the buyer is told only their own is no longer owed by them, and the order says how many were passed on',
+      { timeout: 120_000 },
+      async () => {
+        const world = await venueWorld('c19')
+        const { order, tickets } = await atVenueOrder(
+          prisma,
+          { event: world.event, session: world.nights[0], tiers: {}, promoCode: null },
+          {
+            tag: tag('booking'),
+            payments,
+            credentialSecret: SECRET,
+            userId: buyer.id,
+            holders: [null, recipient.id],
+            lines: [{ ticketTypeId: world.tiers[0].id, quantity: 2, unitPriceCents: PRICE }],
+          },
+        )
+
+        expect(tickets.map((ticket) => ticket.ownerUserId)).toEqual([buyer.id, recipient.id])
+
+        const cancelled = await cancel(order, tickets)
+
+        expect(cancelled).toMatchObject({ ticketCount: 2, basisCents: 2 * PRICE })
+
+        expect(await cancellationNotices(order, 'BUYER')).toEqual([
+          expect.objectContaining({
+            ticketCount: 1,
+            dueCents: PRICE,
+            passedOnTickets: 1,
+            passedOnDueCents: PRICE,
+            othersRemain: false,
+          }),
+        ])
+
+        const holderNotices = (await cancellationNotices(order, 'HOLDER')).filter(
+          (payload) => payload.eventTitle === world.event.title,
+        )
+
+        expect(holderNotices).toEqual([
+          expect.objectContaining({ ticketCount: 1, dueCents: PRICE }),
+        ])
+
+        const read = await app.inject({
+          method: 'GET',
+          url: `/v1/orders/${order.reference}`,
+          headers: await headersFor(buyer),
+        })
+
+        expect(read.statusCode, read.body).toBe(200)
+        expect(read.json().data.venueCancellations).toEqual([
+          expect.objectContaining({
+            ticketCount: 2,
+            basisCents: 2 * PRICE,
+            passedOnTickets: 1,
+            passedOnBasisCents: PRICE,
+          }),
+        ])
+      },
+    )
+  },
+)

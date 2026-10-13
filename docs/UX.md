@@ -810,12 +810,20 @@ ADRs 0016 and 0017. What each screen says, and the rules behind it.
   the door, paid at the door, passed on ("Passed on — the new holder pays at the
   door", and per row "Passed on — its new holder pays {amount} at the door"
   from the API's own figure), cancelled ("Cancelled — not paid at the door",
-  with who cancelled, the reason, and the booking fee kept or "Nothing was paid
-  online"). The tax row is named for the place — "Sales tax" (US), "GST"
+  with who cancelled, the reason, and the booking fee kept, "None of the
+  booking fee you paid online is kept for them" when a fee was paid online but
+  none of it is kept (refunded earlier, say), or "Nothing was paid online" only
+  when the order paid nothing online; the buyer is told only what they no longer
+  owe for their own tickets, and the tickets they passed on are named apart,
+  "1 ticket you passed on to someone else was cancelled too", since their holders
+  owed them; updated 2026-10-13), or ended with nothing left to pay ("Cancelled — nothing to pay",
+  when its event was cancelled or deleted, or none of its tickets can be used
+  any more; never "Paid" and never an amount to pay; updated 2026-10-13). The tax row is named for the place — "Sales tax" (US), "GST"
   (India), "HST" (Ontario) — and says "No {tax} is added to tickets paid at the
   venue."; "Tax" stays only where the order does not say where the event is.
 - **The wallet and the ticket page** show "Pay at the door: {amount}" on a
-  ticket that owes, and "Withdrawn — this ticket no longer works at the door"
+  ticket that owes ("Event cancelled — nothing to pay" once its event is
+  cancelled or deleted), and "Withdrawn — this ticket no longer works at the door"
   on a withdrawn one, never the raw word "CANCELLED". A ticket cancelled unpaid
   shows "Cancelled — not paid", who cancelled it and when (never by name), and
   "Reason given: “{reason}”" — whoever holds it, so somebody it was passed to,
@@ -853,7 +861,9 @@ venue.
   "Not paid by the end of the event".
 - **The cancel dialog** pre-selects every unpaid ticket with a native tri-state
   "Select all {n} unpaid tickets", says what is kept (the booking fee paid
-  online for them, or nothing when none was paid), asks for a reason shown to
+  online for them, read from what of the fee the booking still holds; "Nothing is
+  left of the booking fee paid online for this booking, so nothing is kept or
+  refunded." when it was all refunded earlier; or nothing when none was paid), asks for a reason shown to
   the buyer and holders, and after cancelling says whether the freed places are
   on sale again (all, some or none), telling an organiser whose event is paused
   or sold out to open sales on the event page to sell them.
@@ -890,7 +900,9 @@ venue.
 A refusal is read as "busy, try again" only when the API answers 503
 `SERVICE_UNAVAILABLE` with `Retry-After` — the answer every bounded wait gives
 (setting the fee, setting pay-at-the-venue, cancelling unpaid tickets, refunding
-a fee). SPEC3 §12.3 and SPEC3-XI XU10 name that refusal `TRY_AGAIN`; the built
+a fee, editing or switching a referral code, revoking a ticket, confirming at
+the door). The door says the API's sentence — nobody let in, no payment
+recorded — and offers a fresh lookup; it never logs the attempt as a refusal. SPEC3 §12.3 and SPEC3-XI XU10 name that refusal `TRY_AGAIN`; the built
 API sends `SERVICE_UNAVAILABLE`, and this document records the built name.
 `TRY_AGAIN` remains for two answers only: a 503 from making a referral code
 after five generated codes in a row were taken, which the form shows with the
