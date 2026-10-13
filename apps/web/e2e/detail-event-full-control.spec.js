@@ -1349,7 +1349,7 @@ test.describe.serial('full control of posted events', () => {
     await admin.goto(`/admin/events/${draft.id}`)
     await expect(
       admin.getByText(
-        'The Desi-Event team edits an event only once it has been published. Before that it is the organiser’s draft; ask for changes through review.',
+        'The Desi-Event team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.',
       ),
     ).toBeVisible()
     await expect(admin.getByRole('button', { name: 'Open for editing' })).toHaveCount(0)

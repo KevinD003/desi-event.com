@@ -296,6 +296,7 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
   let allIn
   let fee
   let tax
+  let taxName
   let holdId
   let reference
   let ticketCode
@@ -408,11 +409,13 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
     const quote = normalise(
       await tickets.locator('p').filter({ hasText: 'all in' }).textContent(),
     ).match(
-      /^(₹[\d,]+\.\d{2}) all in — includes (₹[\d,]+\.\d{2}) booking fee(?: and (₹[\d,]+\.\d{2}) [^.]+)?\.$/u,
+      /^(₹[\d,]+\.\d{2}) all in — includes (₹[\d,]+\.\d{2}) booking fee(?: and (₹[\d,]+\.\d{2}) ([^.(]+?)(?: \([^)]*\))?)?\.$/u,
     )
 
     expect(quote, 'the event page quotes no all-in price').not.toBeNull()
-    ;[, allIn, fee, tax = null] = quote
+    // The tax's name as the event's place names it ("GST", "Sales tax"): the
+    // order page names its line the same way (SPEC3 §12.7).
+    ;[, allIn, fee, tax = null, taxName = null] = quote
 
     // The quote adds up, and it is the listing's figure too.
     expect(paise(allIn)).toBe(paise(FACE) + paise(fee) + (tax ? paise(tax) : 0))
@@ -803,10 +806,17 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
 
     await expect(definition(money, 'Subtotal')).toHaveText(FACE)
     await expect(definition(money, 'Booking fee')).toHaveText(fee)
-    await expect(definition(money, 'Tax')).toHaveCount(tax ? 1 : 0)
+    if (tax) {
+      await expect(definition(money, taxName)).toHaveCount(1)
+    } else {
+      // No tax was quoted, so no line of any tax's name is drawn either.
+      await expect(
+        money.locator('dt').filter({ hasText: /^\s*(?:Tax|Sales tax|GST|HST|QST|PST|VAT)\b/u }),
+      ).toHaveCount(0)
+    }
     await expect(definition(money, 'Total')).toHaveText(allIn)
 
-    const taxShown = tax ? normalise(await definition(money, 'Tax').textContent()) : null
+    const taxShown = tax ? normalise(await definition(money, taxName).textContent()) : null
 
     expect(taxShown).toBe(tax)
     // The columns add up to the total, which is the figure the button named.

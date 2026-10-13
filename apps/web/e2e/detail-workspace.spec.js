@@ -6,6 +6,12 @@ import { seedAdministrator } from './support/seed-onboarding.mjs'
 import { CONNECTION, PASSWORD, TOTP_SECRET } from './support/seed-refusals.mjs'
 import { confirmIfAsked } from './support/step-up.mjs'
 
+// The administrators' rail now leads to the referral codes (SPEC3 §12.10).
+// Nothing here opens one, but a spec that reaches the referral codes' pages
+// takes no screenshot, trace or film (`lib/e2e-code-hygiene.test.js`), so a
+// code on a page it passes through never ends up in an uploaded artefact.
+test.use({ screenshot: 'off', trace: 'off', video: 'off' })
+
 /**
  * The organiser and operations lists this phase added, and the scoping fix
  * behind "Your events", read against the real API over the real database.
@@ -200,6 +206,9 @@ const PLATFORM_RAIL = Object.freeze([
   'Website links',
   'Organiser invitations',
   'All events',
+  // SPEC3 §12.10: the Desi-Event team's referral codes and booking fee refunds.
+  'Referral codes',
+  'Booking fee refunds',
   'Imports',
   'People and roles',
 ])
@@ -224,6 +233,9 @@ const ADMIN_RAIL = Object.freeze([
   'Website links',
   'Organiser invitations',
   'All events',
+  // SPEC3 §12.10: the Desi-Event team's referral codes and booking fee refunds.
+  'Referral codes',
+  'Booking fee refunds',
   'Imports',
 ])
 

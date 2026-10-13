@@ -68,6 +68,62 @@ afterEach(() => {
 })
 
 describe('ReferralCodeList', () => {
+  it('stays stacked into cards below 768 px, so 200% zoom on a laptop (640 px) does not scroll sideways', () => {
+    render(<ReferralCodeList codes={[code()]} caption="Referral codes" />)
+
+    const table = screen.getByRole('table', { name: 'Referral codes' })
+
+    // Nine columns do not fit 640 px beside the workspace's own margins: the
+    // accessibility sweep measured 79 px of sideways scroll there with the
+    // table drawn from 640 px. Cards until 768 px, a table from there.
+    expect(table).toHaveClass('block', 'md:table')
+    expect(table.className).not.toMatch(/(?:^|\s)sm:table(?:\s|$)/u)
+    expect(table.closest('.overflow-x-auto')).toBeNull()
+
+    for (const row of within(table).getAllByRole('row').slice(1)) {
+      expect(row).toHaveClass('block', 'md:table-row')
+    }
+  })
+
+  it('lets a long word in a text column wrap, so a long name or code does not widen the table past a 1024 px screen', () => {
+    render(
+      <ReferralCodeList
+        codes={[
+          code({
+            referralCode: 'SUMMERFESTIVALPARTNERS2026',
+            label: 'Venkataramanaswamy',
+            scope: 'SELECTED_EVENTS',
+            events: [{ id: 'cevent0000000000000000001', title: 'Navratrimahotsav' }],
+            eventCount: 1,
+            createdBy: { id: 'cuser000000000000000002', displayName: 'Nandini Venkataraman' },
+          }),
+        ]}
+        caption="Referral codes"
+      />,
+    )
+
+    const [row] = within(screen.getByRole('table', { name: 'Referral codes' }))
+      .getAllByRole('row')
+      .slice(1)
+
+    // The nine columns sit side by side from 768 px. A table's columns are no
+    // narrower than their longest word unless the word may break anywhere, and
+    // the accessibility sweep measured 27 px of sideways scroll at 1024 px
+    // with one eleven-letter word in "Made by". Each text column may break a
+    // word; the figures, dates and status never need to.
+    for (const text of [
+      'SUMMERFESTIVALPARTNERS2026',
+      'Venkataramanaswamy',
+      'Navratrimahotsav',
+      'Nandini Venkataraman',
+    ]) {
+      const node = within(row).getByText(text)
+
+      expect(node.closest('.wrap-anywhere'), text).not.toBeNull()
+      expect(row.contains(node.closest('.wrap-anywhere')), text).toBe(true)
+    }
+  })
+
   it('draws each code with the columns the specification names', () => {
     render(
       <ReferralCodeList

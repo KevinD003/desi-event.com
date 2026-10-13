@@ -45,7 +45,20 @@ import {
   preparePictures,
   seedImport,
 } from './support/seed-import.mjs'
-import { confirmStepUp, stepUpPrompt, waitOutCredentialBudget } from './support/step-up.mjs'
+import {
+  cleanupVenuePayments,
+  endNightOf,
+  finishPastNight,
+  seedVenuePayments,
+  ticketsOf,
+  venuePaymentNames,
+} from './support/seed-venue-payments.mjs'
+import {
+  confirmIfAsked,
+  confirmStepUp,
+  stepUpPrompt,
+  waitOutCredentialBudget,
+} from './support/step-up.mjs'
 import { VISITOR_AGENT, rollUpTrafficNow } from './support/traffic.mjs'
 
 // The feature-completion cases below put a team invitation code and an order's
@@ -4035,7 +4048,9 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       await expect(organisation).toHaveValue(feature.gammaOrganizationId)
       await page.keyboard.press('Tab')
       await expect(filter.getByLabel('Event or organisation name')).toBeFocused()
-      await page.keyboard.type('Balcony')
+      // Two words: a single word would be shaped like a referral code, which
+      // this file never types key by key (e2e-code-hygiene).
+      await page.keyboard.type('Balcony Concert')
       await page.keyboard.press('Tab')
       await expect(filter.getByRole('button', { name: 'Show events', exact: true })).toBeFocused()
       await page.keyboard.press('Enter')
@@ -4043,7 +4058,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       await page.waitForURL(
         (url) =>
           url.searchParams.get('organizationId') === feature.gammaOrganizationId &&
-          url.searchParams.get('q') === 'Balcony',
+          url.searchParams.get('q') === 'Balcony Concert',
       )
       await expect(
         page
@@ -5017,5 +5032,1037 @@ test.describe.serial('imported events, swept', () => {
     await expect(card).toContainText('On Sulekha from $25.00')
 
     await measuredEverywhere(visitor, 'the imported event’s card')
+  })
+})
+
+/**
+ * Booking fees, referral codes and paying at the venue (SPEC3 §14.7,
+ * SPEC3-XI §14.7), swept.
+ *
+ * The block seeds its own organisation, people and events
+ * (`seed-venue-payments.mjs`) and builds every state it measures through the
+ * requests the screens send: paying at the venue switched on for the
+ * general-admission event and off again for the Toronto one, two referral
+ * codes made by the administrator, bookings paid at the venue, one ticket
+ * cancelled unpaid, one paid at the door and one passed on, and a finished
+ * night called off and refunded. Each screen is then measured at every size
+ * and scanned. A referral code is only ever read from the API's answer and
+ * typed from a variable; nothing here writes one down.
+ */
+test.describe.serial('booking fees, referral codes and paying at the venue, swept', () => {
+  // Each case measures several screens at every size.
+  test.describe.configure({ timeout: 300_000 })
+
+  /** What the block's setup made. */
+  const venue = {}
+  /** Each signed-in window, opened once. */
+  const venueWindows = {}
+  /** Every context this block opened. @type {object[]} */
+  const venueContexts = []
+
+  /**
+   * This run's names.
+   *
+   * @returns {object} The names.
+   */
+  const venueNames = () => venuePaymentNames(TAG)
+
+  /** Which account each window signs in as. */
+  const VENUE_EMAILS = Object.freeze({
+    admin: 'adminEmail',
+    owner: 'ownerEmail',
+    scanner: 'scannerEmail',
+    buyer1: 'buyer1Email',
+    buyer2: 'buyer2Email',
+    buyer3: 'buyer3Email',
+  })
+
+  /**
+   * A window signed in as one of the block's accounts, opened once.
+   *
+   * @param {object} browser The browser under test.
+   * @param {string} who A key of `VENUE_EMAILS`.
+   * @returns {Promise<object>} A signed-in page.
+   */
+  function venueWindow(browser, who) {
+    venueWindows[who] ??= (async () => {
+      const context = await browser.newContext()
+      const page = await context.newPage()
+
+      venueContexts.push(context)
+      await signInWaitingOutTheLimiter(page, venueNames()[VENUE_EMAILS[who]])
+
+      return page
+    })()
+
+    return venueWindows[who]
+  }
+
+  /**
+   * Send one request to the API from the page, through the web's proxy with
+   * its session and CSRF token, confirming a second factor through the API
+   * and sending it once more when one is asked for.
+   *
+   * @param {object} page The signed-in page.
+   * @param {string} method The HTTP method.
+   * @param {string} path The API path, starting `/api/v1/`.
+   * @param {object} [body] The JSON body.
+   * @param {Record<string, string>} [headers] Extra request headers.
+   * @returns {Promise<{status: number, code: string|null, data: object|null, text: string}>} The answer.
+   */
+  async function venueApi(page, method, path, body, headers = {}) {
+    const send = (verb, address, sent) =>
+      page.evaluate(
+        async ({ verb: how, address: where, sent: payload, extra }) => {
+          const token = document.cookie.match(/(?:^|;\s*)(?:__Host-)?desi_csrf=([^;]*)/u)
+          const response = await fetch(where, {
+            method: how,
+            headers: {
+              'content-type': 'application/json',
+              ...(token ? { 'x-desi-csrf': decodeURIComponent(token[1]) } : {}),
+              ...extra,
+            },
+            body: payload === undefined ? undefined : JSON.stringify(payload),
+          })
+          const text = await response.text()
+          let parsed = null
+
+          try {
+            parsed = JSON.parse(text)
+          } catch {
+            parsed = null
+          }
+
+          return {
+            status: response.status,
+            code: parsed?.error?.code ?? null,
+            data: parsed?.data ?? null,
+            text,
+          }
+        },
+        { verb, address, sent, extra: headers },
+      )
+
+    const first = await send(method, path, body)
+
+    if (first.code !== 'STEP_UP_REQUIRED') return first
+
+    await forgetCodeUse()
+
+    const confirmed = await send('POST', '/api/v1/auth/step-up', {
+      password: PASSWORD,
+      code: currentCode(),
+    })
+
+    expect(confirmed.status, confirmed.text).toBe(200)
+
+    return send(method, path, body)
+  }
+
+  /**
+   * Book tickets paid at the venue the way the checkout does: hold them,
+   * price the basket, and place the order with the quoted figures.
+   *
+   * @param {object} page The buyer's page, signed in.
+   * @param {object} options What to book.
+   * @param {object} options.event The event, as seeded.
+   * @param {number} options.quantity How many of its first tier.
+   * @param {string} options.buyer Which buyer (`buyer1`…).
+   * @param {string} [options.withCode] A referral code to apply, as read from the API.
+   * @returns {Promise<string>} The order's reference.
+   */
+  async function bookAtVenue(page, { event, quantity, buyer, withCode }) {
+    const items = [{ ticketTypeId: event.tiers[0], quantity }]
+    const hold = await venueApi(page, 'POST', '/api/v1/holds', items[0])
+
+    expect(hold.status, hold.text).toBe(201)
+
+    const priced = {
+      eventId: event.id,
+      items,
+      holdIds: [hold.data.id],
+      paymentMethod: 'AT_VENUE',
+      ...(withCode ? { referralCode: withCode } : {}),
+    }
+    const quote = await venueApi(page, 'POST', '/api/v1/orders/quote', priced)
+
+    expect(quote.status, quote.text).toBe(200)
+
+    const order = await venueApi(
+      page,
+      'POST',
+      '/api/v1/orders',
+      {
+        ...priced,
+        buyerEmail: venueNames()[`${buyer}Email`],
+        buyerName: venueNames()[`${buyer}Name`],
+        expectedTotalCents: quote.data.totalCents,
+        expectedVenueDueCents: quote.data.venueDueCents,
+      },
+      { 'idempotency-key': `sweep-venue-${TAG}-${buyer}-${event.id}-${Date.now()}` },
+    )
+
+    expect(order.status, order.text).toBe(201)
+
+    return order.data.reference
+  }
+
+  /**
+   * Press a control whose request may be refused for a second factor, and
+   * answer the prompt if it comes.
+   *
+   * @param {object} page The page.
+   * @param {Function} press Presses the control.
+   * @param {object} done A locator that shows once the request succeeded.
+   * @returns {Promise<void>} Resolves once done shows.
+   */
+  async function pressAnswering(page, press, done) {
+    await press()
+
+    const first = await Promise.race([
+      done.waitFor({ state: 'visible', timeout: 45_000 }).then(() => 'done'),
+      stepUpPrompt(page)
+        .waitFor({ state: 'visible', timeout: 45_000 })
+        .then(() => 'prompted'),
+    ])
+
+    if (first === 'prompted') await confirmStepUp(page)
+    await expect(done).toBeVisible()
+  }
+
+  /**
+   * Open the door on one event.
+   *
+   * @param {object} page The steward's page.
+   * @param {string} title The event's title.
+   * @returns {Promise<void>} Resolves once the door is open.
+   */
+  async function openVenueDoor(page, title) {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto('/organizer/check-in')
+    await expect(page.getByRole('heading', { level: 1, name: 'Check-in' })).toBeVisible()
+
+    const choose = page.getByLabel('Event you are admitting to')
+    const value = await choose.locator('option', { hasText: title }).getAttribute('value')
+
+    await expect(async () => {
+      await choose.selectOption(value)
+      await expect(page.getByRole('heading', { name: 'Present a ticket' })).toBeVisible({
+        timeout: 1_000,
+      })
+    }).toPass({ timeout: 15_000 })
+  }
+
+  /**
+   * Type a printed ticket or group code at the door and look it up.
+   *
+   * @param {object} page The steward's page.
+   * @param {string} printed The printed code.
+   * @returns {Promise<void>} Resolves once sent.
+   */
+  async function lookUp(page, printed) {
+    await page.getByLabel(/^Printed ticket code/u).fill(printed)
+    await page.getByRole('button', { name: 'Look up', exact: true }).click()
+  }
+
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(360_000)
+
+    const seeded = await seedVenuePayments(TAG)
+    const { ga, twoNights, toronto, pastNight } = seeded.events
+
+    Object.assign(venue, { seeded })
+
+    // The administrator switches paying at the venue on for the
+    // general-admission event, and off again for the Toronto one, so both a
+    // live switch and a history are there to read.
+    const admin = await venueWindow(browser, 'admin')
+
+    await admin.goto('/admin/referral-codes')
+
+    const switchedOn = await venueApi(
+      admin,
+      'POST',
+      `/api/v1/platform/events/${ga.id}/venue-payment`,
+      {
+        enabled: true,
+        limit: 50,
+        seen: { enabled: false, limit: null },
+        reason: 'Agreed with the organiser for the sweep.',
+      },
+    )
+
+    expect(switchedOn.status, switchedOn.text).toBe(200)
+
+    const switchedOff = await venueApi(
+      admin,
+      'POST',
+      `/api/v1/platform/events/${toronto.id}/venue-payment`,
+      {
+        enabled: false,
+        seen: { enabled: true, limit: 50 },
+        reason: 'The organiser asked for card payments only.',
+      },
+    )
+
+    expect(switchedOff.status, switchedOff.text).toBe(200)
+
+    // Two codes: one for the general-admission event, one for the two-night
+    // event only (refused at the general-admission checkout).
+    const forGa = await venueApi(admin, 'POST', '/api/v1/platform/referral-codes', {
+      generate: true,
+      scope: 'SELECTED_EVENTS',
+      eventIds: [ga.id],
+      maxUses: 3,
+    })
+
+    expect(forGa.status, forGa.text).toBe(201)
+
+    const forOther = await venueApi(admin, 'POST', '/api/v1/platform/referral-codes', {
+      generate: true,
+      scope: 'SELECTED_EVENTS',
+      eventIds: [twoNights.id],
+    })
+
+    expect(forOther.status, forOther.text).toBe(201)
+
+    const gaCode = forGa.data.referralCode
+    const otherCode = forOther.data.referralCode
+
+    // buyer2 books one ticket with the code, and the Desi-Event team cancels
+    // it unpaid: a cancellation block, a cancelled wallet ticket, a door
+    // refusal and a use given back.
+    const buyer2 = await venueWindow(browser, 'buyer2')
+
+    await buyer2.goto('/tickets')
+    const b2Ga = await bookAtVenue(buyer2, {
+      event: ga,
+      quantity: 1,
+      buyer: 'buyer2',
+      withCode: gaCode,
+    })
+
+    const [cancelled] = await ticketsOf(b2Ga)
+    const cancel = await venueApi(admin, 'POST', `/api/v1/orders/${b2Ga}/venue-cancellations`, {
+      ticketIds: [cancelled.id],
+      reason: 'Not paid for, and the hall needs the place.',
+    })
+
+    expect(cancel.status, cancel.text).toBe(200)
+
+    // buyer3 books two: one is paid at the door and the other passed on, by
+    // the cases below.
+    const buyer3 = await venueWindow(browser, 'buyer3')
+
+    await buyer3.goto('/tickets')
+    const b3Ga = await bookAtVenue(buyer3, { event: ga, quantity: 2, buyer: 'buyer3' })
+
+    // buyer2 books the past night and pays at the door during it, and the
+    // organiser then calls it off: a delete dialog that says who holds that
+    // money, and (once the refund is sent, below) an order refunded with
+    // money paid at the door.
+    const b2Past = await bookAtVenue(buyer2, { event: pastNight, quantity: 1, buyer: 'buyer2' })
+
+    const { paidCents } = await finishPastNight(TAG, b2Past)
+
+    expect(paidCents).toBe(2_500)
+
+    const owner = await venueWindow(browser, 'owner')
+
+    await owner.goto('/organizer/events')
+
+    const calledOff = await venueApi(owner, 'POST', `/api/v1/events/${pastNight.id}/cancel`, {
+      reasonCode: 'VENUE_UNAVAILABLE',
+      reason: 'The hall cannot open, so the night is called off.',
+    })
+
+    expect(calledOff.status, calledOff.text).toBe(200)
+
+    Object.assign(venue, {
+      gaCode,
+      otherCode,
+      b2Ga,
+      b3Ga,
+      b2Past,
+      cancelledCode: cancelled.code,
+    })
+  })
+
+  test.afterAll(async () => {
+    for (const context of venueContexts) await context.close().catch(() => {})
+
+    await cleanupVenuePayments(TAG)
+  })
+
+  test('the referral codes list, with rows and filtered to nothing, and a code with a use given back', async ({
+    browser,
+  }) => {
+    const admin = await venueWindow(browser, 'admin')
+
+    await admin.goto('/admin/referral-codes')
+    await expect(admin.getByRole('heading', { level: 1, name: 'Referral codes' })).toBeVisible()
+
+    const row = admin.getByRole('row').filter({ hasText: venue.gaCode })
+
+    await expect(row).toContainText('1 placed, 1 given back')
+
+    await measuredEverywhere(admin, 'the referral codes list')
+
+    // Expired codes for the Toronto event: this block makes none, so the list
+    // is empty and says so, in the filtered list's own sentence.
+    await admin.goto(
+      `/admin/referral-codes?status=EXPIRED&eventId=${encodeURIComponent(venue.seeded.events.toronto.id)}`,
+    )
+    await expect(admin.getByRole('heading', { level: 1, name: 'Referral codes' })).toBeVisible()
+    await expect(admin.getByRole('row').filter({ hasText: venue.gaCode })).toHaveCount(0)
+    await expect(admin.getByText('No referral code matches these filters.')).toBeVisible()
+    await expect(admin.getByRole('table', { name: 'Referral codes', exact: true })).toHaveCount(0)
+
+    await measuredEverywhere(admin, 'the referral codes list, filtered to nothing')
+
+    await admin.goto('/admin/referral-codes')
+    await row.getByRole('link', { name: /^Open/u }).click()
+    await expect(admin.locator('main')).toContainText('Unpaid tickets cancelled')
+
+    await measuredEverywhere(admin, 'a referral code with a use given back')
+  })
+
+  test('making a referral code, generated or typed, for chosen events, with its error summary', async ({
+    browser,
+  }) => {
+    const admin = await venueWindow(browser, 'admin')
+    const { ga } = venue.seeded.events
+
+    await admin.goto('/admin/referral-codes/new')
+    await expect(
+      admin.getByRole('heading', { level: 1, name: 'Make a referral code' }),
+    ).toBeVisible()
+
+    await measuredEverywhere(admin, 'the new referral code form, generated')
+
+    const typed = admin.getByRole('radio', { name: 'I’ll type one', exact: true })
+    const chosen = admin.getByRole('radio', { name: 'Chosen events', exact: true })
+
+    await expect(async () => {
+      await typed.check()
+      await chosen.check()
+      await expect(typed).toBeChecked({ timeout: 1_000 })
+      await expect(chosen).toBeChecked({ timeout: 1_000 })
+    }).toPass({ timeout: 15_000 })
+
+    await admin.getByLabel(/^Find an event/u).fill(ga.title)
+    await admin.getByRole('button', { name: 'Search events', exact: true }).click()
+    await admin.getByRole('button', { name: `Add ${ga.title}`, exact: true }).click()
+    await expect(admin.getByRole('list', { name: 'Chosen events' })).toContainText(ga.title)
+
+    await measuredEverywhere(admin, 'the new referral code form, typed, with a chosen event')
+
+    // Nothing typed into the code: refused in the browser, with a summary.
+    await admin.getByRole('button', { name: 'Make referral code', exact: true }).click()
+    await expect(admin.getByText('Check these and try again')).toBeVisible()
+
+    await measuredEverywhere(admin, 'the new referral code form, with its error summary')
+  })
+
+  test('an event’s booking fee and payment section, switched on, switched off with its history, and on a draft; and All events', async ({
+    browser,
+  }) => {
+    const admin = await venueWindow(browser, 'admin')
+    const { ga, toronto, draft } = venue.seeded.events
+
+    for (const [event, where] of [
+      [ga, 'the payment section, paying at the venue on'],
+      [toronto, 'the payment section, switched off, with its history'],
+      [draft, 'the payment section on a draft'],
+    ]) {
+      await admin.goto(`/admin/events/${event.id}`)
+      await expect(
+        admin.getByRole('region', { name: 'Booking fee and payment', exact: true }),
+      ).toBeVisible()
+
+      await measuredEverywhere(admin, where)
+    }
+
+    await admin.goto('/admin/events')
+    await expect(admin.getByRole('heading', { level: 1, name: 'All events' })).toBeVisible()
+
+    await measuredEverywhere(admin, 'All events')
+  })
+
+  test('booking fee refunds, with an order found', async ({ browser }) => {
+    const admin = await venueWindow(browser, 'admin')
+
+    await admin.goto('/admin/fee-refunds')
+    await confirmIfAsked(admin)
+    await expect(
+      admin.getByRole('heading', { level: 1, name: 'Booking fee refunds' }),
+    ).toBeVisible()
+
+    const field = admin.getByLabel('Order reference', { exact: true })
+
+    await expect(async () => {
+      await field.fill(venue.b3Ga)
+      await expect(field).toHaveValue(venue.b3Ga, { timeout: 1_000 })
+    }).toPass({ timeout: 15_000 })
+
+    await pressAnswering(
+      admin,
+      () => admin.getByRole('button', { name: 'Find order', exact: true }).click(),
+      admin.getByRole('heading', { level: 2, name: `Order ${venue.b3Ga}` }),
+    )
+
+    await measuredEverywhere(admin, 'booking fee refunds, with an order found')
+  })
+
+  test('the organiser’s event page, with its booking fee and payment summary', async ({
+    browser,
+  }) => {
+    const owner = await venueWindow(browser, 'owner')
+    const { ga } = venue.seeded.events
+
+    await owner.goto(`/organizer/events/${ga.id}`)
+    await expect(
+      owner.getByRole('region', { name: 'Booking fee and payment', exact: true }),
+    ).toBeVisible()
+
+    await measuredEverywhere(owner, 'the organiser’s event page, with its payment summary')
+  })
+
+  test('the checkout paying by card and at the venue, a booked panel, and a referral code refused', async ({
+    browser,
+  }) => {
+    const buyer1 = await venueWindow(browser, 'buyer1')
+    const { ga } = venue.seeded.events
+    const summary = buyer1.getByRole('region', { name: 'Order summary' })
+
+    /**
+     * Wait for the checkout's next quote.
+     *
+     * @returns {Promise<object>} Its response.
+     */
+    const quoted = () =>
+      buyer1.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname === '/api/v1/orders/quote',
+        { timeout: 30_000 },
+      )
+
+    /**
+     * Open the checkout and hold some general-admission tickets.
+     *
+     * @param {number} count How many.
+     * @returns {Promise<void>} Resolves once held and priced.
+     */
+    async function hold(count) {
+      await buyer1.setViewportSize({ width: 1280, height: 900 })
+      await buyer1.goto(`/events/${ga.slug}/checkout`)
+      await expect(
+        buyer1.getByRole('heading', { level: 1, name: `Tickets for ${ga.title}` }),
+      ).toBeVisible()
+
+      const quantity = buyer1.getByLabel('Quantity of General admission', { exact: true })
+      const add = buyer1.getByRole('button', { name: 'Add one General admission', exact: true })
+
+      for (let wanted = 1; wanted <= count; wanted += 1) {
+        await expect(async () => {
+          if (Number(await quantity.inputValue()) < wanted) await add.click()
+
+          await expect(quantity).toHaveValue(String(wanted), { timeout: 1_000 })
+        }).toPass({ timeout: 15_000 })
+      }
+
+      const priced = quoted()
+
+      await buyer1.getByRole('button', { name: 'Reserve tickets', exact: true }).click()
+      await expect(buyer1.getByRole('status').filter({ hasText: 'Tickets held' })).toBeVisible()
+      expect((await priced).ok()).toBe(true)
+    }
+
+    await hold(2)
+    await expect(summary).toBeVisible()
+
+    await measuredEverywhere(buyer1, 'the checkout, paying by card')
+
+    const venuePriced = quoted()
+
+    await buyer1.setViewportSize({ width: 1280, height: 900 })
+    await buyer1.getByRole('radio', { name: 'Pay at the venue', exact: true }).check()
+    expect((await venuePriced).ok()).toBe(true)
+    await expect(
+      buyer1.getByRole('button', { name: 'Pay booking fee $6.70 (simulated)', exact: true }),
+    ).toBeVisible()
+
+    await measuredEverywhere(buyer1, 'the checkout, paying at the venue')
+
+    await buyer1.setViewportSize({ width: 1280, height: 900 })
+    await buyer1
+      .getByRole('button', { name: 'Pay booking fee $6.70 (simulated)', exact: true })
+      .click()
+
+    const booked = buyer1.getByRole('status').filter({
+      has: buyer1.getByRole('heading', { name: 'Booked — pay at the door', exact: true }),
+    })
+
+    await expect(booked).toBeVisible({ timeout: 30_000 })
+    const b1Ga = (await booked.innerText()).match(/Order\s+([A-Z0-9-]{4,32})/u)?.[1] ?? null
+
+    expect(b1Ga, 'the booked panel names no order').not.toBeNull()
+    Object.assign(venue, { b1Ga })
+
+    await measuredEverywhere(buyer1, 'the booked panel, paying at the door')
+
+    // A code for another event, refused in the one sentence every refusal shares.
+    await hold(1)
+
+    const refused = quoted()
+
+    await summary.getByLabel(/^Referral code \(optional\)/u).fill(venue.otherCode)
+    await summary.getByRole('button', { name: 'Apply referral code' }).click()
+    await refused
+    await expect(summary).toContainText('This referral code can’t be used for this booking.')
+
+    await measuredEverywhere(buyer1, 'the checkout, with a referral code refused')
+  })
+
+  test('the checkout in Ontario, with its sales tax, and the public event page’s note on paying at the venue', async ({
+    browser,
+  }) => {
+    const buyer3 = await venueWindow(browser, 'buyer3')
+    const { ga, toronto } = venue.seeded.events
+
+    await buyer3.setViewportSize({ width: 1280, height: 900 })
+    await buyer3.goto(`/events/${toronto.slug}/checkout`)
+    await expect(
+      buyer3.getByRole('heading', { level: 1, name: `Tickets for ${toronto.title}` }),
+    ).toBeVisible()
+
+    const quantity = buyer3.getByLabel('Quantity of General admission', { exact: true })
+
+    await expect(async () => {
+      if (Number(await quantity.inputValue()) < 1) {
+        await buyer3.getByRole('button', { name: 'Add one General admission', exact: true }).click()
+      }
+
+      await expect(quantity).toHaveValue('1', { timeout: 1_000 })
+    }).toPass({ timeout: 15_000 })
+    await buyer3.getByRole('button', { name: 'Reserve tickets', exact: true }).click()
+    await expect(buyer3.getByRole('region', { name: 'Order summary' })).toContainText('HST')
+
+    await measuredEverywhere(buyer3, 'the checkout in Ontario')
+
+    await buyer3.goto(`/events/${ga.slug}`)
+    await expect(buyer3.getByRole('heading', { level: 1, name: ga.title })).toBeVisible()
+    await expect(buyer3.locator('main')).toContainText(/pay at the venue|paid at the venue/iu)
+
+    await measuredEverywhere(buyer3, 'the public event page, with its note on paying at the venue')
+  })
+
+  test('the door taking a payment for one ticket and for a group, a payment with no answer, and a ticket cancelled unpaid', async ({
+    browser,
+  }) => {
+    const scanner = await venueWindow(browser, 'scanner')
+    const { ga } = venue.seeded.events
+    const main = scanner.locator('main')
+    const [first] = await ticketsOf(venue.b1Ga)
+
+    await openVenueDoor(scanner, ga.title)
+    await lookUp(scanner, first.code)
+    await expect(scanner.getByRole('heading', { name: 'Payment to take' }).first()).toBeVisible()
+    await expect(main).toContainText('Take $40.00 for this ticket before letting them in.')
+
+    await measuredEverywhere(scanner, 'the door, one ticket owing its price')
+
+    // The confirmation never reaches the server: the steward is told to keep
+    // the money in hand and retry, and nothing was recorded.
+    await scanner.route('**/api/v1/tickets/check-in', (route) => route.abort('failed'))
+    await scanner
+      .getByRole('button', { name: 'Payment taken: $40.00 — admit', exact: true })
+      .click()
+    await expect(main).toContainText(
+      'No answer from the server. The payment may or may not have been recorded',
+    )
+
+    await measuredEverywhere(scanner, 'the door, a payment with no answer')
+    await scanner.unroute('**/api/v1/tickets/check-in')
+
+    // buyer1's group pass, read from the order page that shows it on request.
+    const buyer1 = await venueWindow(browser, 'buyer1')
+
+    await buyer1.setViewportSize({ width: 1280, height: 900 })
+    await buyer1.goto(`/account/orders/${venue.b1Ga}#group-pass`)
+
+    const section = buyer1.getByRole('region', { name: /^Group pass \(admits 2\)$/u })
+
+    const show = section.getByRole('button', { name: 'Show group pass' })
+    const hide = section.getByRole('button', { name: 'Hide group pass' })
+
+    // Pressed until it answers: a press before hydration does nothing.
+    await expect(async () => {
+      if (await show.isVisible()) await show.click()
+      await expect(hide).toBeVisible({ timeout: 1_000 })
+    }).toPass({ timeout: 15_000 })
+
+    const groupCode = (await section.innerText()).match(/DEG-[2-9A-HJ-NP-Z]{12}/u)?.[0] ?? null
+
+    expect(groupCode, 'the group pass shows no printed code').not.toBeNull()
+    await hide.click()
+
+    await openVenueDoor(scanner, ga.title)
+    await lookUp(scanner, groupCode)
+    await expect(main).toContainText('Payment to take for the ticked tickets: $80.00')
+
+    await measuredEverywhere(scanner, 'the door, a group pass owing its price')
+
+    await openVenueDoor(scanner, ga.title)
+    await lookUp(scanner, venue.cancelledCode)
+    await expect(scanner.getByRole('heading', { name: 'Cancelled — not paid' })).toBeVisible()
+
+    await measuredEverywhere(scanner, 'the door, a ticket cancelled unpaid')
+
+    // buyer3's first ticket is paid for at the door, for the cases below.
+    const [paid] = await ticketsOf(venue.b3Ga)
+
+    await openVenueDoor(scanner, ga.title)
+    await lookUp(scanner, paid.code)
+    await scanner
+      .getByRole('button', { name: 'Payment taken: $40.00 — admit', exact: true })
+      .click()
+    await expect(main).toContainText('Admitted. Payment recorded: $40.00.')
+  })
+
+  test('passing on a ticket that owes its price, and the page that accepts it', async ({
+    browser,
+  }) => {
+    const buyer3 = await venueWindow(browser, 'buyer3')
+    const second = (await ticketsOf(venue.b3Ga)).find((ticket) => ticket.checkedInAt === null)
+
+    await buyer3.setViewportSize({ width: 1280, height: 900 })
+    await buyer3.goto(`/tickets/${second.id}`)
+    await buyer3.getByRole('button', { name: 'Offer this ticket to somebody', exact: true }).click()
+    await expect(buyer3.locator('main')).toContainText(
+      'This ticket’s price, $40.00, is paid at the door.',
+    )
+
+    await measuredEverywhere(buyer3, 'the transfer form, with what is owed at the door')
+
+    await buyer3.getByLabel(/^Their email address/u).fill(venueNames().buyer1Email)
+    await buyer3.getByRole('button', { name: 'Send the offer', exact: true }).click()
+
+    const field = buyer3.getByLabel('Ticket transfer code', { exact: true })
+
+    await expect(field).toBeVisible()
+
+    const transferCode = await field.inputValue()
+
+    await buyer3.getByRole('button', { name: 'I have handed it over', exact: true }).click()
+    await expect(field).toHaveCount(0)
+
+    const buyer1 = await venueWindow(browser, 'buyer1')
+
+    await buyer1.setViewportSize({ width: 1280, height: 900 })
+    await buyer1.goto('/tickets/accept')
+    await expect(buyer1.getByRole('heading', { level: 1, name: 'Accept a ticket' })).toBeVisible()
+
+    await measuredEverywhere(buyer1, 'the page that accepts a ticket')
+
+    await buyer1.getByLabel(/invitation code/iu).fill(transferCode)
+    await buyer1.getByRole('button', { name: 'Accept the ticket', exact: true }).click()
+    await expect(buyer1.locator('main')).toContainText('Ticket accepted. Pay $40.00 at the door')
+
+    await measuredEverywhere(buyer1, 'a ticket accepted that owes its price')
+  })
+
+  test('the cancel-event confirmation and the delete dialog say what happens to tickets paid at the venue', async ({
+    browser,
+  }) => {
+    const owner = await venueWindow(browser, 'owner')
+    const { ga, pastNight } = venue.seeded.events
+
+    await owner.setViewportSize({ width: 1280, height: 900 })
+    await owner.goto(`/organizer/events/${ga.id}`)
+    await expect(
+      owner.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
+    ).toBeAttached()
+
+    const review = owner
+      .getByRole('navigation', { name: 'Editor steps' })
+      .getByRole('button', { name: /review/iu })
+
+    await review.click()
+    await expect(review).toHaveAttribute('aria-current', 'step')
+    await owner.getByRole('button', { name: 'Cancel this event', exact: true }).click()
+    await expect(owner.locator('main')).toContainText(
+      'For tickets paid at the venue, only the booking fee paid online is refunded (simulated).',
+    )
+
+    await measuredEverywhere(owner, 'the cancel-event confirmation')
+
+    await owner.getByRole('button', { name: 'Not now', exact: true }).click()
+
+    const admin = await venueWindow(browser, 'admin')
+
+    await admin.setViewportSize({ width: 1280, height: 900 })
+    await admin.goto(`/admin/events/${pastNight.id}`)
+    await admin.getByRole('button', { name: 'Delete this event…', exact: true }).click()
+
+    const dialog = admin.getByRole('region', { name: `Delete “${pastNight.title}”` })
+
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Reading what deleting would do…')).toHaveCount(0)
+    await expect(dialog).toContainText(
+      'Payment taken at the door for 1 of these tickets ($25.00) is held by the organiser.',
+    )
+
+    await measuredEverywhere(admin, 'the delete dialog, with money taken at the door')
+  })
+  test('order pages: waiting to be paid, paid at the door with a ticket passed on, with a cancellation, and refunded with money paid at the door', async ({
+    browser,
+  }) => {
+    const buyer1 = await venueWindow(browser, 'buyer1')
+    const buyer2 = await venueWindow(browser, 'buyer2')
+    const buyer3 = await venueWindow(browser, 'buyer3')
+    const owner = await venueWindow(browser, 'owner')
+
+    // The cancelled night's refund, asked for when it was called off, is
+    // approved and sent by its owner, who may do both: the booking fee goes
+    // back, and the money taken at the door stays with the organiser.
+    const refunds = await venueApi(
+      owner,
+      'GET',
+      `/api/v1/refunds?organizationId=${encodeURIComponent(venue.seeded.organizationId)}&orderReference=${encodeURIComponent(venue.b2Past)}`,
+    )
+
+    expect(refunds.status, refunds.text).toBe(200)
+    expect(refunds.data).toHaveLength(1)
+
+    for (const step of ['approve', 'submit']) {
+      const moved = await venueApi(owner, 'POST', `/api/v1/refunds/${refunds.data[0].id}/${step}`, {
+        reason: 'The night was called off; its booking fee goes back.',
+      })
+
+      expect(moved.status, moved.text).toBe(200)
+    }
+
+    for (const [page, reference, says, where] of [
+      [buyer1, venue.b1Ga, 'To pay at the door', 'an order waiting to be paid at the door'],
+      [
+        buyer3,
+        venue.b3Ga,
+        'Passed on — its new holder pays $40.00 at the door',
+        'an order paid at the door, with a ticket passed on',
+      ],
+      [
+        buyer2,
+        venue.b2Ga,
+        'The Desi-Event team cancelled 1 ticket on',
+        'an order with an unpaid ticket cancelled',
+      ],
+      [
+        buyer2,
+        venue.b2Past,
+        'The $25.00 you paid at the door is with the organiser, not with Desi-Event.',
+        'an order refunded with money paid at the door',
+      ],
+    ]) {
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.goto(`/account/orders/${reference}`)
+      await expect(page.locator('main')).toContainText(says)
+
+      await measuredEverywhere(page, where)
+    }
+  })
+
+  test('the wallet with a ticket that owes its price, and with one cancelled unpaid', async ({
+    browser,
+  }) => {
+    const buyer1 = await venueWindow(browser, 'buyer1')
+    const buyer2 = await venueWindow(browser, 'buyer2')
+
+    await buyer1.setViewportSize({ width: 1280, height: 900 })
+    await buyer1.goto('/tickets')
+    await expect(buyer1.locator('main')).toContainText('Pay at the door: $40.00')
+
+    await measuredEverywhere(buyer1, 'the wallet, with tickets owing their price')
+
+    await buyer2.setViewportSize({ width: 1280, height: 900 })
+    await buyer2.goto('/tickets')
+    await expect(buyer2.locator('main')).toContainText('Cancelled — not paid')
+
+    await measuredEverywhere(buyer2, 'the wallet, with a ticket cancelled unpaid')
+  })
+
+  test('Payments at the venue, with payments and cancelled tickets, and with none', async ({
+    browser,
+  }) => {
+    const owner = await venueWindow(browser, 'owner')
+    const { ga, twoNights } = venue.seeded.events
+
+    for (const [event, where] of [
+      [ga, 'Payments at the venue, with payments and cancelled tickets'],
+      [twoNights, 'Payments at the venue, with none'],
+    ]) {
+      await owner.setViewportSize({ width: 1280, height: 900 })
+      await owner.goto(`/organizer/events/${event.id}/venue-payments`)
+      await confirmIfAsked(owner)
+      await expect(owner.getByRole('heading', { level: 2, name: 'Figures' })).toBeVisible()
+
+      await measuredEverywhere(owner, where)
+    }
+
+    await owner.goto(`/organizer/events/${ga.id}/venue-payments`)
+    await confirmIfAsked(owner)
+    await expect(owner.getByRole('table', { name: 'Cancelled unpaid tickets' })).toContainText(
+      venue.b2Ga,
+    )
+  })
+
+  test('Bookings waiting to be paid at the door, with rows and with none, and the cancel dialog with its error summary', async ({
+    browser,
+  }) => {
+    const admin = await venueWindow(browser, 'admin')
+    const { ga, twoNights } = venue.seeded.events
+    const heading = 'Bookings waiting to be paid at the door'
+
+    await admin.setViewportSize({ width: 1280, height: 900 })
+    await admin.goto(`/admin/events/${twoNights.id}/venue-bookings`)
+    await confirmIfAsked(admin)
+    await expect(admin.getByRole('heading', { level: 1, name: heading })).toBeVisible()
+
+    await measuredEverywhere(admin, 'bookings waiting to be paid, with none')
+
+    await admin.goto(`/admin/events/${ga.id}/venue-bookings`)
+    await confirmIfAsked(admin)
+    await expect(admin.getByRole('heading', { level: 1, name: heading })).toBeVisible()
+    await expect(admin.locator('main')).toContainText(`Booking ${venue.b1Ga}`)
+
+    await measuredEverywhere(admin, 'bookings waiting to be paid, with rows')
+
+    await admin.setViewportSize({ width: 1280, height: 900 })
+    await admin
+      .getByRole('button', { name: `Cancel unpaid tickets in booking ${venue.b1Ga}` })
+      .click()
+
+    const dialog = admin.getByRole('dialog', { name: 'Cancel unpaid tickets' })
+    const tickets = dialog.getByRole('group', { name: 'Tickets to cancel' })
+
+    await expect(dialog).toBeVisible()
+
+    const first = await Promise.race([
+      tickets.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'read'),
+      stepUpPrompt(admin)
+        .waitFor({ state: 'visible', timeout: 30_000 })
+        .then(() => 'prompted'),
+    ])
+
+    if (first === 'prompted') await confirmStepUp(admin)
+    await expect(tickets).toBeVisible()
+
+    await measuredEverywhere(admin, 'the cancel dialog, every ticket ticked')
+
+    // One of the two unticked: "Select all" is neither ticked nor unticked.
+    const selectAll = tickets.getByRole('checkbox', { name: /^Select all 2 unpaid tickets$/u })
+    await expect(selectAll).toBeChecked()
+    await tickets.getByRole('checkbox').nth(2).uncheck()
+    await expect
+      .poll(() => selectAll.evaluate((box) => box.indeterminate && !box.checked))
+      .toBe(true)
+    await expect(
+      dialog.getByRole('button', { name: 'Cancel 1 unpaid ticket', exact: true }),
+    ).toBeVisible()
+
+    await measuredEverywhere(admin, 'the cancel dialog, select-all neither ticked nor unticked')
+
+    await tickets.getByRole('checkbox').nth(2).check()
+    await expect(selectAll).toBeChecked()
+
+    // No reason given: a summary of what to fix, and nothing cancelled.
+    await dialog.getByRole('button', { name: /^Cancel 2 unpaid tickets$/u }).click()
+    await expect(dialog).toContainText(/to fix before cancelling/u)
+
+    await measuredEverywhere(admin, 'the cancel dialog, with its error summary')
+
+    await dialog.getByRole('button', { name: 'Keep them', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+
+    // A booking with one ticket for each of the two nights, the first of which
+    // is then over: its ticket is drawn, and cannot be ticked.
+    const buyer1 = await venueWindow(browser, 'buyer1')
+    const items = twoNights.tiers.slice(0, 2).map((ticketTypeId) => ({ ticketTypeId, quantity: 1 }))
+
+    await buyer1.goto('/tickets')
+
+    const holdIds = []
+
+    for (const item of items) {
+      const hold = await venueApi(buyer1, 'POST', '/api/v1/holds', item)
+
+      expect(hold.status, hold.text).toBe(201)
+      holdIds.push(hold.data.id)
+    }
+
+    const priced = { eventId: twoNights.id, items, holdIds, paymentMethod: 'AT_VENUE' }
+    const quote = await venueApi(buyer1, 'POST', '/api/v1/orders/quote', priced)
+
+    expect(quote.status, quote.text).toBe(200)
+
+    const order = await venueApi(
+      buyer1,
+      'POST',
+      '/api/v1/orders',
+      {
+        ...priced,
+        buyerEmail: venueNames().buyer1Email,
+        buyerName: venueNames().buyer1Name,
+        expectedTotalCents: quote.data.totalCents,
+        expectedVenueDueCents: quote.data.venueDueCents,
+      },
+      { 'idempotency-key': `sweep-venue-${TAG}-buyer1-nights-${Date.now()}` },
+    )
+
+    expect(order.status, order.text).toBe(201)
+
+    const twoNightsBooking = order.data.reference
+
+    await endNightOf(items[0].ticketTypeId)
+
+    await admin.setViewportSize({ width: 1280, height: 900 })
+    await admin.goto(`/admin/events/${twoNights.id}/venue-bookings`)
+    await confirmIfAsked(admin)
+    await expect(admin.getByRole('heading', { level: 1, name: heading })).toBeVisible()
+
+    const openOver = admin.getByRole('button', {
+      name: `Cancel unpaid tickets in booking ${twoNightsBooking}`,
+    })
+
+    // Pressed until the dialog opens: a press before hydration does nothing.
+    await expect(async () => {
+      if ((await dialog.count()) === 0) await openOver.click()
+      await expect(dialog).toBeVisible({ timeout: 1_000 })
+    }).toPass({ timeout: 15_000 })
+
+    const read = await Promise.race([
+      tickets.waitFor({ state: 'visible', timeout: 30_000 }).then(() => 'read'),
+      stepUpPrompt(admin)
+        .waitFor({ state: 'visible', timeout: 30_000 })
+        .then(() => 'prompted'),
+    ])
+
+    if (read === 'prompted') await confirmStepUp(admin)
+    await expect(tickets).toBeVisible()
+    await expect(tickets).toContainText('That night is over, so this ticket stays as it is.')
+
+    const over = tickets.getByRole('checkbox', { disabled: true })
+
+    await expect(over).toHaveCount(1)
+    await expect(over).not.toBeChecked()
+    await expect(
+      tickets.getByRole('checkbox', { name: /^Select all 1 unpaid ticket$/u }),
+    ).toBeChecked()
+
+    await measuredEverywhere(admin, 'the cancel dialog, one ticket whose night is over')
+
+    await dialog.getByRole('button', { name: 'Keep them', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
   })
 })

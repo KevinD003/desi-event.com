@@ -32,7 +32,7 @@ import {
   NO_MATCH,
   REFERRAL_CODES_PATH,
   REFERRAL_EXPIRY_ZONE,
-  STACKED,
+  STACKED_WIDE as STACKED,
   STATUS_WORDS,
   makerName,
   usesDetail,
@@ -157,9 +157,13 @@ export function ReferralCodeList({ codes, caption }) {
 
               return (
                 <tr key={code.id} className={STACKED.row}>
+                  {/* The text columns may break a long word anywhere: a table
+                      column is never narrower than its longest unbreakable
+                      word, and one long name or typed code would otherwise
+                      push the nine columns past a 1024 px screen. */}
                   <Cell name="Code">
                     <span className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-ink">{code.referralCode}</span>
+                      <span className="font-mono wrap-anywhere text-ink">{code.referralCode}</span>
                       <CopyCodeButton
                         code={code}
                         onAnnounce={(words) =>
@@ -170,12 +174,14 @@ export function ReferralCodeList({ codes, caption }) {
                   </Cell>
                   <Cell name="Label">
                     {code.label ? (
-                      <span className="break-words">{code.label}</span>
+                      <span className="wrap-anywhere">{code.label}</span>
                     ) : (
                       <span className="text-ink-muted">None</span>
                     )}
                   </Cell>
-                  <Cell name="Works for">{worksForText(code)}</Cell>
+                  <Cell name="Works for">
+                    <span className="wrap-anywhere">{worksForText(code)}</span>
+                  </Cell>
                   <Cell name="Uses">
                     <span className="tabular-nums">{usesText(code)}</span>
                     {detail ? <span className="block text-xs text-ink-muted">{detail}</span> : null}
@@ -197,7 +203,9 @@ export function ReferralCodeList({ codes, caption }) {
                       {status.label}
                     </Badge>
                   </Cell>
-                  <Cell name="Made by">{makerName(code.createdBy)}</Cell>
+                  <Cell name="Made by">
+                    <span className="wrap-anywhere">{makerName(code.createdBy)}</span>
+                  </Cell>
                   <Cell name="Open">
                     <Link
                       href={`${REFERRAL_CODES_PATH}/${encodeURIComponent(code.id)}`}

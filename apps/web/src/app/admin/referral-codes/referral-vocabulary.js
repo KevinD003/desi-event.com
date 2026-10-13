@@ -41,6 +41,22 @@ export const STACKED = Object.freeze({
   label: 'font-medium text-ink-muted sm:hidden',
 })
 
+/**
+ * The stacked-table classes for the list of codes: cards below `md`, a table
+ * from `md` up. Its nine columns do not fit beside the workspace's margins at
+ * 640 px, which is a 1280 px screen at 200% zoom, so it stays in cards a step
+ * longer than the narrower tables (WCAG 1.4.10).
+ */
+export const STACKED_WIDE = Object.freeze({
+  table: 'block w-full border-collapse text-sm md:table',
+  thead: 'sr-only md:not-sr-only md:table-header-group',
+  tbody: 'block space-y-3 md:table-row-group md:space-y-0',
+  row: 'block rounded-card border border-line bg-surface-raised p-3 shadow-card md:table-row md:rounded-none md:border-0 md:bg-transparent md:p-0 md:shadow-none',
+  th: 'border-b border-line-strong px-3 py-2 text-left font-semibold text-ink',
+  cell: 'flex flex-wrap justify-between gap-x-3 gap-y-1 py-1 text-ink md:table-cell md:border-b md:border-line md:px-3 md:py-2 md:align-top',
+  label: 'font-medium text-ink-muted md:hidden',
+})
+
 /** The list page's path. */
 export const REFERRAL_CODES_PATH = '/admin/referral-codes'
 

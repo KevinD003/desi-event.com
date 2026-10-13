@@ -187,7 +187,11 @@ test.describe.serial('a night’s tickets, a promo code and a guest’s name', (
     ).toHaveValue('')
 
     const code = summary.getByLabel('Promo code')
-    const outcome = summary.getByRole('status').last()
+    // The promo field's own status, the one its box is described by: the
+    // referral code field (SPEC3 §12.1) now follows it with a status of its own.
+    const outcome = summary
+      .getByRole('status')
+      .and(summary.locator(`[id="${await code.getAttribute('aria-describedby')}"]`))
 
     /**
      * Type a code and apply it, and wait for the quote's answer.

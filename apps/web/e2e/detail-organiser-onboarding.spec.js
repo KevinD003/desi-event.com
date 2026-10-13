@@ -137,6 +137,9 @@ const ADMIN_RAIL = Object.freeze([
   'Website links',
   'Organiser invitations',
   'All events',
+  // SPEC3 §12.10: the Desi-Event team's referral codes and booking fee refunds.
+  'Referral codes',
+  'Booking fee refunds',
   'Imports',
 ])
 

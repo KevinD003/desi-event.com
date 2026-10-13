@@ -204,6 +204,24 @@ const SEEDS = Object.freeze([
     explains: true,
   },
   {
+    // The booking-fee and pay-at-the-venue journeys (SPEC3 §14.6): Pay Venue
+    // with its owner, finance member and scanner, four platform accounts,
+    // three buyers and eight events. Its teardown takes the fixture users'
+    // sessions, factors and memberships, and every event no order reaches,
+    // with its nights and tiers.
+    file: 'seed-venue-payments.mjs',
+    cleanup: Object.freeze([
+      /session\s*\.deleteMany/u,
+      /mfaFactor\s*\.deleteMany/u,
+      /membership\s*\.deleteMany/u,
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
     // The team-and-organisations journey's creator and invitee. Its teardown
     // removes the organisation the creator made, with its invitations and
     // memberships, and puts the feature world's role target back.
