@@ -37,7 +37,8 @@ import { formatAmount } from '../../../lib/pricing.js'
 import {
   eventWhenText,
   orderHref,
-  orderStatusMeaning,
+  orderStatusFor,
+  paidAtVenue,
   orderTitle,
   ordersPageHref,
   readPage,
@@ -106,7 +107,7 @@ function OrderCard({ order }) {
               {orderTitle(order)}
             </Link>
           </h2>
-          <StatusChip meaning={orderStatusMeaning(order.status)} />
+          <StatusChip meaning={orderStatusFor(order)} />
         </div>
 
         <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
@@ -115,7 +116,21 @@ function OrderCard({ order }) {
             <span className="font-mono">{order.reference}</span>
           </Detail>
           <Detail term="Tickets">{String(count)}</Detail>
-          <Detail term="Total">{formatAmount(order.totalCents, order.currency)}</Detail>
+          {paidAtVenue(order) ? (
+            // Only the booking fee is paid online; the ticket price at the door.
+            <>
+              <Detail term="Paid online (simulated)">
+                {formatAmount(order.totalCents, order.currency)}
+              </Detail>
+              {(order.venuePayment?.unpaidCents ?? 0) > 0 ? (
+                <Detail term="To pay at the door">
+                  {formatAmount(order.venuePayment.unpaidCents, order.currency)}
+                </Detail>
+              ) : null}
+            </>
+          ) : (
+            <Detail term="Total">{formatAmount(order.totalCents, order.currency)}</Detail>
+          )}
         </dl>
       </div>
     </li>

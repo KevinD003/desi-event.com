@@ -21,11 +21,19 @@
  *
  * Nothing here decides when to ask: the server's answer does.
  *
+ * With `takeFocus`, the prompt takes focus when it is drawn. A write sent from
+ * a button the person just pressed leaves focus there, and the prompt asking
+ * them to go on is somewhere below it; without the move a keyboard or
+ * screen-reader user is not told it appeared, and a form that swaps its button
+ * for the prompt drops focus to the page. It is not the default: a write sent
+ * by autosave while the person types elsewhere must not pull them away.
+ *
  * @module components/step-up-retry
  */
 
 import { useCallback, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { PLATFORM_STEP_UP_SENTENCE } from '../lib/event-control.js'
 
@@ -39,6 +47,7 @@ export const STEP_UP_DECLINED_SENTENCE =
  * @property {boolean} [platform] Whether the edits are made in the Desi-Event team's editing session.
  * @property {Function} [onSittingEnded] Called when a write finds that session closed.
  * @property {Function} [onDeclined] Called when the person backs out of the prompt.
+ * @property {boolean} [takeFocus] Whether the prompt takes focus when it is drawn.
  */
 
 /**
@@ -54,8 +63,16 @@ export const STEP_UP_DECLINED_SENTENCE =
  * @param {StepUpRetryOptions} options Options.
  * @returns {StepUpRetry} The handler and the prompt.
  */
-export function useStepUpRetry({ action, platform = false, onSittingEnded, onDeclined }) {
+export function useStepUpRetry({
+  action,
+  platform = false,
+  onSittingEnded,
+  onDeclined,
+  takeFocus = false,
+}) {
   const [waiting, setWaiting] = useState(false)
+  const promptRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
   // The write waiting for the second factor: what to send again, and whom to
   // tell how it went. A ref, because the prompt's buttons read it after the
   // render that created them.
@@ -75,9 +92,10 @@ export function useStepUpRetry({ action, platform = false, onSittingEnded, onDec
       return new Promise((resolve) => {
         pending.current = { retry, resolve }
         setWaiting(true)
+        if (takeFocus) focusAfterRender(promptRef)
       })
     },
-    [onSittingEnded, platform],
+    [focusAfterRender, onSittingEnded, platform, takeFocus],
   )
 
   /**
@@ -113,7 +131,12 @@ export function useStepUpRetry({ action, platform = false, onSittingEnded, onDec
   }
 
   const prompt = waiting ? (
-    <div className="space-y-2" data-slot="step-up-retry">
+    <div
+      ref={promptRef}
+      tabIndex={-1}
+      className="space-y-2 focus-visible:outline-none"
+      data-slot="step-up-retry"
+    >
       {platform ? (
         <p className="text-sm font-medium text-ink">{PLATFORM_STEP_UP_SENTENCE}</p>
       ) : null}

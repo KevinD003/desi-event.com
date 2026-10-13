@@ -24,6 +24,18 @@ import { StepUpPrompt } from './step-up-prompt.jsx'
 import { Button } from './ui.jsx'
 
 /**
+ * Why something is not shown until the person confirms it is them, and what
+ * confirming does. Shared with the screens that ask in place of a page, so a
+ * read refused for want of a second factor is explained in one set of words.
+ *
+ * @param {string} action What will be shown once confirmed, in words: "see this refund".
+ * @returns {string} The sentences.
+ */
+export function readStepUpSentence(action) {
+  return `You are signed in, but it has been a while since you confirmed your password and second factor, and this is only shown after a recent confirmation. Confirm to ${action}. The window is kept short on purpose; nothing is shown or changed until you do.`
+}
+
+/**
  * @typedef {object} StepUpForReadProps
  * @property {string} action What will be shown once confirmed, in words: "see this refund".
  */
@@ -50,11 +62,7 @@ export function StepUpForRead({ action }) {
       <h2 id={headingId} className="text-lg font-semibold text-status-info">
         Confirm it is you
       </h2>
-      <p className="mt-2 max-w-prose text-sm text-ink">
-        You are signed in, but it has been a while since you confirmed your password and second
-        factor, and this is only shown after a recent confirmation. Confirm to {action}. The window
-        is kept short on purpose; nothing is shown or changed until you do.
-      </p>
+      <p className="mt-2 max-w-prose text-sm text-ink">{readStepUpSentence(action)}</p>
 
       {open ? (
         <div className="mt-4">

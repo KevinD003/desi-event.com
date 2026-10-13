@@ -1091,3 +1091,371 @@ describe('the server’s quote, promo codes and guests’ names', () => {
     ])
   })
 })
+
+describe('paying at the venue and referral codes (SPEC3 §6.5, §12.1)', () => {
+  /** An event in the United States that can be paid for at the venue. */
+  const venueEvent = {
+    id: 'evtgarbanight',
+    slug: 'garba-night',
+    title: 'Garba Night',
+    currency: 'USD',
+    venue: { city: 'Edison', region: 'NJ', country: 'US' },
+    venuePayment: { available: true },
+  }
+
+  /** One general admission tier, $40.00. */
+  const tiers = [
+    {
+      id: 'ttgarbaentry',
+      name: 'Entry',
+      priceCents: 4_000,
+      currency: 'USD',
+      minPerOrder: 1,
+      maxPerOrder: 6,
+      availableQuantity: 100,
+      isSoldOut: false,
+    },
+  ]
+
+  /** One hold, as the API returns it. */
+  const HOLD = [{ id: 'ckhold00000000000000009', expiresAt: '2026-10-01T10:10:00.000Z' }]
+
+  /**
+   * A quote for `quantity` tickets, by card or at the venue.
+   *
+   * @param {object} request What the quote was asked with.
+   * @param {object} [overrides] Fields to change.
+   * @returns {object} The quote.
+   */
+  function venueQuote(request, overrides = {}) {
+    const quantity = request.lines.reduce((sum, line) => sum + line.quantity, 0)
+    const subtotalCents = 4_000 * quantity
+    const feeGrossCents = 331 * quantity
+    const applied = request.referralCode === 'PARTNER-2026'
+    const feesCents = applied ? 0 : feeGrossCents
+    const atVenue = request.paymentMethod === 'AT_VENUE'
+
+    return {
+      currency: 'USD',
+      subtotalCents,
+      discountCents: 0,
+      feeGrossCents,
+      feeWaivedCents: applied ? feeGrossCents : 0,
+      feesCents,
+      taxCents: 0,
+      totalCents: atVenue ? feesCents : subtotalCents + feesCents,
+      paymentMethod: atVenue ? 'AT_VENUE' : 'CARD',
+      venueDueCents: atVenue ? subtotalCents : 0,
+      fee: { percentageBps: 450, flatCentsPerTicket: 151 },
+      venuePayment: { available: true },
+      referral: request.referralCode ? { applied, reason: applied ? null : 'NOT_ACCEPTED' } : null,
+      lines: [
+        {
+          ticketTypeId: 'ttgarbaentry',
+          name: 'Entry',
+          sessionId: null,
+          quantity,
+          unitPriceCents: 4_000,
+          subtotalCents,
+          discountCents: 0,
+        },
+      ],
+      promo: null,
+      pricedAt: '2026-10-01T10:00:00.000Z',
+      ...overrides,
+    }
+  }
+
+  /**
+   * Render the basket for the venue event.
+   *
+   * @param {object} [props] Props overriding the defaults.
+   * @returns {object} A `userEvent` session.
+   */
+  function renderVenueBasket(props = {}) {
+    render(
+      <CheckoutBasket
+        event={venueEvent}
+        ticketTypes={tiers}
+        buyer={BUYER}
+        reserve={vi.fn().mockResolvedValue(HOLD)}
+        release={vi.fn().mockResolvedValue(undefined)}
+        quote={vi.fn(async (request) => venueQuote(request))}
+        placeOrder={vi.fn()}
+        {...props}
+      />,
+    )
+
+    return userEvent.setup()
+  }
+
+  /**
+   * Choose one ticket and reserve it.
+   *
+   * @param {object} user A userEvent session.
+   * @returns {Promise<void>} Resolves once held.
+   */
+  async function holdOne(user) {
+    await user.click(screen.getByRole('button', { name: 'Add one Entry' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await screen.findByText('Tickets held')
+  }
+
+  it('offers the choice only when the event says paying at the venue is available', async () => {
+    const user = renderVenueBasket()
+
+    expect(screen.queryByRole('group', { name: 'How do you want to pay?' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Add one Entry' }))
+
+    expect(screen.getByRole('group', { name: 'How do you want to pay?' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Pay by card now' })).toBeChecked()
+  })
+
+  it('draws no choice for an event that cannot be paid for at the venue', async () => {
+    render(
+      <CheckoutBasket
+        event={{ ...venueEvent, venuePayment: { available: false } }}
+        ticketTypes={tiers}
+        buyer={BUYER}
+        reserve={vi.fn()}
+        release={vi.fn()}
+        quote={vi.fn()}
+        placeOrder={vi.fn()}
+      />,
+    )
+    const user = userEvent.setup()
+
+    await user.click(screen.getByRole('button', { name: 'Add one Entry' }))
+    expect(screen.queryByRole('group', { name: 'How do you want to pay?' })).toBeNull()
+  })
+
+  it('asks for a quote to pay at the venue, pays the booking fee and sends both figures', async () => {
+    const quote = vi.fn(async (request) => venueQuote(request))
+    const placeOrder = vi.fn().mockResolvedValue({
+      reference: 'DE-VENUE1',
+      status: 'PAID',
+      currency: 'USD',
+      totalCents: 331,
+      paymentMethod: 'AT_VENUE',
+      venuePayment: { dueCents: 4_000 },
+      tickets: [{ id: 'cktk1' }],
+    })
+    const user = renderVenueBasket({ quote, placeOrder })
+
+    await holdOne(user)
+    await user.click(screen.getByRole('radio', { name: 'Pay at the venue' }))
+
+    await waitFor(() =>
+      expect(quote).toHaveBeenLastCalledWith(
+        expect.objectContaining({ paymentMethod: 'AT_VENUE' }),
+      ),
+    )
+    expect(await screen.findByTestId('summary-door')).toHaveTextContent('$40.00')
+    expect(screen.getByTestId('summary-online')).toHaveTextContent('$3.31')
+    expect(
+      screen.getByText('Total updated: pay now $3.31, at the door $40.00.'),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Pay booking fee $3.31 (simulated)' }))
+    await screen.findByRole('heading', { name: 'Booked — pay at the door' })
+
+    expect(placeOrder.mock.calls[0][0]).toMatchObject({
+      paymentMethod: 'AT_VENUE',
+      expectedTotalCents: 331,
+      expectedVenueDueCents: 4_000,
+    })
+  })
+
+  it('reads "Book now — pay … at the door" when nothing is paid online', async () => {
+    const user = renderVenueBasket({
+      quote: vi.fn(async (request) =>
+        venueQuote({ ...request, referralCode: 'PARTNER-2026' }, { referral: null }),
+      ),
+    })
+
+    await holdOne(user)
+    await user.click(screen.getByRole('radio', { name: 'Pay at the venue' }))
+
+    expect(
+      await screen.findByRole('button', { name: 'Book now — pay $40.00 at the door' }),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('summary-online')).toHaveTextContent('Nothing to pay online')
+  })
+
+  it('goes back to card politely when a quote refuses paying at the venue', async () => {
+    const full = Object.assign(new Error('Paying at the venue is full for this event.'), {
+      status: 409,
+      code: 'VENUE_PAYMENT_FULL',
+    })
+    const quote = vi.fn(async (request) => {
+      if (request.paymentMethod === 'AT_VENUE') throw full
+      return venueQuote(request)
+    })
+    const user = renderVenueBasket({ quote })
+
+    await holdOne(user)
+    await user.click(screen.getByRole('radio', { name: 'Pay at the venue' }))
+
+    expect(
+      await screen.findByText(
+        'Paying at the venue is not available for this booking. The total is for paying by card.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Pay by card now' })).toBeChecked()
+    expect(quote).toHaveBeenLastCalledWith(expect.objectContaining({ paymentMethod: undefined }))
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('says urgently that paying at the venue was switched off at Pay, and takes focus there', async () => {
+    const off = Object.assign(new Error('Paying at the venue is off.'), {
+      status: 409,
+      code: 'VENUE_PAYMENT_OFF',
+    })
+    const placeOrder = vi.fn().mockRejectedValueOnce(off)
+    const quote = vi.fn(async (request) => venueQuote(request))
+    const user = renderVenueBasket({ quote, placeOrder })
+
+    await holdOne(user)
+    await user.click(screen.getByRole('radio', { name: 'Pay at the venue' }))
+    await user.click(await screen.findByRole('button', { name: /^Pay booking fee/u }))
+
+    const alert = await screen.findByRole('alert')
+
+    expect(alert).toHaveTextContent(
+      'Paying at the venue was switched off for this event while you were booking. Nothing has been charged. The total is now for paying by card.',
+    )
+    await waitFor(() => expect(alert.closest('[tabindex="-1"]')).toHaveFocus())
+    expect(screen.getByRole('radio', { name: 'Pay by card now' })).toBeChecked()
+    expect(
+      await screen.findByRole('button', { name: 'Pay $43.31 (simulated)' }),
+    ).toBeInTheDocument()
+  })
+
+  it('checks a referral code once the tickets are held, and sends it with the order only once it applied', async () => {
+    const quote = vi.fn(async (request) => venueQuote(request))
+    const placeOrder = vi.fn().mockResolvedValue({ ...ORDER, currency: 'USD', totalCents: 4_000 })
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    const user = renderVenueBasket({ quote, placeOrder })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Entry' }))
+    await user.type(screen.getByLabelText('Referral code (optional)'), 'PARTNER-2026')
+    await user.click(screen.getByRole('button', { name: 'Apply referral code' }))
+
+    expect(
+      screen.getByText(
+        'Your referral code is checked when you reserve your tickets. Until then the total above includes the booking fee.',
+      ),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await screen.findByText('Tickets held')
+
+    expect(quote).toHaveBeenLastCalledWith(
+      expect.objectContaining({ referralCode: 'PARTNER-2026' }),
+    )
+    expect(
+      await screen.findByText('Booking fee removed with your referral code.'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('summary-fee-waived')).toHaveTextContent('−$3.31')
+
+    await user.click(screen.getByRole('button', { name: 'Pay $40.00 (simulated)' }))
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    expect(placeOrder.mock.calls[0][0].referralCode).toBe('PARTNER-2026')
+    expect(setItem).not.toHaveBeenCalled()
+    setItem.mockRestore()
+  })
+
+  it('says one sentence for a code that is not accepted, and leaves it off the order', async () => {
+    const quote = vi.fn(async (request) => venueQuote(request))
+    const placeOrder = vi.fn().mockResolvedValue({ ...ORDER, currency: 'USD', totalCents: 4_331 })
+    const user = renderVenueBasket({ quote, placeOrder })
+
+    await holdOne(user)
+    await user.type(screen.getByLabelText('Referral code (optional)'), 'GUESS-1234')
+    await user.click(screen.getByRole('button', { name: 'Apply referral code' }))
+
+    expect(
+      await screen.findByText('This referral code can’t be used for this booking.'),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Referral code (optional)')).toHaveFocus())
+
+    await user.click(screen.getByRole('button', { name: 'Pay $43.31 (simulated)' }))
+    await screen.findByRole('heading', { name: 'Booked' })
+    expect(placeOrder.mock.calls[0][0].referralCode).toBeUndefined()
+  })
+
+  it('says when too many codes were tried, and prices the booking without one', async () => {
+    const limited = Object.assign(new Error('Too many.'), { status: 429, code: 'RATE_LIMITED' })
+    const quote = vi.fn(async (request) => {
+      if (request.referralCode) throw limited
+      return venueQuote(request)
+    })
+    const user = renderVenueBasket({ quote })
+
+    await holdOne(user)
+    await user.type(screen.getByLabelText('Referral code (optional)'), 'GUESS-9999')
+    await user.click(screen.getByRole('button', { name: 'Apply referral code' }))
+
+    expect(
+      await screen.findByText(
+        'Too many referral codes were tried. Wait a few minutes, then try again.',
+      ),
+    ).toBeInTheDocument()
+    expect(quote).toHaveBeenLastCalledWith(expect.objectContaining({ referralCode: undefined }))
+  })
+
+  it('says urgently that the booking fee is back when the code stopped applying at Pay', async () => {
+    const withdrawn = Object.assign(new Error('Not accepted.'), {
+      status: 409,
+      code: 'REFERRAL_NOT_ACCEPTED',
+    })
+    const quote = vi.fn(async (request) => venueQuote(request))
+    const placeOrder = vi.fn().mockRejectedValueOnce(withdrawn)
+    const user = renderVenueBasket({ quote, placeOrder })
+
+    await holdOne(user)
+    await user.type(screen.getByLabelText('Referral code (optional)'), 'PARTNER-2026')
+    await user.click(screen.getByRole('button', { name: 'Apply referral code' }))
+    await screen.findByText('Booking fee removed with your referral code.')
+
+    await user.click(screen.getByRole('button', { name: 'Pay $40.00 (simulated)' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Your referral code can no longer be used for this booking, so the booking fee is back. Nothing has been charged. Check the new total, then pay.',
+    )
+    expect(quote).toHaveBeenLastCalledWith(expect.objectContaining({ referralCode: undefined }))
+    expect(screen.getByLabelText('Referral code (optional)')).toHaveValue('')
+    expect(
+      await screen.findByRole('button', { name: 'Pay $43.31 (simulated)' }),
+    ).toBeInTheDocument()
+  })
+
+  it('says urgently that the booking fee changed when its terms moved before Pay', async () => {
+    const changed = Object.assign(new Error('The total changed.'), {
+      status: 409,
+      code: 'PRICE_CHANGED',
+    })
+    const quote = vi.fn(async (request) => venueQuote(request))
+    const placeOrder = vi.fn().mockRejectedValueOnce(changed)
+    const user = renderVenueBasket({ quote, placeOrder })
+
+    await holdOne(user)
+    quote.mockImplementationOnce(async (request) =>
+      venueQuote(request, {
+        fee: { percentageBps: 500, flatCentsPerTicket: 151 },
+        feesCents: 351,
+        feeGrossCents: 351,
+        totalCents: 4_351,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Pay $43.31 (simulated)' }))
+
+    const alert = await screen.findByRole('alert')
+
+    expect(alert).toHaveTextContent('The booking fee changed')
+    expect(alert).toHaveTextContent(
+      'The booking fee for this event changed while you were booking. It is now $3.51. Nothing has been charged. Check the new total, then pay.',
+    )
+  })
+})

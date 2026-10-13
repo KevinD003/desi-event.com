@@ -76,6 +76,40 @@ export const dynamic = 'force-dynamic'
 
 export const metadata = { title: 'Analytics', robots: { index: false, follow: false } }
 
+/**
+ * Orders booked to pay at the venue that wait for their payment at the door,
+ * and are not counted as paid until it is taken (SPEC3 §9.10).
+ *
+ * @param {number} count `funnel.atVenue.bookedUnpaid`.
+ * @returns {string|null} The sentence, or null for none.
+ */
+export function bookedUnpaidSentence(count) {
+  if (!count || count < 1) return null
+
+  return count === 1
+    ? '1 order booked to pay at the venue is waiting for payment at the door and is not counted as paid.'
+    : `${count.toLocaleString('en-US')} orders booked to pay at the venue are waiting for payment at the door and are not counted as paid.`
+}
+
+/** Where tickets paid at the venue are counted, and where their money is not (SPEC3 §9.10). */
+export const VENUE_COUNTING_NOTE =
+  'Tickets booked to pay at the venue are in the ticket counts. What is paid at the door is taken by the organiser and is not in the money figures, which come from the ledger.'
+
+/**
+ * Unpaid tickets booked to pay at the venue that were cancelled, their places
+ * freed (SPEC3-XI §9.10).
+ *
+ * @param {number} count `venuePayments.cancelledUnpaidTickets`.
+ * @returns {string|null} The sentence, or null for none.
+ */
+export function cancelledUnpaidSentence(count) {
+  if (!count || count < 1) return null
+
+  return count === 1
+    ? '1 unpaid ticket booked to pay at the venue was cancelled, and its place was freed.'
+    : `${count.toLocaleString('en-US')} unpaid tickets booked to pay at the venue were cancelled, and their places were freed.`
+}
+
 /** The funnel's heading: it starts with visitors and ends with paid orders. */
 export const FUNNEL_TITLE = 'From visit to payment'
 
@@ -104,6 +138,11 @@ function Breakdown({ caption, unit, rows, money }) {
     return <Empty title={caption} description="Nothing has been sold in this grouping." />
   }
 
+  // Unpaid tickets booked to pay at the venue and cancelled: not counted as
+  // sold (their places went back to stock), so said beside the count when any
+  // were (SPEC3-XI §9.10).
+  const cancelled = rows.some((row) => (row.cancelledQuantity ?? 0) > 0)
+
   return (
     <ScrollableTable label={caption}>
       <table className={TABLE}>
@@ -124,6 +163,11 @@ function Breakdown({ caption, unit, rows, money }) {
             <th scope="col" className={TH_NUM}>
               Refunded
             </th>
+            {cancelled ? (
+              <th scope="col" className={TH_NUM}>
+                Cancelled unpaid
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -137,6 +181,7 @@ function Breakdown({ caption, unit, rows, money }) {
                 <td className={NUM}>{formatPrice(row.lineValueCents, row.currency)}</td>
               ) : null}
               <td className={NUM}>{row.refundedQuantity}</td>
+              {cancelled ? <td className={NUM}>{row.cancelledQuantity ?? 0}</td> : null}
             </tr>
           ))}
         </tbody>
@@ -791,6 +836,23 @@ export default async function AnalyticsPage({ searchParams }) {
             ) : null}
           </section>
 
+          {view.venuePayments &&
+          (view.venuePayments.ticketsUnpaid > 0 ||
+            view.venuePayments.paidAtDoorCents > 0 ||
+            view.venuePayments.cancelledUnpaidTickets > 0) ? (
+            <section aria-labelledby="venue-heading" className="mt-8">
+              <h2 id="venue-heading" className="text-xl font-semibold text-ink">
+                Paying at the venue
+              </h2>
+              <p className="mt-2 text-sm text-ink-muted">{VENUE_COUNTING_NOTE}</p>
+              {cancelledUnpaidSentence(view.venuePayments.cancelledUnpaidTickets) ? (
+                <p className="mt-2 text-sm text-ink-muted">
+                  {cancelledUnpaidSentence(view.venuePayments.cancelledUnpaidTickets)}
+                </p>
+              ) : null}
+            </section>
+          ) : null}
+
           <section aria-labelledby="sales-heading" className="mt-8">
             <h2 id="sales-heading" className="text-xl font-semibold text-ink">
               Sales
@@ -904,6 +966,11 @@ export default async function AnalyticsPage({ searchParams }) {
               Orders paid counts the orders started in this period that are paid now.{' '}
               {REFUNDED_ORDERS_NOTE}
             </p>
+            {bookedUnpaidSentence(view.funnel.atVenue?.bookedUnpaid) ? (
+              <p className="mt-2 text-sm text-ink-muted">
+                {bookedUnpaidSentence(view.funnel.atVenue.bookedUnpaid)}
+              </p>
+            ) : null}
 
             {view.funnel.missing.length > 0 ? (
               <>

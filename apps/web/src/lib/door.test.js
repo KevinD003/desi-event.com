@@ -2,17 +2,29 @@ import { ADMISSION_REFUSAL_REASONS } from '@desi-event/schemas'
 import { describe, expect, it } from 'vitest'
 
 import {
+  ANOTHER_STEWARD_PAID,
   LOOK_AGAIN,
+  PAYMENT_NO_ANSWER,
+  PAYMENT_REFUSALS,
+  REFUSAL_HEADINGS,
   REFUSAL_SENTENCES,
+  admitWithPaymentLabel,
+  atVenueSentences,
   authorityLabel,
+  bookingOwesSentence,
   confirmFailure,
   doorEventLabel,
   groupLookupSentence,
   groupResultSentence,
+  groupPaymentLine,
   groupSessionName,
+  handedOnUnpaidSentence,
   lookupFailure,
+  paymentRecordedSentence,
+  refusalHeading,
   refusalSentence,
   seatWords,
+  takePaymentSentence,
   tonightOf,
 } from './door.js'
 
@@ -163,5 +175,130 @@ describe('the night a door starts on', () => {
     expect(refusalSentence('WRONG_NIGHT')).toMatch(/different night\. Do not admit/u)
     expect(refusalSentence('NIGHT_REQUIRED')).toMatch(/Choose the night you are admitting to/u)
     expect(confirmFailure(409, 'NIGHT_REQUIRED').lookAgain).toBe(false)
+  })
+})
+
+describe('money at the door (SPEC3 §12.8, SPEC3-XI §12.8)', () => {
+  it('names a ticket cancelled unpaid, in a heading and a sentence of its own', () => {
+    expect(refusalHeading('UNPAID_CANCELLED')).toBe('Cancelled — not paid')
+    expect(refusalSentence('UNPAID_CANCELLED')).toBe(
+      "This ticket was cancelled because it had not been paid for. Don't let it in.",
+    )
+    expect(refusalHeading('REFUNDED')).toBeNull()
+    expect(Object.keys(REFUSAL_HEADINGS).every((code) => code in REFUSAL_SENTENCES)).toBe(true)
+  })
+
+  it('says what to take, in the order’s currency', () => {
+    expect(takePaymentSentence(4000, 'USD')).toBe(
+      'Take $40.00 for this ticket before letting them in.',
+    )
+  })
+
+  it('counts the same holder’s other unpaid tickets, and suggests the group pass only when it covers them', () => {
+    expect(
+      bookingOwesSentence(
+        { otherUnpaidTickets: 2, otherUnpaidCents: 8000, groupPass: true },
+        'USD',
+      ),
+    ).toBe(
+      'This booking has 2 more tickets to pay at the door ($80.00). Use the group pass to take payment for several at once.',
+    )
+    expect(
+      bookingOwesSentence(
+        { otherUnpaidTickets: 1, otherUnpaidCents: 4000, groupPass: false },
+        'USD',
+      ),
+    ).toBe('This booking has 1 more ticket to pay at the door ($40.00).')
+    expect(
+      bookingOwesSentence({ otherUnpaidTickets: 0, otherUnpaidCents: 0, groupPass: true }, 'USD'),
+    ).toBeNull()
+    expect(bookingOwesSentence(null, 'USD')).toBeNull()
+  })
+
+  it('says how many of the booking’s tickets other people pay for with their own', () => {
+    expect(handedOnUnpaidSentence(1)).toBe(
+      '1 more ticket of this booking was passed on to other people, who pay at the door with their own ticket.',
+    )
+    expect(handedOnUnpaidSentence(3)).toBe(
+      '3 more tickets of this booking were passed on to other people, who pay at the door with their own tickets.',
+    )
+    expect(handedOnUnpaidSentence(0)).toBeNull()
+  })
+
+  it('labels the one step that takes the payment and admits, and its retry', () => {
+    expect(admitWithPaymentLabel('$40.00')).toBe('Payment taken: $40.00 — admit')
+    expect(admitWithPaymentLabel('$40.00', { retry: true })).toBe(
+      'Retry: payment taken $40.00 — admit',
+    )
+    expect(admitWithPaymentLabel('$80.00', { count: 2 })).toBe('Payment taken: $80.00 — admit 2')
+    expect(groupPaymentLine('$80.00')).toBe('Payment to take for the ticked tickets: $80.00')
+    expect(paymentRecordedSentence('$40.00')).toBe('Admitted. Payment recorded: $40.00.')
+    expect(paymentRecordedSentence('$40.00', { retried: true })).toBe(
+      'Admitted (confirmed on retry). Payment recorded: $40.00.',
+    )
+    expect(ANOTHER_STEWARD_PAID).toBe(
+      'Already admitted by another steward. Their payment record covers this ticket; do not take the money again.',
+    )
+  })
+
+  it('says an unanswered payment as money that may or may not be recorded, and that a retry cannot record it twice', () => {
+    const told = confirmFailure(0, null, { payment: true })
+
+    expect(told.uncertain).toBe(true)
+    expect(told.sentence).toBe(PAYMENT_NO_ANSWER)
+    expect(told.sentence).toMatch(/Keep the money in hand/u)
+    expect(told.sentence).toMatch(/cannot record the payment twice/u)
+    // Without a payment, the sentence is the admission's.
+    expect(confirmFailure(0).sentence).toMatch(/cannot be admitted twice/u)
+  })
+
+  it('says a payment refusal in the API’s own words and offers a fresh lookup', () => {
+    for (const code of PAYMENT_REFUSALS) {
+      const told = confirmFailure(code === 'PAYMENT_AMOUNT_MISMATCH' ? 422 : 409, null, {
+        code,
+        message: `The API said ${code}.`,
+      })
+
+      expect(told).toEqual({
+        sentence: `The API said ${code}.`,
+        lookAgain: true,
+        uncertain: false,
+        reason: code,
+      })
+    }
+
+    // No sentence arrived: still a refusal, never an admission.
+    expect(confirmFailure(409, null, { code: 'PAYMENT_DUE' }).sentence).toMatch(
+      /before letting it in/u,
+    )
+  })
+
+  it('keeps the refused admission’s reason, so the card can name it', () => {
+    expect(confirmFailure(409, 'UNPAID_CANCELLED')).toMatchObject({
+      reason: 'UNPAID_CANCELLED',
+      lookAgain: false,
+    })
+  })
+
+  it('says what cancelling or deleting means for bookings paid at the venue', () => {
+    expect(atVenueSentences({ orders: 0, ticketsPaidAtDoor: 0, paidAtDoorCents: 0 })).toEqual([])
+    expect(atVenueSentences(undefined)).toEqual([])
+    expect(atVenueSentences({ orders: 2, ticketsPaidAtDoor: 0, paidAtDoorCents: 0 })).toEqual([
+      'For tickets paid at the venue, only the booking fee paid online is refunded (simulated).',
+    ])
+    expect(
+      atVenueSentences({ orders: 2, ticketsPaidAtDoor: 3, paidAtDoorCents: 12000 }, 'USD'),
+    ).toEqual([
+      'For tickets paid at the venue, only the booking fee paid online is refunded (simulated).',
+      'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+    ])
+    // Where nothing is refunded, only the door money is said.
+    expect(
+      atVenueSentences({ orders: 2, ticketsPaidAtDoor: 3, paidAtDoorCents: 12000 }, 'USD', {
+        refunds: false,
+      }),
+    ).toEqual([
+      'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+    ])
   })
 })

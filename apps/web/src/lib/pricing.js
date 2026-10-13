@@ -48,6 +48,32 @@ export function taxLabelForPlace(place = {}) {
 }
 
 /**
+ * The tax's name without its rate, as a summary row names it: "GST", "HST",
+ * "VAT" or "Sales tax", and "Tax" for a place no policy covers (SPEC3 §12).
+ *
+ * @param {object} [place] Where the event is held: `{ country, region }`.
+ * @returns {string} The name, as a row label writes it.
+ */
+export function taxNameForPlace(place = {}) {
+  const policy = resolveTaxPolicy({ country: place?.country, region: place?.region })
+
+  return policy.resolved ? (policy.name ?? 'Tax') : 'Tax'
+}
+
+/**
+ * The tax's name inside a sentence: an acronym stays as it is ("No GST is
+ * added…"), and a name in words is lower-cased ("No sales tax is added…").
+ *
+ * @param {object} [place] Where the event is held: `{ country, region }`.
+ * @returns {string} The name, as a sentence writes it.
+ */
+export function taxNameInSentence(place = {}) {
+  const name = taxNameForPlace(place)
+
+  return /^[A-Z]{2,}$/u.test(name) ? name : name.toLowerCase()
+}
+
+/**
  * The locale used to render money for a currency.
  *
  * Grouping differs: Indian numbering groups in lakhs (`₹1,49,900`), so INR is
@@ -133,10 +159,18 @@ export function feeConfigFor(currency, feeTerms) {
  * @param {string} params.currency ISO 4217 code every tier is priced in.
  * @param {object} [params.place] Where the event is held: `{ country, region }`.
  * @param {Array<object>|null} [params.feeTerms] The fee terms the API published for the event.
+ * @param {'CARD'|'AT_VENUE'} [params.paymentMethod] How the ticket price would be paid. A
+ *   referral code's waiver is never estimated here: whether a code applies is the server's to say.
  * @returns {object} The broken-down totals plus the tax policy they were computed under.
  * @throws {PricingError} If a line carries a non-integer quantity or price.
  */
-export function priceSelection({ lines, currency, place = {}, feeTerms = null }) {
+export function priceSelection({
+  lines,
+  currency,
+  place = {},
+  feeTerms = null,
+  paymentMethod = 'CARD',
+}) {
   const items = (lines ?? [])
     .filter((line) => line.quantity > 0)
     .map((line) => ({
@@ -150,12 +184,14 @@ export function priceSelection({ lines, currency, place = {}, feeTerms = null })
   // the same resolution the server performs, from the same table, so the quote
   // the buyer sees and the total they are charged cannot disagree.
   const taxPolicy = resolveTaxPolicy({ country: place.country, region: place.region })
+  const method = paymentMethod === 'AT_VENUE' ? 'AT_VENUE' : 'CARD'
 
   const totals = computeOrderTotals({
     items,
     feeConfig: feeConfigFor(currency, feeTerms),
     taxRateBps: taxPolicy.rateBps,
     currency,
+    paymentMethod: method,
   })
 
   return { ...totals, taxPolicy }

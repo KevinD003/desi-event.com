@@ -24,7 +24,11 @@
  *   has gone.
  *
  * Shared by the team invitation, organiser invitation and ticket transfer
- * screens, so the words that differ come in as props.
+ * screens, so the words that differ come in as props. A screen with something
+ * more to tell the person passes it as `note`: it is drawn with the rest of
+ * what to tell them, inside the panel and before its buttons, and the code's
+ * field is described by it too, so it is not left after "I have handed it
+ * over", which takes the panel away.
  *
  * ## The ready-to-send message
  *
@@ -71,6 +75,7 @@ function untilWords(value) {
  * @property {string} acceptPlace How to reach that page in words: "Your account → Join an organisation".
  * @property {string} [lostAdvice] What to do if the code is lost.
  * @property {{subject: string, text: string}|null} [letter] A ready-to-send message carrying the code.
+ * @property {string|null} [note] One more thing to tell the person it is for, or null.
  * @property {Function} onDone Called when the person says they have handed it over.
  */
 
@@ -90,6 +95,7 @@ export function OneTimeCodePanel({
   acceptPlace,
   lostAdvice = 'If it is lost, issue a new code, which stops this one working.',
   letter = null,
+  note = null,
   onDone,
 }) {
   const id = useId()
@@ -209,6 +215,7 @@ export function OneTimeCodePanel({
         <p>
           This page will not show it again. {lostAdvice} Treat it like a password until it is used.
         </p>
+        {note ? <p className="font-medium text-ink">{note}</p> : null}
       </div>
 
       {hasLetter ? (

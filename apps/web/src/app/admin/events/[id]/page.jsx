@@ -17,6 +17,13 @@
  * Which controls are offered is worked out here, on the server, and handed to
  * the client components as booleans. The API decides every one again.
  *
+ * The event's booking fee (the platform fee) and whether it can be paid for at
+ * the venue are set here too (SPEC3 §12.3), in every status and in both
+ * branches of the page — an event never published included, and read-only for
+ * a deleted one — by a session holding `payment_terms:manage`. An
+ * administrator who belongs to the event's organisation reads them and cannot
+ * change them.
+ *
  * @file app/admin/events/id/page.jsx
  */
 
@@ -27,6 +34,7 @@ import { DeleteEventDialog } from '../../../../components/delete-event-dialog.js
 import { DeletedEventSummary } from '../../../../components/deleted-event-summary.jsx'
 import { EventEditor } from '../../../../components/event-editor.jsx'
 import { OpenPlatformEditForm } from '../../../../components/open-platform-edit-form.jsx'
+import { PaymentTermsPanel } from '../../../../components/payment-terms-panel.jsx'
 import { PlatformChangesPanel } from '../../../../components/platform-changes-panel.jsx'
 import { ReadRefusal, RefusalNotice } from '../../../../components/read-refusal.jsx'
 import { ReassignEventDialog } from '../../../../components/reassign-event-dialog.jsx'
@@ -49,6 +57,7 @@ import {
   listVenues,
 } from '../../../../lib/organizer-api.js'
 import { readSession } from '../../../../lib/session.js'
+import { getPaymentTerms } from '../../../../lib/workspace-api.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -83,6 +92,130 @@ async function publishedMapVersions(venueId) {
   } catch {
     return []
   }
+}
+
+/**
+ * The cheapest paid ticket on public sale, for the booking fee's example.
+ *
+ * @param {object|null} tiers The tiers read (`{ data }`), or null.
+ * @returns {{priceCents: number, currency: string}|null} The ticket, or null.
+ */
+export function cheapestPaidTier(tiers) {
+  const paid = (tiers?.data ?? []).filter(
+    (tier) =>
+      tier?.visibility !== 'HIDDEN' && Number.isInteger(tier?.priceCents) && tier.priceCents > 0,
+  )
+
+  if (paid.length === 0) return null
+
+  const cheapest = paid.reduce((low, tier) => (tier.priceCents < low.priceCents ? tier : low))
+
+  return { priceCents: cheapest.priceCents, currency: cheapest.currency ?? 'USD' }
+}
+
+/**
+ * The instant "Show older changes" asked for, when it is one.
+ *
+ * @param {unknown} value The `changesBefore` parameter.
+ * @returns {string|null} An ISO instant, or null.
+ */
+function readChangesBefore(value) {
+  if (typeof value !== 'string' || value.length > 40) return null
+
+  const at = Date.parse(value)
+
+  return Number.isNaN(at) ? null : new Date(at).toISOString()
+}
+
+/**
+ * What the "Booking fee and payment" section needs, read on the server: null
+ * for a session that may not manage it (`payment_terms:manage`).
+ *
+ * @param {object} event The event.
+ * @param {object|null} session The session.
+ * @param {string|null} changesBefore The older page of changes asked for.
+ * @param {object|null} [tiers] The tiers, when the page already read them.
+ * @returns {Promise<object|null>} The section's props, or null.
+ */
+async function loadPaymentTerms(event, session, changesBefore, tiers = undefined) {
+  if (!sessionCan(session, 'payment_terms:manage')) return null
+
+  const [terms, tierRead] = await Promise.all([
+    getPaymentTerms(event.id, changesBefore ? { before: changesBefore } : {}).catch((error) => ({
+      failure: error,
+    })),
+    tiers === undefined ? getEventTicketTypes(event.id).catch(() => null) : tiers,
+  ])
+
+  if (!terms || terms.failure) return { failure: terms?.failure ?? null }
+
+  // A member of the event's own organisation reads them and cannot change
+  // them: another administrator has to (the API refuses CONFLICT_OF_INTEREST).
+  const member = (session?.memberships ?? []).some(
+    (membership) => membership.organizationId === event.organizationId,
+  )
+
+  return {
+    terms,
+    readOnly:
+      event.status === 'DELETED'
+        ? 'deleted'
+        : terms.soldOnSource
+          ? 'source'
+          : member
+            ? 'member'
+            : null,
+    canCancelUnpaid: sessionCan(session, 'venue_booking:cancel'),
+    example: cheapestPaidTier(tierRead),
+    changesBefore,
+  }
+}
+
+/**
+ * The "Booking fee and payment" section, from what {@link loadPaymentTerms} read.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.event The event.
+ * @param {object|null} props.loaded What was read, or null for nothing to show.
+ * @returns {JSX.Element|null} The section.
+ */
+function PaymentTermsSection({ event, loaded }) {
+  if (!loaded) return null
+
+  if (!loaded.terms) {
+    return (
+      <section
+        id="payment-terms"
+        aria-labelledby="payment-terms-heading"
+        className="mt-8 max-w-3xl"
+      >
+        <h2 id="payment-terms-heading" className="text-xl font-semibold text-ink">
+          Booking fee and payment
+        </h2>
+        <ReadRefusal
+          error={loaded.failure}
+          what="This event’s booking fee and payment settings"
+          action="see this event’s booking fee and payment settings"
+        />
+      </section>
+    )
+  }
+
+  const { terms, changesBefore } = loaded
+
+  return (
+    <PaymentTermsPanel
+      // Drawn afresh whenever the server's answer changes.
+      key={`${terms.fee.sequence}:${terms.venuePayment.enabled}:${terms.venuePayment.limit}:${terms.history[0]?.at ?? ''}:${changesBefore ?? ''}`}
+      eventId={event.id}
+      terms={terms}
+      readOnly={loaded.readOnly}
+      canCancelUnpaid={loaded.canCancelUnpaid}
+      example={loaded.example}
+      timeZone={event.timezone ?? 'UTC'}
+      showingOlder={Boolean(changesBefore)}
+    />
+  )
 }
 
 /**
@@ -245,6 +378,7 @@ export default async function AdminEventPage({ params, searchParams }) {
   const query = (await searchParams) ?? {}
   const justRestored = query.restored === '1'
   const justMoved = query.moved === '1'
+  const changesBefore = readChangesBefore(query.changesBefore)
   const session = await readSession()
 
   if (!sessionCan(session, 'event:platform_edit')) {
@@ -304,6 +438,10 @@ export default async function AdminEventPage({ params, searchParams }) {
             }
           />
         </div>
+        <PaymentTermsSection
+          event={event}
+          loaded={await loadPaymentTerms(event, session, changesBefore)}
+        />
       </div>
     )
   }
@@ -339,6 +477,11 @@ export default async function AdminEventPage({ params, searchParams }) {
         )}
 
         <PlatformChangesPanel edits={platformEdits} timeZone={event.timezone} />
+
+        <PaymentTermsSection
+          event={event}
+          loaded={await loadPaymentTerms(event, session, changesBefore)}
+        />
 
         {movable ? <ImportedEventSection event={event} /> : null}
 
@@ -386,6 +529,11 @@ export default async function AdminEventPage({ params, searchParams }) {
           listHref="/admin/events"
         />
       </div>
+
+      <PaymentTermsSection
+        event={event}
+        loaded={await loadPaymentTerms(event, session, changesBefore, tiers)}
+      />
 
       {movable ? <ImportedEventSection event={event} /> : null}
 

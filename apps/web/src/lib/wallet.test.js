@@ -21,9 +21,13 @@ import {
   TICKET_STATUS_WORDS,
   eventIsOver,
   groupTickets,
+  owesAtDoor,
   seatText,
   sectionFor,
+  ticketChip,
   usableCount,
+  venuePaymentChip,
+  venuePaymentNotes,
   whenText,
   whereText,
 } from './wallet.js'
@@ -447,5 +451,117 @@ describe('groupPassSummaries', () => {
     ])
 
     expect(summaries.map((entry) => entry.orderReference)).toEqual(['DE-SOON', 'DE-LATE'])
+  })
+})
+
+describe('a ticket booked to pay at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
+  /**
+   * A ticket that owes $40.00 at the door.
+   *
+   * @param {object} [venue] Fields of `venuePayment` to change.
+   * @param {object} [overrides] Fields of the ticket to change.
+   * @returns {object} The ticket.
+   */
+  function owing(venue = {}, overrides = {}) {
+    return ticket({
+      status: 'VALID',
+      venuePayment: {
+        dueCents: 4_000,
+        paid: false,
+        currency: 'USD',
+        cancelled: null,
+        paidAtDoorByYou: false,
+        ...venue,
+      },
+      ...overrides,
+    })
+  }
+
+  it('reads "Pay at the door" instead of "Ready to use" while it owes', () => {
+    expect(owesAtDoor(owing())).toBe(true)
+    expect(venuePaymentChip(owing())).toEqual({
+      label: 'Pay at the door: $40.00',
+      tone: 'pending',
+    })
+    expect(ticketChip(owing())).toEqual({ label: 'Pay at the door: $40.00', tone: 'pending' })
+    expect(venuePaymentNotes(owing())).toEqual([
+      'Pay this at the door. The steward records it before letting you in.',
+    ])
+  })
+
+  it('still owes while an offer to pass it on is open', () => {
+    expect(owesAtDoor(owing({}, { status: 'TRANSFER_PENDING' }))).toBe(true)
+  })
+
+  it('reads a paid one as paid at the door, with its usual status', () => {
+    const paid = owing({ paid: true })
+
+    expect(owesAtDoor(paid)).toBe(false)
+    expect(ticketChip(paid)).toEqual(TICKET_STATUS_WORDS.VALID)
+    expect(venuePaymentNotes(paid)).toEqual(['Paid at the door.'])
+  })
+
+  it('reads a cancelled one as not paid, saying who cancelled it and when', () => {
+    const cancelled = owing(
+      { cancelled: { at: '2026-10-08T15:00:00.000Z', by: 'ORGANISER' } },
+      { status: 'REVOKED' },
+    )
+
+    expect(ticketChip(cancelled)).toEqual({ label: 'Cancelled — not paid', tone: 'neutral' })
+    expect(venuePaymentNotes(cancelled, 'UTC')).toEqual([
+      'The organiser cancelled this ticket on Thu, Oct 8, 2026 because it had not been paid for. You no longer owe $40.00 for it.',
+    ])
+    expect(
+      venuePaymentNotes(
+        owing({ cancelled: { at: '2026-10-08T15:00:00.000Z', by: 'DESI_EVENT' } }),
+        'UTC',
+      )[0],
+    ).toMatch(/^The Desi-Event team cancelled this ticket/u)
+  })
+
+  it('says money paid at the door by this holder is the organiser’s to return once the ticket ended', () => {
+    expect(
+      venuePaymentNotes(owing({ paid: true, paidAtDoorByYou: true }, { status: 'REFUNDED' })),
+    ).toEqual([
+      'The $40.00 you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+    ])
+    // Withdrawn by the organiser, and withdrawn because its night was
+    // cancelled or its event deleted (the API writes CANCELLED there, and
+    // keeps it while no refund settles it — a fee waived with a referral code
+    // leaves nothing to refund online): the money is still the organiser's.
+    for (const status of ['REVOKED', 'CANCELLED']) {
+      expect(venuePaymentNotes(owing({ paid: true, paidAtDoorByYou: true }, { status }))).toEqual([
+        'The $40.00 you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      ])
+    }
+    // Somebody else paid for it: this holder is not told to ask for it back.
+    expect(
+      venuePaymentNotes(owing({ paid: true, paidAtDoorByYou: false }, { status: 'REFUNDED' })),
+    ).toEqual(['Paid at the door.'])
+  })
+
+  it('says nothing for a ticket that owes nothing', () => {
+    const card = ticket({ venuePayment: null })
+
+    expect(owesAtDoor(card)).toBe(false)
+    expect(venuePaymentChip(card)).toBeNull()
+    expect(venuePaymentNotes(card)).toEqual([])
+  })
+
+  it('adds up what the buyer’s own tickets on a group pass owe at the door', () => {
+    const summaries = groupPassSummaries([
+      owing({}, { id: 'a', orderReference: 'DE-VENUE' }),
+      owing({ paid: true }, { id: 'b', orderReference: 'DE-VENUE' }),
+      owing({}, { id: 'c', orderReference: 'DE-VENUE' }),
+    ])
+
+    expect(summaries).toEqual([
+      expect.objectContaining({
+        orderReference: 'DE-VENUE',
+        admits: 3,
+        unpaidCents: 8_000,
+        currency: 'USD',
+      }),
+    ])
   })
 })

@@ -27,14 +27,50 @@
  * - It does not move. No animation, no pulsing, nothing that a reduced-motion
  *   setting would have to turn off.
  *
+ * ## A ticket booked to pay at the door
+ *
+ * Still gets its pass — the door has to scan it to take the payment — and says
+ * so beside it: `VenuePaymentNote` names what is due ("Pay at the door:
+ * $40.00"), that a ticket cancelled because it was not paid for no longer
+ * admits, and, to a holder who paid at the door for a ticket later refunded or
+ * withdrawn, that the money is with the organiser (SPEC3 §12.7, SPEC3-XI §12.7).
+ * It does not stop the ticket being passed on: what is due goes with it.
+ *
  * @module components/ticket-pass
  */
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
+import { StatusChip } from '../app/account/orders/status-chip.jsx'
 import { Alert, Button } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { qrMatrix, qrPath } from '../lib/qr.js'
+import { venuePaymentChip, venuePaymentNotes } from '../lib/wallet.js'
+
+/**
+ * What a ticket booked to pay at the door says about it to its holder: the
+ * chip, when it says more than the ticket's status, and the sentences.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.ticket The ticket, with `status` and `venuePayment`.
+ * @param {string} [props.timeZone] The event's timezone, for a cancellation's date.
+ * @returns {JSX.Element|null} The note, or nothing for a ticket that owes nothing at the door.
+ */
+export function VenuePaymentNote({ ticket, timeZone = 'UTC' }) {
+  const chip = venuePaymentChip(ticket)
+  const notes = venuePaymentNotes(ticket, timeZone)
+
+  if (!chip && notes.length === 0) return null
+
+  return (
+    <div className="mt-3 space-y-2 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink">
+      {chip ? <StatusChip meaning={chip} /> : null}
+      {notes.map((note) => (
+        <p key={note}>{note}</p>
+      ))}
+    </div>
+  )
+}
 
 /**
  * What each refusal from the pass endpoint means to the holder.

@@ -27,6 +27,15 @@
  * group pass admits is left to the order's page rather than counted from part
  * of the tickets.
  *
+ * ## Tickets booked to pay at the door
+ *
+ * A ticket that still owes its price says so in its chip — "Pay at the door:
+ * $40.00" in place of "Ready to use" — and how; one cancelled because nobody
+ * paid for it says who cancelled it and when; one paid at the door and later
+ * refunded or withdrawn says that money is with the organiser. A group pass
+ * card says what the buyer's own tickets on it still owe at the door. The
+ * words come from `lib/wallet.js`, shared with the ticket's page.
+ *
  * ## Four sections, and no ticket in two of them
  *
  * Coming up, given to you, handed on, past. They are disjoint by construction —
@@ -53,13 +62,14 @@ import {
 import { getMyTickets } from '../../lib/organizer-api.js'
 import { joinLinkHost, sessionDisplayLabel } from '../../lib/sessions.js'
 import { StatusChip } from '../account/orders/status-chip.jsx'
+import { formatAmount } from '../../lib/pricing.js'
 import {
-  REACHABLE_STATUSES,
-  TICKET_STATUS_WORDS,
   groupPassSummaries,
   groupTickets,
+  ticketChip,
   usableCount,
   seatText,
+  venuePaymentNotes,
   whenText,
   whereText,
 } from '../../lib/wallet.js'
@@ -79,29 +89,15 @@ export const metadata = { title: 'My tickets', robots: { index: false, follow: f
  * How each reachable status reads is `TICKET_STATUS_WORDS` in `lib/wallet.js`,
  * shared with the ticket's and the order's pages. Six entries, not nine:
  * `VOID`, `SUPERSEDED` and `CANCELLED` are declared by the database enum and
- * written by no application code anywhere — see {@link REACHABLE_STATUSES} for
- * the audit — so anything not in that table renders as its raw value, which is
- * what a demo database's seeded `VOID` gets.
- */
-
-/**
- * What a ticket's status says, as the shared chip takes it.
+ * written by no application code anywhere — see `REACHABLE_STATUSES` for the
+ * audit — so anything not in that table renders as its raw value, which is
+ * what a demo database's seeded `VOID` gets. `ticketChip` reads that table,
+ * and puts a ticket's door payment first when it says more (SPEC3 §12.7).
  *
  * The word carries the meaning; the colour and the glyph only repeat it.
  * Somebody who cannot tell the two greens apart reads the same sentence as
  * everybody else.
- *
- * @param {string} status The ticket status.
- * @returns {{label: string, tone: string}} The chip's words and tone.
  */
-function statusMeaning(status) {
-  // A status the application cannot produce keeps its own name. The reachable
-  // set is asserted against this table in `wallet.test.js`, so the two cannot
-  // drift apart without something going red.
-  return REACHABLE_STATUSES.includes(status)
-    ? TICKET_STATUS_WORDS[status]
-    : { label: status, tone: 'info' }
-}
 
 /**
  * One line of a card's detail list, omitted entirely when there is nothing to say.
@@ -147,6 +143,7 @@ function TicketCard({ ticket }) {
   const when = whenText(ticket)
   const where = whereText(ticket)
   const seat = seatText(ticket)
+  const doorNotes = venuePaymentNotes(ticket)
 
   return (
     <li className="flex flex-col overflow-hidden rounded-card border border-line bg-surface-raised shadow-card transition-shadow duration-(--duration-base) ease-standard focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 hover:shadow-card-hover sm:flex-row">
@@ -169,7 +166,7 @@ function TicketCard({ ticket }) {
               {ticket.event.title}
             </Link>
           </h3>
-          <StatusChip meaning={statusMeaning(ticket.status)} />
+          <StatusChip meaning={ticketChip(ticket)} />
         </div>
 
         <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
@@ -184,6 +181,12 @@ function TicketCard({ ticket }) {
           </Detail>
           <Detail term="Order">{ticket.orderReference ?? ''}</Detail>
         </dl>
+
+        {doorNotes.map((note) => (
+          <p key={note} className="mt-4 text-sm text-ink">
+            {note}
+          </p>
+        ))}
 
         {ticket.pendingTransfer ? (
           <p className="mt-4 text-sm text-ink-muted">
@@ -257,6 +260,12 @@ function GroupPassCard({ summary, partial }) {
         <p className="mt-1 text-sm text-ink-muted">
           Not every ticket on this account is listed here, so how many it admits is on the order’s
           page.
+        </p>
+      ) : null}
+      {summary.unpaidCents > 0 && !partial ? (
+        <p className="mt-1 text-sm text-ink">
+          Pay {formatAmount(summary.unpaidCents, summary.currency)} at the door for the tickets
+          still unpaid.
         </p>
       ) : null}
       <p className="mt-4">

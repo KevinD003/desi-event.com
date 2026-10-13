@@ -297,3 +297,41 @@ describe('a ticket for one night, and an online event’s link', () => {
     expect(screen.queryByRole('link', { name: /^Join online/u })).toBeNull()
   })
 })
+
+describe('tickets booked to pay at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
+  /** What a ticket owing $40.00 at the door carries. */
+  const OWING = {
+    dueCents: 4_000,
+    paid: false,
+    currency: 'USD',
+    cancelled: null,
+    paidAtDoorByYou: false,
+  }
+
+  it('reads "Pay at the door" on the card instead of "Ready to use", and says how', async () => {
+    await renderWallet([walletTicket({ venuePayment: OWING })])
+
+    expect(screen.getByText('Pay at the door: $40.00')).toBeInTheDocument()
+    expect(screen.queryByText('Ready to use')).toBeNull()
+    expect(
+      screen.getByText('Pay this at the door. The steward records it before letting you in.'),
+    ).toBeInTheDocument()
+  })
+
+  it('says on the group pass what the buyer’s own tickets still owe at the door', async () => {
+    await renderWallet([
+      walletTicket({ venuePayment: OWING }),
+      walletTicket({
+        id: 'tkt00000000000000000002',
+        code: 'DE-SWP-8R3L',
+        venuePayment: OWING,
+      }),
+    ])
+
+    const region = screen.getByRole('region', { name: 'Group passes' })
+
+    expect(
+      within(region).getByText('Pay $80.00 at the door for the tickets still unpaid.'),
+    ).toBeInTheDocument()
+  })
+})

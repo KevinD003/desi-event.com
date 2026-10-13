@@ -19,9 +19,14 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 vi.mock('../../../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
-vi.mock('../../../lib/organizer-api.js', () => ({ getAdmissionEvents: vi.fn() }))
+vi.mock('../../../lib/organizer-api.js', () => ({
+  getAdmissionEvents: vi.fn(),
+  getOrganizerEvent: vi.fn(),
+}))
+vi.mock('../../../lib/session.js', () => ({ readSession: vi.fn() }))
 
-const { getAdmissionEvents } = await import('../../../lib/organizer-api.js')
+const { getAdmissionEvents, getOrganizerEvent } = await import('../../../lib/organizer-api.js')
+const { readSession } = await import('../../../lib/session.js')
 const { default: CheckInPage } = await import('./page.jsx')
 
 const EVENT = {
@@ -50,6 +55,9 @@ async function renderPage(params = {}) {
 
 beforeEach(() => {
   getAdmissionEvents.mockReset()
+  getOrganizerEvent.mockReset()
+  readSession.mockReset()
+  readSession.mockResolvedValue(null)
 })
 
 describe('the platform list', () => {
@@ -178,5 +186,91 @@ describe('a member’s list', () => {
 
     expect(screen.getByText("You are not assigned to any event's door")).toBeTruthy()
     expect(screen.queryByText(/on the platform/u)).toBeNull()
+  })
+})
+
+describe('the link to the payments at the venue (SPEC3 §12.9)', () => {
+  const OTHER = { ...EVENT, id: 'eventbbbbbbbbbbbbbbbbbbbb', title: 'Diwali Mela' }
+
+  /**
+   * An entry of the door's list for an event of an organisation.
+   *
+   * @param {object} event The event.
+   * @param {object} organization The organisation.
+   * @returns {object} The entry.
+   */
+  function entry(event, organization) {
+    return { event, organization, authority: 'ORGANIZATION_ROLE', role: 'OWNER' }
+  }
+
+  /**
+   * An event's detail, as the organiser reads it, with its switch.
+   *
+   * @param {object} venuePayment What the switch says.
+   * @returns {object} The detail.
+   */
+  function detail(venuePayment) {
+    return {
+      paymentTerms: {
+        fee: {},
+        siteDefault: {},
+        venuePayment: { enabled: false, hasOrders: false, ...venuePayment },
+      },
+    }
+  }
+
+  it('links finance to the event’s payments at the venue beside the event, for an event that takes them', async () => {
+    readSession.mockResolvedValue({
+      capabilities: [],
+      memberships: [{ organizationId: ORGANIZATIONS[1].id, capabilities: ['finance:view'] }],
+    })
+    getAdmissionEvents.mockResolvedValue({
+      entries: [entry(EVENT, ORGANIZATIONS[1])],
+      meta: { scope: 'MEMBERSHIPS', organizations: [ORGANIZATIONS[1]], truncated: false },
+    })
+    getOrganizerEvent.mockResolvedValue(detail({ enabled: false, hasOrders: true }))
+
+    await renderPage()
+
+    expect(getOrganizerEvent).toHaveBeenCalledWith(EVENT.id)
+    expect(screen.getByRole('link', { name: 'Payments at the venue' })).toHaveAttribute(
+      'href',
+      `/organizer/events/${EVENT.id}/venue-payments`,
+    )
+  })
+
+  it('reads nothing and links nothing for a steward without finance', async () => {
+    readSession.mockResolvedValue({
+      capabilities: [],
+      memberships: [{ organizationId: ORGANIZATIONS[1].id, capabilities: ['ticket:check_in'] }],
+    })
+    getAdmissionEvents.mockResolvedValue({
+      entries: [entry(EVENT, ORGANIZATIONS[1])],
+      meta: { scope: 'MEMBERSHIPS', organizations: [ORGANIZATIONS[1]], truncated: false },
+    })
+
+    await renderPage()
+
+    expect(getOrganizerEvent).not.toHaveBeenCalled()
+    expect(screen.queryByRole('link', { name: 'Payments at the venue' })).toBeNull()
+  })
+
+  it('links nothing for an event that never took bookings to pay at the door, or whose read failed', async () => {
+    readSession.mockResolvedValue({
+      capabilities: [],
+      memberships: [{ organizationId: ORGANIZATIONS[1].id, capabilities: ['finance:view'] }],
+    })
+    getAdmissionEvents.mockResolvedValue({
+      entries: [entry(EVENT, ORGANIZATIONS[1]), entry(OTHER, ORGANIZATIONS[1])],
+      meta: { scope: 'MEMBERSHIPS', organizations: [ORGANIZATIONS[1]], truncated: false },
+    })
+    getOrganizerEvent
+      .mockResolvedValueOnce(detail({ enabled: false, hasOrders: false }))
+      .mockRejectedValueOnce(Object.assign(new Error('no'), { status: 404 }))
+
+    await renderPage()
+
+    expect(getOrganizerEvent).toHaveBeenCalledTimes(2)
+    expect(screen.queryByRole('link', { name: 'Payments at the venue' })).toBeNull()
   })
 })

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 
 const { apiFetch } = await import('../lib/api-fetch.js')
-const { TicketPass } = await import('./ticket-pass.jsx')
+const { TicketPass, VenuePaymentNote } = await import('./ticket-pass.jsx')
 
 /** A pass-shaped credential, as the endpoint returns one. */
 const CREDENTIAL = 'Zx9-kQ4_wL2mN7pR1sT5vY8aB3cD6eF0gH2jK4lM6nP'
@@ -127,5 +127,80 @@ describe('TicketPass', () => {
     expect(screen.queryByRole('img')).toBeNull()
     // Not an interruption: the holder asked, and the answer is polite.
     expect(screen.getByRole('status')).toBeTruthy()
+  })
+})
+
+describe('VenuePaymentNote (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
+  /**
+   * A ticket of a booking paid at the venue.
+   *
+   * @param {object} [venue] Fields of `venuePayment` to change.
+   * @param {object} [overrides] Fields of the ticket to change.
+   * @returns {object} The ticket.
+   */
+  function venueTicket(venue = {}, overrides = {}) {
+    return {
+      id: 'ticket000000000000000001',
+      status: 'VALID',
+      venuePayment: {
+        dueCents: 4_000,
+        paid: false,
+        currency: 'USD',
+        cancelled: null,
+        paidAtDoorByYou: false,
+        ...venue,
+      },
+      ...overrides,
+    }
+  }
+
+  it('shows what is owed at the door, as a word and a colour', () => {
+    render(<VenuePaymentNote ticket={venueTicket()} />)
+
+    expect(screen.getByText('Pay at the door: $40.00')).toHaveAttribute('data-tone', 'pending')
+    expect(
+      screen.getByText('Pay this at the door. The steward records it before letting you in.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a cancelled ticket as not paid, with who cancelled it', () => {
+    render(
+      <VenuePaymentNote
+        ticket={venueTicket(
+          { cancelled: { at: '2026-10-08T15:00:00.000Z', by: 'DESI_EVENT' } },
+          { status: 'REVOKED' },
+        )}
+        timeZone="UTC"
+      />,
+    )
+
+    expect(screen.getByText('Cancelled — not paid')).toHaveAttribute('data-tone', 'neutral')
+    expect(
+      screen.getByText(
+        'The Desi-Event team cancelled this ticket on Thu, Oct 8, 2026 because it had not been paid for. You no longer owe $40.00 for it.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('says where door money went once a ticket the holder paid for was refunded', () => {
+    render(
+      <VenuePaymentNote
+        ticket={venueTicket({ paid: true, paidAtDoorByYou: true }, { status: 'REFUNDED' })}
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        'The $40.00 you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('draws nothing for a ticket that owes nothing', () => {
+    const { container } = render(
+      <VenuePaymentNote ticket={{ id: 't', status: 'VALID', venuePayment: null }} />,
+    )
+
+    expect(container).toBeEmptyDOMElement()
   })
 })

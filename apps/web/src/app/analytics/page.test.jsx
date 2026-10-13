@@ -26,7 +26,13 @@ vi.mock('next/navigation', () => ({
 
 const { readSession } = await import('../../lib/session.js')
 const { getAnalytics } = await import('../../lib/organizer-api.js')
-const { default: AnalyticsPage, FUNNEL_TITLE } = await import('./page.jsx')
+const {
+  default: AnalyticsPage,
+  FUNNEL_TITLE,
+  VENUE_COUNTING_NOTE,
+  bookedUnpaidSentence,
+  cancelledUnpaidSentence,
+} = await import('./page.jsx')
 const { VISIT_COUNTING_NOTES } = await import('../../lib/traffic.js')
 
 const ORG = 'corgalpha00000000000001'
@@ -546,5 +552,102 @@ describe('who may see which organisation', () => {
     expect(
       within(screen.getByRole('navigation', { name: 'Breadcrumb' })).queryAllByRole('link'),
     ).toEqual([])
+  })
+})
+
+describe('paying at the venue (SPEC3 §9.10, SPEC3-XI §9.10)', () => {
+  it('says how many bookings to pay at the venue wait for their payment, and are not counted as paid', async () => {
+    getAnalytics.mockResolvedValue(
+      analytics({ funnel: { ...analytics().funnel, atVenue: { bookedUnpaid: 3 } } }),
+    )
+    await renderPage(OWNER)
+
+    const funnel = screen.getByRole('heading', { name: FUNNEL_TITLE }).closest('section')
+
+    expect(funnel).toHaveTextContent(
+      '3 orders booked to pay at the venue are waiting for payment at the door and are not counted as paid.',
+    )
+  })
+
+  it('says where tickets paid at the venue are counted, and how many unpaid ones were cancelled', async () => {
+    getAnalytics.mockResolvedValue(
+      analytics({
+        venuePayments: {
+          ticketsUnpaid: 2,
+          unpaidCents: 9000,
+          paidAtDoorCents: 4000,
+          cancelledUnpaidTickets: 2,
+        },
+      }),
+    )
+    await renderPage(OWNER)
+
+    const section = screen.getByRole('region', { name: 'Paying at the venue' })
+
+    expect(section).toHaveTextContent(VENUE_COUNTING_NOTE)
+    expect(VENUE_COUNTING_NOTE).toBe(
+      'Tickets booked to pay at the venue are in the ticket counts. What is paid at the door is taken by the organiser and is not in the money figures, which come from the ledger.',
+    )
+    expect(section).toHaveTextContent(
+      '2 unpaid tickets booked to pay at the venue were cancelled, and their places were freed.',
+    )
+  })
+
+  it('says nothing about paying at the venue where nobody booked to pay there', async () => {
+    getAnalytics.mockResolvedValue(
+      analytics({
+        venuePayments: {
+          ticketsUnpaid: 0,
+          unpaidCents: 0,
+          paidAtDoorCents: 0,
+          cancelledUnpaidTickets: 0,
+        },
+        funnel: { ...analytics().funnel, atVenue: { bookedUnpaid: 0 } },
+      }),
+    )
+    await renderPage(OWNER)
+
+    expect(screen.queryByRole('region', { name: 'Paying at the venue' })).toBeNull()
+    expect(screen.queryByText(/booked to pay at the venue/u)).toBeNull()
+  })
+
+  it('counts cancelled unpaid tickets beside the sold ones in a breakdown that has any', async () => {
+    getAnalytics.mockResolvedValue(
+      analytics({
+        sales: {
+          byEvent: [
+            {
+              id: EVENT,
+              label: 'Navratri on the Lawn',
+              currency: 'USD',
+              quantity: 3,
+              lineValueCents: 13500,
+              refundedQuantity: 0,
+              cancelledQuantity: 1,
+            },
+          ],
+          bySession: [],
+          byTicketType: [],
+          byDate: [],
+        },
+      }),
+    )
+    await renderPage(OWNER)
+
+    const table = screen.getByRole('table', { name: 'Sales by event' })
+
+    expect(within(table).getByRole('columnheader', { name: 'Cancelled unpaid' })).toBeTruthy()
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('1')
+  })
+
+  it('puts the sentences in the singular and the plural', () => {
+    expect(bookedUnpaidSentence(1)).toBe(
+      '1 order booked to pay at the venue is waiting for payment at the door and is not counted as paid.',
+    )
+    expect(bookedUnpaidSentence(0)).toBeNull()
+    expect(cancelledUnpaidSentence(1)).toBe(
+      '1 unpaid ticket booked to pay at the venue was cancelled, and its place was freed.',
+    )
+    expect(cancelledUnpaidSentence(undefined)).toBeNull()
   })
 })

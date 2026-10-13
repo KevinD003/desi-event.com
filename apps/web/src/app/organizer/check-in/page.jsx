@@ -14,6 +14,13 @@
  * administrator, persistently, that every lookup and admission is recorded on
  * the event's record.
  *
+ * Beside the event, "Payments at the venue" (SPEC3 §12.9) for a reader who may
+ * read the organisation's finance, on an event that takes or has taken
+ * bookings to pay at the door — the condition of the organiser's event panel
+ * (§12.4), read from the event's own `paymentTerms`. Only the events' ids are
+ * handed to the door; at most {@link VENUE_LINK_READS} events are asked about,
+ * so a platform list of a hundred events does not cost a hundred reads.
+ *
  * Rendered without anything about any ticket. Nothing on this page is cached
  * and nothing from it is indexed.
  *
@@ -24,13 +31,46 @@ import { DoorEventFilter } from '../../../components/door-event-filter.jsx'
 import { DoorWorkspace } from '../../../components/door-workspace.jsx'
 import { Empty } from '../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
-import { getAdmissionEvents } from '../../../lib/organizer-api.js'
+import { sessionCan } from '../../../lib/capabilities.js'
+import { getAdmissionEvents, getOrganizerEvent } from '../../../lib/organizer-api.js'
+import { readSession } from '../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
 
 export const metadata = {
   title: 'Check-in',
   robots: { index: false, follow: false },
+}
+
+/** The most events whose payments at the venue are looked into for the link. */
+export const VENUE_LINK_READS = 25
+
+/**
+ * The events, among those the door lists, whose "Payments at the venue" page
+ * this reader is offered: finance in the event's organisation, and the event
+ * takes or has taken bookings to pay at the door.
+ *
+ * @param {object|null} session The session.
+ * @param {Array<object>} entries The door's events.
+ * @returns {Promise<string[]>} Their ids; none when a read fails.
+ */
+async function venuePaymentEvents(session, entries) {
+  const candidates = entries
+    .filter((entry) => sessionCan(session, 'finance:view', entry.organization?.id))
+    .slice(0, VENUE_LINK_READS)
+
+  const found = await Promise.all(
+    candidates.map(async (entry) => {
+      const detail = await getOrganizerEvent(entry.event.id).catch(() => null)
+      const venuePayment = detail?.paymentTerms?.venuePayment
+
+      return venuePayment && (venuePayment.enabled || venuePayment.hasOrders)
+        ? entry.event.id
+        : null
+    }),
+  )
+
+  return found.filter(Boolean)
 }
 
 /** The shape of an organisation id the API accepts; anything else is not sent. */
@@ -78,6 +118,8 @@ export default async function CheckInPage({ searchParams }) {
   }
 
   const platform = meta?.scope === 'PLATFORM'
+  const venuePaymentsFor =
+    events && events.length > 0 ? await venuePaymentEvents(await readSession(), events) : []
 
   return (
     <div>
@@ -134,7 +176,12 @@ export default async function CheckInPage({ searchParams }) {
       {events && events.length > 0 ? (
         <div className="mt-8">
           {/* Keyed on the filter, so a new list starts with nothing chosen. */}
-          <DoorWorkspace key={`${organizationId}|${q}`} events={events} platform={platform} />
+          <DoorWorkspace
+            key={`${organizationId}|${q}`}
+            events={events}
+            platform={platform}
+            venuePaymentsFor={venuePaymentsFor}
+          />
         </div>
       ) : null}
     </div>

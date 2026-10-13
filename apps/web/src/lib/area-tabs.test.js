@@ -129,21 +129,45 @@ describe('moderationTabs', () => {
 })
 
 describe('adminTabs', () => {
+  // SPEC3 §12.11: "Referral codes" and "Booking fee refunds", after "Events".
   it('offers a super administrator every section, invitations first', () => {
     expect(adminTabs(platform('SUPER_ADMIN'))).toEqual([
       { href: '/admin/organizer-invitations', label: 'Organiser invitations' },
       { href: '/admin/events', label: 'Events' },
+      { href: '/admin/referral-codes', label: 'Referral codes' },
+      { href: '/admin/fee-refunds', label: 'Booking fee refunds' },
       { href: '/admin/imports', label: 'Imports' },
       { href: '/admin/users', label: 'People and roles' },
     ])
   })
 
-  it('offers a platform administrator the invitations, the events and the imports, never people and roles', () => {
+  it('offers a platform administrator the invitations, the events, the referral codes, the booking fee refunds and the imports, never people and roles', () => {
     expect(adminTabs(platform('ADMIN'))).toEqual([
       { href: '/admin/organizer-invitations', label: 'Organiser invitations' },
       { href: '/admin/events', label: 'Events' },
+      { href: '/admin/referral-codes', label: 'Referral codes' },
+      { href: '/admin/fee-refunds', label: 'Booking fee refunds' },
       { href: '/admin/imports', label: 'Imports' },
     ])
+  })
+
+  it('offers a finance administrator the booking fee refunds and nothing else (SPEC3 §12.11)', () => {
+    expect(adminTabs(platform('FINANCE_ADMIN'))).toEqual([
+      { href: '/admin/fee-refunds', label: 'Booking fee refunds' },
+    ])
+  })
+
+  it('offers the referral codes and the booking fee refunds to exactly the platform roles that hold them', () => {
+    for (const [role, capabilities] of Object.entries(PLATFORM_ROLE_CAPABILITIES)) {
+      const offered = hrefs(adminTabs(platform(role)))
+
+      expect(offered.includes('/admin/referral-codes'), role).toBe(
+        capabilities.includes('referral_code:manage'),
+      )
+      expect(offered.includes('/admin/fee-refunds'), role).toBe(
+        capabilities.includes('platform_fee:refund'),
+      )
+    }
   })
 
   it('offers the imports to exactly the platform roles that import, and never a moderator', () => {
@@ -166,7 +190,9 @@ describe('adminTabs', () => {
 
   it('offers every other platform role, and every organisation role, nothing', () => {
     for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
-      if (role === 'ADMIN' || role === 'SUPER_ADMIN') continue
+      // A finance administrator is offered the booking fee refunds alone,
+      // asserted above.
+      if (role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'FINANCE_ADMIN') continue
 
       expect(adminTabs(platform(role)), role).toEqual([])
     }

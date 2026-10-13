@@ -36,6 +36,10 @@ describe('describeApiRefusal', () => {
     [{ status: 409, code: 'ORDER_PENDING' }, 'payment-unsettled', false],
     [{ status: 402, code: 'PAYMENT_DECLINED' }, 'payment-declined', true],
     [{ status: 503, code: 'DELIVERY_FAILED' }, 'delivery-failed', true],
+    [{ status: 503, code: 'SERVICE_UNAVAILABLE', message: 'Nothing was saved.' }, 'busy', true],
+    [{ status: 503, code: 'TRY_AGAIN', message: 'Nothing was saved.' }, 'busy', true],
+    // Without the API's sentence a 503 is still a server error.
+    [{ status: 503, code: 'SERVICE_UNAVAILABLE' }, 'server-error', true],
     [{ status: 429, code: 'RECIPIENT_DAILY_LIMIT' }, 'recipient-limit', false],
   ])('reads %j as %s', (error, state, recoverable) => {
     const refusal = describeApiRefusal(error)
@@ -72,6 +76,36 @@ describe('describeApiRefusal', () => {
     ).toBe(sentence)
     expect(describeApiRefusal({ status: 503, code: 'DELIVERY_FAILED' }).detail).toMatch(
       /could not be sent.*withdrawn/u,
+    )
+  })
+
+  it('keeps the API’s sentence for a change that waited too long behind another, and its wait', () => {
+    // What `budgetedTransaction` answers: 503 SERVICE_UNAVAILABLE, a sentence
+    // saying what was not done, and Retry-After.
+    const sentence =
+      'Another change to this event was being saved at the same moment, so the booking fee was not changed. Try again in a moment.'
+
+    expect(
+      refusalSentence(503, { error: { code: 'SERVICE_UNAVAILABLE', message: sentence } }, 'x', 5),
+    ).toBe(sentence)
+    expect(refusalSentence(503, { error: { code: 'TRY_AGAIN', message: sentence } }, 'x')).toBe(
+      sentence,
+    )
+    expect(
+      describeApiRefusal({
+        status: 503,
+        code: 'SERVICE_UNAVAILABLE',
+        message: sentence,
+        retryAfterSeconds: 5,
+      }),
+    ).toMatchObject({ state: 'busy', detail: sentence, recoverable: true, retryAfterSeconds: 5 })
+    // The proxy's own 503 is still "nothing reached Desi-Event", and a 503
+    // without a sentence still a server error, whose wording is replaced.
+    expect(refusalSentence(503, { error: { code: 'API_UNREACHABLE', message: 'x' } }, 'y')).toMatch(
+      /Nothing reached Desi-Event/u,
+    )
+    expect(refusalSentence(503, { error: { code: 'SERVICE_UNAVAILABLE' } }, 'y')).toMatch(
+      /could not finish this/u,
     )
   })
 

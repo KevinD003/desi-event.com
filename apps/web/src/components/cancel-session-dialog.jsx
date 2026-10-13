@@ -13,6 +13,11 @@
  * person was reading refuses the cancellation (`ORDERS_CHANGED`) rather than
  * refunding an order nobody saw. On that refusal it reads the preview again.
  *
+ * Bookings made to pay at the venue (the preview's `atVenue`, SPEC3 §9.7):
+ * only their booking fee paid online is refunded, simulated, and any payment
+ * taken at the door is held by the organiser, which Desi-Event neither holds
+ * nor can refund.
+ *
  * A reason, a ticked box and, when the server asks, a second factor
  * (EVENT_CANCEL). An inline region: focus to its heading on opening, back to
  * the opener on cancelling, every message polite.
@@ -35,6 +40,7 @@ import { useFocusAfterRender } from './focus-after-render.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { Alert, Button } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { atVenueSentences } from '../lib/door.js'
 import {
   nightCancellationSentences,
   reasonProblem,
@@ -322,7 +328,10 @@ export function CancelSessionDialog({
           ) : null}
 
           <div className="space-y-2 text-sm text-ink">
-            {nightCancellationSentences(preview).map((sentence) => (
+            {[
+              ...nightCancellationSentences(preview),
+              ...atVenueSentences(preview.atVenue, preview.currency ?? 'USD'),
+            ].map((sentence) => (
               <p key={sentence}>{sentence}</p>
             ))}
           </div>

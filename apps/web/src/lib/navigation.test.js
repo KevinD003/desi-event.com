@@ -15,6 +15,7 @@
 import { ORG_ROLE_CAPABILITIES, PLATFORM_ROLE_CAPABILITIES } from '@desi-event/permissions'
 import { describe, expect, it } from 'vitest'
 
+import { adminTabs } from './area-tabs.js'
 import { AREAS, admits } from './areas.js'
 import {
   PUBLIC_ITEMS,
@@ -96,6 +97,8 @@ const AREA_OF = Object.freeze({
   '/retention': 'retention',
   '/admin/organizer-invitations': 'admin',
   '/admin/events': 'admin',
+  '/admin/referral-codes': 'admin',
+  '/admin/fee-refunds': 'admin',
   '/admin/imports': 'admin',
   '/admin/users': 'admin',
 })
@@ -426,6 +429,41 @@ describe('workspace offers, by role', () => {
     expect(trust.items.find((item) => item.href === '/admin/imports').label).toBe('Imports')
   })
 
+  it('offers referral codes to a platform administrator and a super administrator alone', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(offered(platform(role)).includes('/admin/referral-codes'), role).toBe(
+        role === 'ADMIN' || role === 'SUPER_ADMIN',
+      )
+    }
+
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(offered(member(role)), role).not.toContain('/admin/referral-codes')
+    }
+
+    const trust = workspaceGroups(platform('ADMIN')).find((group) => group.id === 'trust')
+
+    expect(trust.items.find((item) => item.href === '/admin/referral-codes').label).toBe(
+      'Referral codes',
+    )
+  })
+
+  it('offers booking fee refunds to a platform, finance or super administrator alone', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(offered(platform(role)).includes('/admin/fee-refunds'), role).toBe(
+        role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'FINANCE_ADMIN',
+      )
+    }
+
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(offered(member(role)), role).not.toContain('/admin/fee-refunds')
+    }
+
+    const trust = workspaceGroups(platform('FINANCE_ADMIN')).find((group) => group.id === 'trust')
+
+    expect(trust.items.map((item) => item.href)).toEqual(['/admin/fee-refunds'])
+    expect(trust.items[0].label).toBe('Booking fee refunds')
+  })
+
   it('offers the pictures waiting to whoever moderation admits, and to nobody else', () => {
     for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
       expect(offered(platform(role)).includes('/moderation/pictures'), role).toBe(
@@ -483,7 +521,15 @@ describe('the rail offers exactly what the layouts admit', () => {
         if (!Object.values(AREA_OF).includes(key)) continue
         if (!admits(person, key)) continue
 
-        const home = key === 'organizer' ? '/organizer' : area.href
+        // The admin area's index sends a session to the first tab it is
+        // offered, which for a finance administrator is Booking fee refunds,
+        // its one tab (SPEC3 §12.11): that tab is its front door.
+        const home =
+          key === 'organizer'
+            ? '/organizer'
+            : key === 'admin'
+              ? (adminTabs(person)[0]?.href ?? area.href)
+              : area.href
 
         expect(offered(person), `${key} admits but ${home} is not offered`).toContain(home)
       }

@@ -67,7 +67,7 @@ export const SITTING_ENDED_SENTENCE =
 
 /** What the Desi-Event team is told about an event that has never been posted. */
 export const NOT_POSTED_SENTENCE =
-  'The Desi-Event team edits an event only once it has been published. Before that it is the organiser’s draft; ask for changes through review.'
+  'The Desi-Event team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.'
 
 /**
  * A count with its noun, singular or plural.
@@ -629,4 +629,295 @@ export function deletedForHolder(notice) {
   return notice?.by === 'DESI_EVENT'
     ? 'The Desi-Event team removed this event’s page.'
     : 'The organiser removed this event’s page.'
+}
+
+// ---------------------------------------------------------------------------
+// The booking fee (the platform fee) and paying at the venue, as the
+// Desi-Event team manages them on an event's page (SPEC3 §7, §9.1, §12.3)
+// ---------------------------------------------------------------------------
+
+/** What the panel says on an event that was never published. */
+export const UNPOSTED_TERMS_SENTENCE =
+  'You can set this event’s booking fee and whether it can be paid for at the venue now, before it is published.'
+
+/** What the panel says to an administrator who belongs to the event's organisation. */
+export const MEMBER_TERMS_SENTENCE =
+  'You belong to this event’s organisation, so another administrator has to change its booking fee and payment settings.'
+
+/** What the panel says on a deleted event (SPEC3 §7.3). */
+export const DELETED_TERMS_SENTENCE =
+  'This event was deleted. Its booking fee and payment settings are kept as they were and come back if it is restored.'
+
+/** What the panel says on an event sold on its listing's own site. */
+export const SOLD_ON_SOURCE_TERMS_SENTENCE =
+  'Tickets for this event are sold on Sulekha, so it has no booking fee here.'
+
+/** The bounds of an event's own booking fee: 30.00% and 100.00 per ticket. */
+export const FEE_FORM_LIMITS = Object.freeze({ maxPercentageBps: 3000, maxFlatCents: 10000 })
+
+/** The bounds of the most tickets that may wait to be paid at the door, and the suggestion. */
+export const VENUE_LIMIT_BOUNDS = Object.freeze({ min: 1, max: 100000, suggested: 50 })
+
+/**
+ * A percentage in basis points, as the panel writes it: two decimal places.
+ *
+ * @param {number} bps Basis points.
+ * @returns {string} For example `3.00`.
+ */
+export function percentText(bps) {
+  return (bps / 100).toFixed(2)
+}
+
+/**
+ * Booking fee terms in one short phrase, as the admin list and the history
+ * write them: "3.00% + $1.49", or "No booking fee" for 0 and 0.
+ *
+ * @param {object} terms The terms.
+ * @param {number} terms.percentageBps The percentage, in basis points.
+ * @param {number} terms.flatCents The amount per ticket.
+ * @param {string} terms.currency Its currency.
+ * @returns {string} The phrase.
+ */
+export function feeTermsShort({ percentageBps, flatCents, currency }) {
+  if (percentageBps === 0 && flatCents === 0) return 'No booking fee'
+
+  return `${percentText(percentageBps)}% + ${formatAmount(flatCents, currency)}`
+}
+
+/**
+ * What the panel says the event's booking fee is now (SPEC3 §12.3).
+ *
+ * @param {object} fee `paymentTerms.fee`.
+ * @param {object} siteDefault `paymentTerms.siteDefault`.
+ * @returns {string} The sentence.
+ */
+export function currentFeeSentence(fee, siteDefault) {
+  if (fee.source === 'EVENT') {
+    if (fee.percentageBps === 0 && fee.flatCentsPerTicket === 0) {
+      return 'This event has no booking fee.'
+    }
+
+    return `This event: ${percentText(fee.percentageBps)}% of the ticket price plus ${formatAmount(fee.flatCentsPerTicket, fee.currency)} per ticket.`
+  }
+
+  return `Site default: ${percentText(siteDefault.percentageBps)}% of the ticket price plus ${formatAmount(siteDefault.flatCentsPerTicket, siteDefault.currency)} per ticket. The site default is set in the server’s settings.`
+}
+
+/**
+ * Who made a change, for the Desi-Event team: the administrator's name, or a
+ * former administrator once the account is gone.
+ *
+ * @param {string|null|undefined} name The display name the API sent.
+ * @returns {string} The name.
+ */
+export function changedBy(name) {
+  return name || 'A former administrator'
+}
+
+/**
+ * The newest change to the booking fee, as one line: "Changed by {name} on
+ * {date}: “{reason}”".
+ *
+ * @param {object} fee `paymentTerms.fee`.
+ * @param {string} [timeZone] The zone the date is written in.
+ * @returns {string|null} The line, or null when the fee was never changed.
+ */
+export function lastFeeChangeSentence(fee, timeZone = 'UTC') {
+  if (!fee?.changedAt) return null
+
+  return `Changed by ${changedBy(fee.changedByName)} on ${formatEventDate(fee.changedAt, timeZone)}: “${fee.reason ?? ''}”`
+}
+
+/**
+ * "up to 50 tickets waiting to be paid at the door", or "up to 1 ticket …" for
+ * a limit of one, the smallest the limit can be (`VENUE_LIMIT_BOUNDS.min`).
+ * The one wording for the limit, in the switch's state and in what saving it
+ * says.
+ *
+ * @param {number} limit The limit.
+ * @returns {string} The words.
+ */
+export function venueLimitWords(limit) {
+  return `up to ${limit.toLocaleString('en-US')} ${limit === 1 ? 'ticket' : 'tickets'} waiting to be paid at the door`
+}
+
+/**
+ * Paying at the venue's state, as text (SPEC3 §12.3, §12.4): never by colour
+ * alone. The one wording for the switch, shared by the Desi-Event team's panel
+ * and the organiser's read-only summary (`payment-terms-summary.jsx`), so the
+ * two never describe the same switch differently. A switch that is on without
+ * a limit the reader was given says "On" alone rather than inventing one.
+ *
+ * @param {object} venuePayment `paymentTerms.venuePayment`.
+ * @returns {string} "On — up to 50 tickets waiting to be paid at the door", "On" or "Off".
+ */
+export function venueStatusText(venuePayment) {
+  if (!venuePayment?.enabled) return 'Off'
+  if (!Number.isInteger(venuePayment.limit)) return 'On'
+
+  return `On — ${venueLimitWords(venuePayment.limit)}`
+}
+
+/**
+ * Paying at the venue, in the admin list's column: "On, up to 50 unpaid" or "Off".
+ *
+ * @param {object} row A `platformEvents.list` row.
+ * @returns {string} The words.
+ */
+export function venueListText(row) {
+  if (!row?.venuePaymentEnabled) return 'Off'
+
+  return `On, up to ${Number(row.venuePaymentLimit ?? 0).toLocaleString('en-US')} unpaid`
+}
+
+/**
+ * The booking fee, in the admin list's column: "Site default", "No booking
+ * fee" or "3.00% + $1.49".
+ *
+ * @param {object} row A `platformEvents.list` row.
+ * @returns {string} The words.
+ */
+export function feeListText(row) {
+  if (row?.feeSource !== 'EVENT') return 'Site default'
+
+  return feeTermsShort({
+    percentageBps: row.feePercentageBps ?? 0,
+    flatCents: row.feeFlatCentsPerTicket ?? 0,
+    currency: row.feeCurrency ?? 'USD',
+  })
+}
+
+/**
+ * One entry of the panel's history, as one line (SPEC3 §12.3). Whether a
+ * switch change turned paying at the venue on or changed its limit depends on
+ * the change before it, which is the next older entry of the same kind.
+ *
+ * @param {object} entry The entry.
+ * @param {object|null} previousVenue The next older pay-at-the-venue entry, when the list holds one.
+ * @param {object} options Options.
+ * @param {string} options.currency The event's currency, for a fee written without one.
+ * @param {string} [options.timeZone] The zone dates are written in.
+ * @param {boolean} [options.olderUnknown] Whether older entries exist that the list does not hold.
+ * @returns {string} The line.
+ */
+export function historyLine(
+  entry,
+  previousVenue,
+  { currency, timeZone = 'UTC', olderUnknown = false },
+) {
+  const when = formatEventDate(entry.at, timeZone)
+  const who = changedBy(entry.byName)
+  const why = `“${entry.reason}”`
+
+  if (entry.kind === 'FEE') {
+    if (entry.source === 'SITE_DEFAULT') {
+      return `${when} — ${who} returned the booking fee to the site default: ${why}`
+    }
+
+    // Always the two numbers, 0.00% + $0.00 included, so the line says
+    // exactly what was set.
+    const terms = `${percentText(entry.percentageBps ?? 0)}% + ${formatAmount(entry.flatCentsPerTicket ?? 0, entry.currency ?? currency)}`
+
+    return `${when} — ${who} set the booking fee to ${terms}: ${why}`
+  }
+
+  const limit = Number(entry.limit ?? 0).toLocaleString('en-US')
+
+  if (!entry.enabled) return `${when} — ${who} turned paying at the venue off: ${why}`
+
+  // On after on is a new limit; on after off, or with nothing before it, is a
+  // switch-on. With older changes this page does not hold, which it was is
+  // not known, so the line says only what it set.
+  if (previousVenue?.enabled) return `${when} — ${who} changed the limit to ${limit}: ${why}`
+  if (!previousVenue && olderUnknown) {
+    return `${when} — ${who} set paying at the venue on, up to ${limit} unpaid: ${why}`
+  }
+
+  return `${when} — ${who} turned paying at the venue on, up to ${limit} unpaid: ${why}`
+}
+
+/**
+ * The panel's history as lines, newest first.
+ *
+ * @param {object[]} history `paymentTerms.history`, newest first.
+ * @param {object} options As {@link historyLine}'s, with `olderUnknown` from `historyHasMore`.
+ * @returns {string[]} The lines.
+ */
+export function historyLines(history, options) {
+  return (history ?? []).map((entry, index) => {
+    const previousVenue =
+      entry.kind === 'VENUE_PAYMENT'
+        ? ((history ?? []).slice(index + 1).find((older) => older.kind === 'VENUE_PAYMENT') ?? null)
+        : null
+
+    return historyLine(entry, previousVenue, options)
+  })
+}
+
+/**
+ * A percentage typed into the fee form, in basis points: 0 to 30, with at
+ * most two decimal places.
+ *
+ * @param {string} text What was typed.
+ * @returns {{bps: number}|{error: string}} The value, or what is wrong.
+ */
+export function parsePercentage(text) {
+  const raw = String(text ?? '').trim()
+  const error = 'Enter a percentage from 0 to 30, with at most two decimal places.'
+
+  if (!/^\d{1,2}(\.\d{1,2})?$/u.test(raw) && !/^\.\d{1,2}$/u.test(raw)) return { error }
+
+  const [whole = '0', fraction = ''] = raw.split('.')
+  const bps = Number(whole || '0') * 100 + Number(fraction.padEnd(2, '0'))
+
+  return bps > FEE_FORM_LIMITS.maxPercentageBps ? { error } : { bps }
+}
+
+/**
+ * What the fee form says about an amount per ticket out of bounds, in the
+ * event's currency (SPEC3 §12.3).
+ *
+ * @param {string} currency The event's currency.
+ * @returns {string} The sentence.
+ */
+export function amountBoundsSentence(currency) {
+  return `Enter an amount from ${formatAmount(0, currency)} to ${formatAmount(FEE_FORM_LIMITS.maxFlatCents, currency)}.`
+}
+
+/**
+ * The currency's symbol, as the amount box's prefix.
+ *
+ * @param {string} currency ISO 4217 code.
+ * @returns {string} For example `$`, or the code itself when there is no symbol.
+ */
+export function currencySymbol(currency) {
+  try {
+    const part = new Intl.NumberFormat('en-US', { style: 'currency', currency })
+      .formatToParts(0)
+      .find((each) => each.type === 'currency')
+
+    return part?.value ?? currency
+  } catch {
+    return currency
+  }
+}
+
+/**
+ * The most tickets waiting to be paid at the door, typed: a whole number from
+ * 1 to 100,000.
+ *
+ * @param {string} text What was typed.
+ * @returns {{limit: number}|{error: string}} The value, or what is wrong.
+ */
+export function parseVenueLimit(text) {
+  const raw = String(text ?? '')
+    .trim()
+    .replace(/,/gu, '')
+  const error = 'Enter a whole number from 1 to 100,000.'
+
+  if (!/^\d+$/u.test(raw)) return { error }
+
+  const limit = Number(raw)
+
+  return limit >= VENUE_LIMIT_BOUNDS.min && limit <= VENUE_LIMIT_BOUNDS.max ? { limit } : { error }
 }

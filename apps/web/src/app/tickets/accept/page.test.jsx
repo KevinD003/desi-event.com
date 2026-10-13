@@ -13,7 +13,11 @@ vi.mock('../../../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 vi.mock('../../../lib/session.js', () => ({ readSession: vi.fn() }))
 
 const { readSession } = await import('../../../lib/session.js')
-const { default: AcceptTransferPage, HOW_THE_CODE_ARRIVES } = await import('./page.jsx')
+const {
+  default: AcceptTransferPage,
+  DUE_STAYS_WITH_TICKET,
+  HOW_THE_CODE_ARRIVES,
+} = await import('./page.jsx')
 
 /**
  * Render the page for a delivery mode.
@@ -60,5 +64,16 @@ describe('the accept-a-ticket page', () => {
 
   it('takes no props, so a code in its address has nowhere to go', () => {
     expect(AcceptTransferPage.length).toBe(0)
+  })
+})
+
+describe('a ticket booked to pay at the door (SPEC3-XI §12.7)', () => {
+  it('says the price stays with the ticket, whoever holds it', async () => {
+    await renderPage('MANUAL')
+
+    expect(DUE_STAYS_WITH_TICKET).toBe(
+      'A ticket booked to pay at the door keeps its price: whoever holds it pays at the door, and the ticket shows how much.',
+    )
+    expect(screen.getByText(DUE_STAYS_WITH_TICKET)).toBeInTheDocument()
   })
 })

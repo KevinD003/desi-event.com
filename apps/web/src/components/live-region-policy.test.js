@@ -1,5 +1,5 @@
 /**
- * Only the door interrupts.
+ * Only the door, and the checkouts' changed-before-Pay alerts, interrupt.
  *
  * An assertive live region cuts the screen reader off mid-sentence. That is
  * right for a steward who must not wave somebody through on a refused ticket,
@@ -10,7 +10,12 @@
  *
  * - no `role="alert"` and no `aria-live="assertive"` anywhere in the web app;
  * - `Alert`'s `urgent` — the one way to get an assertive region — only in the
- *   door workspace, whose outcomes are the urgent ones.
+ *   door workspace, whose outcomes are the urgent ones, and in the two
+ *   checkouts for SPEC3 §6.5's rows (SPEC3 §12.12: "the urgent ones are only
+ *   those §6.5 and §12.8 name"): the booking fee changed, paying at the venue
+ *   switched off or full, a referral code that stopped applying — each changes
+ *   what Pay would charge. Each checkout has exactly one such alert, the notice
+ *   drawn after Pay was refused, whose urgency each row sets.
  *
  * @module components/live-region-policy.test
  */
@@ -24,8 +29,14 @@ import { describe, expect, it } from 'vitest'
 /** `apps/web/src`. */
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
-/** The one module allowed to interrupt. */
+/** The module whose outcomes interrupt. */
 const DOOR = path.join('components', 'door-workspace.jsx')
+
+/** The checkouts, whose one changed-before-Pay notice may interrupt (SPEC3 §6.5). */
+const CHECKOUTS = Object.freeze([
+  path.join('components', 'checkout-basket.jsx'),
+  path.join('components', 'seat-checkout.jsx'),
+])
 
 /**
  * Every source file under the web app, tests excluded.
@@ -79,12 +90,22 @@ describe('the live-region policy', () => {
     expect(offenders).toEqual([])
   })
 
-  it('marks an Alert urgent only at the door', () => {
+  it('marks an Alert urgent only at the door and in the checkouts’ changed-before-Pay notice', () => {
     const offenders = FILES.filter(
-      (file) => file !== DOOR && /<Alert\b[^>]*\surgent\b/su.test(code(file)),
+      (file) =>
+        file !== DOOR && !CHECKOUTS.includes(file) && /<Alert\b[^>]*\surgent\b/su.test(code(file)),
     )
 
     expect(offenders).toEqual([])
+  })
+
+  it('gives each checkout exactly one urgent Alert, the notice whose urgency SPEC3 §6.5 sets', () => {
+    for (const file of CHECKOUTS) {
+      const urgent = code(file).match(/<Alert\b[^>]*\surgent\b[^>]*>/gsu) ?? []
+
+      expect(urgent, file).toHaveLength(1)
+      expect(urgent[0], file).toMatch(/urgent=\{notice\.urgent\}/u)
+    }
   })
 
   it('does mark the door’s refusals urgent, so the rule has something to protect', () => {

@@ -262,3 +262,118 @@ describe('what changed since the ticket was bought', () => {
     ).toBeInTheDocument()
   })
 })
+
+describe('a ticket booked to pay at the door (SPEC3-XI §12.7)', () => {
+  /**
+   * What a ticket owing $40.00 at the door carries, with fields changed.
+   *
+   * @param {object} [overrides] Fields of `venuePayment` to change.
+   * @returns {object} The ticket's `venuePayment`.
+   */
+  function venue(overrides = {}) {
+    return {
+      dueCents: 4_000,
+      paid: false,
+      currency: 'USD',
+      cancelled: null,
+      paidAtDoorByYou: false,
+      ...overrides,
+    }
+  }
+
+  /**
+   * The "Where it stands" section.
+   *
+   * @returns {HTMLElement} The section.
+   */
+  function whereItStands() {
+    return screen.getByRole('region', { name: 'Where it stands' })
+  }
+
+  it('tells its holder what it owes, once, under "Where it stands"', async () => {
+    getTicket.mockResolvedValue(
+      detail({ ticket: { ...detail().ticket, venuePayment: venue() }, onlineJoinUrl: null }),
+    )
+
+    await renderPage()
+
+    expect(within(whereItStands()).getByText('Pay at the door: $40.00')).toBeInTheDocument()
+    expect(
+      within(whereItStands()).getByText(
+        'Pay this at the door. The steward records it before letting you in.',
+      ),
+    ).toBeInTheDocument()
+    // Not again under "What you can do": one note, where the state is.
+    expect(screen.getAllByText('Pay at the door: $40.00')).toHaveLength(1)
+  })
+
+  it('dates a cancellation for not being paid in the event’s own zone, not UTC', async () => {
+    // 02:30 UTC on 9 October is 10:30 PM on 8 October in New York, where the
+    // event is: the holder reads the day the organiser acted, at the venue.
+    getTicket.mockResolvedValue(
+      detail({
+        ticket: {
+          ...detail().ticket,
+          status: 'REVOKED',
+          venuePayment: venue({ cancelled: { at: '2026-10-09T02:30:00.000Z', by: 'ORGANISER' } }),
+        },
+        onlineJoinUrl: null,
+      }),
+    )
+
+    await renderPage()
+
+    expect(within(whereItStands()).getByText('Cancelled — not paid')).toBeInTheDocument()
+    expect(
+      within(whereItStands()).getByText(
+        'The organiser cancelled this ticket on Thu, Oct 8, 2026 because it had not been paid for. You no longer owe $40.00 for it.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('tells a holder who paid at the door for a refunded ticket that the organiser has the money', async () => {
+    getTicket.mockResolvedValue(
+      detail({
+        ticket: {
+          ...detail().ticket,
+          status: 'REFUNDED',
+          venuePayment: venue({ paid: true, paidAtDoorByYou: true }),
+        },
+        onlineJoinUrl: null,
+      }),
+    )
+
+    await renderPage()
+
+    expect(
+      within(whereItStands()).getByText(
+        'The $40.00 you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('addresses none of it to the organiser reading the same ticket', async () => {
+    getTicket.mockResolvedValue(
+      detail({
+        holder: false,
+        ticket: { ...detail().ticket, venuePayment: venue() },
+        onlineJoinUrl: null,
+      }),
+    )
+
+    await renderPage()
+
+    expect(screen.queryByText('Pay at the door: $40.00')).toBeNull()
+    expect(screen.queryByText(/Pay this at the door/u)).toBeNull()
+  })
+
+  it('draws no note for a ticket that owes nothing at the door', async () => {
+    getTicket.mockResolvedValue(
+      detail({ ticket: { ...detail().ticket, venuePayment: null }, onlineJoinUrl: null }),
+    )
+
+    await renderPage()
+
+    expect(screen.queryByText(/at the door/u)).toBeNull()
+  })
+})

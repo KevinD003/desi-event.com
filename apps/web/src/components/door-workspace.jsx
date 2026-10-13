@@ -46,6 +46,18 @@
  * carries it. The server refuses a ticket for another night, and lets a ticket
  * good for every night in once on each night; this screen only says so.
  *
+ * ## Taking a payment at the door
+ *
+ * A ticket booked to pay at the venue owes its price at the door. The lookup
+ * says so — "Payment to take", what to take, and, for information, what else
+ * the same holder owes on the booking — and the Admit button becomes
+ * "Payment taken: {amount} — admit": one press records the payment and admits,
+ * in one request, and the server records it once whatever is retried. A group
+ * pass sums what the ticked tickets owe as the boxes change, and sends that sum
+ * with the admission. A confirmation that got no answer says the money may or
+ * may not have been recorded, and that Retry cannot record it twice. Nothing
+ * here decides an amount: every figure is the server's.
+ *
  * ## A platform administrator
  *
  * A platform super administrator admits at any event on its own authority.
@@ -63,29 +75,95 @@
  * @module components/door-workspace
  */
 
+import Link from 'next/link'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { Alert, Button, FormField, Input, Select } from './ui.jsx'
 import { DoorCamera } from './door-camera.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import {
+  ANOTHER_STEWARD_PAID,
+  PAID_EARLIER,
+  admitWithPaymentLabel,
   authorityLabel,
+  bookingOwesSentence,
   confirmFailure,
   doorEventLabel,
   doorTime,
   groupLookupSentence,
+  groupPaymentLine,
   groupResultSentence,
   groupSessionName,
+  handedOnUnpaidSentence,
   lookupFailure,
+  paymentRecordedSentence,
+  refusalHeading,
   refusalSentence,
   seatWords,
+  takePaymentSentence,
   tonightOf,
 } from '../lib/door.js'
+import { formatAmount } from '../lib/pricing.js'
 import { looksLikeGroupCode } from '../lib/pass-shape.js'
 import { EVERY_NIGHT, sessionDisplayLabel } from '../lib/sessions.js'
 
 /** How many recent tickets the session list shows. */
 const RECENT_LIMIT = 8
+
+/**
+ * What a previewed ticket owes at the door now, or null: its due and the
+ * currency to write it in, when the preview says it is unpaid.
+ *
+ * @param {object|null} preview A single preview payload.
+ * @returns {{dueCents: number, currency: string, booking: object|null}|null} What to take.
+ */
+function owedOf(preview) {
+  const payment = preview?.payment
+
+  if (!payment || payment.paid !== false || !(payment.dueCents > 0)) return null
+
+  return {
+    dueCents: payment.dueCents,
+    currency: payment.currency ?? 'USD',
+    booking: payment.booking ?? null,
+  }
+}
+
+/**
+ * Whether one ticket of a group owes a payment at the door now.
+ *
+ * @param {{dueCents?: number, paid?: boolean}} ticket A group ticket.
+ * @returns {boolean} True when it owes and has not been paid.
+ */
+function groupTicketOwes(ticket) {
+  return (ticket.dueCents ?? 0) > 0 && !ticket.paid
+}
+
+/**
+ * What the ticked tickets of a group owe at the door together.
+ *
+ * @param {object|null} preview The group preview payload.
+ * @param {string[]} chosen The ticked ticket ids.
+ * @returns {number} The sum, in cents; 0 when none owes.
+ */
+function groupDueOf(preview, chosen) {
+  return (preview?.tickets ?? [])
+    .filter((ticket) => chosen.includes(ticket.ticketId) && ticket.outcome === 'ADMISSIBLE')
+    .filter(groupTicketOwes)
+    .reduce((sum, ticket) => sum + ticket.dueCents, 0)
+}
+
+/**
+ * Whether any ticket a group could admit owes a payment at the door.
+ *
+ * @param {object|null} preview The group preview payload.
+ * @returns {boolean} True when the door takes a payment for the group.
+ */
+function groupOwes(preview) {
+  return (preview?.tickets ?? []).some(
+    (ticket) => ticket.outcome === 'ADMISSIBLE' && groupTicketOwes(ticket),
+  )
+}
 
 /**
  * Send one door request.
@@ -113,6 +191,8 @@ async function send(path, body) {
  * @typedef {object} DoorWorkspaceProps
  * @property {Array<object>} events Entries from `GET /v1/tickets/admission/events`.
  * @property {boolean} [platform] Whether the list is a platform super administrator's.
+ * @property {string[]} [venuePaymentsFor] The events whose "Payments at the venue" page this
+ *   reader is offered, as the server page decided (SPEC3 §12.9): their ids, nothing else.
  */
 
 /** Where each kind of presentation is looked up and admitted. */
@@ -133,7 +213,7 @@ const ROUTES = Object.freeze({
  * @param {DoorWorkspaceProps} props Component props.
  * @returns {JSX.Element} The workspace.
  */
-export function DoorWorkspace({ events, platform = false }) {
+export function DoorWorkspace({ events, platform = false, venuePaymentsFor = [] }) {
   const [eventId, setEventId] = useState(events.length === 1 ? events[0].event.id : '')
   const [nightId, setNightId] = useState(() =>
     events.length === 1 ? tonightOf(events[0].sessions ?? []) : '',
@@ -329,7 +409,14 @@ export function DoorWorkspace({ events, platform = false }) {
 
       setGroupPreview(data)
       setChosen(admissible)
-      setNotice(groupLookupSentence(data))
+
+      const due = groupDueOf(data, admissible)
+
+      setNotice(
+        groupOwes(data)
+          ? `${groupLookupSentence(data)} ${groupPaymentLine(formatAmount(due, data.payment?.currency ?? 'USD'))}.`
+          : groupLookupSentence(data),
+      )
 
       if (admissible.length === 0) {
         presentation.current = null
@@ -343,7 +430,14 @@ export function DoorWorkspace({ events, platform = false }) {
     }
 
     setPreview(data)
-    setNotice(data.outcome === 'ADMISSIBLE' ? `Found: ${data.attendeeName ?? 'a ticket'}.` : '')
+
+    const owed = data.outcome === 'ADMISSIBLE' ? owedOf(data) : null
+
+    setNotice(
+      data.outcome === 'ADMISSIBLE'
+        ? `Found: ${data.attendeeName ?? 'a ticket'}.${owed ? ` Payment to take: ${formatAmount(owed.dueCents, owed.currency)}.` : ''}`
+        : '',
+    )
 
     if (data.outcome !== 'ADMISSIBLE') {
       presentation.current = null
@@ -363,16 +457,26 @@ export function DoorWorkspace({ events, platform = false }) {
 
     if (kind === 'group' && chosen.length === 0) return
 
+    // The payment taken goes with the admission: the ticket's due, or the
+    // ticked tickets' dues together. The server checks it against what they
+    // owe and records it once.
+    const owed = kind === 'ticket' ? owedOf(preview) : null
+    const groupDue = kind === 'group' ? groupDueOf(groupPreview, chosen) : 0
+    const takingPayment = Boolean(owed) || groupDue > 0
+
     setStage('confirming')
     setProblem(null)
-    setNotice('Admitting…')
+    setNotice(takingPayment ? 'Recording the payment and admitting…' : 'Admitting…')
 
     const { status, body } = await send(ROUTES[kind].confirm, {
       ...presented,
       previewReference: previewReference.current,
       expectedEventId: selected.event.id,
       ...admittingTo,
-      ...(kind === 'group' ? { ticketIds: chosen } : {}),
+      ...(kind === 'group'
+        ? { ticketIds: chosen, ...(groupDue > 0 ? { paymentCents: groupDue } : {}) }
+        : {}),
+      ...(owed ? { payment: { amountCents: owed.dueCents } } : {}),
     })
 
     focusTarget.current = 'answer'
@@ -384,7 +488,11 @@ export function DoorWorkspace({ events, platform = false }) {
       setCode('')
       setGroupResult(data)
       setStage('result')
-      setNotice(groupResultSentence(data))
+      setNotice(
+        data.payment
+          ? `${groupResultSentence(data)} Payment recorded: ${formatAmount(data.payment.recordedCents, groupPreview?.payment?.currency ?? 'USD')}.`
+          : groupResultSentence(data),
+      )
       remember(data.admitted > 0 ? `Group: ${data.admitted} admitted` : 'Group: already in', {
         attendeeName: groupSessionName(data.tickets),
         tier: null,
@@ -401,10 +509,19 @@ export function DoorWorkspace({ events, platform = false }) {
       setCode('')
       setResult(data)
       setStage('result')
-      setNotice(mine ? `Admitted: ${data.attendeeName ?? 'ticket holder'}.` : '')
+
+      const recorded = owed && data.payment ? formatAmount(owed.dueCents, owed.currency) : null
+
+      setNotice(
+        mine
+          ? `Admitted: ${data.attendeeName ?? 'ticket holder'}.${recorded ? ` Payment recorded: ${recorded}.` : ''}`
+          : '',
+      )
       remember(
         data.outcome === 'ADMITTED'
-          ? 'Admitted'
+          ? recorded
+            ? 'Admitted, payment taken'
+            : 'Admitted'
           : data.checkedInByYou
             ? 'Admitted (confirmed on retry)'
             : 'Already in',
@@ -414,7 +531,11 @@ export function DoorWorkspace({ events, platform = false }) {
       return
     }
 
-    const told = confirmFailure(status, body?.error?.reason ?? null)
+    const told = confirmFailure(status, body?.error?.reason ?? null, {
+      code: body?.error?.code ?? null,
+      message: body?.error?.message ?? null,
+      payment: takingPayment,
+    })
 
     setNotice('')
     setProblem({ urgent: true, ...told })
@@ -486,9 +607,18 @@ export function DoorWorkspace({ events, platform = false }) {
    * @returns {void}
    */
   function toggle(ticketId) {
-    setChosen((current) =>
-      current.includes(ticketId) ? current.filter((id) => id !== ticketId) : [...current, ticketId],
-    )
+    const next = chosen.includes(ticketId)
+      ? chosen.filter((id) => id !== ticketId)
+      : [...chosen, ticketId]
+
+    setChosen(next)
+
+    // What the ticked tickets owe together, said once for each change.
+    if (groupOwes(groupPreview)) {
+      setNotice(
+        `${groupPaymentLine(formatAmount(groupDueOf(groupPreview, next), groupPreview.payment?.currency ?? 'USD'))}.`,
+      )
+    }
   }
 
   const scanning = mode === 'camera' && stage === 'ready' && ready && online
@@ -555,6 +685,16 @@ export function DoorWorkspace({ events, platform = false }) {
         )}
         {selected && events.length > 1 ? (
           <p className="mt-2 text-sm text-ink-muted">{authorityLabel(selected)}</p>
+        ) : null}
+        {selected && venuePaymentsFor.includes(selected.event.id) ? (
+          <p className="mt-2 text-sm">
+            <Link
+              href={`/organizer/events/${encodeURIComponent(selected.event.id)}/venue-payments`}
+              className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            >
+              Payments at the venue
+            </Link>
+          </p>
         ) : null}
         {manyNights ? (
           <FormField
@@ -703,6 +843,7 @@ export function DoorWorkspace({ events, platform = false }) {
       {result ? (
         <ResultCard
           result={result}
+          owed={owedOf(preview)}
           night={night}
           headingId={answerId}
           headingRef={headingRef}
@@ -730,6 +871,7 @@ export function DoorWorkspace({ events, platform = false }) {
       {groupResult ? (
         <GroupResultCard
           result={groupResult}
+          currency={groupPreview?.payment?.currency ?? 'USD'}
           night={night}
           headingId={answerId}
           headingRef={headingRef}
@@ -797,15 +939,25 @@ function PreviewCard({
   onLookAgain,
   onClear,
 }) {
-  const admissible =
-    preview.outcome === 'ADMISSIBLE' && !(problem && !problem.uncertain && !problem.lookAgain)
+  const stopped = Boolean(problem && !problem.uncertain && !problem.lookAgain)
+  const admissible = preview.outcome === 'ADMISSIBLE' && !stopped
   const seat = seatWords(preview.seat)
+  const owed = preview.outcome === 'ADMISSIBLE' ? owedOf(preview) : null
+  const paidEarlier = preview.outcome === 'ADMISSIBLE' && preview.payment?.paid === true
+  const amount = owed ? formatAmount(owed.dueCents, owed.currency) : null
+  const bookingLine = owed ? bookingOwesSentence(owed.booking, owed.currency) : null
+  // A refusal with a name of its own heads the card with it: a ticket
+  // cancelled because it was not paid for, found so at lookup or at confirming.
+  const named =
+    (preview.outcome === 'REFUSED' ? refusalHeading(preview.refusal) : null) ??
+    (stopped ? refusalHeading(problem.reason) : null)
   const heading =
-    preview.outcome === 'ADMISSIBLE'
+    named ??
+    (preview.outcome === 'ADMISSIBLE'
       ? 'Check the ticket, then admit'
       : preview.outcome === 'ALREADY_CHECKED_IN'
         ? 'Already admitted — do not admit again'
-        : 'Do not admit'
+        : 'Do not admit')
 
   return (
     <section
@@ -864,6 +1016,16 @@ function PreviewCard({
         </div>
       </dl>
 
+      {owed ? (
+        <div className="mt-4 rounded-card border border-status-warning/30 bg-status-warning-soft p-4">
+          <h3 className="font-semibold text-ink">Payment to take</h3>
+          <p className="mt-1 text-ink">{takePaymentSentence(owed.dueCents, owed.currency)}</p>
+          {bookingLine ? <p className="mt-1 text-sm text-ink">{bookingLine}</p> : null}
+        </div>
+      ) : null}
+
+      {paidEarlier ? <p className="mt-3 text-sm font-medium text-ink">{PAID_EARLIER}</p> : null}
+
       {preview.outcome === 'ALREADY_CHECKED_IN' ? (
         <Alert variant="error" urgent className="mt-3">
           This ticket was already admitted
@@ -899,7 +1061,11 @@ function PreviewCard({
             loading={stage === 'confirming'}
             disabled={!online || stage === 'looking'}
           >
-            {problem?.uncertain ? 'Retry admission' : 'Admit'}
+            {amount
+              ? admitWithPaymentLabel(amount, { retry: Boolean(problem?.uncertain) })
+              : problem?.uncertain
+                ? 'Retry admission'
+                : 'Admit'}
           </Button>
         ) : null}
         {problem?.lookAgain ? (
@@ -930,15 +1096,23 @@ function PreviewCard({
  *
  * @param {object} props Component props.
  * @param {object} props.result The check-in payload.
+ * @param {{dueCents: number, currency: string}|null} props.owed What the lookup said the ticket owed at the door.
  * @param {object|null} props.night The night the door is admitting to, on an event of more than one.
  * @param {string} props.headingId The heading's id.
  * @param {object} props.headingRef Receives the heading, for focus.
  * @param {function(): void} props.onClear Take the next ticket.
  * @returns {JSX.Element} The card.
  */
-function ResultCard({ result, night, headingId, headingRef, onClear }) {
+function ResultCard({ result, owed, night, headingId, headingRef, onClear }) {
   const admitted = result.outcome === 'ADMITTED' || result.checkedInByYou
   const when = doorTime(result.checkedInAt, result.event.timezone)
+  // The ticket's own due, as the lookup said; the record may be a group's.
+  // Only for a ticket the lookup said owed: this steward took that money, or
+  // their own earlier try did. A ticket paid at the door on an earlier night
+  // comes back with that earlier payment (`byThisRequest: false`) and nothing
+  // was taken tonight, so it is not "Payment recorded".
+  const recorded = result.payment && owed ? formatAmount(owed.dueCents, owed.currency) : null
+  const paidEarlier = admitted && !owed && result.payment?.byThisRequest === false
 
   return (
     <section
@@ -961,6 +1135,12 @@ function ResultCard({ result, night, headingId, headingRef, onClear }) {
             .join(' · ')}
         </p>
       ) : null}
+      {admitted && recorded ? (
+        <p className="mt-2 font-medium text-ink">
+          {paymentRecordedSentence(recorded, { retried: result.outcome !== 'ADMITTED' })}
+        </p>
+      ) : null}
+      {paidEarlier ? <p className="mt-2 text-sm font-medium text-ink">{PAID_EARLIER}</p> : null}
       <p className="mt-2 text-sm text-ink-muted">
         {result.outcome === 'ADMITTED'
           ? `Admitted at ${when}.`
@@ -973,6 +1153,7 @@ function ResultCard({ result, night, headingId, headingRef, onClear }) {
           {night && !result.session
             ? `A ticket for every night admits once each night, and this one already has on ${sessionDisplayLabel(night)}.`
             : 'Each ticket admits once. This one already has.'}
+          {owed || result.payment ? ` ${ANOTHER_STEWARD_PAID}` : ''}
         </Alert>
       ) : null}
       <Button type="button" className="mt-4" onClick={onClear}>
@@ -1002,6 +1183,21 @@ function groupTicketWords(ticket, night = null) {
   ]
     .filter(Boolean)
     .join(' · ')
+}
+
+/**
+ * What one ticket of a group owes at the door, in words, or null for one that
+ * owes nothing there.
+ *
+ * @param {{dueCents?: number, paid?: boolean}} ticket A group ticket.
+ * @param {string} currency The order's currency.
+ * @returns {string|null} "Pay $40.00 at the door" or "Paid at the door earlier".
+ */
+function groupTicketPaymentWords(ticket, currency) {
+  if (groupTicketOwes(ticket)) return `Pay ${formatAmount(ticket.dueCents, currency)} at the door`
+  if ((ticket.dueCents ?? 0) > 0 && ticket.paid) return PAID_EARLIER
+
+  return null
 }
 
 /**
@@ -1058,6 +1254,11 @@ function GroupPreviewCard({
   const refused = preview.tickets.filter((ticket) => ticket.outcome === 'REFUSED')
   const stopped = Boolean(problem && !problem.uncertain && !problem.lookAgain)
   const canAdmit = admissible.length > 0 && !stopped
+  const currency = preview.payment?.currency ?? 'USD'
+  const owes = groupOwes(preview)
+  const dueCents = groupDueOf(preview, chosen)
+  const due = owes ? formatAmount(dueCents, currency) : null
+  const handedOnLine = handedOnUnpaidSentence(preview.payment?.handedOnUnpaidTickets)
 
   return (
     <section
@@ -1075,6 +1276,7 @@ function GroupPreviewCard({
       </h2>
 
       <p className="mt-2 text-sm text-ink">{groupLookupSentence(preview)}</p>
+      {handedOnLine ? <p className="mt-1 text-sm text-ink">{handedOnLine}</p> : null}
       <p className="mt-1 text-sm text-ink-muted">
         {preview.event.title} · {doorTime(preview.event.startsAt, preview.event.timezone)} ·{' '}
         {preview.method === 'QR_SCAN' ? 'Group QR pass' : 'Printed group code'}
@@ -1109,11 +1311,22 @@ function GroupPreviewCard({
                   />
                   <label htmlFor={id} className="min-w-0 break-words text-ink">
                     {groupTicketWords(ticket, night)}
+                    {groupTicketPaymentWords(ticket, currency) ? (
+                      <span className="block text-sm font-medium text-ink">
+                        {groupTicketPaymentWords(ticket, currency)}
+                      </span>
+                    ) : null}
                   </label>
                 </li>
               )
             })}
           </ul>
+          {owes ? (
+            <div className="mt-3 rounded-card border border-status-warning/30 bg-status-warning-soft p-3">
+              <h3 className="font-semibold text-ink">Payment to take</h3>
+              <p className="mt-1 text-ink">{groupPaymentLine(due)}</p>
+            </div>
+          ) : null}
         </fieldset>
       ) : null}
 
@@ -1160,7 +1373,14 @@ function GroupPreviewCard({
             loading={stage === 'confirming'}
             disabled={!online || stage === 'looking' || chosen.length === 0}
           >
-            {problem?.uncertain ? `Retry admitting ${chosen.length}` : `Admit ${chosen.length}`}
+            {owes && dueCents > 0
+              ? admitWithPaymentLabel(due, {
+                  retry: Boolean(problem?.uncertain),
+                  count: chosen.length,
+                })
+              : problem?.uncertain
+                ? `Retry admitting ${chosen.length}`
+                : `Admit ${chosen.length}`}
           </Button>
         ) : null}
         {problem?.lookAgain ? (
@@ -1191,13 +1411,14 @@ function GroupPreviewCard({
  *
  * @param {object} props Component props.
  * @param {object} props.result The group check-in payload.
+ * @param {string} props.currency The order's currency, for a payment recorded with the group.
  * @param {object|null} props.night The night the door is admitting to, on an event of more than one.
  * @param {string} props.headingId The heading's id.
  * @param {object} props.headingRef Receives the heading, for focus.
  * @param {function(): void} props.onClear Take the next ticket.
  * @returns {JSX.Element} The card.
  */
-function GroupResultCard({ result, night, headingId, headingRef, onClear }) {
+function GroupResultCard({ result, currency, night, headingId, headingRef, onClear }) {
   const admittedNow = result.tickets.filter((ticket) => ticket.outcome === 'ADMITTED')
   const alreadyIn = result.tickets.filter((ticket) => ticket.outcome !== 'ADMITTED')
 
@@ -1210,6 +1431,11 @@ function GroupResultCard({ result, night, headingId, headingRef, onClear }) {
         {result.admitted > 0 ? `Admitted ${result.admitted}` : 'Already admitted'}
       </h2>
       <p className="mt-2 text-sm text-ink">{groupResultSentence(result)}</p>
+      {result.payment ? (
+        <p className="mt-1 font-medium text-ink">
+          Payment recorded: {formatAmount(result.payment.recordedCents, currency)}.
+        </p>
+      ) : null}
 
       {admittedNow.length > 0 ? (
         <ul className="mt-3 space-y-1 text-sm text-ink">

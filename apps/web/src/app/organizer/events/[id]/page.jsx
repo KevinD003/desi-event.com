@@ -23,6 +23,11 @@
  * a link to the Desi-Event team's editor instead of an editor whose every save
  * would be refused. A deleted event shows its record instead of the editor.
  *
+ * Above the editor, the read-only "Booking fee and payment" panel (SPEC3
+ * §12.4): the Desi-Event team's decisions about the event, read from
+ * `event.paymentTerms`, with a link to "Payments at the venue" for a reader
+ * who may read the organisation's finance.
+ *
  * @file app/organizer/events/id/page.jsx
  */
 
@@ -32,6 +37,7 @@ import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 import { DeletedEventSummary } from '../../../../components/deleted-event-summary.jsx'
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { EventEditor } from '../../../../components/event-editor.jsx'
+import { PaymentTermsSummary } from '../../../../components/payment-terms-summary.jsx'
 import { membershipCan, sessionCan } from '../../../../lib/capabilities.js'
 import { platformEditorRedirect } from '../../../../lib/platform-editor.js'
 import { mediaReadFailure } from '../../../../lib/media.js'
@@ -330,6 +336,16 @@ export default async function EditEventPage({ params }) {
             </Link>
           </p>
         </aside>
+      ) : null}
+
+      {event.paymentTerms ? (
+        <div className="mt-4">
+          <PaymentTermsSummary
+            eventId={event.id}
+            paymentTerms={event.paymentTerms}
+            mayReadVenuePayments={sessionCan(session, 'finance:view', orgId)}
+          />
+        </div>
       ) : null}
 
       <div className="mt-6">

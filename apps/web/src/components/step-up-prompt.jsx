@@ -57,6 +57,10 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
    */
   async function onSubmit(submitted) {
     submitted.preventDefault()
+    // A submit bubbles, through React's tree as through the page's: drawn
+    // inside a screen's own form by mistake, confirming would send that form
+    // too, and the write it waits for would go twice.
+    submitted.stopPropagation()
     setBusy(true)
     setError(null)
     setNeedsEnrolment(false)

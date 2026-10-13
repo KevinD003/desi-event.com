@@ -22,6 +22,8 @@ const {
   getMediaQueue,
   getPlatformEdits,
   getPlatformTraffic,
+  getVenueBookings,
+  getVenuePayments,
   getWebsiteLinks,
   listOrganizerEvents,
   listPlatformEvents,
@@ -239,5 +241,55 @@ describe('the full-control reads', () => {
 
     expect(new URL(fetch.mock.calls[0][0]).searchParams.get('status')).toBe('DELETED')
     expect(new URL(fetch.mock.calls[1][0]).searchParams.has('status')).toBe(false)
+  })
+})
+
+describe('paying at the venue (SPEC3 §9.8, SPEC3-XI §11.1)', () => {
+  it('reads an event’s payments at the door, a page at a time', async () => {
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: { currency: 'USD' } }), { status: 200 }),
+    )
+
+    expect(await getVenuePayments('eventaaaaaaaaaaaaaaaaaaaa', { page: 2 })).toEqual({
+      currency: 'USD',
+    })
+    expect(fetch.mock.calls[0][0]).toMatch(
+      /\/v1\/events\/eventaaaaaaaaaaaaaaaaaaaa\/venue-payments\?page=2$/u,
+    )
+  })
+
+  it('reads the bookings waiting at the door, or one by its reference, sending only what the route takes', async () => {
+    fetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { bookings: [] } }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { bookings: [] } }), { status: 200 }),
+      )
+
+    await getVenueBookings('eventaaaaaaaaaaaaaaaaaaaa')
+    await getVenueBookings('eventaaaaaaaaaaaaaaaaaaaa', {
+      order: 'DE-ABC123',
+      page: 1,
+      perPage: '',
+      organizationId: 'not sent',
+    })
+
+    expect(fetch.mock.calls[0][0]).toMatch(/\/venue-bookings$/u)
+    expect(fetch.mock.calls[1][0]).toMatch(/\/venue-bookings\?page=1&order=DE-ABC123$/u)
+  })
+
+  it('throws a lapsed second factor as the step-up the page can offer', async () => {
+    fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: { code: 'STEP_UP_REQUIRED', message: 'Confirm it is you.' } }),
+        { status: 403 },
+      ),
+    )
+
+    await expect(getVenuePayments('eventaaaaaaaaaaaaaaaaaaaa')).rejects.toMatchObject({
+      status: 403,
+      code: 'STEP_UP_REQUIRED',
+    })
   })
 })

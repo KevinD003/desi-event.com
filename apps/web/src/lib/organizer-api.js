@@ -646,3 +646,64 @@ export async function getAdmissionEvents({ organizationId, q } = {}) {
     meta: body.meta ?? { scope: 'MEMBERSHIPS', organizations: [], truncated: false },
   }
 }
+
+/**
+ * Keep the page fields a list route takes, and nothing else.
+ *
+ * @param {object} options What the page asked for.
+ * @param {ReadonlyArray<string>} keys The fields the route's query schema names.
+ * @returns {string} The query string, with its `?`, or an empty string.
+ */
+function pageQuery(options, keys) {
+  const query = new URLSearchParams()
+
+  for (const key of keys) {
+    const value = options?.[key]
+
+    if (value === undefined || value === null || value === '') continue
+
+    query.set(key, String(value))
+  }
+
+  return query.size > 0 ? `?${query.toString()}` : ''
+}
+
+/**
+ * An event's payments taken at the door and its bookings still unpaid there,
+ * for the organiser's "Payments at the venue" page (`venuePayments.report`,
+ * SPEC3 §9.8, SPEC3-XI §9.8).
+ *
+ * Asks for a second factor within the FINANCE_VIEW window: a lapsed one is
+ * thrown as `STEP_UP_REQUIRED`, which the page offers to clear in place.
+ *
+ * @param {string} id The event id.
+ * @param {object} [options] Which page.
+ * @param {number} [options.page] Which page of payments and unpaid bookings.
+ * @param {number} [options.perPage] How many to a page.
+ * @returns {Promise<object>} The report.
+ */
+export async function getVenuePayments(id, options = {}) {
+  const suffix = pageQuery(options, ['page', 'perPage'])
+
+  return (await callApi(`/v1/events/${encodeURIComponent(id)}/venue-payments${suffix}`)).data
+}
+
+/**
+ * An event's bookings waiting to be paid at the door, each with its unpaid
+ * tickets (`venueBookings.unpaid`, SPEC3-XI §11.1): for the Desi-Event team's
+ * "Bookings waiting to be paid at the door". Buyer and attendee names are null
+ * for a platform reader. Asks for a second factor within the FINANCE_VIEW
+ * window, as the report does.
+ *
+ * @param {string} id The event id.
+ * @param {object} [options] Which page, or which booking.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] How many to a page.
+ * @param {string} [options.order] One booking, by its reference.
+ * @returns {Promise<object>} `{ eventId, eventTitle, currency, bookings, pagination }`.
+ */
+export async function getVenueBookings(id, options = {}) {
+  const suffix = pageQuery(options, ['page', 'perPage', 'order'])
+
+  return (await callApi(`/v1/events/${encodeURIComponent(id)}/venue-bookings${suffix}`)).data
+}

@@ -515,3 +515,103 @@ describe('a deleted event', () => {
     expect(api.getDeletionPreview).not.toHaveBeenCalled()
   })
 })
+
+describe('the read-only "Booking fee and payment" panel (SPEC3 §12.4)', () => {
+  const TERMS = {
+    fee: {
+      source: 'EVENT',
+      percentageBps: 300,
+      flatCentsPerTicket: 149,
+      currency: 'USD',
+      sequence: 1,
+      changedAt: '2026-10-09T10:00:00.000Z',
+      changedByName: 'Meera Admin',
+      reason: 'Partner rate agreed for this season.',
+    },
+    siteDefault: { currency: 'USD', percentageBps: 250, flatCentsPerTicket: 99 },
+    venuePayment: {
+      enabled: false,
+      limit: 50,
+      offered: false,
+      changedAt: null,
+      changedByName: null,
+      reason: null,
+      hasOrders: true,
+      unpaidTickets: 2,
+      paidAtDoorTickets: 1,
+      paidAtDoorCents: 4000,
+    },
+  }
+
+  beforeEach(() => {
+    readSession.mockReset()
+    api.getEventMedia.mockResolvedValue({ data: [], meta: { revision: 3 } })
+  })
+
+  /**
+   * Render the editor page for a session and an event.
+   *
+   * @param {object} session The session.
+   * @param {object} event The event.
+   * @returns {Promise<void>} Resolves once rendered.
+   */
+  async function renderFor(session, event) {
+    readSession.mockResolvedValue(session)
+    api.getOrganizerEvent.mockResolvedValue(event)
+    render(await EditEventPage({ params: Promise.resolve({ id: event.id }) }))
+  }
+
+  it('shows the Desi-Event team’s decisions, with no controls, and links finance to the payments at the venue', async () => {
+    await renderFor(
+      {
+        user: { id: 'u1' },
+        capabilities: [],
+        memberships: [
+          {
+            organizationId: EVENT.organizationId,
+            capabilities: ['event:view_draft', 'finance:view'],
+          },
+        ],
+      },
+      { ...EVENT, paymentTerms: TERMS },
+    )
+
+    const panel = screen.getByRole('region', { name: 'Booking fee and payment' })
+
+    expect(panel).toHaveTextContent(
+      'Booking fee on this event: 3.00% of the ticket price plus $1.49 per ticket. Set by the Desi-Event team.',
+    )
+    expect(panel).toHaveTextContent(
+      'Pay at the venue: Off. Only the Desi-Event team can change this.',
+    )
+    expect(panel.querySelectorAll('input, button, select, textarea')).toHaveLength(0)
+    // Off now, but bookings made while it was on remain: the page stays reachable.
+    expect(screen.getByRole('link', { name: 'Payments at the venue' })).toHaveAttribute(
+      'href',
+      '/organizer/events/evtqawwalibanyan/venue-payments',
+    )
+  })
+
+  it('offers no link to a member who may not read the organisation’s finance', async () => {
+    await renderFor(
+      {
+        user: { id: 'u2' },
+        capabilities: [],
+        memberships: [{ organizationId: EVENT.organizationId, capabilities: ['event:view_draft'] }],
+      },
+      { ...EVENT, paymentTerms: TERMS },
+    )
+
+    expect(screen.getByRole('region', { name: 'Booking fee and payment' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Payments at the venue' })).toBeNull()
+  })
+
+  it('draws no panel when the server sent no terms', async () => {
+    await renderFor(
+      { user: { id: 'u3' }, capabilities: [], memberships: [] },
+      { ...EVENT, paymentTerms: undefined },
+    )
+
+    expect(screen.queryByRole('region', { name: 'Booking fee and payment' })).toBeNull()
+  })
+})

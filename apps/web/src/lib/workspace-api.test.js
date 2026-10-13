@@ -25,6 +25,9 @@ const {
   getNotification,
   getOrganizationProfile,
   getOrganizerInvitations,
+  getPaymentTerms,
+  getPlatformFeePreview,
+  getReferralCode,
   getTeam,
   getVerification,
   getVerificationQueue,
@@ -34,8 +37,10 @@ const {
   listNotifications,
   listOrganizationEvents,
   listReconciliationTasks,
+  listReferralCodes,
   listRefunds,
   readPage,
+  referralCodesByAdministrator,
 } = await import('./workspace-api.js')
 
 const fetch = vi.fn()
@@ -353,5 +358,67 @@ describe('the organisation and verification reads', () => {
       organizations: [{ organizationId: 'o1' }],
       pagination: { page: 2, total: 21 },
     })
+  })
+})
+
+describe('booking fees, referral codes and booking-fee refunds (SPEC3 §11.1)', () => {
+  it('reads an event’s terms, and the older changes before an instant', async () => {
+    fetch.mockResolvedValueOnce(ok({ data: { eventId: 'e1' } }))
+
+    expect(await getPaymentTerms('e/1', { before: '2026-10-10T12:00:00.000Z' })).toEqual({
+      eventId: 'e1',
+    })
+
+    const url = requested()
+
+    expect(url.pathname).toBe('/v1/platform/events/e%2F1/payment-terms')
+    expect(url.searchParams.get('before')).toBe('2026-10-10T12:00:00.000Z')
+  })
+
+  it('filters the codes by status, maker and event only, never by a code’s text', async () => {
+    fetch.mockResolvedValueOnce(ok({ data: [{ id: 'r1' }], pagination: { page: 2 } }))
+
+    const result = await listReferralCodes({
+      status: 'ON',
+      creatorId: 'cuser0000000001',
+      eventId: 'cevent000000001',
+      page: 2,
+      referralCode: 'PARTNER-2026',
+      q: 'PARTNER',
+    })
+    const url = requested()
+
+    expect(result).toEqual({ codes: [{ id: 'r1' }], pagination: { page: 2 } })
+    expect(url.pathname).toBe('/v1/platform/referral-codes')
+    expect([...url.searchParams.keys()].sort()).toEqual(['creatorId', 'eventId', 'page', 'status'])
+    expect(url.toString()).not.toContain('PARTNER')
+  })
+
+  it('reads what each administrator’s codes came to', async () => {
+    fetch.mockResolvedValueOnce(ok({ data: [{ administrator: null, codes: 1 }] }))
+
+    expect(await referralCodesByAdministrator()).toEqual([{ administrator: null, codes: 1 }])
+    expect(requested().pathname).toBe('/v1/platform/referral-codes/by-administrator')
+  })
+
+  it('reads one code and a page of its uses, by encoded id', async () => {
+    fetch.mockResolvedValueOnce(ok({ data: { id: 'r1', uses: [] }, pagination: { page: 3 } }))
+
+    expect(await getReferralCode('r/1', { page: 3 })).toEqual({
+      code: { id: 'r1', uses: [] },
+      pagination: { page: 3 },
+    })
+
+    const url = requested()
+
+    expect(url.pathname).toBe('/v1/platform/referral-codes/r%2F1')
+    expect(url.searchParams.get('page')).toBe('3')
+  })
+
+  it('reads one order’s booking-fee figures by its encoded reference', async () => {
+    fetch.mockResolvedValueOnce(ok({ data: { reference: 'DE-1' } }))
+
+    expect(await getPlatformFeePreview('DE-1/../x')).toEqual({ reference: 'DE-1' })
+    expect(requested().pathname).toBe('/v1/platform/orders/DE-1%2F..%2Fx/fee')
   })
 })

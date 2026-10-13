@@ -84,6 +84,25 @@ describe('the step-up prompt', () => {
     expect(onConfirmed).not.toHaveBeenCalled()
   })
 
+  it('keeps its submit to itself, so a screen drawing it inside its own form does not send that form too', async () => {
+    const user = userEvent.setup()
+    const onConfirmed = vi.fn()
+    // Whatever holds the prompt hears a submit that bubbles out of it; the
+    // screen's own form, by mistake, would be sent with it.
+    const outer = vi.fn((submitted) => submitted.preventDefault())
+
+    apiFetch.mockResolvedValue(answer(200, { data: {} }))
+    render(
+      <div onSubmit={outer}>
+        <StepUpPrompt action="approve this event" onConfirmed={onConfirmed} onCancel={vi.fn()} />
+      </div>,
+    )
+
+    await user.type(screen.getByLabelText(/Your password/u), 'correct horse{Enter}')
+    await waitFor(() => expect(onConfirmed).toHaveBeenCalledTimes(1))
+    expect(outer).not.toHaveBeenCalled()
+  })
+
   it('moves focus to the refusal when the service does not answer', async () => {
     const user = userEvent.setup()
 

@@ -1,6 +1,6 @@
 /**
  * The money of an order, line by line: what each line comes to, the subtotal,
- * any discount, the booking fee, tax and the total.
+ * any discount, the booking fee, any waiver of it, tax and what is paid.
  *
  * One summary for both checkouts — tickets by quantity and seats by the map —
  * so a figure is laid out the same way wherever a buyer reads it. It shows
@@ -8,10 +8,27 @@
  * held, and the server's quote once it is, which is the figure the order is
  * charged.
  *
+ * ## Paying at the venue (SPEC3 §12.1)
+ *
+ * A pay-at-the-venue booking pays the booking fee online and the ticket price
+ * at the door, with no tax on the tickets. So instead of one total it ends in
+ * two figures: what is paid now (simulated), or "Nothing to pay online" when a
+ * referral code removed the whole fee, and what is paid at the door. The tax
+ * row keeps the place's tax by name, with what it comes to (nothing, unless the
+ * booking fee itself is taxed), and says no tax is added to the tickets.
+ *
+ * The booking fee is shown before any waiver, and a waiver from a referral
+ * code is its own row, so a buyer sees what the code removed.
+ *
  * @module components/order-summary
  */
 
-import { formatAmount, taxLabelForPlace } from '../lib/pricing.js'
+import {
+  formatAmount,
+  taxLabelForPlace,
+  taxNameForPlace,
+  taxNameInSentence,
+} from '../lib/pricing.js'
 import { MirrorDivider } from './festive-decor.jsx'
 
 /**
@@ -29,13 +46,17 @@ import { MirrorDivider } from './festive-decor.jsx'
  * @property {SummaryLine[]} lines The lines.
  * @property {number} subtotalCents Before discount, fees and tax.
  * @property {number} discountCents Taken off by a code.
- * @property {number} feesCents The booking fee.
+ * @property {number} feesCents The booking fee charged, after any waiver.
+ * @property {number} [feeGrossCents] The booking fee before a referral code; `feesCents` when absent.
+ * @property {number} [feeWaivedCents] What a referral code removed of it.
  * @property {number} taxCents Tax.
- * @property {number} totalCents What the order comes to.
+ * @property {number} totalCents What is paid online.
+ * @property {'CARD'|'AT_VENUE'} [paymentMethod] How the ticket price is paid; CARD when absent.
+ * @property {number} [venueDueCents] What is paid at the door, for AT_VENUE.
  */
 
 /**
- * The summary list and the total.
+ * The summary list and what is paid.
  *
  * @param {object} props Component props.
  * @param {SummaryTotals} props.totals What to show.
@@ -51,6 +72,9 @@ export function OrderSummary({
   salesTaxUncalculated = false,
 }) {
   const { currency } = totals
+  const atVenue = totals.paymentMethod === 'AT_VENUE'
+  const feeGross = Number.isInteger(totals.feeGrossCents) ? totals.feeGrossCents : totals.feesCents
+  const waived = totals.feeWaivedCents ?? 0
 
   return (
     <>
@@ -88,41 +112,102 @@ export function OrderSummary({
         ) : null}
         <div className="flex justify-between gap-3">
           <dt className="text-ink-muted">Booking fee</dt>
-          <dd className="font-bold text-ink tabular-nums">
-            {formatAmount(totals.feesCents, currency)}
+          <dd className="font-bold text-ink tabular-nums" data-testid="summary-fee">
+            {formatAmount(feeGross, currency)}
           </dd>
         </div>
-        <div className="flex justify-between gap-3">
-          <dt className="text-ink-muted">
-            {taxLabelForPlace(place ?? {})}
-            {salesTaxUncalculated ? (
+        {waived > 0 ? (
+          <div className="flex justify-between gap-3">
+            <dt className="text-ink-muted">Booking fee waived (referral code)</dt>
+            <dd
+              className="font-bold text-status-success tabular-nums"
+              data-testid="summary-fee-waived"
+            >
+              −{formatAmount(waived, currency)}
+            </dd>
+          </div>
+        ) : null}
+        {atVenue ? (
+          <div className="flex justify-between gap-3">
+            <dt className="text-ink-muted">
+              {totals.taxCents > 0
+                ? `${taxNameForPlace(place ?? {})} on the booking fee`
+                : taxNameForPlace(place ?? {})}
               <span className="block text-xs text-ink-subtle">
-                US sales tax is not calculated in this demo
+                No {taxNameInSentence(place ?? {})} is added to tickets paid at the venue.
               </span>
-            ) : null}
-          </dt>
-          <dd className="font-bold text-ink tabular-nums">
-            {formatAmount(totals.taxCents, currency)}
-          </dd>
-        </div>
+            </dt>
+            <dd className="font-bold text-ink tabular-nums">
+              {formatAmount(totals.taxCents, currency)}
+            </dd>
+          </div>
+        ) : (
+          <div className="flex justify-between gap-3">
+            <dt className="text-ink-muted">
+              {taxLabelForPlace(place ?? {})}
+              {salesTaxUncalculated ? (
+                <span className="block text-xs text-ink-subtle">
+                  US sales tax is not calculated in this demo
+                </span>
+              ) : null}
+            </dt>
+            <dd className="font-bold text-ink tabular-nums">
+              {formatAmount(totals.taxCents, currency)}
+            </dd>
+          </div>
+        )}
       </dl>
 
       <MirrorDivider className="my-5" />
 
-      <div className="flex items-end justify-between gap-3">
-        <p className="flex flex-col">
-          <span className="text-base font-bold text-ink">Total</span>
-          <span className="text-micro font-bold tracking-eyebrow text-ink-subtle uppercase">
-            {currency}
-          </span>
-        </p>
-        <p
-          className="font-display text-4xl leading-none font-bold text-ink tabular-nums"
-          data-testid="summary-total"
-        >
-          {formatAmount(totals.totalCents, currency)}
-        </p>
-      </div>
+      {atVenue ? (
+        <div className="space-y-3">
+          {totals.totalCents > 0 ? (
+            <div className="flex items-end justify-between gap-3">
+              <p className="text-base font-bold text-ink">Pay now (simulated)</p>
+              <p
+                className="font-display text-2xl leading-none font-bold text-ink tabular-nums"
+                data-testid="summary-online"
+              >
+                {formatAmount(totals.totalCents, currency)}
+              </p>
+            </div>
+          ) : (
+            <p className="text-base font-bold text-ink" data-testid="summary-online">
+              Nothing to pay online
+            </p>
+          )}
+          <div className="flex items-end justify-between gap-3">
+            <p className="flex flex-col">
+              <span className="text-base font-bold text-ink">Pay at the door</span>
+              <span className="text-micro font-bold tracking-eyebrow text-ink-subtle uppercase">
+                {currency}
+              </span>
+            </p>
+            <p
+              className="font-display text-4xl leading-none font-bold text-ink tabular-nums"
+              data-testid="summary-door"
+            >
+              {formatAmount(totals.venueDueCents ?? 0, currency)}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-end justify-between gap-3">
+          <p className="flex flex-col">
+            <span className="text-base font-bold text-ink">Total</span>
+            <span className="text-micro font-bold tracking-eyebrow text-ink-subtle uppercase">
+              {currency}
+            </span>
+          </p>
+          <p
+            className="font-display text-4xl leading-none font-bold text-ink tabular-nums"
+            data-testid="summary-total"
+          >
+            {formatAmount(totals.totalCents, currency)}
+          </p>
+        </div>
+      )}
     </>
   )
 }
@@ -132,9 +217,10 @@ export function OrderSummary({
  *
  * @param {object} priced What `priceSelection` returned.
  * @param {function(string): (string|null)} [nightOf] The night a line's tier is for, in words.
+ * @param {'CARD'|'AT_VENUE'} [paymentMethod] What it was priced for.
  * @returns {SummaryTotals} The totals.
  */
-export function totalsFromEstimate(priced, nightOf = () => null) {
+export function totalsFromEstimate(priced, nightOf = () => null, paymentMethod = 'CARD') {
   return {
     currency: priced.currency,
     lines: priced.lineItems.map((line) => ({
@@ -147,8 +233,12 @@ export function totalsFromEstimate(priced, nightOf = () => null) {
     subtotalCents: priced.subtotalCents,
     discountCents: priced.discountCents ?? 0,
     feesCents: priced.feesCents,
+    feeGrossCents: priced.feeGrossCents ?? priced.feesCents,
+    feeWaivedCents: priced.feeWaivedCents ?? 0,
     taxCents: priced.taxCents,
     totalCents: priced.totalCents,
+    paymentMethod: paymentMethod === 'AT_VENUE' ? 'AT_VENUE' : 'CARD',
+    venueDueCents: priced.venueDueCents ?? 0,
   }
 }
 
@@ -172,7 +262,11 @@ export function totalsFromQuote(quote, nightOfSession = () => null) {
     subtotalCents: quote.subtotalCents,
     discountCents: quote.discountCents,
     feesCents: quote.feesCents,
+    feeGrossCents: Number.isInteger(quote.feeGrossCents) ? quote.feeGrossCents : quote.feesCents,
+    feeWaivedCents: quote.feeWaivedCents ?? 0,
     taxCents: quote.taxCents,
     totalCents: quote.totalCents,
+    paymentMethod: quote.paymentMethod === 'AT_VENUE' ? 'AT_VENUE' : 'CARD',
+    venueDueCents: quote.venueDueCents ?? 0,
   }
 }

@@ -234,6 +234,22 @@ export const WORKSPACE_GROUPS = Object.freeze([
           sessionCan(session, 'event:platform_edit') && admits(session, 'admin'),
       },
       {
+        href: '/admin/referral-codes',
+        label: 'Referral codes',
+        // Platform administrators and super administrators: codes that
+        // remove the booking fee from one order.
+        offered: (session) =>
+          sessionCan(session, 'referral_code:manage') && admits(session, 'admin'),
+      },
+      {
+        href: '/admin/fee-refunds',
+        label: 'Booking fee refunds',
+        // Platform administrators, finance administrators and super
+        // administrators: refunding one order's booking fee by hand.
+        offered: (session) =>
+          sessionCan(session, 'platform_fee:refund') && admits(session, 'admin'),
+      },
+      {
         href: '/admin/imports',
         label: 'Imports',
         // Platform administrators and super administrators: events listed on

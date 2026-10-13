@@ -20,8 +20,21 @@
  * opinion computed in a browser is how a wallet and a scanner start disagreeing
  * in front of a queue.
  *
+ * ## Tickets booked to pay at the door (SPEC3 §12.7, SPEC3-XI §12.7)
+ *
+ * A ticket that still owes its price reads "Pay at the door: {amount}" instead
+ * of "Ready to use", whoever holds it: what is due stays with the ticket when it
+ * is passed on, and it is offered on like any other ticket. One cancelled
+ * because nobody paid for it reads "Cancelled — not paid", with who cancelled
+ * it and when. A holder who paid at the door for a ticket later refunded or
+ * withdrawn is told that money is with the organiser. Every figure comes from
+ * the ticket's own `venuePayment`, which the server writes.
+ *
  * @module lib/wallet
  */
+
+import { formatEventDate } from './format.js'
+import { formatAmount } from './pricing.js'
 
 /**
  * @typedef {object} WalletTicket
@@ -109,6 +122,110 @@ export const TICKET_STATUS_WORDS = Object.freeze({
   REVOKED: { label: 'Withdrawn by the organiser', tone: 'danger' },
   REFUNDED: { label: 'Refunded', tone: 'info' },
 })
+
+/** The states in which a ticket that owes its price can still be paid for at the door. */
+const OWING_STATUSES = new Set(['VALID', 'TRANSFER_PENDING'])
+
+/**
+ * Whether a ticket still owes its price at the door: booked to pay there, not
+ * paid, not cancelled, and still one that admits.
+ *
+ * @param {object} ticket A ticket with `status` and `venuePayment`.
+ * @returns {boolean} True when its holder pays at the door.
+ */
+export function owesAtDoor(ticket) {
+  const venue = ticket?.venuePayment ?? null
+
+  return Boolean(venue) && !venue.paid && !venue.cancelled && OWING_STATUSES.has(ticket.status)
+}
+
+/**
+ * The chip for a ticket booked to pay at the door, when it says more than the
+ * ticket's status: "Pay at the door: {amount}" in place of "Ready to use", and
+ * "Cancelled — not paid" for one cancelled because it was not paid for.
+ *
+ * @param {object} ticket A ticket with `status` and `venuePayment`.
+ * @returns {{label: string, tone: string}|null} The chip, or null when the status word stands.
+ */
+export function venuePaymentChip(ticket) {
+  const venue = ticket?.venuePayment ?? null
+
+  if (!venue) return null
+  if (venue.cancelled) return { label: 'Cancelled — not paid', tone: 'neutral' }
+
+  if (owesAtDoor(ticket)) {
+    return {
+      label: `Pay at the door: ${formatAmount(venue.dueCents, venue.currency)}`,
+      tone: 'pending',
+    }
+  }
+
+  return null
+}
+
+/**
+ * What a ticket's chip says: its door payment when that says more, else its
+ * status in the words every page shares.
+ *
+ * @param {object} ticket A ticket with `status` and, when booked to pay at the door, `venuePayment`.
+ * @returns {{label: string, tone: string}} The chip's words and tone.
+ */
+export function ticketChip(ticket) {
+  const venue = venuePaymentChip(ticket)
+
+  if (venue) return venue
+
+  return REACHABLE_STATUSES.includes(ticket?.status)
+    ? TICKET_STATUS_WORDS[ticket.status]
+    : { label: String(ticket?.status ?? 'Unknown'), tone: 'info' }
+}
+
+/**
+ * Statuses after which money paid at the door has to come back from the
+ * organiser: refunded, withdrawn (`tickets.revoke`), and withdrawn because its
+ * night was cancelled or its event deleted, which the API writes as CANCELLED
+ * (`withdrawTickets`) until a refund, if there is one, settles it as REFUNDED.
+ * A ticket cancelled because it was not paid for carries `venuePayment.cancelled`
+ * and is never paid, so it cannot reach this rule.
+ */
+const ENDED_STATUSES = new Set(['REFUNDED', 'REVOKED', 'CANCELLED'])
+
+/**
+ * The sentences a ticket booked to pay at the door carries, on its wallet card
+ * and its page (SPEC3 §12.7, SPEC3-XI §12.7).
+ *
+ * @param {object} ticket A ticket with `status`, `venuePayment` and its `event` (for the timezone).
+ * @param {string} [timeZone] The event's timezone, when the ticket does not carry its event.
+ * @returns {string[]} The sentences, in order; empty for a ticket with nothing owed at the door.
+ */
+export function venuePaymentNotes(ticket, timeZone = ticket?.event?.timezone || 'UTC') {
+  const venue = ticket?.venuePayment ?? null
+
+  if (!venue) return []
+
+  const due = formatAmount(venue.dueCents, venue.currency)
+
+  if (venue.cancelled) {
+    const by = venue.cancelled.by === 'DESI_EVENT' ? 'The Desi-Event team' : 'The organiser'
+
+    return [
+      `${by} cancelled this ticket on ${formatEventDate(venue.cancelled.at, timeZone)} because it had not been paid for. You no longer owe ${due} for it.`,
+    ]
+  }
+
+  if (owesAtDoor(ticket))
+    return ['Pay this at the door. The steward records it before letting you in.']
+
+  if (venue.paid && venue.paidAtDoorByYou && ENDED_STATUSES.has(ticket.status)) {
+    return [
+      `The ${due} you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+    ]
+  }
+
+  if (venue.paid) return ['Paid at the door.']
+
+  return []
+}
 
 /**
  * Whether the event this ticket is for has finished.
@@ -321,6 +438,8 @@ export const GROUP_PASS_MAX_TICKETS = 50
  * @property {string} orderReference The order.
  * @property {object} event Its event, as the wallet row carries it.
  * @property {number} admits How many of its tickets this page lists as still admitting.
+ * @property {number} unpaidCents What those tickets still owe at the door: the buyer's own only.
+ * @property {string|null} currency The currency of that amount.
  */
 
 /**
@@ -346,9 +465,18 @@ export function groupPassSummaries(tickets) {
       orderReference: ticket.orderReference,
       event: ticket.event,
       admits: 0,
+      unpaidCents: 0,
+      currency: null,
     }
 
     entry.admits += 1
+
+    // The group pass covers the buyer's own tickets only, so what it can take
+    // payment for at the door is what those tickets owe.
+    if (owesAtDoor(ticket)) {
+      entry.unpaidCents += ticket.venuePayment.dueCents
+      entry.currency = ticket.venuePayment.currency
+    }
     byOrder.set(ticket.orderReference, entry)
   }
 

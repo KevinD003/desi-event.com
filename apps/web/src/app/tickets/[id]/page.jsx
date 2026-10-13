@@ -17,6 +17,14 @@
  * the credential never reaches the markup. The organiser reading the same page
  * is never offered it.
  *
+ * ## A ticket booked to pay at the door
+ *
+ * Its holder reads, under "Where it stands", what it owes at the door, or that
+ * it was cancelled because it was not paid for, or that money they paid at
+ * the door is with the organiser (`VenuePaymentNote`, SPEC3-XI §12.7). An
+ * organiser reading the same ticket is not addressed by those sentences and
+ * is not shown them.
+ *
  * ## What never appears on it
  *
  * Any invitation code, and the credential as text. An invitation code is a
@@ -34,7 +42,7 @@ import { HIDDEN_EMAIL } from '@desi-event/schemas'
 import Link from 'next/link'
 
 import { EventChangesList } from '../../../components/event-changes-list.jsx'
-import { TicketPass } from '../../../components/ticket-pass.jsx'
+import { TicketPass, VenuePaymentNote } from '../../../components/ticket-pass.jsx'
 import { TicketTransferActions } from '../../../components/ticket-transfer-actions.jsx'
 import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
@@ -203,6 +211,20 @@ export default async function TicketDetailPage({ params }) {
           {/* The word, not only the colour. */}
           <strong>{status.admits ? 'Admits' : 'Does not admit'}.</strong> {status.label}
         </p>
+
+        {/* A ticket booked to pay at the door says, to its holder, what it
+            owes there, that it was cancelled because it was not paid for, or
+            that money they paid at the door is the organiser's to return
+            (SPEC3-XI §12.7). Dates in the event's own zone, as every account
+            page writes them; the ticket row does not carry its event, so the
+            zone comes from the page's. Only what the note reads crosses to the
+            client. */}
+        {holder ? (
+          <VenuePaymentNote
+            ticket={{ status: ticket.status, venuePayment: ticket.venuePayment ?? null }}
+            timeZone={event.timezone ?? 'UTC'}
+          />
+        ) : null}
 
         <dl className={`mt-4 grid grid-cols-1 gap-x-6 gap-y-3 p-5 text-sm sm:grid-cols-3 ${PANEL}`}>
           <div className="min-w-0">

@@ -19,17 +19,21 @@
  * This page reads `status`, `q` and `page` from its address and nothing else.
  * A code is never read from, or put into, a web address.
  *
- * The area admits this page's readers; the API decides again on every read
- * and write, with a recent second factor for every code it issues.
+ * The page asks the session's own `organizer:invite` first: the
+ * administration area also admits finance administrators, for booking fee
+ * refunds alone (SPEC3 §12.11), and they are told this page is not for them
+ * rather than shown an invite form the API would refuse. The API decides again
+ * on every read and write, with a recent second factor for every code it issues.
  *
  * @module app/admin/organizer-invitations/page
  */
 
 import Link from 'next/link'
 
-import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { ReadRefusal, RefusalNotice } from '../../../components/read-refusal.jsx'
 import { Badge, EmptyState } from '../../../components/ui.jsx'
 import { PANEL, TABLE_FRAME, TEXT_LINK } from '../../../components/workspace-kit.jsx'
+import { sessionCan } from '../../../lib/capabilities.js'
 import { readSession } from '../../../lib/session.js'
 import {
   PAGER_LINK_CLASSES,
@@ -45,6 +49,7 @@ import {
   DELIVERY_LABELS,
   DELIVERY_LINES,
   LIFETIME_DAYS,
+  NOT_FOR_THIS_ACCOUNT,
   STATUS_FILTERS,
   STATUS_LABELS,
   STATUS_TONES,
@@ -98,6 +103,19 @@ export default async function OrganizerInvitationsPage({ searchParams }) {
   const q = readNameSearch(query.q)
   const page = readPage(query.page)
   const session = await readSession()
+
+  if (!sessionCan(session, 'organizer:invite')) {
+    return (
+      <div>
+        <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+          Workspace · Platform administration
+        </p>
+        <h1 className="mt-2 text-h2 font-semibold text-ink">Organiser invitations</h1>
+        <RefusalNotice tone="neutral" title="Not for this account" detail={NOT_FOR_THIS_ACCOUNT} />
+      </div>
+    )
+  }
+
   const inviterName = session?.user?.displayName ?? null
 
   let invitations = []

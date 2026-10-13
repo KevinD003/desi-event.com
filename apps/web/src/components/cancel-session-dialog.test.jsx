@@ -106,6 +106,35 @@ describe('CancelSessionDialog', () => {
     expect(apiFetch).toHaveBeenCalledWith(`${BASE}/cancellation`)
   })
 
+  it('says what the night’s cancellation means for bookings paid at the venue', async () => {
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: preview({ atVenue: { orders: 1, ticketsPaidAtDoor: 2, paidAtDoorCents: 9_000 } }),
+      }),
+    )
+    await openDialog()
+
+    expect(
+      await screen.findByText(
+        'For tickets paid at the venue, only the booking fee paid online is refunded (simulated).',
+      ),
+    ).toBeVisible()
+    expect(
+      screen.getByText(
+        'Payment taken at the door for 2 of these tickets ($90.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+      ),
+    ).toBeVisible()
+  })
+
+  it('says nothing about paying at the venue for a night with no such bookings', async () => {
+    apiFetch.mockResolvedValueOnce(answer(200, { data: preview() }))
+    await openDialog()
+
+    await screen.findByText(/^5 paid orders for this night are refunded/)
+
+    expect(screen.queryByText(/paid at the venue/u)).toBeNull()
+  })
+
   it('sends the number of orders the preview showed, with the reason and the confirmation', async () => {
     const onCancelled = vi.fn()
 

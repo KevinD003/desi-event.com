@@ -37,7 +37,11 @@ vi.mock('../../../../lib/session.js', () => ({ readSession: vi.fn() }))
 
 const { getMyOrder } = await import('../../../../lib/account-api.js')
 const { readSession } = await import('../../../../lib/session.js')
-const { default: OrderPage } = await import('./page.jsx')
+const {
+  default: OrderPage,
+  venueCancellationSentences,
+  venueEndingSentences,
+} = await import('./page.jsx')
 
 /** The signed-in account, which placed the default order. */
 const VIEWER = 'usr00000000000000000001'
@@ -879,5 +883,332 @@ describe('what changed since the order was placed', () => {
     expect(
       screen.queryByRole('region', { name: 'Changes since you bought' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
+  /**
+   * A pay-at-the-venue order of two $40.00 tickets with a $3.31 fee each.
+   *
+   * @param {object} [venue] Fields of `venuePayment` to change.
+   * @param {object} [overrides] Fields of the order to change.
+   * @returns {object} The order.
+   */
+  function atVenue(venue = {}, overrides = {}) {
+    return order({
+      currency: 'USD',
+      paymentMethod: 'AT_VENUE',
+      subtotalCents: 8_000,
+      feesCents: 662,
+      feeGrossCents: 662,
+      feeWaivedCents: 0,
+      referralApplied: false,
+      taxCents: 0,
+      totalCents: 662,
+      fee: { percentageBps: 450, flatCentsPerTicket: 151 },
+      items: [
+        {
+          id: 'itm00000000000000000001',
+          orderId: 'ord00000000000000000001',
+          ticketTypeId: 'tt000000000000000000001',
+          quantity: 2,
+          unitPriceCents: 4_000,
+          subtotalCents: 8_000,
+        },
+      ],
+      tickets: [
+        ticket({
+          id: 'tkt00000000000000000001',
+          venuePayment: {
+            dueCents: 4_000,
+            paid: false,
+            currency: 'USD',
+            cancelled: null,
+            paidAtDoorByYou: false,
+          },
+        }),
+        ticket({
+          id: 'tkt00000000000000000002',
+          code: 'DET-SECRET8R3',
+          venuePayment: {
+            dueCents: 4_000,
+            paid: false,
+            currency: 'USD',
+            cancelled: null,
+            paidAtDoorByYou: false,
+          },
+        }),
+      ],
+      venuePayment: {
+        dueCents: 8_000,
+        paidCents: 0,
+        unpaidTickets: 2,
+        unpaidCents: 8_000,
+        paidTickets: 0,
+        paidByOthersTickets: 0,
+        paidByOthersCents: 0,
+        passedOnUnpaidTickets: 0,
+        passedOnUnpaidCents: 0,
+        cancelledTickets: 0,
+        cancelledCents: 0,
+        feeKeptCents: 0,
+        state: 'TO_PAY',
+        ...venue,
+      },
+      venueCancellations: [],
+      ...overrides,
+    })
+  }
+
+  it('reads as booked with what is owed at the door, never as paid', async () => {
+    getMyOrder.mockResolvedValue(atVenue())
+
+    const { container } = await renderPage()
+
+    expect(screen.getByText('Booked — pay $80.00 at the door')).toBeInTheDocument()
+    expect(screen.getByText('Booking fee paid')).toBeInTheDocument()
+    expect(screen.getByText('Paid online (simulated)')).toBeInTheDocument()
+    expect(screen.getByText('To pay at the door')).toBeInTheDocument()
+    expect(screen.queryByText('Total')).toBeNull()
+    expect(screen.getByText('No tax is added to tickets paid at the venue.')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Until a ticket is paid for at the door, the organiser or Desi-Event can cancel it; the booking fee is not refunded if they do.',
+      ),
+    ).toBeInTheDocument()
+    expect(container.textContent).not.toContain('Paid — simulated')
+  })
+
+  it('shows the waiver and says nothing was paid online when a referral code removed the fee', async () => {
+    getMyOrder.mockResolvedValue(
+      atVenue({}, { feesCents: 0, feeWaivedCents: 662, referralApplied: true, totalCents: 0 }),
+    )
+
+    await renderPage()
+
+    expect(screen.getByText('Booking fee waived (referral code)')).toBeInTheDocument()
+    expect(screen.getByText('−$6.62')).toBeInTheDocument()
+    expect(screen.getByText('Booking fee waived with a referral code.')).toBeInTheDocument()
+    expect(screen.getByText('Nothing was paid online for this order.')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Until a ticket is paid for at the door, the organiser or Desi-Event can cancel it.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('counts what the buyer paid at the door apart from what people they passed tickets to paid', async () => {
+    getMyOrder.mockResolvedValue(
+      atVenue({
+        state: 'PAID',
+        unpaidTickets: 0,
+        unpaidCents: 0,
+        paidTickets: 1,
+        paidCents: 4_000,
+        paidByOthersTickets: 1,
+        paidByOthersCents: 4_000,
+      }),
+    )
+
+    await renderPage()
+
+    // The status chip and the sum's term both read it.
+    expect(screen.getAllByText('Paid at the door')).toHaveLength(2)
+    expect(screen.getByText('$40.00 of $80.00')).toBeInTheDocument()
+    expect(screen.getByText('Paid at the door by people you passed tickets to')).toBeInTheDocument()
+  })
+
+  it('lists a ticket passed on that still owes, as its new holder’s to pay', async () => {
+    const base = atVenue({
+      state: 'PASSED_ON',
+      unpaidTickets: 1,
+      unpaidCents: 4_000,
+      passedOnUnpaidTickets: 1,
+      passedOnUnpaidCents: 4_000,
+    })
+
+    getMyOrder.mockResolvedValue({
+      ...base,
+      tickets: [
+        base.tickets[0],
+        { ...base.tickets[1], supersededByLaterTicket: true, purchaserHolding: 'TRANSFERRED_AWAY' },
+      ],
+    })
+
+    await renderPage()
+
+    expect(
+      screen.getByText('Passed on — its new holder pays $40.00 at the door'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Passed on to other people: 1 ticket, \$40\.00 to be paid at the door by whoever holds it\./u,
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('stops saying the new holder pays once they paid at the door', async () => {
+    // The buyer's own row for the ticket keeps reading unpaid: the payment
+    // lands on the new holder's ticket. The order counts it as paid by others.
+    const base = atVenue({
+      state: 'PAID',
+      unpaidTickets: 1,
+      unpaidCents: 4_000,
+      paidByOthersTickets: 1,
+      paidByOthersCents: 4_000,
+      passedOnUnpaidTickets: 0,
+      passedOnUnpaidCents: 0,
+    })
+
+    getMyOrder.mockResolvedValue({
+      ...base,
+      tickets: [
+        base.tickets[0],
+        { ...base.tickets[1], supersededByLaterTicket: true, purchaserHolding: 'TRANSFERRED_AWAY' },
+      ],
+    })
+
+    await renderPage()
+
+    expect(screen.getByText('Paid at the door by people you passed tickets to')).toBeInTheDocument()
+    expect(screen.queryByText(/its new holder pays/u)).toBeNull()
+    expect(
+      screen.getByText(/The other ticket on this order was handed on to somebody else/u),
+    ).toBeInTheDocument()
+  })
+
+  it('stops saying the new holder pays once the ticket passed on was cancelled unpaid', async () => {
+    const base = atVenue(
+      {
+        state: 'TO_PAY',
+        unpaidTickets: 1,
+        unpaidCents: 4_000,
+        cancelledTickets: 1,
+        cancelledCents: 4_000,
+        feeKeptCents: 331,
+        passedOnUnpaidTickets: 0,
+        passedOnUnpaidCents: 0,
+      },
+      {
+        venueCancellations: [
+          {
+            at: '2026-10-08T15:00:00.000Z',
+            by: 'ORGANISER',
+            ticketCount: 1,
+            basisCents: 4_000,
+            feeKeptCents: 331,
+            reason: 'Not paid before the doors opened.',
+          },
+        ],
+      },
+    )
+
+    getMyOrder.mockResolvedValue({
+      ...base,
+      tickets: [
+        base.tickets[0],
+        { ...base.tickets[1], supersededByLaterTicket: true, purchaserHolding: 'TRANSFERRED_AWAY' },
+      ],
+    })
+
+    await renderPage()
+
+    expect(screen.getByText(/You no longer owe \$40\.00 for it\./u)).toBeInTheDocument()
+    expect(screen.queryByText(/its new holder pays/u)).toBeNull()
+  })
+
+  it('draws a block for each cancellation of unpaid tickets, with or without a kept fee', async () => {
+    getMyOrder.mockResolvedValue(
+      atVenue(
+        { state: 'CANCELLED', cancelledTickets: 2, cancelledCents: 8_000, feeKeptCents: 662 },
+        {
+          venueCancellations: [
+            {
+              at: '2026-10-08T15:00:00.000Z',
+              by: 'ORGANISER',
+              ticketCount: 2,
+              basisCents: 8_000,
+              feeKeptCents: 662,
+              reason: 'Not paid by the deadline we set.',
+            },
+          ],
+        },
+      ),
+    )
+
+    await renderPage()
+
+    const block = screen.getByRole('heading', { name: 'Unpaid tickets cancelled' }).parentElement
+
+    expect(block).toHaveTextContent(
+      'The organiser cancelled 2 tickets on Thu, Oct 8, 2026 because they were not paid for. You no longer owe $80.00 for them.',
+    )
+    expect(block).toHaveTextContent(
+      'The booking fee paid for them online, $6.62, is kept by Desi-Event and is not refunded.',
+    )
+    expect(block).toHaveTextContent('Reason given: “Not paid by the deadline we set.”')
+    expect(screen.getByText('Cancelled — not paid at the door')).toBeInTheDocument()
+  })
+
+  it('writes a cancellation by the Desi-Event team of one ticket with nothing paid online', () => {
+    expect(
+      venueCancellationSentences(
+        {
+          at: '2026-10-08T15:00:00.000Z',
+          by: 'DESI_EVENT',
+          ticketCount: 1,
+          basisCents: 4_000,
+          feeKeptCents: 0,
+          reason: 'Duplicate booking.',
+        },
+        'USD',
+        'UTC',
+      ),
+    ).toEqual([
+      'The Desi-Event team cancelled 1 ticket on Thu, Oct 8, 2026 because it was not paid for. You no longer owe $40.00 for it.',
+      'Nothing was paid online for it.',
+      'Reason given: “Duplicate booking.”',
+    ])
+  })
+
+  it('says how a refunded booking ended, and where door money went', async () => {
+    expect(
+      venueEndingSentences({
+        status: 'REFUNDED',
+        currency: 'USD',
+        totalCents: 662,
+        venuePayment: { feeKeptCents: 331, paidCents: 4_000, paidByOthersCents: 4_000 },
+      }),
+    ).toEqual([
+      'The rest of the booking fee you paid online was refunded (simulated); $3.31 of it was kept when unpaid tickets were cancelled.',
+      'The $40.00 you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      '$40.00 was paid at the door by people you passed tickets to; it is with the organiser.',
+    ])
+    expect(
+      venueEndingSentences({
+        status: 'REFUNDED',
+        currency: 'USD',
+        totalCents: 662,
+        venuePayment: { feeKeptCents: 0, paidCents: 0, paidByOthersCents: 0 },
+      }),
+    ).toEqual(['The booking fee you paid online was refunded (simulated).'])
+
+    getMyOrder.mockResolvedValue(atVenue({ state: 'NONE' }, { status: 'REFUNDED' }))
+    await renderPage()
+
+    expect(screen.getByText('Booking fee refunded — simulated')).toBeInTheDocument()
+    expect(screen.queryByText(/This order was refunded in full/u)).toBeNull()
+  })
+
+  it('says a legacy order’s fee terms were not recorded', async () => {
+    getMyOrder.mockResolvedValue(order({ fee: null }))
+
+    await renderPage()
+
+    expect(
+      screen.getByText(
+        'Booking fee terms were not recorded for orders placed before 9 October 2026.',
+      ),
+    ).toBeInTheDocument()
   })
 })

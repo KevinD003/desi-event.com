@@ -1,6 +1,7 @@
 /**
  * The platform administration area admits the Desi-Event team's platform
- * administrators and super administrators, and nobody else.
+ * administrators and super administrators, and finance administrators for
+ * the booking-fee refund page alone (SPEC3 §12.11), and nobody else.
  *
  * Sessions are built from the real role tables, the same ones the API
  * resolves `GET /v1/auth/me` from.
@@ -44,10 +45,28 @@ function member(role) {
 }
 
 describe('the admin area', () => {
-  it('admits a platform administrator and a super administrator, and no other platform role', () => {
+  it('admits a platform administrator, a super administrator and a finance administrator, and no other platform role', () => {
     for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
-      expect(admits(platform(role), 'admin'), role).toBe(role === 'ADMIN' || role === 'SUPER_ADMIN')
+      expect(admits(platform(role), 'admin'), role).toBe(
+        role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'FINANCE_ADMIN',
+      )
     }
+  })
+
+  it('admits a finance administrator on refunding one order’s booking fee alone', () => {
+    const finance = platform('FINANCE_ADMIN')
+
+    expect(finance.capabilities).toContain('platform_fee:refund')
+    expect(admits(finance, 'admin')).toBe(true)
+    expect(
+      admits(
+        {
+          ...finance,
+          capabilities: finance.capabilities.filter((c) => c !== 'platform_fee:refund'),
+        },
+        'admin',
+      ),
+    ).toBe(false)
   })
 
   it('refuses a moderator, the platform role closest to it', () => {
@@ -65,6 +84,10 @@ describe('the admin area', () => {
     expect(admits(only('platform:admin'), 'admin')).toBe(true)
     expect(admits(only('event:platform_edit'), 'admin')).toBe(true)
     expect(admits(only('event:import'), 'admin')).toBe(true)
+    expect(admits(only('payment_terms:manage'), 'admin')).toBe(true)
+    expect(admits(only('referral_code:manage'), 'admin')).toBe(true)
+    expect(admits(only('platform_fee:refund'), 'admin')).toBe(true)
+    expect(admits(only('venue_booking:cancel'), 'admin')).toBe(true)
     expect(admits(only('moderation:review'), 'admin')).toBe(false)
   })
 
@@ -89,6 +112,10 @@ describe('the admin area', () => {
             'platform:admin',
             'event:platform_edit',
             'event:import',
+            'payment_terms:manage',
+            'referral_code:manage',
+            'platform_fee:refund',
+            'venue_booking:cancel',
           ],
         },
       ],

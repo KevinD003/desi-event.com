@@ -26,6 +26,14 @@
  * for a reason code, a note, and a second press. That asymmetry is deliberate:
  * a confirmation dialogue on everything trains people to dismiss them.
  *
+ * ## Bookings made to pay at the venue
+ *
+ * The "Cancel event" confirmation says what cancelling means for them (SPEC3
+ * §9.7), from `paymentTerms.venuePayment` on the event detail the editor
+ * already holds — there is no cancellation preview to ask: only their booking
+ * fee paid online is refunded, simulated, and money taken at the door is held
+ * by the organiser, which Desi-Event neither holds nor can refund.
+ *
  * ## A second factor, when the server asks for one
  *
  * Publishing and opening sales sit behind the EVENT_PUBLISH step-up window;
@@ -57,6 +65,7 @@ import { useFocusAfterRender } from './focus-after-render.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { Alert, Badge, Button, Card, CardBody, FormField, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { atVenueSentences } from '../lib/door.js'
 import { COMMANDS, REASON_CODES, statusReading } from '../lib/event-status.js'
 
 /**
@@ -364,6 +373,19 @@ export function EventLifecyclePanel({
   }
 
   const command = pending && pending !== 'reschedule' ? COMMANDS[pending] : null
+  // What cancelling means for bookings made to pay at the venue, from the
+  // event's own figures: whether there are any, and what was taken at the door.
+  const venuePayment = event.paymentTerms?.venuePayment ?? null
+  const venueSentences = venuePayment
+    ? atVenueSentences(
+        {
+          orders: venuePayment.hasOrders ? 1 : 0,
+          ticketsPaidAtDoor: venuePayment.paidAtDoorTickets ?? 0,
+          paidAtDoorCents: venuePayment.paidAtDoorCents ?? 0,
+        },
+        event.paymentTerms?.fee?.currency ?? 'USD',
+      )
+    : []
 
   /**
    * A postponed event is back: take the server's word for its new state.
@@ -646,6 +668,14 @@ export function EventLifecyclePanel({
               order. Nothing is sent to a payment provider by this action and no money moves until a
               refund is actually processed.
             </p>
+          ) : null}
+
+          {pending === 'cancel' && venueSentences.length > 0 ? (
+            <div className="mt-3 space-y-1 text-sm text-ink">
+              {venueSentences.map((sentence) => (
+                <p key={sentence}>{sentence}</p>
+              ))}
+            </div>
           ) : null}
 
           <div className="mt-4 flex flex-wrap gap-2">

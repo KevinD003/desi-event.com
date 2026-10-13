@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
@@ -490,5 +490,122 @@ describe('answering an invitation', () => {
 
       view.unmount()
     }
+  })
+})
+
+describe('a ticket booked to pay at the door (SPEC3-XI §12.7)', () => {
+  /** What a ticket owing $40.00 at the door carries. */
+  const OWING = {
+    dueCents: 4_000,
+    paid: false,
+    currency: 'USD',
+    cancelled: null,
+    paidAtDoorByYou: false,
+  }
+
+  it('is offered like any ticket, and says above the address that its price goes with it', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <TicketTransferActions
+        ticket={ticket({ venuePayment: OWING })}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+      />,
+    )
+
+    // What it owes is not an action: the ticket's page draws it once, under
+    // "Where it stands", in the event's zone (app/tickets/[id]/page.test.jsx).
+    // Drawn here too, the holder would read it twice.
+    expect(screen.queryByText('Pay at the door: $40.00')).toBeNull()
+    expect(
+      screen.queryByText('Pay this at the door. The steward records it before letting you in.'),
+    ).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+
+    expect(
+      screen.getByText(
+        'This ticket’s price, $40.00, is paid at the door. Whoever you pass it to pays it when they arrive, and you no longer do.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('tells the sender to tell them, beside the one-time code', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(201, {
+        data: { ...transfer(), delivery: { mode: 'MANUAL', invitationCode: CODE } },
+      }),
+    )
+
+    render(
+      <TicketTransferActions
+        ticket={ticket({ venuePayment: OWING })}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    await user.type(
+      screen.getByRole('textbox', { name: /their email address/i }),
+      'rival@dhol.example',
+    )
+    await user.click(screen.getByRole('button', { name: /send the offer/i }))
+
+    const heading = await screen.findByRole('heading', { name: 'Give them this code' })
+    const tell = screen.getByText('Tell them: whoever holds this ticket pays $40.00 at the door.')
+    const panel = heading.closest('section')
+
+    // Inside the panel, part of what the code's field is described by, and
+    // before "I have handed it over", which takes the panel away.
+    expect(panel).toContainElement(tell)
+    expect(
+      screen.getByRole('textbox', { name: 'Ticket transfer code' }),
+    ).toHaveAccessibleDescription(
+      expect.stringContaining('Tell them: whoever holds this ticket pays $40.00 at the door.'),
+    )
+    expect(
+      tell.compareDocumentPosition(
+        within(panel).getByRole('button', { name: 'I have handed it over' }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('says nothing of the door for a ticket that owes nothing', async () => {
+    const user = userEvent.setup()
+
+    render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    expect(screen.queryByText(/is paid at the door/u)).toBeNull()
+  })
+
+  it('tells the person accepting it what to pay at the door', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(200, {
+        data: {
+          ticket: ticket({ venuePayment: { dueCents: 4_000, paid: false, currency: 'USD' } }),
+          credential: 'never-shown',
+        },
+      }),
+    )
+
+    render(<TicketTransferResponse />)
+
+    await user.type(screen.getByLabelText(/invitation code/i), TOKEN)
+    await user.click(screen.getByRole('button', { name: /accept the ticket/i }))
+
+    expect(
+      await screen.findByText(
+        'Ticket accepted. Pay $40.00 at the door when you arrive: the steward takes it before letting you in.',
+      ),
+    ).toBeInTheDocument()
   })
 })

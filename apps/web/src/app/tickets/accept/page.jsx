@@ -15,6 +15,10 @@
  *
  * The server holds only the code's digest. It has never held the code.
  *
+ * A ticket booked to pay at the door keeps what is due when it is passed on
+ * (SPEC3-XI XT2), so the page says so before anything is accepted, and the
+ * answer says how much once it is (`TicketTransferResponse`).
+ *
  * @module app/tickets/accept/page
  */
 
@@ -33,6 +37,10 @@ export const HOW_THE_CODE_ARRIVES = Object.freeze({
     'The person offering you the ticket gives you the code themselves: codes are not emailed from this site.',
   EMAIL: 'The code is emailed to the address the ticket was offered to.',
 })
+
+/** What the page says about tickets booked to pay at the door (SPEC3-XI §12.7). */
+export const DUE_STAYS_WITH_TICKET =
+  'A ticket booked to pay at the door keeps its price: whoever holds it pays at the door, and the ticket shows how much.'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,6 +65,7 @@ export default async function AcceptTransferPage() {
         Somebody has offered you a ticket. Accepting puts the ticket in this account and stops the
         sender’s pass working; declining leaves it with them. A reserved seat goes with its ticket.
       </p>
+      <p className="mt-2 text-sm text-ink">{DUE_STAYS_WITH_TICKET}</p>
       <p className="mt-2 text-sm text-ink-muted">
         {arrives ? `${arrives} ` : null}
         Sign in with the address the ticket was offered to, then paste the code below.{' '}

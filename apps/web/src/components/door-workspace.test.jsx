@@ -1532,3 +1532,496 @@ describe('DoorWorkspace: an event of more than one night', () => {
     ).toBeTruthy()
   })
 })
+
+describe('DoorWorkspace: taking a payment at the door (SPEC3 §12.8, SPEC3-XI §12.8)', () => {
+  const OWED = {
+    data: {
+      ...ADMISSIBLE.data,
+      payment: {
+        dueCents: 4000,
+        currency: 'USD',
+        paid: false,
+        booking: { otherUnpaidTickets: 2, otherUnpaidCents: 8000, groupPass: true },
+      },
+    },
+  }
+
+  const PAID_ADMISSION = {
+    data: {
+      ...ADMITTED.data,
+      payment: {
+        recordedCents: 4000,
+        venuePaymentId: 'paymentaaaaaaaaaaaaaaaaaa',
+        byThisRequest: true,
+      },
+    },
+  }
+
+  /**
+   * The polite region the workspace says things in.
+   *
+   * @param {HTMLElement} container The render container.
+   * @returns {HTMLElement} The region.
+   */
+  function politeRegion(container) {
+    return container.querySelector('p[role="status"][aria-live="polite"]')
+  }
+
+  it('says what to take and what else the same holder owes, then takes it and admits in one step', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, OWED))
+    const { container } = render(<DoorWorkspace events={[ENTRY]} />)
+
+    await lookUp(user)
+
+    const card = (
+      await screen.findByRole('heading', { name: 'Check the ticket, then admit' })
+    ).closest('section')
+
+    expect(within(card).getByRole('heading', { name: 'Payment to take' })).toBeTruthy()
+    expect(
+      within(card).getByText('Take $40.00 for this ticket before letting them in.'),
+    ).toBeTruthy()
+    expect(
+      within(card).getByText(
+        'This booking has 2 more tickets to pay at the door ($80.00). Use the group pass to take payment for several at once.',
+      ),
+    ).toBeTruthy()
+    expect(within(card).queryByRole('button', { name: /^admit$/iu })).toBeNull()
+    expect(politeRegion(container).textContent).toBe('Found: Asha Door. Payment to take: $40.00.')
+
+    apiFetch.mockResolvedValueOnce(answer(200, PAID_ADMISSION))
+    await user.click(within(card).getByRole('button', { name: 'Payment taken: $40.00 — admit' }))
+
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(apiFetch.mock.calls[1][0]).toBe('/v1/tickets/check-in')
+    expect(sent(1)).toEqual({
+      code: 'DET-ABC123XYZ',
+      previewReference: REFERENCE,
+      expectedEventId: EVENT.id,
+      payment: { amountCents: 4000 },
+    })
+
+    const done = await screen.findByRole('heading', { name: 'Admitted' })
+
+    await waitFor(() => expect(document.activeElement).toBe(done))
+    expect(
+      within(done.closest('section')).getByText('Admitted. Payment recorded: $40.00.'),
+    ).toBeTruthy()
+    // Said once, in the polite region, not repeated there twice.
+    expect(politeRegion(container).textContent).toBe(
+      'Admitted: Asha Door. Payment recorded: $40.00.',
+    )
+    expect(screen.getByText(/Admitted, payment taken/u)).toBeTruthy()
+  })
+
+  it('counts only the holder’s own tickets, and offers the group pass only when it covers them', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          ...OWED.data,
+          payment: {
+            ...OWED.data.payment,
+            booking: { otherUnpaidTickets: 1, otherUnpaidCents: 4000, groupPass: false },
+          },
+        },
+      }),
+    )
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await lookUp(user)
+
+    expect(
+      await screen.findByText('This booking has 1 more ticket to pay at the door ($40.00).'),
+    ).toBeTruthy()
+    expect(screen.queryByText(/Use the group pass/u)).toBeNull()
+  })
+
+  it('says nothing about the booking when the holder owes nothing else', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          ...OWED.data,
+          payment: {
+            ...OWED.data.payment,
+            booking: { otherUnpaidTickets: 0, otherUnpaidCents: 0, groupPass: false },
+          },
+        },
+      }),
+    )
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await lookUp(user)
+
+    expect(
+      await screen.findByText('Take $40.00 for this ticket before letting them in.'),
+    ).toBeTruthy()
+    expect(screen.queryByText(/This booking has/u)).toBeNull()
+  })
+
+  it('admits a ticket paid at the door on an earlier night as usual, taking nothing and saying none was taken', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: { ...ADMISSIBLE.data, payment: { dueCents: 4000, currency: 'CAD', paid: true } },
+      }),
+    )
+    const { container } = render(<DoorWorkspace events={[ENTRY]} />)
+
+    await lookUp(user)
+
+    expect(await screen.findByText(/Paid at the door earlier/u)).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Payment to take' })).toBeNull()
+
+    // The API's answer for such a ticket carries the payment recorded on the
+    // earlier night, not one made now (`recordedPaymentOf`, admission.js).
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          ...ADMITTED.data,
+          payment: {
+            recordedCents: 4000,
+            venuePaymentId: 'paymentaaaaaaaaaaaaaaaaaa',
+            byThisRequest: false,
+          },
+        },
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: /^admit$/iu }))
+
+    expect(sent(1).payment).toBeUndefined()
+
+    const card = (await screen.findByRole('heading', { name: 'Admitted' })).closest('section')
+
+    expect(card.textContent).not.toMatch(/Payment recorded/u)
+    expect(card.textContent).not.toMatch(/\$40\.00/u)
+    expect(within(card).getByText('Paid at the door earlier')).toBeTruthy()
+    expect(politeRegion(container).textContent).not.toMatch(/Payment recorded/u)
+  })
+
+  it('says an unanswered payment may or may not be recorded, and the retry cannot record it twice', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, OWED))
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await lookUp(user)
+
+    apiFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await user.click(await screen.findByRole('button', { name: 'Payment taken: $40.00 — admit' }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'No answer from the server. The payment may or may not have been recorded, and the ticket may or may not be in. Keep the money in hand and press Retry: it cannot record the payment twice.',
+    )
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          ...PAID_ADMISSION.data,
+          outcome: 'ALREADY_CHECKED_IN',
+          checkedInByYou: true,
+          payment: { ...PAID_ADMISSION.data.payment, byThisRequest: false },
+        },
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Retry: payment taken $40.00 — admit' }))
+
+    // The identical request: the same pass, reference and amount.
+    expect(sent(2)).toEqual(sent(1))
+    expect(sent(2).payment).toEqual({ amountCents: 4000 })
+
+    const done = await screen.findByRole('heading', { name: 'Admitted' })
+
+    expect(
+      within(done.closest('section')).getByText(
+        'Admitted (confirmed on retry). Payment recorded: $40.00.',
+      ),
+    ).toBeTruthy()
+  })
+
+  it('tells the steward another steward’s payment covers a ticket somebody else admitted', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, OWED))
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await lookUp(user)
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          ...ADMITTED.data,
+          outcome: 'ALREADY_CHECKED_IN',
+          checkedInByYou: false,
+          payment: {
+            recordedCents: 4000,
+            venuePaymentId: 'paymentaaaaaaaaaaaaaaaaaa',
+            byThisRequest: false,
+          },
+        },
+      }),
+    )
+    await user.click(await screen.findByRole('button', { name: 'Payment taken: $40.00 — admit' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Already admitted by another steward' }),
+    ).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toMatch(
+      /Already admitted by another steward\. Their payment record covers this ticket; do not take the money again\./u,
+    )
+    expect(screen.queryByText(/Payment recorded/u)).toBeNull()
+  })
+
+  it.each([
+    [409, 'PAYMENT_DUE', 'Take $40.00 for this ticket before letting it in.'],
+    [
+      422,
+      'PAYMENT_AMOUNT_MISMATCH',
+      "The amount doesn't match what this ticket owes ($40.00). Look the ticket up again.",
+    ],
+    [
+      409,
+      'PAYMENT_NOT_RECORDED',
+      'The payment was not recorded because the booking changed at the same moment. Look the ticket up again; nothing was recorded and nobody was let in.',
+    ],
+  ])(
+    'says the API’s %s %s sentence, admits nobody, and offers a fresh lookup',
+    async (status, code, message) => {
+      const user = userEvent.setup()
+
+      apiFetch.mockResolvedValueOnce(answer(200, OWED))
+      render(<DoorWorkspace events={[ENTRY]} />)
+      await lookUp(user)
+
+      apiFetch.mockResolvedValueOnce(answer(status, { error: { code, message } }))
+      await user.click(await screen.findByRole('button', { name: 'Payment taken: $40.00 — admit' }))
+
+      expect((await screen.findByRole('alert')).textContent).toBe(message)
+      expect(screen.queryByRole('heading', { name: 'Admitted' })).toBeNull()
+
+      apiFetch.mockResolvedValueOnce(answer(200, OWED))
+      await user.click(screen.getByRole('button', { name: /look it up again/iu }))
+
+      expect(apiFetch.mock.calls[2][0]).toBe('/v1/tickets/admission/preview')
+    },
+  )
+
+  it('heads a ticket cancelled unpaid with its own words at lookup, and offers no admission', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          ...ADMISSIBLE.data,
+          outcome: 'REFUSED',
+          refusal: 'UNPAID_CANCELLED',
+          previewReference: null,
+        },
+      }),
+    )
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await lookUp(user)
+
+    const heading = await screen.findByRole('heading', { name: 'Cancelled — not paid' })
+
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(screen.getByRole('alert').textContent).toBe(
+      "This ticket was cancelled because it had not been paid for. Don't let it in.",
+    )
+    expect(screen.queryByRole('button', { name: /admit/iu })).toBeNull()
+  })
+
+  it('heads a ticket cancelled after its lookup the same way when the admission is refused', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, OWED))
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await lookUp(user)
+
+    apiFetch.mockResolvedValueOnce(
+      answer(409, {
+        error: {
+          code: 'CONFLICT',
+          message: 'This ticket was cancelled because it was not paid for.',
+          reason: 'UNPAID_CANCELLED',
+        },
+      }),
+    )
+    await user.click(await screen.findByRole('button', { name: 'Payment taken: $40.00 — admit' }))
+
+    expect(await screen.findByRole('heading', { name: 'Cancelled — not paid' })).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toMatch(
+      /had not been paid for\. Don't let it in\./u,
+    )
+    expect(screen.queryByRole('button', { name: /admit/iu })).toBeNull()
+  })
+
+  describe('a group pass', () => {
+    const IDS = [
+      'ticketaaaaaaaaaaaaaaaaaaa',
+      'ticketbbbbbbbbbbbbbbbbbbb',
+      'ticketccccccccccccccccccc',
+    ]
+
+    /**
+     * One ticket of a group preview that owes at the door.
+     *
+     * @param {number} index Which.
+     * @param {object} [overrides] Fields to change.
+     * @returns {object} The ticket.
+     */
+    function owing(index, overrides = {}) {
+      return {
+        ticketId: IDS[index],
+        outcome: 'ADMISSIBLE',
+        refusal: null,
+        tier: { name: 'General Admission' },
+        seat: null,
+        attendeeName: `Guest ${index + 1}`,
+        checkedInAt: null,
+        dueCents: 4000,
+        paid: false,
+        ...overrides,
+      }
+    }
+
+    const GROUP_OWES = {
+      data: {
+        outcome: 'ADMISSIBLE',
+        refusal: null,
+        method: 'MANUAL_CODE',
+        event: EVENT,
+        tickets: [owing(0), owing(1), owing(2, { paid: true })],
+        counts: { admissible: 3, alreadyIn: 0, refused: 0 },
+        handedOn: 2,
+        previewReference: REFERENCE,
+        previewExpiresAt: '2026-10-01T13:02:00.000Z',
+        payment: { dueCents: 8000, currency: 'USD', handedOnUnpaidTickets: 2 },
+      },
+    }
+
+    it('sums what the ticked tickets owe as the boxes change, and sends that sum with the admission', async () => {
+      const user = userEvent.setup()
+
+      apiFetch.mockResolvedValueOnce(answer(200, GROUP_OWES))
+      const { container } = render(<DoorWorkspace events={[ENTRY]} />)
+
+      await lookUp(user, 'DEG-ABCDEFGH2345')
+
+      const card = (
+        await screen.findByRole('heading', { name: 'Check the group, then admit' })
+      ).closest('section')
+
+      expect(within(card).getByText('Payment to take for the ticked tickets: $80.00')).toBeTruthy()
+      expect(within(card).getAllByText('Pay $40.00 at the door')).toHaveLength(2)
+      expect(within(card).getByText('Paid at the door earlier')).toBeTruthy()
+      expect(
+        within(card).getByText(
+          '2 more tickets of this booking were passed on to other people, who pay at the door with their own tickets.',
+        ),
+      ).toBeTruthy()
+
+      await user.click(within(card).getByLabelText(/Guest 2/u))
+
+      expect(within(card).getByText('Payment to take for the ticked tickets: $40.00')).toBeTruthy()
+      expect(politeRegion(container).textContent).toBe(
+        'Payment to take for the ticked tickets: $40.00.',
+      )
+
+      apiFetch.mockResolvedValueOnce(
+        answer(200, {
+          data: {
+            outcome: 'ADMITTED',
+            admitted: 2,
+            alreadyIn: 0,
+            method: 'MANUAL_CODE',
+            event: EVENT,
+            tickets: [0, 2].map((index) => ({
+              ticketId: IDS[index],
+              outcome: 'ADMITTED',
+              checkedInAt: '2026-10-01T13:31:00.000Z',
+              checkedInByYou: true,
+              tier: { name: 'General Admission' },
+              seat: null,
+              attendeeName: `Guest ${index + 1}`,
+            })),
+            payment: {
+              recordedCents: 4000,
+              venuePaymentId: 'paymentaaaaaaaaaaaaaaaaaa',
+              byThisRequest: true,
+            },
+          },
+        }),
+      )
+      await user.click(
+        within(card).getByRole('button', { name: 'Payment taken: $40.00 — admit 2' }),
+      )
+
+      expect(sent(1)).toEqual({
+        code: 'DEG-ABCDEFGH2345',
+        previewReference: REFERENCE,
+        expectedEventId: EVENT.id,
+        ticketIds: [IDS[0], IDS[2]],
+        paymentCents: 4000,
+      })
+
+      const done = await screen.findByRole('heading', { name: 'Admitted 2' })
+
+      expect(within(done.closest('section')).getByText('Payment recorded: $40.00.')).toBeTruthy()
+      expect(politeRegion(container).textContent).toBe('Admitted 2. Payment recorded: $40.00.')
+    })
+
+    it('sends no payment when none of the ticked tickets owes one', async () => {
+      const user = userEvent.setup()
+
+      apiFetch.mockResolvedValueOnce(answer(200, GROUP_OWES))
+      render(<DoorWorkspace events={[ENTRY]} />)
+
+      await lookUp(user, 'DEG-ABCDEFGH2345')
+      await user.click(await screen.findByLabelText(/Guest 1/u))
+      await user.click(screen.getByLabelText(/Guest 2/u))
+
+      expect(screen.getByText('Payment to take for the ticked tickets: $0.00')).toBeTruthy()
+
+      apiFetch.mockResolvedValueOnce(
+        answer(409, { error: { code: 'CONFLICT', message: 'x', reason: 'GROUP_CHANGED' } }),
+      )
+      await user.click(screen.getByRole('button', { name: 'Admit 1' }))
+
+      expect(sent(1)).toEqual({
+        code: 'DEG-ABCDEFGH2345',
+        previewReference: REFERENCE,
+        expectedEventId: EVENT.id,
+        ticketIds: [IDS[2]],
+      })
+    })
+
+    it('says an unanswered group payment as money, and retries the identical request', async () => {
+      const user = userEvent.setup()
+
+      apiFetch.mockResolvedValueOnce(answer(200, GROUP_OWES))
+      render(<DoorWorkspace events={[ENTRY]} />)
+
+      await lookUp(user, 'DEG-ABCDEFGH2345')
+
+      apiFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      await user.click(
+        await screen.findByRole('button', { name: 'Payment taken: $80.00 — admit 3' }),
+      )
+
+      expect((await screen.findByRole('alert')).textContent).toMatch(/Keep the money in hand/u)
+
+      apiFetch.mockResolvedValueOnce(
+        answer(409, { error: { code: 'CONFLICT', message: 'x', reason: 'GROUP_CHANGED' } }),
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'Retry: payment taken $80.00 — admit 3' }),
+      )
+
+      expect(sent(2)).toEqual(sent(1))
+      expect(sent(2).paymentCents).toBe(8000)
+    })
+  })
+})

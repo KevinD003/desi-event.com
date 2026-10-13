@@ -1211,3 +1211,22 @@ describe('an event copied from its Sulekha listing', () => {
     expect(data).not.toHaveProperty('endDate')
   })
 })
+
+describe('paying at the venue (SPEC3 §12.2)', () => {
+  it('says, as a note and not an alert, that the event can be paid for at the venue', async () => {
+    await renderEvent({ ...selling, venuePayment: { available: true } })
+
+    const note = screen.getByTestId('venue-payment-note')
+
+    expect(note).toHaveTextContent(
+      'You can pay at the venue for this event: pay the booking fee online now (simulated), and the ticket price at the door.',
+    )
+    expect(note).not.toHaveAttribute('role')
+  })
+
+  it('says nothing of it when the event cannot be paid for at the venue', async () => {
+    await renderEvent({ ...selling, venuePayment: { available: false } })
+
+    expect(screen.queryByTestId('venue-payment-note')).toBeNull()
+  })
+})

@@ -128,6 +128,13 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://127.0.0.1:3000'
  */
 const BUYABLE_STATUSES = new Set(['PUBLISHED', 'ON_SALE'])
 
+/**
+ * What the tickets section says when buyers may pay the ticket price at the
+ * door (SPEC3 §12.2): a note, not an alert.
+ */
+const VENUE_PAYMENT_NOTE =
+  'You can pay at the venue for this event: pay the booking fee online now (simulated), and the ticket price at the door.'
+
 /** A section's eyebrow: a small uppercase line in the accent, after a diamond. */
 const EYEBROW =
   'flex items-center gap-2.5 text-micro font-bold tracking-eyebrow text-accent-strong uppercase'
@@ -912,6 +919,13 @@ export default async function EventDetailPage({ params }) {
                         traffic={traffic}
                       />
                     </div>
+
+                    {/* A note, not an alert: how this event can be paid for. */}
+                    {event.venuePayment?.available ? (
+                      <p className="mt-4 text-sm text-ink" data-testid="venue-payment-note">
+                        {VENUE_PAYMENT_NOTE}
+                      </p>
+                    ) : null}
 
                     {cheapest ? (
                       <div className="mt-6 border-t-[1.5px] border-ink pt-5">

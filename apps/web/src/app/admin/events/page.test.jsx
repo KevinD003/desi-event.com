@@ -206,3 +206,52 @@ describe('All events', () => {
     expect(screen.queryByText('Nothing here')).not.toBeInTheDocument()
   })
 })
+
+describe('the booking fee and paying at the venue in the list (SPEC3 §7.3)', () => {
+  it('says each event’s booking fee and whether it can be paid for at the venue', async () => {
+    listPlatformEvents.mockResolvedValue({
+      events: [
+        row({ id: 'cevent0000000000000000001', title: 'Default fee night' }),
+        row({
+          id: 'cevent0000000000000000002',
+          title: 'Own fee night',
+          feeSource: 'EVENT',
+          feePercentageBps: 300,
+          feeFlatCentsPerTicket: 149,
+          feeCurrency: 'USD',
+          venuePaymentEnabled: true,
+          venuePaymentLimit: 50,
+        }),
+        row({
+          id: 'cevent0000000000000000003',
+          title: 'Free fee night',
+          feeSource: 'EVENT',
+          feePercentageBps: 0,
+          feeFlatCentsPerTicket: 0,
+          feeCurrency: 'USD',
+        }),
+      ],
+      pagination: { page: 1, perPage: 50, total: 3, totalPages: 1, hasNextPage: false },
+    })
+
+    await renderPage()
+
+    const table = screen.getByRole('table')
+
+    expect(within(table).getByRole('columnheader', { name: 'Booking fee' })).toBeInTheDocument()
+    expect(
+      within(table).getByRole('columnheader', { name: 'Pay at the venue' }),
+    ).toBeInTheDocument()
+
+    const rowOf = (title) =>
+      within(table)
+        .getByRole('rowheader', { name: new RegExp(title, 'u') })
+        .closest('tr')
+
+    expect(rowOf('Default fee night')).toHaveTextContent('Site default')
+    expect(rowOf('Default fee night')).toHaveTextContent('Off')
+    expect(rowOf('Own fee night')).toHaveTextContent('3.00% + $1.49')
+    expect(rowOf('Own fee night')).toHaveTextContent('On, up to 50 unpaid')
+    expect(rowOf('Free fee night')).toHaveTextContent('No booking fee')
+  })
+})

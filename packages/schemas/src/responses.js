@@ -2045,9 +2045,11 @@ export const referralAdministratorListResponseSchema = z.object({
 /**
  * One order's booking-fee figures, read by reference to refund that fee by
  * hand (SPEC3 §7.4). No buyer name or address. `refundableFeeCents` is the
- * fee left plus the tax charged on it, after any share kept when unpaid tickets
- * were cancelled (`feeKeptCents`, never refundable, SPEC3-XI XU6); an order
- * with nothing to refund still previews, at 0.
+ * fee left, after any share kept when unpaid tickets were cancelled
+ * (`feeKeptCents`, never refundable, SPEC3-XI XU6), and `taxOnFeeCents` the
+ * tax charged on that fee; a refund gives back both, and its
+ * `expectedRefundableCents` is their sum. An order with nothing to refund
+ * still previews, at 0.
  */
 export const platformFeePreviewSchema = z.object({
   reference: orderReferenceSchema,

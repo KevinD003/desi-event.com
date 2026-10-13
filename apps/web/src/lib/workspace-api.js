@@ -295,6 +295,97 @@ export async function getOrganizerInvitations(options = {}) {
   }
 }
 
+// --- Booking fees, referral codes and booking-fee refunds (SPEC3 §11.1) ------
+//
+// The Desi-Event team's reads. A referral code's text comes back in these
+// bodies only (`referralCode`), and never goes into a request's address: the
+// list is filtered by status, maker and event, never by text.
+
+/**
+ * An event's booking fee and pay-at-the-venue setting, with their history.
+ *
+ * `GET /v1/platform/events/:id/payment-terms`.
+ *
+ * @param {string} eventId The event.
+ * @param {object} [options] Options.
+ * @param {string} [options.before] An instant: only changes before it.
+ * @returns {Promise<object>} The admin view's `data`.
+ */
+export async function getPaymentTerms(eventId, options = {}) {
+  const suffix = queryFrom(options, ['before'])
+  const body = await callApi(
+    `/v1/platform/events/${encodeURIComponent(eventId)}/payment-terms${suffix}`,
+  )
+
+  return body.data
+}
+
+/**
+ * A page of referral codes, newest first.
+ *
+ * `GET /v1/platform/referral-codes`. Filtered by status, the administrator who
+ * made them and an event they work for; never by their text.
+ *
+ * @param {object} [options] Filters.
+ * @param {string} [options.status] `ON`, `OFF`, `EXPIRED` or `USED_UP`.
+ * @param {string} [options.creatorId] The administrator who made them.
+ * @param {string} [options.eventId] An event they work for.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] Page size; the API's ceiling is 50.
+ * @returns {Promise<{codes: object[], pagination: object|null}>} The page.
+ */
+export async function listReferralCodes(options = {}) {
+  const suffix = queryFrom(options, ['status', 'creatorId', 'eventId', 'page', 'perPage'])
+  const body = await callApi(`/v1/platform/referral-codes${suffix}`)
+
+  return { codes: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * What each administrator's referral codes came to.
+ *
+ * `GET /v1/platform/referral-codes/by-administrator`.
+ *
+ * @returns {Promise<object[]>} One row per administrator, and one for a former one.
+ */
+export async function referralCodesByAdministrator() {
+  const body = await callApi('/v1/platform/referral-codes/by-administrator')
+
+  return body.data ?? []
+}
+
+/**
+ * One referral code and a page of the orders that used it.
+ *
+ * `GET /v1/platform/referral-codes/:id`.
+ *
+ * @param {string} id The code's id.
+ * @param {object} [options] Options.
+ * @param {number} [options.page] Which page of its uses.
+ * @returns {Promise<{code: object, pagination: object|null}>} The code, with `uses`.
+ */
+export async function getReferralCode(id, options = {}) {
+  const suffix = queryFrom(options, ['page'])
+  const body = await callApi(`/v1/platform/referral-codes/${encodeURIComponent(id)}${suffix}`)
+
+  return { code: body.data, pagination: body.pagination ?? null }
+}
+
+/**
+ * One order's booking-fee figures, before refunding that fee by hand.
+ *
+ * `GET /v1/platform/orders/:reference/fee`. An order reference is not a
+ * credential; it goes in the path as it does for `orders.get`.
+ *
+ * @param {string} reference The order reference.
+ * @returns {Promise<object>} The preview's `data`.
+ */
+export async function getPlatformFeePreview(reference) {
+  const body = await callApi(`/v1/platform/orders/${encodeURIComponent(reference)}/fee`)
+
+  return body.data
+}
+
 /**
  * A page number from the address bar, or 1.
  *

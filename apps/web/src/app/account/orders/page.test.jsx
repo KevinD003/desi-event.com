@@ -329,3 +329,41 @@ describe('a failed read', () => {
     expect(screen.getByRole('link', { name: 'Set up two-step sign-in' })).toBeInTheDocument()
   })
 })
+
+describe('a booking paid at the venue in the list (SPEC3 §12.7)', () => {
+  it('reads as booked with what is owed at the door, and splits what was paid online', async () => {
+    getMyOrders.mockResolvedValue({
+      orders: [
+        order({
+          currency: 'USD',
+          paymentMethod: 'AT_VENUE',
+          totalCents: 662,
+          venuePayment: {
+            dueCents: 8_000,
+            paidCents: 0,
+            unpaidTickets: 2,
+            unpaidCents: 8_000,
+            paidTickets: 0,
+            paidByOthersTickets: 0,
+            paidByOthersCents: 0,
+            passedOnUnpaidTickets: 0,
+            passedOnUnpaidCents: 0,
+            cancelledTickets: 0,
+            cancelledCents: 0,
+            feeKeptCents: 0,
+            state: 'TO_PAY',
+          },
+        }),
+      ],
+      pagination: counters(),
+    })
+
+    await renderPage()
+
+    expect(screen.getByText('Booked — pay $80.00 at the door')).toBeInTheDocument()
+    expect(screen.getByText('Paid online (simulated)')).toBeInTheDocument()
+    expect(screen.getByText('$6.62')).toBeInTheDocument()
+    expect(screen.getByText('To pay at the door')).toBeInTheDocument()
+    expect(screen.queryByText('Total')).toBeNull()
+  })
+})

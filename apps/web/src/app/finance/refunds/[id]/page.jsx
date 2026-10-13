@@ -21,6 +21,13 @@
  * `providerRefundId` is shown, because that is the string somebody needs when
  * they ring the provider. It identifies the refund, not the instrument.
  *
+ * ## An order booked to pay at the venue
+ *
+ * Its ticket price was paid at the door, to the organiser, so a refund gives
+ * back only what was paid online — the booking fee, simulated. What was taken
+ * at the door for the order (`paidAtDoorCents`) is said beside the figures: the
+ * organiser holds it, and this refund does not include it (SPEC3 §12.10).
+ *
  * ## What a direct URL gets you
  *
  * The API loads the row, works out which organisation owns the order's event,
@@ -39,6 +46,7 @@ import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../../components/page
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getRefund } from '../../../../lib/organizer-api.js'
 import { membershipsWith } from '../../../../lib/capabilities.js'
+import { formatAmount } from '../../../../lib/pricing.js'
 import { describeApiRefusal } from '../../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../../lib/session.js'
 
@@ -199,7 +207,7 @@ export default async function RefundDetailPage({ params }) {
                 label="Fee"
                 cents={refund.allocation.feeCents}
                 currency={refund.currency}
-                hint="The platform fee, given back or kept per policy."
+                hint="The booking fee, given back or kept per policy."
               />
               <Figure
                 label="Tax"
@@ -210,6 +218,13 @@ export default async function RefundDetailPage({ params }) {
             </>
           ) : null}
         </dl>
+
+        {(refund.paidAtDoorCents ?? 0) > 0 ? (
+          <p className="mt-3 max-w-prose rounded-card border border-status-info/25 bg-status-info-soft p-4 text-sm text-ink">
+            The {formatAmount(refund.paidAtDoorCents, refund.currency)} paid at the door for this
+            order is held by the organiser; this refund does not include it.
+          </p>
+        ) : null}
 
         {refund.allocation ? null : (
           <Empty

@@ -8,6 +8,10 @@
  * orders. Each row opens the event's own page, where every one of those
  * actions is.
  *
+ * Each row also says the event's booking fee (the platform fee) — the site
+ * default, none, or its own terms — and whether it can be paid for at the
+ * venue, with its limit (SPEC3 §7.3). Both are set on the event's own page.
+ *
  * The filters are links and a GET form, so they work without JavaScript and
  * can be bookmarked. The administration layout admits a platform administrator
  * on `organizer:invite` too; this page asks its own question again, and the
@@ -23,6 +27,7 @@ import { ReadRefusal, RefusalNotice } from '../../../components/read-refusal.jsx
 import { Badge, EmptyState } from '../../../components/ui.jsx'
 import { TABLE_FRAME, TEXT_LINK } from '../../../components/workspace-kit.jsx'
 import { sessionCan } from '../../../lib/capabilities.js'
+import { feeListText, venueListText } from '../../../lib/event-control.js'
 import { statusReading } from '../../../lib/event-status.js'
 import { listPlatformEvents } from '../../../lib/organizer-api.js'
 import { readSession } from '../../../lib/session.js'
@@ -193,6 +198,8 @@ function EventRow({ row, filters }) {
       <td className="pr-4 text-right text-ink tabular-nums">
         {row.picturesWaiting.toLocaleString('en-US')}
       </td>
+      <td className="pr-4 text-ink">{feeListText(row)}</td>
+      <td className="pr-4 text-ink">{venueListText(row)}</td>
       <td className="pr-4 text-ink-muted">
         {updated ? <time dateTime={row.updatedAt}>{updated}</time> : null}
       </td>
@@ -442,7 +449,7 @@ export default async function AdminEventsPage({ searchParams } = {}) {
 
       {events.length > 0 ? (
         <div className={`mt-6 ${TABLE_FRAME}`}>
-          <table className="w-full min-w-[56rem] border-collapse">
+          <table className="w-full min-w-[68rem] border-collapse">
             <caption className="sr-only">
               Events
               {Number.isInteger(pagination?.total)
@@ -462,6 +469,8 @@ export default async function AdminEventsPage({ searchParams } = {}) {
                 <th scope="col" className="text-right">
                   Pictures waiting
                 </th>
+                <th scope="col">Booking fee</th>
+                <th scope="col">Pay at the venue</th>
                 <th scope="col">Last changed</th>
                 <th scope="col">Actions</th>
               </tr>

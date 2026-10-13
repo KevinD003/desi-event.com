@@ -4,8 +4,8 @@
  * Pure, with no imports: the list page (a server component) and the invite
  * form and row actions (client components) all read it, so a status reads the
  * same in the table as in the sentence a row action announces. No capability
- * name appears here; who may open these screens is decided by the area and
- * the API.
+ * name appears here; who may open these screens is decided by the list
+ * page (a server component), the area and the API.
  *
  * @module app/admin/organizer-invitations/organizer-invitation-vocabulary
  */
@@ -78,6 +78,14 @@ export const DELIVERY_LINES = Object.freeze({
     'Codes are not emailed from this site, so each code is shown to you once, with a message you can send from your own email. Hand it to them yourself.',
   EMAIL: 'Codes are emailed to the address you enter. You will not see them.',
 })
+
+/**
+ * What a session that may not invite organisers is told. The administration area
+ * also admits finance administrators, for booking fee refunds alone (SPEC3
+ * §12.11), so this page asks its own question again, as every admin page does.
+ */
+export const NOT_FOR_THIS_ACCOUNT =
+  'Organisers are invited by the Desi-Event team’s platform administrators and super administrators. Nothing on this page can grant it.'
 
 /**
  * The refusals the organiser invitation routes give, by code, in the API's

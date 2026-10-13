@@ -723,3 +723,119 @@ describe('a night that is not selling', () => {
     expect(screen.getByRole('button', { name: 'Reserve 1 seat' })).toBeDisabled()
   })
 })
+
+describe('paying at the venue and referral codes (SPEC3 §6.5, §12.1)', () => {
+  /**
+   * A quote that can be priced to pay at the venue, with a $3.31 booking fee
+   * per seat that PARTNER-2026 removes.
+   *
+   * @returns {Function} The quote.
+   */
+  function venueQuote() {
+    const base = fakeQuote()
+
+    return vi.fn(async (request) => {
+      const priced = await base(request)
+      const seats = request.lines.reduce((sum, line) => sum + line.quantity, 0)
+      const feeGrossCents = 331 * seats
+      const applied = request.referralCode === 'PARTNER-2026'
+      const feesCents = applied ? 0 : feeGrossCents
+      const atVenue = request.paymentMethod === 'AT_VENUE'
+
+      return {
+        ...priced,
+        feeGrossCents,
+        feeWaivedCents: applied ? feeGrossCents : 0,
+        feesCents,
+        totalCents: atVenue ? feesCents : priced.subtotalCents + feesCents,
+        paymentMethod: atVenue ? 'AT_VENUE' : 'CARD',
+        venueDueCents: atVenue ? priced.subtotalCents : 0,
+        fee: { percentageBps: 450, flatCentsPerTicket: 151 },
+        venuePayment: { available: true },
+        referral: request.referralCode
+          ? { applied, reason: applied ? null : 'NOT_ACCEPTED' }
+          : null,
+      }
+    })
+  }
+
+  it('offers the choice when the quote says so, and pays the booking fee with both figures', async () => {
+    const quote = venueQuote()
+    const placeOrder = vi.fn(async () => ({
+      reference: 'DE-SEATV1',
+      status: 'PAID',
+      totalCents: 331,
+      currency: 'USD',
+      paymentMethod: 'AT_VENUE',
+      venuePayment: { dueCents: 4_500 },
+      items: [],
+    }))
+    const { user } = renderCheckout({ quote, placeOrder })
+
+    await user.click(seatButton('A3'))
+    await user.click(screen.getByRole('button', { name: 'Reserve 1 seat' }))
+
+    const venue = await screen.findByRole('radio', { name: 'Pay at the venue' })
+
+    await user.click(venue)
+    await waitFor(() =>
+      expect(quote).toHaveBeenLastCalledWith(
+        expect.objectContaining({ paymentMethod: 'AT_VENUE' }),
+      ),
+    )
+    expect(await screen.findByTestId('summary-door')).toHaveTextContent('$45.00')
+
+    await user.click(screen.getByRole('button', { name: 'Pay booking fee $3.31 (simulated)' }))
+    await screen.findByRole('heading', { name: 'Booked — pay at the door' })
+
+    expect(placeOrder.mock.calls[0][0]).toMatchObject({
+      paymentMethod: 'AT_VENUE',
+      expectedTotalCents: 331,
+      expectedVenueDueCents: 4_500,
+    })
+  })
+
+  it('says urgently that paying at the venue became full at Pay, in the API’s words', async () => {
+    const full = Object.assign(
+      new Error('Paying at the venue is full for this event. You can still pay by card.'),
+      { status: 409, code: 'VENUE_PAYMENT_FULL' },
+    )
+    const quote = venueQuote()
+    const placeOrder = vi.fn().mockRejectedValueOnce(full)
+    const { user } = renderCheckout({ quote, placeOrder })
+
+    await user.click(seatButton('A3'))
+    await user.click(screen.getByRole('button', { name: 'Reserve 1 seat' }))
+    await user.click(await screen.findByRole('radio', { name: 'Pay at the venue' }))
+    await user.click(await screen.findByRole('button', { name: /^Pay booking fee/u }))
+
+    const alert = await screen.findByRole('alert')
+
+    expect(alert).toHaveTextContent(
+      'Paying at the venue is full for this event. You can still pay by card.',
+    )
+    expect(screen.getByRole('radio', { name: 'Pay by card now' })).toBeChecked()
+    expect(
+      await screen.findByRole('button', { name: 'Pay $48.31 (simulated)' }),
+    ).toBeInTheDocument()
+  })
+
+  it('checks a referral code against the held seats and sends it once it applied', async () => {
+    const quote = venueQuote()
+    const { user, props } = renderCheckout({ quote })
+
+    await user.click(seatButton('A3'))
+    await user.click(screen.getByRole('button', { name: 'Reserve 1 seat' }))
+    await screen.findByRole('button', { name: 'Pay $48.31 (simulated)' })
+
+    await user.type(screen.getByLabelText('Referral code (optional)'), 'PARTNER-2026')
+    await user.click(screen.getByRole('button', { name: 'Apply referral code' }))
+
+    expect(
+      await screen.findByText('Booking fee removed with your referral code.'),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Pay $45.00 (simulated)' }))
+    expect(props.placeOrder.mock.calls[0][0].referralCode).toBe('PARTNER-2026')
+  })
+})

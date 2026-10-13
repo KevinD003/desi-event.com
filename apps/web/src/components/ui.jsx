@@ -34,6 +34,7 @@ export {
   FormField,
   Input,
   Label,
+  Modal,
   Select,
   Skeleton,
   Spinner,

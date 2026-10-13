@@ -193,12 +193,21 @@ export const AREAS = Object.freeze({
     // events listed on Sulekha (`event:import`). Each page inside asks its own
     // question again. `href` stays the invitations: the area's index page
     // sends a session to the first tab it is offered, so one holding only the
-    // editing capability lands on All events.
+    // editing capability lands on All events. The booking fee and paying at
+    // the venue (`payment_terms:manage`), referral codes
+    // (`referral_code:manage`) and cancelling unpaid pay-at-the-venue tickets
+    // (`venue_booking:cancel`) are the same two roles'; refunding one order's
+    // booking fee by hand (`platform_fee:refund`) is finance administrators'
+    // too, who are admitted for that page alone (SPEC3 §12.11, SPEC3-XI §12.11).
     admits: (session) =>
       sessionCan(session, 'organizer:invite') ||
       sessionCan(session, 'platform:admin') ||
       sessionCan(session, 'event:platform_edit') ||
-      sessionCan(session, 'event:import'),
+      sessionCan(session, 'event:import') ||
+      sessionCan(session, 'payment_terms:manage') ||
+      sessionCan(session, 'referral_code:manage') ||
+      sessionCan(session, 'platform_fee:refund') ||
+      sessionCan(session, 'venue_booking:cancel'),
     refusal:
       'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
   },

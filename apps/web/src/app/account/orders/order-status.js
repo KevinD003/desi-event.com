@@ -27,6 +27,7 @@
  * @module app/account/orders/order-status
  */
 
+import { formatAmount } from '../../../lib/pricing.js'
 import { REACHABLE_STATUSES, TICKET_STATUS_WORDS } from '../../../lib/wallet.js'
 import {
   formatEventDate,
@@ -77,6 +78,139 @@ export const TICKET_STATUS = TICKET_STATUS_WORDS
  */
 export function orderStatusMeaning(status) {
   return ORDER_STATUS[status] ?? { label: String(status ?? 'Unknown'), tone: 'neutral' }
+}
+
+/**
+ * Whether an order's ticket price is paid at the door (SPEC3 §9).
+ *
+ * @param {object} order The order.
+ * @returns {boolean} True for a booking to pay at the venue.
+ */
+export function paidAtVenue(order) {
+  return order?.paymentMethod === 'AT_VENUE'
+}
+
+/**
+ * What an order is called, whatever way it is paid (SPEC3 §12.7, SPEC3-XI
+ * §12.7).
+ *
+ * A card order reads as {@link ORDER_STATUS} says. A booking to pay at the
+ * venue that is placed reads from where it stands at the door
+ * (`venuePayment.state`, the server's `venuePaymentStateOf`), so nothing reads
+ * "Paid" for a booking that still owes money: the buyer's own tickets to pay,
+ * paid at the door, passed on to people who pay with their own tickets, or
+ * cancelled because they were not paid. Refunded, only the booking fee went
+ * back (simulated), or part of it when some was kept for cancelled tickets.
+ *
+ * @param {object} order The order, with `paymentMethod` and `venuePayment`.
+ * @returns {StatusMeaning} The words and the tone.
+ */
+export function orderStatusFor(order) {
+  if (!paidAtVenue(order)) return orderStatusMeaning(order?.status)
+
+  const venue = order.venuePayment ?? null
+
+  if (order.status === 'REFUNDED') {
+    return (venue?.feeKeptCents ?? 0) > 0
+      ? { label: 'Booking fee partly refunded — simulated', tone: 'info' }
+      : { label: 'Booking fee refunded — simulated', tone: 'info' }
+  }
+
+  if (order.status !== 'PAID' || !venue) return orderStatusMeaning(order.status)
+
+  switch (venue.state) {
+    case 'TO_PAY':
+      return {
+        label: `Booked — pay ${formatAmount(venue.unpaidCents, order.currency)} at the door`,
+        tone: 'pending',
+      }
+    case 'PAID':
+      return { label: 'Paid at the door', tone: 'success' }
+    case 'PASSED_ON':
+      return { label: 'Passed on — the new holder pays at the door', tone: 'info' }
+    case 'CANCELLED':
+      return { label: 'Cancelled — not paid at the door', tone: 'neutral' }
+    default:
+      return orderStatusMeaning(order.status)
+  }
+}
+
+/**
+ * What one of the buyer's tickets on a pay-at-the-venue order says about the
+ * door, instead of its status word, when that says more (SPEC3-XI §12.7): a
+ * ticket cancelled because it was not paid for, or one passed on, whose new
+ * holder pays.
+ *
+ * A passed-on row names what its new holder pays unless {@link owingPassedOnTickets}
+ * could not tell which of the rows still owe and they owe different amounts;
+ * it then says the order status's words for a booking passed on, without an
+ * amount.
+ *
+ * @param {object} ticket A ticket from the order, with `venuePayment` and `purchaserHolding`.
+ * @param {string} currency The order's currency.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.dueKnown] Whether this row's amount is the one still owed.
+ * @returns {StatusMeaning|null} The words and the tone, or null when the status word stands.
+ */
+export function venueTicketMeaning(ticket, currency, { dueKnown = true } = {}) {
+  const venue = ticket?.venuePayment ?? null
+
+  if (!venue) return null
+  if (venue.cancelled) return { label: 'Cancelled — not paid', tone: 'neutral' }
+
+  if (ticket.purchaserHolding === 'TRANSFERRED_AWAY' && !venue.paid) {
+    return {
+      label: dueKnown
+        ? `Passed on — its new holder pays ${formatAmount(venue.dueCents, currency)} at the door`
+        : 'Passed on — the new holder pays at the door',
+      tone: 'info',
+    }
+  }
+
+  return null
+}
+
+/**
+ * The buyer's rows for the tickets they passed on that still owe at the door,
+ * for a pay-at-the-venue order's ticket list (SPEC3-XI §12.7), so the buyer
+ * sees whose turn it is to pay.
+ *
+ * Such a row is the buyer's own earlier ticket. A payment at the door, or a
+ * cancellation of the ticket unpaid, lands on the ticket its new holder has
+ * now, never on this row (XT2), so the row's own `venuePayment` reads unpaid
+ * whatever became of the ticket since. How many of them still owe is the
+ * order's to say: `venuePayment.passedOnUnpaidTickets`, counted from the
+ * tickets as they stand. So no more rows than that are listed, and none at
+ * all once the new holders have paid or the tickets were cancelled; nor more
+ * than are missing from the buyer's current tickets (`room`), so a ticket
+ * handed on and back is not counted twice.
+ *
+ * Which of the rows still owe the order does not say. Every row's amount is
+ * the one owed when all of them still owe, or when they all owe the same;
+ * otherwise `dueKnown` is false and their words leave the amount out rather
+ * than guess it.
+ *
+ * @param {object} order The order, with `tickets` and `venuePayment`.
+ * @param {number} room How many of the order's tickets are not among the buyer's current ones.
+ * @returns {{tickets: object[], dueKnown: boolean}} The rows to list, and whether their amounts stand.
+ */
+export function owingPassedOnTickets(order, room) {
+  const rows = (order?.tickets ?? []).filter(
+    (ticket) =>
+      ticket.supersededByLaterTicket &&
+      ticket.purchaserHolding === 'TRANSFERRED_AWAY' &&
+      ticket.venuePayment &&
+      !ticket.venuePayment.paid &&
+      !ticket.venuePayment.cancelled,
+  )
+  const owing = Math.max(
+    0,
+    Math.min(Number(room) || 0, order?.venuePayment?.passedOnUnpaidTickets ?? 0),
+  )
+  const tickets = rows.slice(0, owing)
+  const amounts = new Set(rows.map((ticket) => ticket.venuePayment.dueCents))
+
+  return { tickets, dueKnown: tickets.length === rows.length || amounts.size <= 1 }
 }
 
 /**

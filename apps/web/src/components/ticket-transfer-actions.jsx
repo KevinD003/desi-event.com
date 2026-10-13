@@ -29,6 +29,14 @@
  * The field is a password input for the same reason a password is: this screen
  * gets used on a train.
  *
+ * ## A ticket booked to pay at the door
+ *
+ * Is offered on like any other (SPEC3-XI XT1): what is due stays with the
+ * ticket, and whoever holds it pays at the door. The holder is told before
+ * sending, above the address; the code panel says what to tell the person it
+ * is for, because with codes not emailed nobody else will; and the person
+ * accepting is told the amount once it is theirs.
+ *
  * ## Nothing here decides anything
  *
  * Whether a ticket may be handed on, whether an invitation is still live,
@@ -50,6 +58,39 @@ import { Alert, Button, FormField, Input, Textarea } from './ui.jsx'
 import { OneTimeCodePanel } from './one-time-code-panel.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { formatAmount } from '../lib/pricing.js'
+import { owesAtDoor } from '../lib/wallet.js'
+
+/**
+ * What the offer form says, above the address, about a ticket whose price is
+ * paid at the door (SPEC3-XI §12.7).
+ *
+ * @param {string} due The amount, formatted.
+ * @returns {string} The sentence.
+ */
+export function transferDueSentence(due) {
+  return `This ticket’s price, ${due}, is paid at the door. Whoever you pass it to pays it when they arrive, and you no longer do.`
+}
+
+/**
+ * What the code panel adds for such a ticket: what to tell the person it is for.
+ *
+ * @param {string} due The amount, formatted.
+ * @returns {string} The sentence.
+ */
+export function tellThemSentence(due) {
+  return `Tell them: whoever holds this ticket pays ${due} at the door.`
+}
+
+/**
+ * What accepting a ticket that owes its price at the door says (SPEC3-XI §12.7).
+ *
+ * @param {string} due The amount, formatted.
+ * @returns {string} The sentence.
+ */
+export function acceptedDueSentence(due) {
+  return `Ticket accepted. Pay ${due} at the door when you arrive: the steward takes it before letting you in.`
+}
 
 /**
  * The states a ticket can be offered from.
@@ -128,6 +169,10 @@ export function TicketTransferActions({
   const outstanding = transfers.find((transfer) => transfer.status === 'PENDING') ?? null
   const offerable = holder && OFFERABLE.includes(ticket.status) && !outstanding
   const withdrawable = holder && Boolean(outstanding)
+  // What is due at the door goes with the ticket to whoever holds it next.
+  const due = owesAtDoor(ticket)
+    ? formatAmount(ticket.venuePayment.dueCents, ticket.venuePayment.currency)
+    : null
 
   // Leaving the page drops the code. Hiding the tab does not: the sender has
   // to be able to switch to a messaging app and paste it.
@@ -198,6 +243,8 @@ export function TicketTransferActions({
             code,
             recipient: parsed.data.toEmailMasked ?? null,
             expiresAt: parsed.data.expiresAt ?? null,
+            // Read now: the page redraws once the offer is made.
+            due,
           })
         }
 
@@ -227,6 +274,11 @@ export function TicketTransferActions({
         {announcement}
       </p>
 
+      {/* What the ticket owes at the door, or why it no longer does, is not an
+          action: the ticket's page draws it under "Where it stands", in the
+          event's own time zone (`VenuePaymentNote`). This panel says only what
+          passing the ticket on means for that amount. */}
+
       {issued ? (
         <OneTimeCodePanel
           code={issued.code}
@@ -237,6 +289,9 @@ export function TicketTransferActions({
           acceptPath="/tickets/accept"
           acceptPlace="Your account → Transfers → Accept a ticket"
           lostAdvice="If you lose it, withdraw the offer and make a new one."
+          // Inside the panel, with what to tell them and before its buttons
+          // (SPEC3-XI §12.7, XT6).
+          note={issued.due ? tellThemSentence(issued.due) : null}
           onDone={() => setIssued(null)}
         />
       ) : null}
@@ -336,6 +391,7 @@ export function TicketTransferActions({
           {pending === 'offer' ? (
             <>
               <h3 className="font-semibold text-ink">Offer this ticket</h3>
+              {due ? <p className="mt-2 text-sm text-ink">{transferDueSentence(due)}</p> : null}
               <div className="mt-3">
                 <FormField
                   label="Their email address"
@@ -527,8 +583,15 @@ export function TicketTransferResponse() {
   }
 
   if (accepted) {
+    const owed = accepted.venuePayment ?? null
+
     return (
       <Alert variant="success" title="It is yours">
+        {(owed?.dueCents ?? 0) > 0 ? (
+          <p className="mb-2 font-medium">
+            {acceptedDueSentence(formatAmount(owed.dueCents, owed.currency))}
+          </p>
+        ) : null}
         <p>
           The ticket is in your account now, and the pass the sender was holding has stopped
           working. Open it from your tickets to show it at the door.

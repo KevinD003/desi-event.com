@@ -3,9 +3,9 @@
  *
  * Every one goes through `apiFetch`, the same-origin proxy, so the holds and
  * orders belong to the signed-in account and the session cookie never leaves
- * this origin. Nothing here puts a promo code, a guest's name or a seat in a
- * URL: they travel in request bodies, which are not written to access logs or
- * kept in browser history.
+ * this origin. Nothing here puts a promo code, a referral code, a guest's name
+ * or a seat in a URL: they travel in request bodies, which are not written to
+ * access logs or kept in browser history, and nothing here stores them.
  *
  * Every refusal is thrown as an `Error` carrying the API's `status`, `code` and
  * `message`, the shape `describeApiRefusal` reads.
@@ -14,7 +14,14 @@
  */
 
 import { apiFetch } from './api-fetch.js'
+import { formatAmount } from './pricing.js'
 import { refusalFromResponse } from './refusal.js'
+
+/** Paying the ticket price by card, online (the default). */
+export const CARD = 'CARD'
+
+/** Paying the ticket price at the door, and only the booking fee online (SPEC3 §9). */
+export const AT_VENUE = 'AT_VENUE'
 
 /**
  * An error carrying a refusal, in the shape `describeApiRefusal` reads.
@@ -131,10 +138,19 @@ export async function loadSeatMapThroughApi(sessionId) {
  * @param {Array<{ticketTypeId: string, quantity: number}>} request.lines The lines.
  * @param {string} [request.promoCode] A code the buyer typed.
  * @param {string[]} [request.holdIds] The holds the order will spend.
+ * @param {'CARD'|'AT_VENUE'} [request.paymentMethod] How the ticket price would be paid; CARD when not said.
+ * @param {string} [request.referralCode] A referral code the buyer typed, in the body and nowhere else.
  * @returns {Promise<object>} The quote's `data`.
  * @throws {Error} A refusal or a network failure.
  */
-export async function quoteThroughApi({ eventId, lines, promoCode, holdIds }) {
+export async function quoteThroughApi({
+  eventId,
+  lines,
+  promoCode,
+  holdIds,
+  paymentMethod,
+  referralCode,
+}) {
   const response = await apiFetch('/v1/orders/quote', {
     method: 'POST',
     body: JSON.stringify({
@@ -142,6 +158,8 @@ export async function quoteThroughApi({ eventId, lines, promoCode, holdIds }) {
       items: lines.map(({ ticketTypeId, quantity }) => ({ ticketTypeId, quantity })),
       ...(promoCode ? { promoCode } : {}),
       ...(holdIds && holdIds.length > 0 ? { holdIds } : {}),
+      ...(paymentMethod === AT_VENUE ? { paymentMethod: AT_VENUE } : {}),
+      ...(referralCode ? { referralCode } : {}),
     }),
   })
 
@@ -165,7 +183,10 @@ export async function quoteThroughApi({ eventId, lines, promoCode, holdIds }) {
  * @param {string} request.idempotencyKey This attempt's key.
  * @param {string} [request.promoCode] A code the quote applied.
  * @param {Array<{ticketTypeId: string, eventSeatId?: string, name: string}>} [request.attendees] Guests' names; blank ones already dropped.
- * @param {number} [request.expectedTotalCents] The total the buyer was shown.
+ * @param {number} [request.expectedTotalCents] The total the buyer was shown: what is paid online.
+ * @param {'CARD'|'AT_VENUE'} [request.paymentMethod] How the ticket price is paid; CARD when not said.
+ * @param {string} [request.referralCode] A referral code the quote applied.
+ * @param {number} [request.expectedVenueDueCents] For AT_VENUE, what the buyer was shown for the door.
  * @returns {Promise<object>} The order.
  * @throws {Error} A refusal or a network failure.
  */
@@ -178,7 +199,12 @@ export async function placeOrderThroughApi({
   promoCode,
   attendees,
   expectedTotalCents,
+  paymentMethod,
+  referralCode,
+  expectedVenueDueCents,
 }) {
+  const atVenue = paymentMethod === AT_VENUE
+
   const response = await apiFetch('/v1/orders', {
     method: 'POST',
     headers: { 'idempotency-key': idempotencyKey },
@@ -191,6 +217,9 @@ export async function placeOrderThroughApi({
       ...(promoCode ? { promoCode } : {}),
       ...(attendees && attendees.length > 0 ? { attendees } : {}),
       ...(Number.isInteger(expectedTotalCents) ? { expectedTotalCents } : {}),
+      ...(atVenue ? { paymentMethod: AT_VENUE } : {}),
+      ...(referralCode ? { referralCode } : {}),
+      ...(atVenue && Number.isInteger(expectedVenueDueCents) ? { expectedVenueDueCents } : {}),
     }),
   })
 
@@ -224,4 +253,181 @@ export function heldUntil(holds) {
   return new Intl.DateTimeFormat('en-US', { timeStyle: 'short' }).format(
     new Date(Math.min(...times)),
   )
+}
+
+// ---------------------------------------------------------------------------
+// Paying at the venue and referral codes (SPEC3 §6.5, §12.1; SPEC3-XI §12.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * What the polite live region says when "Pay at the venue" stops being offered
+ * while it was chosen: the choice goes back to card (SPEC3 §12.1).
+ */
+export const VENUE_UNAVAILABLE_ANNOUNCEMENT =
+  'Paying at the venue is not available for this booking. The total is for paying by card.'
+
+/** The urgent alert when the switch went off between the quote and Pay (SPEC3 §6.5). */
+export const VENUE_SWITCHED_OFF_SENTENCE =
+  'Paying at the venue was switched off for this event while you were booking. Nothing has been charged. The total is now for paying by card.'
+
+/** The urgent alert when a referral code stopped applying between the quote and Pay. */
+export const REFERRAL_WITHDRAWN_SENTENCE =
+  'Your referral code can no longer be used for this booking, so the booking fee is back. Nothing has been charged. Check the new total, then pay.'
+
+/**
+ * The refusals that mean paying at the venue cannot be had for this booking
+ * now: the switch is off, the event's limit is reached, the event is online or
+ * sold elsewhere, or there is no ticket price left to pay at the door.
+ *
+ * @type {ReadonlySet<string>}
+ */
+export const VENUE_REFUSAL_CODES = new Set([
+  'VENUE_PAYMENT_OFF',
+  'VENUE_PAYMENT_FULL',
+  'VENUE_PAYMENT_UNAVAILABLE',
+  'NOTHING_TO_PAY_AT_VENUE',
+])
+
+/**
+ * Whether "Pay at the venue" is offered for this basket: the latest quote
+ * says so, or, before anything is held, the event does, and the ticket price
+ * after any promo is above 0 (SPEC3 §12.1).
+ *
+ * @param {object} options What the checkout knows.
+ * @param {object|null} options.quote The latest quote, or null.
+ * @param {object|null} [options.event] The event, with `venuePayment` as the public detail sends it.
+ * @param {object|null} [options.estimate] The browser's estimate, used before a quote.
+ * @returns {boolean} Whether the choice is shown.
+ */
+export function venuePaymentOffered({ quote, event = null, estimate = null }) {
+  if (quote) {
+    const price = (quote.subtotalCents ?? 0) - (quote.discountCents ?? 0)
+
+    // A quote priced to pay at the venue was accepted as one, so it is on
+    // offer; a card quote says so itself.
+    if (quote.paymentMethod === AT_VENUE) return price > 0
+
+    return quote.venuePayment?.available === true && price > 0
+  }
+
+  const price = (estimate?.subtotalCents ?? 0) - (estimate?.discountCents ?? 0)
+
+  return event?.venuePayment?.available === true && price > 0
+}
+
+/**
+ * What a quote or an estimate says is paid online and at the door.
+ *
+ * @param {object|null} figures A quote, an estimate or summary totals.
+ * @returns {{online: number, due: number, atVenue: boolean}} The two amounts.
+ */
+export function paymentParts(figures) {
+  const atVenue = figures?.paymentMethod === AT_VENUE
+
+  return {
+    atVenue,
+    online: figures?.totalCents ?? 0,
+    due: atVenue ? (figures?.venueDueCents ?? 0) : 0,
+  }
+}
+
+/**
+ * The Pay button's words for a quote (SPEC3 §12.1).
+ *
+ * @param {object|null} quote The server's quote, or null when there is none.
+ * @returns {string} "Pay $49.31 (simulated)", "Pay booking fee $5.31 (simulated)",
+ *   "Book now — pay $45.00 at the door", or "Pay (simulated)" without a quote.
+ */
+export function payButtonLabel(quote) {
+  if (!quote) return 'Pay (simulated)'
+
+  const { atVenue, online, due } = paymentParts(quote)
+
+  if (!atVenue) return `Pay ${formatAmount(online, quote.currency)} (simulated)`
+  if (online > 0) return `Pay booking fee ${formatAmount(online, quote.currency)} (simulated)`
+
+  return `Book now — pay ${formatAmount(due, quote.currency)} at the door`
+}
+
+/**
+ * What the polite live region says when a quote to pay at the venue arrives.
+ *
+ * @param {object} quote The quote.
+ * @returns {string} The sentence, or empty for a card quote.
+ */
+export function totalUpdatedAnnouncement(quote) {
+  const { atVenue, online, due } = paymentParts(quote)
+
+  if (!atVenue) return ''
+
+  return `Total updated: pay now ${formatAmount(online, quote.currency)}, at the door ${formatAmount(due, quote.currency)}.`
+}
+
+/**
+ * Whether the booking fee's own terms moved between two quotes: the
+ * percentage or the amount per ticket an administrator sets. A fee that moved
+ * only because the ticket price did (a promo that ran out) is not this.
+ *
+ * @param {object|null} before The quote the buyer pressed Pay on.
+ * @param {object|null} after The quote asked for once Pay was refused.
+ * @returns {boolean} True when the terms differ.
+ */
+export function feeTermsChanged(before, after) {
+  if (!before?.fee || !after?.fee) return false
+
+  return (
+    before.fee.percentageBps !== after.fee.percentageBps ||
+    before.fee.flatCentsPerTicket !== after.fee.flatCentsPerTicket
+  )
+}
+
+/**
+ * What the checkout says once Pay was refused with `PRICE_CHANGED` and the
+ * quote was asked for again (SPEC3 §6.5): whether the administrators changed
+ * the booking fee, which is urgent, or the price moved for another reason,
+ * which is today's notice.
+ *
+ * @param {object|null} before The quote Pay was pressed on.
+ * @param {object} after The new quote.
+ * @returns {{urgent: boolean, title: string, sentence: string}} What to show.
+ */
+export function priceChangedNotice(before, after) {
+  const { atVenue, online, due } = paymentParts(after)
+  const money = (cents) => formatAmount(cents, after.currency)
+
+  if (feeTermsChanged(before, after)) {
+    return {
+      urgent: true,
+      title: 'The booking fee changed',
+      sentence: atVenue
+        ? `The booking fee for this event changed while you were booking. Pay now ${money(online)}, at the door ${money(due)}. Nothing has been charged. Check the summary, then confirm.`
+        : `The booking fee for this event changed while you were booking. It is now ${money(after.feesCents)}. Nothing has been charged. Check the new total, then pay.`,
+    }
+  }
+
+  return {
+    urgent: false,
+    title: 'The total changed',
+    sentence: atVenue
+      ? `The price changed. Pay now ${money(online)}, at the door ${money(due)}. Nothing was charged. Check the summary and confirm again.`
+      : `The total is now ${money(online)}. Nothing was charged. Check the summary and pay again.`,
+  }
+}
+
+/**
+ * What the urgent alert says when paying at the venue could not be had at Pay
+ * (SPEC3 §6.5): the switch's own sentence, or the API's own for the others
+ * ("Paying at the venue is full for this event. You can still pay by card.").
+ *
+ * @param {object} error The refusal, as `refusalError` built it.
+ * @returns {string} The sentence.
+ */
+export function venueRefusalSentence(error) {
+  if (error?.code === 'VENUE_PAYMENT_OFF') return VENUE_SWITCHED_OFF_SENTENCE
+
+  const message = typeof error?.message === 'string' ? error.message.trim() : ''
+
+  return message && !/^The API answered \d{3}\.?$/u.test(message)
+    ? message
+    : 'Paying at the venue is not available for this booking now. Nothing has been charged. The total is now for paying by card.'
 }

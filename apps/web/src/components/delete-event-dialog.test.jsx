@@ -130,6 +130,59 @@ describe('DeleteEventDialog', () => {
     expect(within(region).getByText('diwali-mela-2026', { selector: 'code' })).toBeInTheDocument()
   })
 
+  it('says that only the booking fee paid online is refunded for bookings paid at the venue, and who holds the door money', async () => {
+    routes({
+      [PREVIEW]: answer(200, {
+        data: preview({ atVenue: { orders: 2, ticketsPaidAtDoor: 3, paidAtDoorCents: 12_000 } }),
+      }),
+    })
+    await openDialog()
+
+    expect(
+      await screen.findByText(
+        'For tickets paid at the venue, only the booking fee paid online is refunded (simulated).',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('says only who holds the door money when the deletion refunds nothing', async () => {
+    routes({
+      [PREVIEW]: answer(200, {
+        data: preview({
+          outcome: 'REMOVE_AFTER_EVENT',
+          atVenue: { orders: 2, ticketsPaidAtDoor: 1, paidAtDoorCents: 4_000 },
+        }),
+      }),
+    })
+    await openDialog()
+
+    expect(
+      await screen.findByText(
+        'Payment taken at the door for 1 of these tickets ($40.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/only the booking fee paid online is refunded/u)).toBeNull()
+  })
+
+  it('says nothing about paying at the venue when no booking was made to pay there', async () => {
+    routes({
+      [PREVIEW]: answer(200, {
+        data: preview({ atVenue: { orders: 0, ticketsPaidAtDoor: 0, paidAtDoorCents: 0 } }),
+      }),
+    })
+    await openDialog()
+
+    await screen.findByRole('button', { name: 'Cancel, refund and delete' })
+
+    expect(screen.queryByText(/paid at the venue/u)).toBeNull()
+    expect(screen.queryByText(/held by the organiser/u)).toBeNull()
+  })
+
   it('says what removing an unsold event does', async () => {
     routes({ [PREVIEW]: answer(200, { data: preview({ outcome: 'REMOVE' }, { paidOrders: 0 }) }) })
     await openDialog()

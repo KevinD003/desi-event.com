@@ -10,8 +10,20 @@
  * Nothing here decides anything. Whether a ticket admits is the server's
  * answer; this module only puts it into words.
  *
+ * ## Money taken at the door
+ *
+ * A ticket booked to pay at the venue owes its price at the door (SPEC3 §9.3).
+ * The preview says what to take; the steward takes it and admits in one step,
+ * and the confirmation records the payment with the admission. The sentences
+ * for that, and for what the cancellation and deletion screens say about money
+ * taken at the door (the organiser holds it, never Desi-Event, SPEC3 §9.7),
+ * are here too, so every screen says it the same way. Amounts arrive in cents
+ * and are written with `formatAmount`, in the order's or event's currency.
+ *
  * @module lib/door
  */
+
+import { formatAmount } from './pricing.js'
 
 /**
  * A steward-facing sentence for each admission refusal code.
@@ -54,6 +66,74 @@ export const LOOK_AGAIN = Object.freeze([
   'PREVIEW_MISMATCH',
   'GROUP_CHANGED',
 ])
+
+/**
+ * Refusals the door names in a heading of their own, rather than the plain
+ * "Do not admit" (SPEC3-XI §12.8).
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const REFUSAL_HEADINGS = Object.freeze({
+  UNPAID_CANCELLED: 'Cancelled — not paid',
+})
+
+/**
+ * The heading for a refusal, or null when it has none of its own.
+ *
+ * @param {string|null|undefined} code A refusal code.
+ * @returns {string|null} The heading.
+ */
+export function refusalHeading(code) {
+  return REFUSAL_HEADINGS[code] ?? null
+}
+
+/**
+ * The API's refusals of a payment taken at the door (SPEC3 §9.3). Not
+ * admission refusals: an amount due is a state of the ticket, not a reason it
+ * may never be let in. Each is answered by looking the ticket up again.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const PAYMENT_REFUSALS = Object.freeze([
+  'PAYMENT_DUE',
+  'PAYMENT_AMOUNT_MISMATCH',
+  'PAYMENT_NOT_RECORDED',
+])
+
+/**
+ * What to say for a payment refusal whose answer carried no sentence. The API
+ * always sends its own; these keep the screen honest when it did not arrive.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+const PAYMENT_FALLBACKS = Object.freeze({
+  PAYMENT_DUE: 'Take the payment for this ticket before letting it in.',
+  PAYMENT_AMOUNT_MISMATCH:
+    "The amount doesn't match what this ticket owes. Look the ticket up again.",
+  PAYMENT_NOT_RECORDED:
+    'The payment was not recorded because the booking changed at the same moment. Look the ticket up again; nothing was recorded and nobody was let in.',
+})
+
+/**
+ * A confirmation that took a payment and got no answer (SPEC3 §12.8): urgent,
+ * because the steward is holding somebody's money.
+ *
+ * @type {string}
+ */
+export const PAYMENT_NO_ANSWER =
+  'No answer from the server. The payment may or may not have been recorded, and the ticket may or may not be in. Keep the money in hand and press Retry: it cannot record the payment twice.'
+
+/**
+ * A ticket that owed a payment, found admitted by somebody else on retry or
+ * on confirmation (SPEC3 §12.8).
+ *
+ * @type {string}
+ */
+export const ANOTHER_STEWARD_PAID =
+  'Already admitted by another steward. Their payment record covers this ticket; do not take the money again.'
+
+/** A ticket paid at the door on an earlier night, which admits as usual. */
+export const PAID_EARLIER = 'Paid at the door earlier'
 
 /**
  * The sentence for a refusal code, with a safe fallback for one this build
@@ -128,17 +208,41 @@ export function lookupFailure(status) {
 /**
  * What to tell a steward when a confirmation is not answered with a result.
  *
+ * A refusal of the payment (`PAYMENT_DUE`, `PAYMENT_AMOUNT_MISMATCH`,
+ * `PAYMENT_NOT_RECORDED`) is said in the API's own sentence, which names the
+ * amount, and is answered by looking the ticket up again. No answer at all,
+ * when a payment was being taken, is said as the money it is (SPEC3 §12.8).
+ *
  * @param {number} status The HTTP status, or 0 for no answer.
- * @param {string|null} [reason] The refusal code, for a 409.
- * @returns {{sentence: string, lookAgain: boolean, uncertain: boolean}} What to say and what to offer.
+ * @param {string|null} [reason] The admission refusal code, for a 409.
+ * @param {object} [refusal] More of the answer.
+ * @param {string|null} [refusal.code] The error code.
+ * @param {string|null} [refusal.message] The API's sentence.
+ * @param {boolean} [refusal.payment] Whether the confirmation was taking a payment.
+ * @returns {{sentence: string, lookAgain: boolean, uncertain: boolean, reason: string|null}} What to say and what to offer.
  */
-export function confirmFailure(status, reason = null) {
+export function confirmFailure(status, reason = null, refusal = {}) {
+  const { code = null, message = null, payment = false } = refusal ?? {}
+
   if (status === 0) {
     return {
-      sentence:
-        'No answer from the server, so this may or may not have admitted them. Retry — a ticket cannot be admitted twice, and the answer will say which it was.',
+      sentence: payment
+        ? PAYMENT_NO_ANSWER
+        : 'No answer from the server, so this may or may not have admitted them. Retry — a ticket cannot be admitted twice, and the answer will say which it was.',
       lookAgain: false,
       uncertain: true,
+      reason: null,
+    }
+  }
+
+  if (code && PAYMENT_REFUSALS.includes(code)) {
+    const said = typeof message === 'string' ? message.trim() : ''
+
+    return {
+      sentence: said || PAYMENT_FALLBACKS[code],
+      lookAgain: true,
+      uncertain: false,
+      reason: code,
     }
   }
 
@@ -147,6 +251,7 @@ export function confirmFailure(status, reason = null) {
       sentence: refusalSentence(reason),
       lookAgain: LOOK_AGAIN.includes(reason),
       uncertain: false,
+      reason,
     }
   }
 
@@ -155,6 +260,7 @@ export function confirmFailure(status, reason = null) {
       sentence: 'You are no longer assigned to this event. Nothing was admitted.',
       lookAgain: false,
       uncertain: false,
+      reason: null,
     }
   }
 
@@ -163,10 +269,11 @@ export function confirmFailure(status, reason = null) {
       sentence: 'That ticket no longer matches. Nothing was admitted. Look it up again.',
       lookAgain: true,
       uncertain: false,
+      reason: null,
     }
   }
 
-  return { sentence: lookupFailure(status), lookAgain: false, uncertain: false }
+  return { sentence: lookupFailure(status), lookAgain: false, uncertain: false, reason: null }
 }
 
 /**
@@ -316,4 +423,136 @@ export function groupSessionName(tickets) {
   const others = tickets.length - 1
 
   return others > 0 ? `${named} and ${others} more` : named
+}
+
+/**
+ * How many tickets, in words.
+ *
+ * @param {number} count How many.
+ * @returns {string} "ticket" or "tickets".
+ */
+function ticketWord(count) {
+  return count === 1 ? 'ticket' : 'tickets'
+}
+
+/**
+ * What to take for one ticket at the door (SPEC3 §12.8).
+ *
+ * @param {number} dueCents What the ticket owes.
+ * @param {string} currency The order's currency.
+ * @returns {string} The sentence.
+ */
+export function takePaymentSentence(dueCents, currency) {
+  return `Take ${formatAmount(dueCents, currency)} for this ticket before letting them in.`
+}
+
+/**
+ * What else of the booking the same holder still owes at the door, for
+ * information (SPEC3-XI §12.8): only the holder's own tickets are counted, and
+ * the group pass is suggested only when it covers them, which it does when the
+ * holder is the buyer.
+ *
+ * @param {{otherUnpaidTickets: number, otherUnpaidCents: number, groupPass?: boolean}|null|undefined} booking The preview's `payment.booking`.
+ * @param {string} currency The order's currency.
+ * @returns {string|null} The sentence, or null when nothing else is owed.
+ */
+export function bookingOwesSentence(booking, currency) {
+  const count = booking?.otherUnpaidTickets ?? 0
+
+  if (count < 1) return null
+
+  const owes = `This booking has ${count} more ${ticketWord(count)} to pay at the door (${formatAmount(booking.otherUnpaidCents ?? 0, currency)}).`
+
+  return booking.groupPass
+    ? `${owes} Use the group pass to take payment for several at once.`
+    : owes
+}
+
+/**
+ * The booking's tickets now held by other people that still owe, who pay at
+ * the door with their own tickets (SPEC3-XI §12.8).
+ *
+ * @param {number|null|undefined} count `payment.handedOnUnpaidTickets`.
+ * @returns {string|null} The sentence, or null for none.
+ */
+export function handedOnUnpaidSentence(count) {
+  if (!count || count < 1) return null
+
+  return `${count} more ${ticketWord(count)} of this booking ${count === 1 ? 'was' : 'were'} passed on to other people, who pay at the door with their own ${ticketWord(count)}.`
+}
+
+/**
+ * The button that records the payment and admits, in one step.
+ *
+ * @param {string} amount The amount, written.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.retry] Whether this repeats a confirmation that got no answer.
+ * @param {number|null} [options.count] For a group, how many are admitted.
+ * @returns {string} The label.
+ */
+export function admitWithPaymentLabel(amount, { retry = false, count = null } = {}) {
+  const admit = count === null ? 'admit' : `admit ${count}`
+
+  return retry ? `Retry: payment taken ${amount} — ${admit}` : `Payment taken: ${amount} — ${admit}`
+}
+
+/**
+ * What a group still owes for the tickets ticked, said as the ticks change.
+ *
+ * @param {string} amount The amount, written.
+ * @returns {string} The line.
+ */
+export function groupPaymentLine(amount) {
+  return `Payment to take for the ticked tickets: ${amount}`
+}
+
+/**
+ * An admission that recorded a payment, or found it recorded on a retry by
+ * this steward (SPEC3 §12.8).
+ *
+ * @param {string} amount The amount, written.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.retried] Whether the retry found it already done.
+ * @returns {string} The sentence.
+ */
+export function paymentRecordedSentence(amount, { retried = false } = {}) {
+  return retried
+    ? `Admitted (confirmed on retry). Payment recorded: ${amount}.`
+    : `Admitted. Payment recorded: ${amount}.`
+}
+
+/**
+ * What cancelling an event or a night, or deleting an event, means for
+ * bookings made to pay at the venue (SPEC3 §9.7): only their booking fee paid
+ * online is refunded to them, simulated, and money taken at the door stays
+ * with the organiser, who holds it.
+ *
+ * The first sentence is about the refund, so it is left out where nothing is
+ * refunded (`refunds: false`, a deletion that only takes down the page of an
+ * event that took place); the second is true whatever happens.
+ *
+ * @param {{orders: number, ticketsPaidAtDoor: number, paidAtDoorCents: number}|null|undefined} atVenue The preview's facts.
+ * @param {string} [currency] The event's currency.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.refunds] Whether the step refunds the bookings' online part.
+ * @returns {string[]} The sentences, none when no booking was made to pay at the venue.
+ */
+export function atVenueSentences(atVenue, currency = 'USD', { refunds = true } = {}) {
+  if (!atVenue) return []
+
+  const sentences = []
+
+  if (refunds && (atVenue.orders ?? 0) > 0) {
+    sentences.push(
+      'For tickets paid at the venue, only the booking fee paid online is refunded (simulated).',
+    )
+  }
+
+  if ((atVenue.ticketsPaidAtDoor ?? 0) > 0) {
+    sentences.push(
+      `Payment taken at the door for ${atVenue.ticketsPaidAtDoor} of these tickets (${formatAmount(atVenue.paidAtDoorCents ?? 0, currency)}) is held by the organiser. Desi-Event does not hold it and cannot refund it.`,
+    )
+  }
+
+  return sentences
 }

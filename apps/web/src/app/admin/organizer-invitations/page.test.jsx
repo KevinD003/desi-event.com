@@ -284,6 +284,31 @@ describe('the organiser invitations screen', () => {
   })
 })
 
+describe('a session the area admits for something else', () => {
+  it('tells a finance administrator the page is not for them, and asks the API nothing', async () => {
+    // The administration area admits finance administrators for booking fee
+    // refunds alone (SPEC3 §12.11). Reaching this page by its address, they
+    // are refused here, and offered no invite form the API would refuse.
+    const { NOT_FOR_THIS_ACCOUNT } = await import('./organizer-invitation-vocabulary.js')
+
+    readSession.mockResolvedValue({
+      user: { displayName: 'Farah Finance', role: 'FINANCE_ADMIN' },
+      capabilities: ['finance:view', 'platform_fee:refund'],
+      memberships: [],
+      deliveryMode: 'MANUAL',
+    })
+
+    render(await OrganizerInvitationsPage({ searchParams: Promise.resolve({}) }))
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Organiser invitations' })).toBeVisible()
+    expect(screen.getByText('Not for this account')).toBeInTheDocument()
+    expect(screen.getByText(NOT_FOR_THIS_ACCOUNT)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Invite an organiser' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Invitations sent' })).toBeNull()
+    expect(getOrganizerInvitations).not.toHaveBeenCalled()
+  })
+})
+
 describe('readNameSearch', () => {
   it('keeps a search the API would take, trimmed, and drops any other', () => {
     expect(readNameSearch('  Bay Lights ')).toBe('Bay Lights')

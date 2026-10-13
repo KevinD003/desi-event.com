@@ -20,10 +20,19 @@ vi.mock('../../../../lib/organizer-api.js', () => ({
   listVenues: vi.fn(),
 }))
 vi.mock('../../../../lib/session.js', () => ({ readSession: vi.fn() }))
+vi.mock('../../../../lib/workspace-api.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  getPaymentTerms: vi.fn(),
+}))
 
 const api = await import('../../../../lib/organizer-api.js')
 const { readSession } = await import('../../../../lib/session.js')
-const { default: AdminEventPage, NOT_FOR_THIS_ACCOUNT } = await import('./page.jsx')
+const { getPaymentTerms } = await import('../../../../lib/workspace-api.js')
+const {
+  default: AdminEventPage,
+  NOT_FOR_THIS_ACCOUNT,
+  cheapestPaidTier,
+} = await import('./page.jsx')
 
 const ADMIN = {
   user: { id: 'u1' },
@@ -179,7 +188,13 @@ describe('one event, for the Desi-Event team', () => {
 
     await renderPage()
 
-    expect(screen.getByText(/edits an event only once it has been published/)).toBeInTheDocument()
+    // SPEC3 §12.3 reworded it: the details only, because the booking fee can be
+    // set before the event is published.
+    expect(
+      screen.getByText(
+        'The Desi-Event team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.',
+      ),
+    ).toBeInTheDocument()
     expect(screen.queryByLabelText(/Why are you editing this event/)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Its review page' })).toHaveAttribute(
       'href',
@@ -436,5 +451,125 @@ describe('one event, for the Desi-Event team', () => {
     await renderPage()
 
     expect(screen.queryByRole('button', { name: 'Move to an organisation…' })).toBeNull()
+  })
+})
+
+describe('the booking fee and payment (SPEC3 §12.3, SPEC3-XI §12.3)', () => {
+  /** An administrator who may set the booking fee and cancel unpaid tickets. */
+  const TERMS_ADMIN = {
+    ...ADMIN,
+    capabilities: [...ADMIN.capabilities, 'payment_terms:manage', 'venue_booking:cancel'],
+  }
+
+  /**
+   * The admin view of the event's terms.
+   *
+   * @param {object} [overrides] Fields to change.
+   * @returns {object} The view.
+   */
+  function view(overrides = {}) {
+    return {
+      eventId: EVENT.id,
+      eventStatus: 'ON_SALE',
+      isOnline: false,
+      soldOnSource: false,
+      posted: true,
+      fee: {
+        source: 'SITE_DEFAULT',
+        percentageBps: 450,
+        flatCentsPerTicket: 151,
+        currency: 'USD',
+        sequence: 0,
+        changedAt: null,
+        changedByName: null,
+        reason: null,
+      },
+      siteDefault: { currency: 'USD', percentageBps: 450, flatCentsPerTicket: 151 },
+      venuePayment: {
+        enabled: true,
+        limit: 50,
+        offered: true,
+        changedAt: null,
+        changedByName: null,
+        reason: null,
+        hasOrders: true,
+        unpaidTickets: 2,
+        paidAtDoorTickets: 0,
+        paidAtDoorCents: 0,
+      },
+      history: [],
+      historyHasMore: false,
+      ...overrides,
+    }
+  }
+
+  beforeEach(() => {
+    getPaymentTerms.mockReset()
+  })
+
+  it('draws the panel for an administrator who may set it, with the review link', async () => {
+    readSession.mockResolvedValue(TERMS_ADMIN)
+    getPaymentTerms.mockResolvedValue(view())
+    api.getEventTicketTypes.mockResolvedValue({
+      data: [
+        { id: 't1', priceCents: 0, currency: 'USD', visibility: 'PUBLIC' },
+        { id: 't2', priceCents: 4_000, currency: 'USD', visibility: 'PUBLIC' },
+      ],
+      meta: { revision: 7 },
+    })
+
+    await renderPage()
+
+    expect(screen.getByRole('heading', { name: 'Booking fee and payment' })).toBeInTheDocument()
+    expect(getPaymentTerms).toHaveBeenCalledWith(EVENT.id, {})
+    expect(
+      screen.getByRole('link', {
+        name: 'Bookings waiting to be paid at the door: 2 tickets — review',
+      }),
+    ).toHaveAttribute('href', `/admin/events/${EVENT.id}/venue-bookings`)
+    expect(screen.getByTestId('fee-example')).toHaveTextContent(
+      'A $40.00 ticket would carry a booking fee of $3.31.',
+    )
+  })
+
+  it('draws no panel for an administrator who may not set it', async () => {
+    readSession.mockResolvedValue(ADMIN)
+
+    await renderPage()
+
+    expect(screen.queryByRole('heading', { name: 'Booking fee and payment' })).toBeNull()
+    expect(getPaymentTerms).not.toHaveBeenCalled()
+  })
+
+  it('shows a member of the event’s organisation the panel read-only', async () => {
+    readSession.mockResolvedValue({
+      ...TERMS_ADMIN,
+      memberships: [{ organizationId: EVENT.organizationId, role: 'OWNER', capabilities: [] }],
+    })
+    getPaymentTerms.mockResolvedValue(view())
+
+    await renderPage()
+
+    expect(
+      screen.getByText(
+        'You belong to this event’s organisation, so another administrator has to change its booking fee and payment settings.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save booking fee' })).toBeNull()
+  })
+
+  it('takes the cheapest paid public tier for the example, and none when nothing is paid', () => {
+    expect(
+      cheapestPaidTier({
+        data: [
+          { priceCents: 2_000, currency: 'USD', visibility: 'HIDDEN' },
+          { priceCents: 0, currency: 'USD' },
+          { priceCents: 5_000, currency: 'USD' },
+          { priceCents: 4_000, currency: 'USD' },
+        ],
+      }),
+    ).toEqual({ priceCents: 4_000, currency: 'USD' })
+    expect(cheapestPaidTier({ data: [{ priceCents: 0, currency: 'USD' }] })).toBeNull()
+    expect(cheapestPaidTier(null)).toBeNull()
   })
 })

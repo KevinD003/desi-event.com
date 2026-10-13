@@ -10,6 +10,8 @@ import {
   priceSelection,
   resolveTaxPolicy,
   taxLabelForPlace,
+  taxNameForPlace,
+  taxNameInSentence,
 } from './pricing.js'
 
 describe('feeConfigForCurrency', () => {
@@ -229,5 +231,45 @@ describe('pricing with the fee terms the API published', () => {
     // 5.9% of ₹3,000 plus ₹0.99 on each ticket, not 2.5% plus ₹5.00.
     expect(published_.feesCents).not.toBe(defaults.feesCents)
     expect(published_.feesCents).toBe(Math.round(300_000 * 0.059) + 2 * 99)
+  })
+})
+
+describe('the tax’s name, for paying at the venue (SPEC3 §12.1)', () => {
+  it('names the place’s tax without its rate, and "Tax" where no policy applies', () => {
+    expect(taxNameForPlace({ country: 'US', region: 'NJ' })).toBe('Sales tax')
+    expect(taxNameForPlace({ country: 'IN' })).toBe('GST')
+    expect(taxNameForPlace({ country: 'GB' })).toBe('VAT')
+    expect(taxNameForPlace({ country: 'SG' })).toBe('Tax')
+    expect(taxNameForPlace({})).toBe('Tax')
+  })
+
+  it('keeps an acronym and lower-cases a name in words inside a sentence', () => {
+    expect(taxNameInSentence({ country: 'US', region: 'NJ' })).toBe('sales tax')
+    expect(taxNameInSentence({ country: 'IN' })).toBe('GST')
+    expect(taxNameInSentence({})).toBe('tax')
+  })
+})
+
+describe('priceSelection for paying at the venue', () => {
+  it('passes the way of paying to computeOrderTotals, and never a waiver', () => {
+    const lines = [{ ticketTypeId: 'tt1', name: 'Entry', quantity: 2, unitPriceCents: 4_000 }]
+    const { taxPolicy, ...totals } = priceSelection({
+      lines,
+      currency: 'USD',
+      place: { country: 'US', region: 'NJ' },
+      paymentMethod: 'AT_VENUE',
+    })
+
+    expect(taxPolicy.resolved).toBe(true)
+    expect(totals).toEqual(
+      computeOrderTotals({
+        items: lines,
+        feeConfig: feeConfigForCurrency('USD'),
+        taxRateBps: 0,
+        currency: 'USD',
+        paymentMethod: 'AT_VENUE',
+      }),
+    )
+    expect(totals.feeWaivedCents ?? 0).toBe(0)
   })
 })

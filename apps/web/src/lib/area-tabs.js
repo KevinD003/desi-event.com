@@ -146,6 +146,15 @@ export function adminTabs(session) {
     ...(sessionCan(session, 'event:platform_edit')
       ? [{ href: '/admin/events', label: 'Events' }]
       : []),
+    // Referral codes that remove the booking fee (platform administrators and
+    // super administrators), and refunding one order's booking fee by hand
+    // (finance administrators too) — SPEC3 §12.11.
+    ...(sessionCan(session, 'referral_code:manage')
+      ? [{ href: '/admin/referral-codes', label: 'Referral codes' }]
+      : []),
+    ...(sessionCan(session, 'platform_fee:refund')
+      ? [{ href: '/admin/fee-refunds', label: 'Booking fee refunds' }]
+      : []),
     // Importing events listed on Sulekha (platform administrators and super
     // administrators; a moderator is not offered it).
     ...(sessionCan(session, 'event:import') ? [{ href: '/admin/imports', label: 'Imports' }] : []),

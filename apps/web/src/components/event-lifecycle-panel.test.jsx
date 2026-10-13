@@ -296,6 +296,82 @@ describe('cancelling an event', () => {
     expect(screen.getByText(/nothing is sent to a payment provider/i)).toBeInTheDocument()
   })
 
+  it('says what cancelling means for bookings made to pay at the venue, from the event’s own figures', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <EventLifecyclePanel
+        event={{
+          ...onSale,
+          paymentTerms: {
+            fee: { currency: 'USD' },
+            siteDefault: {},
+            venuePayment: {
+              enabled: true,
+              hasOrders: true,
+              unpaidTickets: 4,
+              paidAtDoorTickets: 3,
+              paidAtDoorCents: 12_000,
+            },
+          },
+        }}
+        readiness={{ ...ready, status: 'ON_SALE' }}
+        transitions={{
+          status: 'ON_SALE',
+          transitions: [{ to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] }],
+        }}
+        history={[]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /cancel this event/i }))
+
+    expect(
+      screen.getByText(
+        'For tickets paid at the venue, only the booking fee paid online is refunded (simulated).',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('says nothing about paying at the venue for an event that never took such bookings', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <EventLifecyclePanel
+        event={{
+          ...onSale,
+          paymentTerms: {
+            fee: { currency: 'USD' },
+            siteDefault: {},
+            venuePayment: {
+              enabled: false,
+              hasOrders: false,
+              unpaidTickets: 0,
+              paidAtDoorTickets: 0,
+              paidAtDoorCents: 0,
+            },
+          },
+        }}
+        readiness={{ ...ready, status: 'ON_SALE' }}
+        transitions={{
+          status: 'ON_SALE',
+          transitions: [{ to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] }],
+        }}
+        history={[]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /cancel this event/i }))
+
+    expect(screen.queryByText(/paid at the venue/u)).toBeNull()
+    expect(screen.queryByText(/held by the organiser/u)).toBeNull()
+  })
+
   it('sends the reason code with the command', async () => {
     const user = userEvent.setup()
 

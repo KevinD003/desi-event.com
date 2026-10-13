@@ -62,6 +62,19 @@
  * are not requested here; a refunded order says it was refunded and nothing
  * else about refunds is claimed.
  *
+ * ## Booked to pay at the venue (SPEC3 §12.7, SPEC3-XI §12.7)
+ *
+ * Only the booking fee is paid online, so the total gives way to what was paid
+ * online (simulated) and what is still to pay at the door. Where the order
+ * stands comes from the server (`venuePayment`, `venuePaymentStateOf`): the
+ * buyer's own tickets to pay or paid, the tickets passed on to people who pay
+ * with their own, what those people paid at the door, and the tickets cancelled
+ * because nobody paid for them — each cancellation in a block of its own, with
+ * who cancelled, what is no longer owed, the booking fee Desi-Event kept, and
+ * the reason given. Money paid at the door is the organiser's: when the order
+ * is refunded or cancelled the page says it is with the organiser, never that
+ * it came back.
+ *
  * @module app/account/orders/reference/page
  */
 
@@ -72,7 +85,7 @@ import { GroupPass } from '../../../../components/group-pass.jsx'
 import { Breadcrumbs } from '../../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getMyOrder } from '../../../../lib/account-api.js'
-import { formatEventLocation } from '../../../../lib/format.js'
+import { formatEventDate, formatEventLocation } from '../../../../lib/format.js'
 import { formatAmount } from '../../../../lib/pricing.js'
 import { deletedForHolder } from '../../../../lib/event-control.js'
 import { describeApiRefusal } from '../../../../lib/refusal.js'
@@ -85,13 +98,16 @@ import {
   handedAnyOn,
   instantText,
   openTicketHint,
-  orderStatusMeaning,
+  orderStatusFor,
   orderTitle,
+  owingPassedOnTickets,
+  paidAtVenue,
   readAsBuyer,
   ticketCount,
   ticketHolder,
   ticketStatusMeaning,
   tookPayment,
+  venueTicketMeaning,
 } from '../order-status.js'
 import { StatusChip } from '../status-chip.jsx'
 
@@ -184,10 +200,157 @@ function Sum({ term, children, emphasised = false }) {
  * @returns {string|null} The sentence, or nothing for a status this page does not know.
  */
 function paymentSentence(order) {
+  // A booking to pay at the venue with nothing paid online, booked and not
+  // refunded: there was no payment to simulate.
+  if (paidAtVenue(order) && order.status === 'PAID' && (order.totalCents ?? 0) === 0) {
+    return 'Nothing was paid online for this order.'
+  }
+
   if (tookPayment(order)) return 'Simulated payment — no card was charged and no money moved.'
   if (['PENDING', 'CANCELLED', 'EXPIRED'].includes(order.status)) return 'Not paid.'
 
   return null
+}
+
+/**
+ * "ticket" or "tickets".
+ *
+ * @param {number} count How many.
+ * @returns {string} The word.
+ */
+function ticketWord(count) {
+  return count === 1 ? 'ticket' : 'tickets'
+}
+
+/**
+ * What a refunded or cancelled booking to pay at the venue says about its
+ * money (SPEC3 §12.7, SPEC3-XI §12.7): what went back online, what was kept
+ * when unpaid tickets were cancelled, and that money paid at the door is with
+ * the organiser.
+ *
+ * @param {object} order The order.
+ * @returns {string[]} The sentences, in order.
+ */
+export function venueEndingSentences(order) {
+  const venue = order.venuePayment ?? null
+  const money = (cents) => formatAmount(cents, order.currency)
+  const sentences = []
+  const kept = venue?.feeKeptCents ?? 0
+
+  if (order.status === 'CANCELLED' || (order.totalCents ?? 0) === 0) {
+    sentences.push('Nothing was paid online for these tickets.')
+  } else if (kept > 0) {
+    sentences.push(
+      `The rest of the booking fee you paid online was refunded (simulated); ${money(kept)} of it was kept when unpaid tickets were cancelled.`,
+    )
+  } else {
+    sentences.push('The booking fee you paid online was refunded (simulated).')
+  }
+
+  if ((venue?.paidCents ?? 0) > 0) {
+    sentences.push(
+      `The ${money(venue.paidCents)} you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+    )
+  }
+
+  if ((venue?.paidByOthersCents ?? 0) > 0) {
+    sentences.push(
+      `${money(venue.paidByOthersCents)} was paid at the door by people you passed tickets to; it is with the organiser.`,
+    )
+  }
+
+  return sentences
+}
+
+/**
+ * What one cancellation of unpaid tickets says to the buyer (SPEC3-XI §12.7).
+ *
+ * @param {object} cancellation One of `order.venueCancellations`.
+ * @param {string} currency The order's currency.
+ * @param {string} timeZone The event's timezone, for the date.
+ * @returns {string[]} The sentences, in order.
+ */
+export function venueCancellationSentences(cancellation, currency, timeZone) {
+  const one = cancellation.ticketCount === 1
+  const them = one ? 'it' : 'them'
+  const by = cancellation.by === 'DESI_EVENT' ? 'The Desi-Event team' : 'The organiser'
+  const money = (cents) => formatAmount(cents, currency)
+
+  return [
+    `${by} cancelled ${cancellation.ticketCount} ${ticketWord(cancellation.ticketCount)} on ${formatEventDate(cancellation.at, timeZone)} because ${one ? 'it was' : 'they were'} not paid for. You no longer owe ${money(cancellation.basisCents)} for ${them}.`,
+    cancellation.feeKeptCents > 0
+      ? `The booking fee paid for ${them} online, ${money(cancellation.feeKeptCents)}, is kept by Desi-Event and is not refunded.`
+      : `Nothing was paid online for ${them}.`,
+    `Reason given: “${cancellation.reason}”`,
+  ]
+}
+
+/**
+ * The money rows of a booking to pay at the venue, in place of the total.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.order The order.
+ * @returns {JSX.Element} The rows.
+ */
+function VenueSums({ order }) {
+  const venue = order.venuePayment ?? null
+  const money = (cents) => formatAmount(cents, order.currency)
+
+  return (
+    <>
+      <Sum term="Paid online (simulated)" emphasised>
+        {money(order.totalCents ?? 0)}
+      </Sum>
+      {(venue?.unpaidCents ?? 0) > 0 ? (
+        <Sum term="To pay at the door">{money(venue.unpaidCents)}</Sum>
+      ) : null}
+      {(venue?.paidCents ?? 0) > 0 ? (
+        <Sum term="Paid at the door">
+          {money(venue.paidCents)} of {money(venue.dueCents)}
+        </Sum>
+      ) : null}
+      {(venue?.paidByOthersCents ?? 0) > 0 ? (
+        <Sum term="Paid at the door by people you passed tickets to">
+          {money(venue.paidByOthersCents)}
+        </Sum>
+      ) : null}
+    </>
+  )
+}
+
+/**
+ * The cancellations of the order's unpaid tickets, one block each.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.order The order.
+ * @param {string} props.zone The event's timezone.
+ * @returns {JSX.Element|null} The blocks, or nothing.
+ */
+function VenueCancellations({ order, zone }) {
+  const cancellations = order.venueCancellations ?? []
+
+  if (cancellations.length === 0) return null
+
+  return cancellations.map((cancellation, index) => {
+    const headingId = `order-venue-cancellation-${index}`
+
+    return (
+      <section
+        key={`${cancellation.at}-${index}`}
+        aria-labelledby={headingId}
+        className="mt-6 max-w-prose rounded-card border border-line bg-surface-subtle p-4"
+      >
+        <h3 id={headingId} className="font-semibold text-ink">
+          Unpaid tickets cancelled
+        </h3>
+        {venueCancellationSentences(cancellation, order.currency, zone).map((sentence) => (
+          <p key={sentence} className="mt-2 text-sm break-words text-ink">
+            {sentence}
+          </p>
+        ))}
+      </section>
+    )
+  })
 }
 
 /**
@@ -279,6 +442,7 @@ function unlinkedSentence(holder) {
  * @returns {JSX.Element} The section body.
  */
 function Tickets({ order, holder, now }) {
+  const atVenue = paidAtVenue(order)
   if (order.status === 'PENDING') {
     return (
       <p className="mt-3 text-sm text-ink">
@@ -295,42 +459,56 @@ function Tickets({ order, holder, now }) {
     )
   }
 
-  const tickets = currentTickets(order)
+  const current = currentTickets(order)
   const bought = ticketCount(order)
   const handedOn = handedAnyOn(order)
-  const missing = missingSentence(bought, tickets.length, handedOn)
+  // A booking to pay at the venue lists the tickets it passed on that still
+  // owe, so the buyer sees whose turn it is to pay: as many as the order says
+  // still owe, and at most as many as are missing from the list, so a ticket
+  // handed on and back is not counted twice (`owingPassedOnTickets`).
+  const { tickets: passedOn, dueKnown } = atVenue
+    ? owingPassedOnTickets(order, Math.max(0, bought - current.length))
+    : { tickets: [], dueKnown: true }
+  const missing = missingSentence(bought, current.length + passedOn.length, handedOn)
   // A ticket's page opens only for the account holding it, and checkout
   // issues the tickets to the account that placed the order.
   const openable = holder === 'this-account'
   const unlinked = openable ? null : unlinkedSentence(holder)
 
+  const listed = [...current, ...passedOn]
+
   return (
     <>
-      {tickets.length > 0 ? (
+      {listed.length > 0 ? (
         <ul className="mt-3 grid gap-2">
-          {tickets.map((ticket, index) => {
-            const label = `Ticket ${index + 1} of ${tickets.length}`
+          {listed.map((ticket, index) => {
+            const label = `Ticket ${index + 1} of ${listed.length}`
+            const away = index >= current.length
+            const meaning =
+              (atVenue
+                ? venueTicketMeaning(ticket, order.currency, { dueKnown: away ? dueKnown : true })
+                : null) ?? ticketStatusMeaning(ticket.status)
 
             return (
               <li
                 key={ticket.id}
                 className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-card border border-line bg-surface shadow-card px-4 py-2"
               >
-                {openable ? (
+                {openable && !away ? (
                   <Link href={`/tickets/${encodeURIComponent(ticket.id)}`} className={LINK}>
                     {label}
                   </Link>
                 ) : (
                   <span className="font-medium text-ink">{label}</span>
                 )}
-                <StatusChip meaning={ticketStatusMeaning(ticket.status)} />
+                <StatusChip meaning={meaning} />
               </li>
             )
           })}
         </ul>
       ) : null}
 
-      {unlinked && tickets.length > 0 ? (
+      {unlinked && current.length > 0 ? (
         <p className="mt-3 text-sm text-ink-muted">{unlinked}</p>
       ) : null}
 
@@ -350,9 +528,9 @@ function Tickets({ order, holder, now }) {
         </p>
       ) : null}
 
-      {tickets.length > 0 && openable ? (
+      {current.length > 0 && openable ? (
         <p className="mt-3 text-sm text-ink-muted">
-          {openTicketHint(tickets, { eventOver: eventIsOver({ event: order.event }, now) })}
+          {openTicketHint(current, { eventOver: eventIsOver({ event: order.event }, now) })}
         </p>
       ) : null}
     </>
@@ -467,6 +645,12 @@ export default async function OrderPage({ params }) {
   const zone = order.event?.timezone || 'UTC'
   const payment = paymentSentence(order)
   const lines = order.items ?? []
+  const atVenue = paidAtVenue(order)
+  const venue = atVenue ? (order.venuePayment ?? null) : null
+  const feeGross = Number.isInteger(order.feeGrossCents)
+    ? order.feeGrossCents
+    : (order.feesCents ?? 0)
+  const waived = order.feeWaivedCents ?? 0
 
   return (
     <div>
@@ -516,10 +700,17 @@ export default async function OrderPage({ params }) {
             <span className="font-mono">{order.reference}</span>
           </Fact>
           <Fact term="Status">
-            <StatusChip meaning={orderStatusMeaning(order.status)} />
+            <StatusChip meaning={orderStatusFor(order)} />
           </Fact>
           <Fact term="Placed">{instantText(order.createdAt, zone)}</Fact>
-          <Fact term="Paid">{order.paidAt ? instantText(order.paidAt, zone) : ''}</Fact>
+          {atVenue ? (
+            // Only the booking fee is paid online, and only when there is one.
+            <Fact term="Booking fee paid">
+              {order.paidAt && (order.totalCents ?? 0) > 0 ? instantText(order.paidAt, zone) : ''}
+            </Fact>
+          ) : (
+            <Fact term="Paid">{order.paidAt ? instantText(order.paidAt, zone) : ''}</Fact>
+          )}
           <Fact term="Cancelled">
             {order.cancelledAt ? instantText(order.cancelledAt, zone) : ''}
           </Fact>
@@ -568,23 +759,75 @@ export default async function OrderPage({ params }) {
           {order.discountCents ? (
             <Sum term="Discount">−{formatAmount(order.discountCents, order.currency)}</Sum>
           ) : null}
-          <Sum term="Booking fee">{formatAmount(order.feesCents ?? 0, order.currency)}</Sum>
-          {order.taxCents ? (
+          <Sum term="Booking fee">{formatAmount(feeGross, order.currency)}</Sum>
+          {waived > 0 ? (
+            <Sum term="Booking fee waived (referral code)">
+              −{formatAmount(waived, order.currency)}
+            </Sum>
+          ) : null}
+          {atVenue ? (
+            <Sum term="Tax">{formatAmount(order.taxCents ?? 0, order.currency)}</Sum>
+          ) : order.taxCents ? (
             <Sum term="Tax">{formatAmount(order.taxCents, order.currency)}</Sum>
           ) : null}
-          <Sum term="Total" emphasised>
-            {formatAmount(order.totalCents, order.currency)}
-          </Sum>
+          {atVenue ? (
+            <VenueSums order={order} />
+          ) : (
+            <Sum term="Total" emphasised>
+              {formatAmount(order.totalCents, order.currency)}
+            </Sum>
+          )}
         </dl>
+
+        {atVenue ? (
+          <p className="mt-2 text-sm text-ink-muted">
+            No tax is added to tickets paid at the venue.
+          </p>
+        ) : null}
+
+        {atVenue && (venue?.passedOnUnpaidTickets ?? 0) > 0 ? (
+          <p className="mt-2 text-sm text-ink">
+            Passed on to other people: {venue.passedOnUnpaidTickets}{' '}
+            {ticketWord(venue.passedOnUnpaidTickets)},{' '}
+            {formatAmount(venue.passedOnUnpaidCents, order.currency)} to be paid at the door by
+            whoever holds {venue.passedOnUnpaidTickets === 1 ? 'it' : 'them'}.
+          </p>
+        ) : null}
+
+        {order.referralApplied ? (
+          <p className="mt-2 text-sm text-ink">Booking fee waived with a referral code.</p>
+        ) : null}
+
+        {order.fee === null ? (
+          <p className="mt-2 text-sm text-ink-muted">
+            Booking fee terms were not recorded for orders placed before 9 October 2026.
+          </p>
+        ) : null}
 
         {payment ? <p className="mt-3 text-sm font-medium text-ink">{payment}</p> : null}
 
-        {order.status === 'REFUNDED' ? (
+        {atVenue && order.status === 'PAID' && venue?.state === 'TO_PAY' ? (
+          <p className="mt-2 max-w-prose text-sm text-ink">
+            {(order.feesCents ?? 0) > 0
+              ? 'Until a ticket is paid for at the door, the organiser or Desi-Event can cancel it; the booking fee is not refunded if they do.'
+              : 'Until a ticket is paid for at the door, the organiser or Desi-Event can cancel it.'}
+          </p>
+        ) : null}
+
+        {atVenue && (order.status === 'REFUNDED' || order.status === 'CANCELLED') ? (
+          venueEndingSentences(order).map((sentence) => (
+            <p key={sentence} className="mt-2 max-w-prose text-sm text-ink">
+              {sentence}
+            </p>
+          ))
+        ) : order.status === 'REFUNDED' ? (
           <p className="mt-2 text-sm text-ink">
             This order was refunded in full. Like the payment, the refund was simulated: no money
             went back to a card, because none was taken from one.
           </p>
         ) : null}
+
+        {atVenue ? <VenueCancellations order={order} zone={zone} /> : null}
       </section>
 
       {/* The joining link of a paid online event, for the buyer, while one of
