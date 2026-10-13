@@ -28,8 +28,7 @@
  * | `validation`           | 400, 422                                          |
  * | `rate-limited`         | 429                                               |
  * | `network`              | no response; 503 `API_UNREACHABLE` from the proxy |
- * | `busy`                 | 503 `SERVICE_UNAVAILABLE` or `TRY_AGAIN` with the |
- * |                        | API's sentence                                    |
+ * | `busy`                 | 503 `SERVICE_UNAVAILABLE` with the API's sentence |
  * | `server-error`         | 500, 502, 503, anything unknown                   |
  *
  * The words say what happened and what the person can do, and never name an
@@ -201,14 +200,19 @@ export function describeApiRefusal(error) {
 
   // A change that waited too long behind another one saved at the same moment
   // (`lib/transaction-budget.js` in the API, and its floor for every other
-  // path): rolled back whole, and answered 503 `SERVICE_UNAVAILABLE` with a
-  // sentence written for the caller, saying what was not done and that trying
-  // again in a moment is the fix (SPEC3 §12.3 "TRY_AGAIN with the API
-  // sentence"). The generic server-error words would say the opposite — that
-  // nothing on the page will fix it — so the API's sentence is kept. The API
-  // sends such a sentence only on purpose (`exposedServerError`); a 503
-  // without one is still a server error.
-  if (status === 503 && (code === 'SERVICE_UNAVAILABLE' || code === 'TRY_AGAIN')) {
+  // path): rolled back whole, and answered 503 `SERVICE_UNAVAILABLE` with
+  // `Retry-After` and a sentence written for the caller, saying what was not
+  // done and that trying again in a moment is the fix. The generic
+  // server-error words would say the opposite — that nothing on the page will
+  // fix it — so the API's sentence is kept. The API sends such a sentence
+  // only on purpose (`exposedServerError`); a 503 without one is still a
+  // server error.
+  //
+  // Only that code. The specification called this refusal `TRY_AGAIN` (SPEC3
+  // §12.3, SPEC3-XI XU10), but no busy path sends that name; the one 503
+  // `TRY_AGAIN` the API still sends — five generated referral codes in a row
+  // already taken — is read by the referral-code form itself.
+  if (status === 503 && code === 'SERVICE_UNAVAILABLE') {
     const said = specificMessage(error)
 
     if (said) {

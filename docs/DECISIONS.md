@@ -31,6 +31,8 @@ replaced it; everything under that line stays as written.
 | [0013](adr/0013-first-party-visit-counting.md)                                | First-party visit counting, without cookies or stored addresses                | Accepted, 2026-10-06                                     |
 | [0014](adr/0014-full-control-of-posted-events.md)                             | Full control of posted events                                                  | Accepted, 2026-10-06                                     |
 | [0015](adr/0015-importing-listed-events.md)                                   | Importing listed events                                                        | Accepted, 2026-10-06                                     |
+| [0016](adr/0016-per-event-booking-fee-and-referral-codes.md)                  | Per-event booking fee and referral codes                                       | Accepted, 2026-10-09                                     |
+| [0017](adr/0017-paying-at-the-venue-outside-the-ledger.md)                    | Paying at the venue: money at the door outside the ledger                      | Accepted, 2026-10-09                                     |
 
 One record is superseded: 0005, by 0006. Two are superseded in part: 0008's
 `EMAIL` wording by 0011, and 0009's "a published event takes no new picture" by
@@ -172,6 +174,30 @@ approved by that administrator (the one exception to reviewer independence),
 shown with Sulekha's prices and a "Buy tickets on Sulekha" link, never sold
 here, and copied with their pictures by one locked-down fetcher. The owner's
 statement that they own Sulekha.com is recorded there as their statement.
+
+### 0016 — Per-event booking fee and referral codes
+
+The Desi-Event team sets an event's own booking fee (a percentage and an amount
+per ticket, in the event's one currency) at any time and in any status but
+deleted, for new orders only, with a reason, a second factor and a history the
+organiser reads; the site default stays a server setting. An administrator can
+refund one order's booking fee by hand. Referral codes, made only by the
+Desi-Event team, remove an order's whole booking fee and any tax on it, are
+stored in plain text but kept out of every URL, log, audit row and outbox row,
+answer one refusal for every reason under a budget of wrong guesses, and give
+their use back once when their order ends without being used. The platform
+administrator's allow-list grows to fourteen.
+
+### 0017 — Paying at the venue: money at the door outside the ledger
+
+An administrator switches paying at the venue on for an event with a limit on
+unpaid tickets across all buyers. Such an order pays only its booking fee
+online, carries no tax, and owes each ticket's share at the door, where a
+payment is recorded only in the step that admits the ticket, and never undone.
+Door money never enters the ledger. Unpaid tickets can be cancelled by the
+organiser or the Desi-Event team, freeing their places (the one path that puts
+general-admission stock back) and keeping their booking fee for good; tickets
+owing money can be passed on. It records the lock law every path follows.
 
 ## Decisions that live in code, not in an ADR
 
@@ -360,3 +386,30 @@ for you") states them in plain words.
   the Sulekha link off).
 - The new platform role is called `ADMIN` ("Platform administrator"), separate
   from an organisation's "Administrator".
+
+## Decisions taken for booking fees, referral codes and paying at the venue — 2026-10-09
+
+The owner answered questions 1, 2, 3 and 7 and confirmed the built answers to
+4, 5, 6, 8 and 9 (`docs/PHASE4_FEES_AND_VENUE_PAYMENTS_REPORT.md`, "Decisions
+taken for you"; the reasons are in ADRs 0016 and 0017). These were decided for
+the owner and each can be changed without a migration:
+
+- **A.** Only unpaid pay-at-the-venue tickets that are cancelled keep their
+  booking fee; every other refund gives it back with the tickets.
+- **B.** Unpaid tickets are cancelled by the organisation's owners and
+  administrators and by Desi-Event administrators and super administrators —
+  not finance members, managers, door staff or finance administrators.
+- **C.** A booking fee kept that way is never refunded afterwards, even by an
+  administrator's booking-fee refund.
+- **D.** Unpaid tickets can be cancelled until their night ends (the last night
+  for an every-night ticket; the event's end when it lists no nights), while
+  the event is live.
+- **E.** A cancelled reserved seat is freed at once, even in the last 24 hours.
+- **F.** If the online booking fee ever carries tax, that tax would go back to
+  the buyer; until that refund is built, such a booking cannot be cancelled this
+  way.
+- **G.** Withdrawing every ticket of an order with nothing left to refund gives
+  its referral use back.
+- **H.** Buyers cannot cancel their own unpaid booking.
+- **I.** Unpaid tickets can be cancelled at any time while the event is live,
+  even before the doors open.

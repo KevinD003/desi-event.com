@@ -30,6 +30,7 @@ import { describe, expect, it } from 'vitest'
 
 import { resetTrafficMemory } from '../src/lib/traffic.js'
 import { bearer, claim, createTestApp, signIn, stepUp } from './helpers/app.js'
+import { generatedReferralText } from './helpers/fee-orders.js'
 import { makeWorld } from './helpers/fixtures.js'
 import { expectNoSecret } from './helpers/payloads.js'
 
@@ -603,5 +604,158 @@ describe('a visit and the logs', () => {
     ]) {
       expectNoSecret(expect, raw, needle)
     }
+  })
+})
+
+describe('a referral code and the logs (SPEC3 §13)', () => {
+  /** The buyer who quotes and orders with the code. */
+  const BUYER = 'priya@example.com'
+
+  it('logs no code text, no label and no PostgreSQL detail: a code made, a quote, an order, and a use the database refuses', async () => {
+    const capture = captureStream()
+    const logger = createLogger({ name: 'api', level: 'debug', destination: capture })
+    const { app, prisma, ids } = await createTestApp({ logger })
+    const admin = await platformAdmin(app)
+    const label = 'A distinctive label kept out of the logs'
+
+    // ------------------------------------------------------------ the codes
+    const typed = generatedReferralText()
+    const made = await app.inject({
+      method: 'POST',
+      url: '/v1/platform/referral-codes',
+      headers: admin.headers,
+      payload: { referralCode: typed, label, scope: 'ALL_EVENTS', maxUses: 3 },
+    })
+
+    expect(made.statusCode, made.body).toBe(201)
+    expect(made.json().data.referralCode).toBe(typed)
+
+    const drawn = await app.inject({
+      method: 'POST',
+      url: '/v1/platform/referral-codes',
+      headers: admin.headers,
+      payload: { generate: true, scope: 'ALL_EVENTS' },
+    })
+
+    expect(drawn.statusCode, drawn.body).toBe(201)
+
+    const generated = drawn.json().data.referralCode
+    const row = prisma._store.referralCode.find((candidate) => candidate.code === typed)
+
+    // ------------------------------------------------- a quote and an order
+    const buyer = bearer(await signIn(app, BUYER))
+    const basket = {
+      eventId: ids.publishedEvent.id,
+      items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+    }
+    const quoted = await app.inject({
+      method: 'POST',
+      url: '/v1/orders/quote',
+      headers: buyer,
+      // As a buyer types it: lower case, with spaces around it.
+      payload: { ...basket, referralCode: ` ${typed.toLowerCase()} ` },
+    })
+
+    expect(quoted.statusCode, quoted.body).toBe(200)
+    expect(quoted.json().data.referral).toEqual({ applied: true, reason: null })
+
+    const order = (referralCode) =>
+      app.inject({
+        method: 'POST',
+        url: '/v1/orders',
+        headers: buyer,
+        payload: { ...basket, buyerEmail: BUYER, buyerName: 'Priya Sharma', referralCode },
+      })
+    const placed = await order(typed)
+
+    expect(placed.statusCode, placed.body).toBe(201)
+    expect(row.useCount).toBe(1)
+
+    // ------------------------------------- a use the database refuses (CHECK)
+    // The race the code's row lock exists to stop, forced: `UPDATE
+    // "ReferralCode" SET "maxUses" = "useCount"` lands after the checkout's
+    // locked read of the code and before its use, so only the database's
+    // `referral_code_use_within_limit` stands in the way. The stub reports the
+    // refusal as the pg adapter does; PostgreSQL also puts the refused row in
+    // `detail` ("Failing row contains (…)"), the code's text and label with it,
+    // so that is added here exactly as the adapter carries it.
+    const findUnique = prisma.referralCode.findUnique
+    let racing = true
+
+    prisma.referralCode.findUnique = async (args) => {
+      const found = await findUnique(args)
+
+      if (!racing || args?.where?.id !== row.id || !found) return found
+
+      racing = false
+
+      const copy = { ...found }
+
+      row.maxUses = row.useCount
+
+      return copy
+    }
+
+    const execute = prisma.$executeRaw
+    /** @type {Error|null} */
+    let refused = null
+
+    prisma.$executeRaw = async (strings, ...values) => {
+      try {
+        return await execute(strings, ...values)
+      } catch (error) {
+        const cause = error?.meta?.driverAdapterError?.cause
+
+        if (cause && /referral_code_use_within_limit/u.test(cause.originalMessage ?? '')) {
+          cause.detail = `Failing row contains (${row.id}, ${row.code}, ${row.label}, ${row.scope}, null, ${row.maxUses}, ${row.useCount + 1}, t).`
+          error.cause = { ...cause }
+          refused = error
+        }
+
+        throw error
+      }
+    }
+
+    let raced
+
+    try {
+      raced = await order(typed)
+    } finally {
+      prisma.referralCode.findUnique = findUnique
+      prisma.$executeRaw = execute
+    }
+
+    // The refusal the buyer reads, and nothing the database said.
+    expect(refused, 'the database refused the use').not.toBeNull()
+    expect(raced.statusCode, raced.body).toBe(409)
+    expect(raced.json().error.code).toBe('REFERRAL_NOT_ACCEPTED')
+    expect(raced.body).not.toMatch(/referral_code_use_within_limit|23514|Failing row|SQL/u)
+    expectNoSecret(expect, raced.body, typed)
+    // Rolled back: still the one use.
+    expect(row.useCount).toBe(1)
+
+    // Were that error ever logged whole, the serializer drops its detail.
+    app.log.error({ err: refused }, 'a referral use the database refused')
+
+    await app.close()
+
+    // ------------------------------------------------------------- the logs
+    const raw = capture.raw()
+    const lines = capture.lines()
+
+    // The log was being written, about these requests.
+    expect(lines.some((line) => line.msg === 'referral code created')).toBe(true)
+    expect(
+      lines.some(
+        (line) => line.msg === 'request rejected' && line.code === 'REFERRAL_NOT_ACCEPTED',
+      ),
+    ).toBe(true)
+    expect(raw).toContain('referral_code_use_within_limit')
+
+    for (const secret of [typed, typed.toLowerCase(), generated, label]) {
+      expectNoSecret(expect, raw, secret)
+    }
+
+    expect(raw).not.toMatch(/Failing row/u)
   })
 })

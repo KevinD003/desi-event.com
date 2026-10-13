@@ -576,12 +576,6 @@ describe('sending', () => {
       'SERVICE_UNAVAILABLE',
       'Another change to this booking was being saved at the same moment, so nothing was cancelled. Try again in a moment.',
     ],
-    // The specification's name for the same refusal.
-    [
-      503,
-      'TRY_AGAIN',
-      'Another change to this booking was being saved at the same moment, so nothing was cancelled. Try again in a moment.',
-    ],
   ])('says the API’s sentence for %s %s, and cancels nothing', async (status, code, message) => {
     const user = userEvent.setup()
 
@@ -599,23 +593,37 @@ describe('sending', () => {
     expect(onCancelled).not.toHaveBeenCalled()
   })
 
-  it('says the specification’s words for a TRY_AGAIN that came without a sentence', async () => {
-    const user = userEvent.setup()
+  it.each([
+    // The busy refusal's code with no sentence of the API's.
+    ['SERVICE_UNAVAILABLE', undefined],
+    // A code this route never sends for a busy refusal (the specification
+    // once called it TRY_AGAIN): not read as one, whatever it says.
+    [
+      'TRY_AGAIN',
+      'Another change to this booking was being saved at the same moment, so nothing was cancelled. Try again in a moment.',
+    ],
+  ])(
+    'reads a 503 %s that is not the API’s busy answer as a fault, and cancels nothing',
+    async (code, message) => {
+      const user = userEvent.setup()
 
-    apiFetch.mockResolvedValueOnce(answer(200, list()))
-    const { onCancelled } = await open()
+      apiFetch.mockResolvedValueOnce(answer(200, list()))
+      const { onCancelled } = await open()
 
-    await giveReason(user)
-    apiFetch.mockResolvedValueOnce(answer(503, { error: { code: 'TRY_AGAIN' } }))
-    await user.click(screen.getByRole('button', { name: 'Cancel 2 unpaid tickets' }))
+      await giveReason(user)
+      apiFetch.mockResolvedValueOnce(answer(503, { error: { code, message } }))
+      await user.click(screen.getByRole('button', { name: 'Cancel 2 unpaid tickets' }))
 
-    expect(
-      await screen.findByText(
-        'Another change to this booking was being saved at the same moment, so nothing was cancelled. Try again in a moment.',
-      ),
-    ).toBeInTheDocument()
-    expect(onCancelled).not.toHaveBeenCalled()
-  })
+      expect(await screen.findByText(/could not finish this/u)).toBeInTheDocument()
+      expect(screen.getByText('Nothing was cancelled')).toBeInTheDocument()
+      expect(
+        screen.queryByText(
+          'Another change to this booking was being saved at the same moment, so nothing was cancelled. Try again in a moment.',
+        ),
+      ).toBeNull()
+      expect(onCancelled).not.toHaveBeenCalled()
+    },
+  )
 
   it('reads the booking again when it changed, says why, and takes focus to the heading', async () => {
     const user = userEvent.setup()
@@ -755,6 +763,16 @@ describe('the words', () => {
       'These tickets were already cancelled at Oct 12, 2026, 9:05 PM UTC.',
     )
     expect(instantWords(null)).toBe('')
+  })
+
+  it('says when a replay was done as the event keeps time, naming its zone', () => {
+    // 21:05 UTC is 4:05 PM in Chicago in October.
+    expect(cancellationOutcome(cancellation({ replayed: true }).data, 'America/Chicago')).toBe(
+      'These tickets were already cancelled by Meera Owner at Oct 12, 2026, 4:05 PM CDT.',
+    )
+    expect(instantWords('2026-10-12T21:05:00.000Z', 'America/Chicago')).toBe(
+      'Oct 12, 2026, 4:05 PM CDT',
+    )
   })
 
   it('names a ticket by its attendee or its label, its night or every night, and its due', () => {

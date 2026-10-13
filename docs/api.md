@@ -131,6 +131,11 @@ allow-list a load-time check enforces: `moderation:review`, `event:view_draft`,
 `event:import`. An organisation's members gain `event:delete_unsold` and
 `event:delete`.
 
+_Corrected 2026-10-09._ The platform administrator now holds fourteen platform
+capabilities: the ten above, `payment_terms:manage`, `referral_code:manage`,
+`platform_fee:refund` and `venue_booking:cancel` (ADRs 0016 and 0017). The
+platform finance administrator gains `platform_fee:refund`.
+
 A resource you may not see answers `404`, not `403`, when telling the two apart
 would itself leak information — a draft event, for instance.
 
@@ -1284,6 +1289,65 @@ adding tiers or opening sales there), and link to their Sulekha page through
 the website switch. Pictures are copied only from `https://usimg.sulekha.io`.
 The CLI `pnpm import:events` previews and applies; it never approves. Full
 reasoning: ADR 0015.
+
+### Booking fees, referral codes and paying at the venue — 2026-10-09
+
+Fifteen routes (ADRs 0016 and 0017). Every one answers `no-store`.
+
+| Method | Path                                           | Capability             | Step-up          | Purpose                                                                                 |
+| ------ | ---------------------------------------------- | ---------------------- | ---------------- | --------------------------------------------------------------------------------------- |
+| GET    | `/v1/platform/events/:id/payment-terms`        | `payment_terms:manage` | —                | An event's booking fee and pay-at-the-venue setting, with their history                 |
+| POST   | `/v1/platform/events/:id/platform-fee`         | `payment_terms:manage` | `PAYMENT_TERMS`  | Set the event's own booking fee, or return it to the site default                       |
+| POST   | `/v1/platform/events/:id/venue-payment`        | `payment_terms:manage` | `PAYMENT_TERMS`  | Switch paying at the venue on or off, or change its limit                               |
+| GET    | `/v1/platform/referral-codes`                  | `referral_code:manage` | —                | Referral codes, newest first, 50 a page                                                 |
+| GET    | `/v1/platform/referral-codes/by-administrator` | `referral_code:manage` | —                | Uses and fees waived per administrator who made codes                                   |
+| POST   | `/v1/platform/referral-codes`                  | `referral_code:manage` | `PAYMENT_TERMS`  | Make a referral code, typed or generated                                                |
+| GET    | `/v1/platform/referral-codes/:id`              | `referral_code:manage` | —                | One code and the orders that used it (every event of its scope), 50 a page              |
+| PATCH  | `/v1/platform/referral-codes/:id`              | `referral_code:manage` | `PAYMENT_TERMS`  | Change a code's scope, expiry, limit or label                                           |
+| POST   | `/v1/platform/referral-codes/:id/switch-off`   | `referral_code:manage` | —                | Switch a code off                                                                       |
+| POST   | `/v1/platform/referral-codes/:id/switch-on`    | `referral_code:manage` | `PAYMENT_TERMS`  | Switch it back on                                                                       |
+| GET    | `/v1/platform/orders/:reference/fee`           | `platform_fee:refund`  | —                | One order's booking-fee figures, before refunding it by hand                            |
+| POST   | `/v1/platform/orders/:reference/fee-refund`    | `platform_fee:refund`  | `FINANCE_ACTION` | Refund one order's booking fee by hand; 30 an hour per administrator                    |
+| GET    | `/v1/events/:id/venue-payments`                | `finance:view`         | `FINANCE_VIEW`   | Payments taken at the door, bookings still unpaid, cancellations                        |
+| GET    | `/v1/events/:id/venue-bookings`                | XU2's authority        | `FINANCE_VIEW`   | Bookings waiting to be paid at the door, with their tickets                             |
+| POST   | `/v1/orders/:reference/venue-cancellations`    | XU2's authority        | `FINANCE_ACTION` | Cancel chosen unpaid tickets of a booking; 60 an hour per person; idempotent by content |
+
+The three `paymentTerms.*` routes, `venuePayments.report` and
+`venueBookings.unpaid` are on `events`; the seven `referralCodes.*` routes on
+`referral-codes`; the two `platformFees.*` routes and `venueBookings.cancel` on
+`orders`. "XU2's authority" is the organisation's owners and administrators
+(`order:refund` on their own membership) and the platform's `venue_booking:cancel`
+(ADMIN, SUPER_ADMIN); everybody else gets 404, and a step-up is asked for first,
+with the same answer whatever the reference.
+
+**Changed routes.** `orders.quote` and `orders.create` take `paymentMethod`
+(`CARD` by default), `referralCode` and, for the order, `expectedVenueDueCents`;
+the quote answers the fee's terms (never their source), the gross and waived
+fee, what is due at the door, the tax applied, `referral: { applied, reason }`
+(never the code) and whether paying at the venue is available. Naming a code or
+paying at the venue needs a session (401 `SIGN_IN_REQUIRED`); wrong codes are
+budgeted (429). `orders.get` and `orders.listMine` add the payment method, the
+fee's parts and terms, `referralApplied`, the tax applied, `venuePayment` (what
+is due, paid by the buyer and by others, passed on, cancelled, kept) and
+`venueCancellations`; an order's event carries its `country` and `region`, and
+handed-on rows of a pay-at-the-venue order carry `passedOn` (`OWES` with the
+amount, `PAID`, `CANCELLED`, `RETURNED` or `NOTHING_DUE`). The wallet and ticket
+routes add `venuePayment`; `tickets.startTransfer` refuses nothing for money
+due; the door routes take and answer the payment (`docs/CHECK_IN.md`) and refuse
+`UNPAID_CANCELLED`; `events.get` adds `venuePayment: { available }` (and
+`paymentTerms` for insiders); listings price with each event's own terms;
+`refunds.request` refuses an amount refund of a pay-at-the-venue order;
+`refunds.summary` lines add `cancelledQuantity`; analytics counts and the CSV
+add cancelled places; tier writes refuse a currency other than the event's own
+fee's (409 `FEE_TERMS_CURRENCY`).
+
+**Busy answers.** A bounded wait that runs out answers 503
+`SERVICE_UNAVAILABLE` with `Retry-After` (the fee, the switch, cancelling unpaid
+tickets, refunding a fee); the specifications called it `TRY_AGAIN`.
+`TRY_AGAIN` is sent only by `referralCodes.create` (503, five generated codes
+taken in a row) and by a retryable database conflict (409).
+
+Full reasoning: ADRs 0016 and 0017.
 
 ## Calling the API from JavaScript
 

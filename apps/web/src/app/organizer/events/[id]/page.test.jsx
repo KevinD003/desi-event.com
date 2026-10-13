@@ -606,6 +606,21 @@ describe('the read-only "Booking fee and payment" panel (SPEC3 §12.4)', () => {
     expect(screen.queryByRole('link', { name: 'Payments at the venue' })).toBeNull()
   })
 
+  it('dates the team’s changes on the day they were where the event is', async () => {
+    await renderFor(
+      { user: { id: 'u4' }, capabilities: [], memberships: [] },
+      // 02:30 UTC on 10 October is the evening of 9 October in New York.
+      {
+        ...EVENT,
+        paymentTerms: { ...TERMS, fee: { ...TERMS.fee, changedAt: '2026-10-10T02:30:00.000Z' } },
+      },
+    )
+
+    expect(screen.getByRole('region', { name: 'Booking fee and payment' })).toHaveTextContent(
+      'Changed by Meera Admin on Oct 9, 2026: “Partner rate agreed for this season.”',
+    )
+  })
+
   it('draws no panel when the server sent no terms', async () => {
     await renderFor(
       { user: { id: 'u3' }, capabilities: [], memberships: [] },

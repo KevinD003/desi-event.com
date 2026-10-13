@@ -48,7 +48,7 @@ export function registerVenueBookingRoutes(app, { prisma, venueCancelLimit = {} 
 
       const event = await prisma.event.findUnique({
         where: { id: request.params.id },
-        select: { id: true, title: true, organizationId: true, endsAt: true },
+        select: { id: true, title: true, organizationId: true, endsAt: true, timezone: true },
       })
 
       if (!event) throw notFound(NO_SUCH_EVENT)

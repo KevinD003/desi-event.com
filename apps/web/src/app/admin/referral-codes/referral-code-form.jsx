@@ -4,8 +4,8 @@
  * Making a referral code, or changing one (SPEC3 §12.5).
  *
  * A new code is generated (the default) or typed; a label for the Desi-Event
- * team only; all events or chosen ones (up to 50); an expiry, typed in the
- * administrator's own time zone and labelled with it; and a total limit. A
+ * team only; all events or chosen ones (up to 50); an expiry, typed in UTC and
+ * labelled with it; and a total limit. A
  * change sends only what differs from the code as read, with
  * `expectedUpdatedAt`, so somebody else's change in between is refused
  * (`REFERRAL_CODE_CHANGED`, with a Reload button) rather than overwritten. The
@@ -24,9 +24,20 @@
  *
  * ## The time zone
  *
- * The browser's. It is not known while the page is drawn on the server, so the
- * form is drawn in UTC there and drawn again in the browser's zone at once
- * (`useSyncExternalStore`), keyed by the zone so every field starts from it.
+ * UTC, named in the field's label ({@link REFERRAL_EXPIRY_ZONE}): the zone every
+ * Desi-Event administrator screen writes times in. Never the browser's, which
+ * nobody chose for this: a code works across events in every US zone, and an
+ * expiry read in whichever zone a laptop happens to be set to would mean a
+ * different moment to the next administrator. The same zone on the server and
+ * in the browser, so the form draws once.
+ *
+ * ## Which events
+ *
+ * A code's own answer names every event of its scope, so a change to its
+ * events starts from all of them and sends them all back but the ones
+ * removed. Should an answer ever name fewer than the code holds, the form
+ * keeps the scope as it is: it says so and offers no change to it, rather
+ * than replace the events it could not see.
  *
  * @module app/admin/referral-codes/referral-code-form
  */
@@ -34,7 +45,7 @@
 import { REFERRAL_LABEL_DESCRIPTION, REFERRAL_LIMITS } from '@desi-event/schemas/payment-terms'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useId, useRef, useState, useSyncExternalStore } from 'react'
+import { useId, useRef, useState } from 'react'
 
 import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { STEP_UP_DECLINED_SENTENCE, useStepUpRetry } from '../../../components/step-up-retry.jsx'
@@ -42,15 +53,16 @@ import { Alert, Button } from '../../../components/ui.jsx'
 import { TEXT_LINK } from '../../../components/workspace-kit.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
 import { fieldIssues, parseRetryAfter, refusalSentence } from '../../../lib/refusal.js'
-import { toLocalInputValue, zoneAbbreviation } from '../../../lib/zoned-time.js'
+import { toLocalInputValue } from '../../../lib/zoned-time.js'
 import { CopyCodeButton } from './copy-code-button.jsx'
 import { ReferralEventPicker } from './referral-event-picker.jsx'
 import {
   GIVE_ONLY_TO,
+  EXPIRY_HINT,
   LIMIT_HINT,
   REFERRAL_CODES_PATH,
+  REFERRAL_EXPIRY_ZONE,
   TYPED_CODE_HINT,
-  browserTimeZone,
   referralFormRequest,
 } from './referral-vocabulary.js'
 
@@ -70,12 +82,19 @@ const FIELD_OF = Object.freeze({
 })
 
 /**
- * Nothing to subscribe to: the zone does not change while a page is open.
+ * The API's sentence for the one 503 `TRY_AGAIN` it still sends: five
+ * generated codes in a row were already in use, so no code was made, and
+ * making it again draws new ones. Every busy refusal is 503
+ * `SERVICE_UNAVAILABLE`, which the shared rule reads; this is not one of them.
  *
- * @returns {Function} An unsubscribe that does nothing.
+ * @param {number} status The response's status.
+ * @param {object|null} body The parsed body.
+ * @returns {string|null} The sentence, or null for any other answer.
  */
-function subscribeToNothing() {
-  return () => {}
+function clashSentence(status, body) {
+  const said = typeof body?.error?.message === 'string' ? body.error.message.trim() : ''
+
+  return status === 503 && body?.error?.code === 'TRY_AGAIN' && said ? said : null
 }
 
 /**
@@ -105,15 +124,13 @@ function startingValues(code, timeZone) {
  */
 
 /**
- * The form, drawn in the browser's time zone.
+ * The form, its expiry in UTC.
  *
  * @param {ReferralCodeFormProps} props Component props.
  * @returns {JSX.Element} The form.
  */
 export function ReferralCodeForm(props) {
-  const timeZone = useSyncExternalStore(subscribeToNothing, browserTimeZone, () => 'UTC')
-
-  return <ReferralCodeFormFields key={timeZone} {...props} timeZone={timeZone} />
+  return <ReferralCodeFormFields {...props} timeZone={REFERRAL_EXPIRY_ZONE} />
 }
 
 /**
@@ -160,10 +177,11 @@ function ReferralCodeFormFields({ mode, code: initialCode = null, timeZone }) {
       focusAfterRender(refusalRef)
     },
   })
-  const zone = zoneAbbreviation(timeZone, new Date())
   const shownEvents = code?.events?.length ?? 0
   const allEvents = code?.eventCount ?? 0
-  const partlyShown = editing && code?.scope === 'SELECTED_EVENTS' && allEvents > shownEvents
+  // An answer that names fewer events than the code holds: its events are
+  // kept as they are, never replaced by the ones that could be read.
+  const partlyRead = editing && code?.scope === 'SELECTED_EVENTS' && allEvents > shownEvents
 
   /**
    * Change some values, and forget what was said about the last attempt.
@@ -219,12 +237,13 @@ function ReferralCodeFormFields({ mode, code: initialCode = null, timeZone }) {
 
       setErrors(fieldErrors)
       setRefusal(
-        refusalSentence(
-          response.status,
-          parsed,
-          editing ? 'The code was not changed.' : 'No code was made.',
-          parseRetryAfter(response.headers?.get?.('retry-after') ?? null),
-        ),
+        clashSentence(response.status, parsed) ??
+          refusalSentence(
+            response.status,
+            parsed,
+            editing ? 'The code was not changed.' : 'No code was made.',
+            parseRetryAfter(response.headers?.get?.('retry-after') ?? null),
+          ),
       )
       setStale(parsed?.error?.code === 'REFERRAL_CODE_CHANGED')
       focusAfterRender(refusalRef)
@@ -482,6 +501,7 @@ function ReferralCodeFormFields({ mode, code: initialCode = null, timeZone }) {
                 value={option.value}
                 checked={values.scope === option.value}
                 onChange={() => set({ scope: option.value })}
+                disabled={partlyRead}
                 className="size-6 shrink-0 accent-action-primary"
               />
               <label htmlFor={`${id}-scope-${option.value}`} className="text-sm text-ink">
@@ -489,16 +509,14 @@ function ReferralCodeFormFields({ mode, code: initialCode = null, timeZone }) {
               </label>
             </div>
           ))}
-          {values.scope === 'SELECTED_EVENTS' ? (
+          {values.scope === 'SELECTED_EVENTS' && partlyRead ? (
+            <p className="pl-9 text-sm text-ink-muted">
+              This code works for {allEvents.toLocaleString('en-US')} events, but they could not all
+              be read, so its events can’t be changed here. Reload the page to change them.
+            </p>
+          ) : null}
+          {values.scope === 'SELECTED_EVENTS' && !partlyRead ? (
             <div className="pl-9">
-              {partlyShown ? (
-                <p className="mb-2 text-sm text-ink-muted">
-                  This code works for {allEvents.toLocaleString('en-US')} events; only{' '}
-                  {shownEvents.toLocaleString('en-US')} of them can be shown here. Adding or
-                  removing an event replaces all {allEvents.toLocaleString('en-US')} with the events
-                  chosen here.
-                </p>
-              ) : null}
               <ReferralEventPicker
                 selected={values.events}
                 onChange={(events) => set({ events, eventsTouched: true })}
@@ -513,11 +531,10 @@ function ReferralCodeFormFields({ mode, code: initialCode = null, timeZone }) {
 
         <div>
           <label htmlFor={`${id}-expires`} className="block text-sm font-medium text-ink">
-            Expires (optional, {zone})
+            Expires (optional, UTC)
           </label>
           <p id={`${id}-expires-hint`} className="mt-1 text-sm text-ink-muted">
-            In your time zone, {timeZone} ({zone}). With no expiry it works until it is switched off
-            or used up.
+            {EXPIRY_HINT}
           </p>
           <input
             id={`${id}-expires`}

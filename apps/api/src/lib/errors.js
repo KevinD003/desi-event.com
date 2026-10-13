@@ -578,7 +578,7 @@ export const PAYMENT_TERMS_SENTENCES = Object.freeze({
   deletedEvent: 'This event was deleted. Restore it first; its booking fee comes back as it was.',
   /** 409 `SOLD_ON_SOURCE`, on an event sold on its listing's own site. */
   soldOnSource: 'Tickets for this event are sold on Sulekha, so it has no booking fee here.',
-  /** 503 `TRY_AGAIN`, when a change to the booking fee waited too long. */
+  /** 503 `SERVICE_UNAVAILABLE` (with `Retry-After`), when a change to the booking fee waited too long. */
   feeTryAgain:
     'Another change to this event was being saved at the same moment, so the booking fee was not changed. Try again in a moment.',
   /** 409 `NO_FEE_TO_REFUND`, when the fee was paid online and nothing of it is left. */
@@ -588,7 +588,7 @@ export const PAYMENT_TERMS_SENTENCES = Object.freeze({
   /** 409 `PAYMENT_TERMS_CHANGED`, when the switch or its limit moved since it was read. */
   venuePaymentChanged:
     "Another administrator changed this event's payment settings after you opened the page. Reload to see them. Nothing was changed.",
-  /** 503 `TRY_AGAIN`, when cancelling unpaid tickets waited too long (SPEC3-XI XU10). */
+  /** 503 `SERVICE_UNAVAILABLE` (with `Retry-After`), when cancelling unpaid tickets waited too long (SPEC3-XI XU10 called it `TRY_AGAIN`). */
   venueCancelTryAgain:
     'Another change to this booking was being saved at the same moment, so nothing was cancelled. Try again in a moment.',
 })

@@ -300,13 +300,14 @@ describe('usableCount', () => {
 })
 
 describe('REACHABLE_STATUSES', () => {
-  it('names the six states the application can actually produce', () => {
+  it('names the seven states the application can actually produce', () => {
     // Audited against every writer in apps/api/src, apps/worker/src and
-    // packages/*. VOID, SUPERSEDED and CANCELLED have no writer at all: two are
-    // declared as legal transition targets and never used, one is not even
-    // that. A wallet label for any of them would describe a product that does
-    // not exist.
+    // packages/*. CANCELLED is written by withdrawTickets when a night is
+    // cancelled or an event deleted (apps/api/src/lib/tickets.js). VOID and
+    // SUPERSEDED have no writer at all: a wallet label for either would
+    // describe a product that does not exist.
     expect([...REACHABLE_STATUSES].sort()).toEqual([
+      'CANCELLED',
       'CHECKED_IN',
       'REFUNDED',
       'REVOKED',
@@ -316,14 +317,21 @@ describe('REACHABLE_STATUSES', () => {
     ])
   })
 
-  it('has words for exactly those six, and no others', () => {
+  it('has words for exactly those seven, and no others', () => {
     expect(Object.keys(TICKET_STATUS_WORDS).sort()).toEqual([...REACHABLE_STATUSES].sort())
   })
 
-  it('excludes the three the database declares and nothing writes', () => {
-    for (const unreachable of ['VOID', 'SUPERSEDED', 'CANCELLED']) {
+  it('excludes the two the database declares and nothing writes', () => {
+    for (const unreachable of ['VOID', 'SUPERSEDED']) {
       expect(REACHABLE_STATUSES, `${unreachable} is not reachable`).not.toContain(unreachable)
     }
+  })
+
+  it('reads a withdrawn ticket in words, never as the raw CANCELLED', () => {
+    expect(ticketChip(ticket({ status: 'CANCELLED', admits: false }))).toEqual({
+      label: 'Withdrawn — this ticket no longer works at the door',
+      tone: 'danger',
+    })
   })
 })
 

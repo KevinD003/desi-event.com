@@ -66,8 +66,12 @@ const ALSO = Object.freeze([
     text: 'A promo code takes its discount off the ticket prices, and the booking fee is then worked out on what is left.',
   },
   {
+    key: 'referral',
+    text: 'A referral code from the Desi-Event team removes the whole booking fee from one order. It does not change the ticket price. When an order is refunded in full or cancelled, its use of the code is given back.',
+  },
+  {
     key: 'tax',
-    text: 'US sales tax is not calculated: checkout shows it as $0.00 for an event in the United States.',
+    text: 'US sales tax is not calculated: checkout shows it as $0.00 for an event in the United States. Tickets paid at the venue carry no sales tax, and neither does the booking fee paid online for them.',
   },
   {
     key: 'privacy',

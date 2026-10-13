@@ -161,6 +161,83 @@ async function paidLine(quantity) {
 }
 
 /**
+ * A second buyer's paid line on a tier {@link paidLine} made, so two orders
+ * share one tier's stock.
+ *
+ * @param {string} eventId The tier's event.
+ * @param {string} ticketTypeId The tier.
+ * @param {number} quantity How many this buyer bought.
+ * @returns {Promise<{order: object, orderItem: object}>} The line.
+ */
+async function anotherPaidLine(eventId, ticketTypeId, quantity) {
+  const nonce = sequence + 1
+
+  const order = await prisma.order.create({
+    data: {
+      id: id('order'),
+      reference: `DE-${PREFIX}-${nonce}`.toUpperCase().slice(0, 30),
+      eventId,
+      buyerEmail: `${PREFIX}-${nonce}@desi-event.example`,
+      buyerName: 'The Second Buyer',
+      status: 'PAID',
+      currency: 'INR',
+      subtotalCents: 100_000 * quantity,
+      totalCents: 100_000 * quantity,
+      paidAt: new Date(),
+    },
+  })
+
+  const orderItem = await prisma.orderItem.create({
+    data: {
+      id: id('line'),
+      orderId: order.id,
+      ticketTypeId,
+      quantity,
+      unitPriceCents: 100_000,
+      subtotalCents: 100_000 * quantity,
+    },
+  })
+
+  return { order, orderItem }
+}
+
+/**
+ * Turn a line's order into a pay-at-the-venue booking and cancel `count` of its
+ * places unpaid, in the columns the overselling check reads.
+ *
+ * What the cancellation writes on the line and the order (SPEC3-XI XU5,
+ * `lib/venue-bookings.js`): the booking stays PAID and its line keeps its
+ * quantity, the cancelled count goes to `venueCancelledQuantity`, and the door
+ * price no longer owed to `venueCancelledBasisCents`. The tickets themselves,
+ * the cancellation row and the tier's `quantitySold` are not built here: no
+ * invariant counts by them, a cancellation row is append-only so this file
+ * could not tear it down, and `venue-booking-cancellation-integration` makes
+ * the whole shape through the service (its rows are what the reliability step
+ * met).
+ *
+ * @param {object} order The order {@link paidLine} made.
+ * @param {object} orderItem Its line.
+ * @param {number} count How many of the line's places were cancelled unpaid.
+ * @returns {Promise<void>} Nothing.
+ */
+async function cancelUnpaidPlaces(order, orderItem, count) {
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      paymentMethod: 'AT_VENUE',
+      venueDueCents: order.subtotalCents,
+      totalCents: 0,
+      venueCancelledBasisCents: orderItem.unitPriceCents * count,
+    },
+  })
+
+  await prisma.orderItem.update({
+    where: { id: orderItem.id },
+    data: { venueDueCents: orderItem.subtotalCents, venueCancelledQuantity: count },
+  })
+}
+
+/**
  * One ticket on a line.
  *
  * @param {string} orderItemId Which line.
@@ -658,6 +735,45 @@ when()('what the database guarantees on its own', () => {
     const seated = await checkAll(eventId)
 
     expect(seated.get('no overselling').ok, seated.get('no overselling').detail).toBe(true)
+  })
+
+  it('16 — a place cancelled unpaid and sold again is not an oversell', async () => {
+    // Paying at the venue (SPEC3-XI XU5): cancelling an unpaid ticket gives its
+    // place back to the tier while the booking stays PAID and its line keeps
+    // its quantity, so a new buyer may take that place. Counted by line
+    // quantity alone, a tier of two whose booking of two lost one ticket and
+    // whose place was sold again read "3 sold against 2 available", and the
+    // reliability step failed on rows the cancellation suite had made
+    // correctly. Counted by the places the lines still hold, it is two.
+    const { order, orderItem, eventId, ticketTypeId } = await paidLine(2)
+
+    await anotherPaidLine(eventId, ticketTypeId, 1)
+
+    const before = await checkAll(eventId)
+
+    // Nothing cancelled: three places given out of two is an oversell.
+    expect(before.get('no overselling').ok).toBe(false)
+    expect(before.get('no overselling').detail).toMatch(/3 sold against 2 available/u)
+
+    await cancelUnpaidPlaces(order, orderItem, 1)
+
+    const after = await checkAll(eventId)
+
+    expect(after.get('no overselling').ok, after.get('no overselling').detail).toBe(true)
+  })
+
+  it('16b — a place cancelled unpaid cannot hide an oversell past it', async () => {
+    // The returned place is counted once: a second buyer who took two places
+    // when only the one cancelled had come back is still an oversell.
+    const { order, orderItem, eventId, ticketTypeId } = await paidLine(2)
+
+    await anotherPaidLine(eventId, ticketTypeId, 2)
+    await cancelUnpaidPlaces(order, orderItem, 1)
+
+    const checks = await checkAll(eventId)
+
+    expect(checks.get('no overselling').ok).toBe(false)
+    expect(checks.get('no overselling').detail).toMatch(/3 sold against 2 available/u)
   })
 
   it('10b — deleting a predecessor nulls the reference rather than orphaning it', async () => {

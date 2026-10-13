@@ -30,9 +30,15 @@ describe('LIMITATIONS', () => {
     for (const { status } of LIMITATIONS) expect(STATUS_WORDS.has(status)).toBe(true)
   })
 
-  it('lists exactly the entries SPEC2 §10 and SPEC2-XI §11 record, in page order', () => {
+  it('lists exactly the entries SPEC2 §10, SPEC2-XI §11, SPEC3 §15.1 and SPEC3-XI §15 record, in page order', () => {
     expect(LIMITATIONS.map(({ id }) => id)).toEqual([
       'payments',
+      'paying-at-the-venue',
+      'tax-on-venue-tickets',
+      'unpaid-bookings',
+      'general-admission-refunds',
+      'booking-fee-default',
+      'referral-rewards',
       'group-booking',
       'offline-admission',
       'physical-qr',
@@ -42,6 +48,7 @@ describe('LIMITATIONS', () => {
       'live-changes-not-reviewed',
       'night-cancellation-passes',
       'event-refunds-batch',
+      'payment-after-cancellation',
       'deleted-events-kept',
       'imported-events',
       'website-link-checks',

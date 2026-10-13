@@ -65,38 +65,24 @@ import { StepUpPrompt } from './step-up-prompt.jsx'
 import { STEP_UP_DECLINED_SENTENCE } from './step-up-retry.jsx'
 import { Alert, Button, FormField, Modal, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { formatInstantIn } from '../lib/format.js'
 import { formatAmount } from '../lib/pricing.js'
 import { refusalSentence } from '../lib/refusal.js'
-
-/** Instants are written in UTC, the way the admin lists write them. */
-const INSTANT = new Intl.DateTimeFormat('en-US', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-  timeZone: 'UTC',
-})
 
 /** What a reader is told when the service does not answer. */
 const NOT_ANSWERING = 'The service is not responding. Nothing has been cancelled.'
 
 /**
- * The API's sentence for `TRY_AGAIN`, when its answer carried none (SPEC3-XI
- * XU10).
- */
-const TRY_AGAIN_SENTENCE =
-  'Another change to this booking was being saved at the same moment, so nothing was cancelled. Try again in a moment.'
-
-/**
- * An instant in words, in UTC.
+ * An instant in words, in the event's zone and naming it — as the event keeps
+ * time, the way the buyer pages write its times — or in UTC, named, when the
+ * zone is not known.
  *
  * @param {string|null|undefined} value An ISO timestamp.
- * @returns {string} The words, or an empty string.
+ * @param {string} [timeZone] The event's IANA zone.
+ * @returns {string} "Oct 12, 2026, 4:05 PM CDT", or an empty string.
  */
-export function instantWords(value) {
-  if (!value) return ''
-
-  const at = new Date(value)
-
-  return Number.isNaN(at.getTime()) ? '' : `${INSTANT.format(at)} UTC`
+export function instantWords(value, timeZone = 'UTC') {
+  return formatInstantIn(value, timeZone) ?? ''
 }
 
 /**
@@ -116,15 +102,16 @@ function tickets(count) {
  * A replay (the same tickets already cancelled together) says so instead.
  *
  * @param {object} result The `venueBookings.cancel` answer's `data`.
+ * @param {string} [timeZone] The event's IANA zone, which a replay's time is written in.
  * @returns {string} The sentences.
  */
-export function cancellationOutcome(result) {
+export function cancellationOutcome(result, timeZone = 'UTC') {
   const count = result.ticketCount
 
   if (result.replayed) {
     const by = result.byName ? ` by ${result.byName}` : ''
 
-    return `These tickets were already cancelled${by} at ${instantWords(result.cancelledAt)}.`
+    return `These tickets were already cancelled${by} at ${instantWords(result.cancelledAt, timeZone)}.`
   }
 
   const one = count === 1
@@ -368,16 +355,10 @@ export function CancelUnpaidTicketsDialog({ eventId, orderReference, onClose, on
       }
 
       // A change that waited too long behind another is answered 503
-      // `SERVICE_UNAVAILABLE` with the API's sentence (the specification calls
-      // it `TRY_AGAIN`); the shared rule keeps that sentence for either code.
-      // A `TRY_AGAIN` that came without one gets the specification's words.
-      const said = typeof body?.error?.message === 'string' ? body.error.message.trim() : ''
-
-      setRefusal(
-        code === 'TRY_AGAIN' && !said
-          ? TRY_AGAIN_SENTENCE
-          : refusalSentence(response.status, body, 'No ticket was cancelled.'),
-      )
+      // `SERVICE_UNAVAILABLE` with `Retry-After` and the API's sentence (the
+      // specification called it `TRY_AGAIN`, a code this route never sends);
+      // the shared rule keeps that sentence.
+      setRefusal(refusalSentence(response.status, body, 'No ticket was cancelled.'))
 
       focusAfterRender(summaryRef)
     } catch {

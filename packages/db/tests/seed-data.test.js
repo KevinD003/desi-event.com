@@ -22,9 +22,12 @@ import {
   demonstrationTrafficDay,
   eventStatusPath,
   eventWritePlan,
+  generateSeedReferralCode,
   localTime,
   offset,
   onOrAfterWeekday,
+  REFERRAL_CODE_ALPHABET,
+  seedFeeKeptCents,
   seedStorageKey,
   settleEventStatus,
   solidSeedPng,
@@ -1138,14 +1141,19 @@ describe('seeded ticket types', () => {
     }
   })
 
-  it('derives quantitySold from the paid orders and nothing else', () => {
+  it('derives quantitySold from the paid orders, less the unpaid tickets cancelled, and nothing else', () => {
     /** @type {Map<string, number>} */
     const expected = new Map(data.ticketTypes.map((type) => [type.id, 0]))
 
+    // SPEC3-XI XU5: cancelling unpaid tickets is the one thing that frees a
+    // place, so a tier sells what its paid orders bought less those.
     for (const order of data.orders) {
       if (order.status !== 'PAID') continue
       for (const item of order.items) {
-        expected.set(item.ticketTypeId, expected.get(item.ticketTypeId) + item.quantity)
+        expected.set(
+          item.ticketTypeId,
+          expected.get(item.ticketTypeId) + item.quantity - item.venueCancelledQuantity,
+        )
       }
     }
 
@@ -1222,14 +1230,24 @@ describe('seeded orders', () => {
     expect(statuses).toEqual(new Set(['PENDING', 'PAID', 'CANCELLED', 'REFUNDED', 'EXPIRED']))
   })
 
-  it('keeps every money column an integer that adds up', () => {
+  it('keeps every money column an integer that adds up, online and at the door', () => {
     for (const order of data.orders) {
       const itemSubtotal = order.items.reduce((sum, item) => sum + item.subtotalCents, 0)
 
       expect(order.subtotalCents).toBe(itemSubtotal)
-      expect(order.totalCents).toBe(
-        order.subtotalCents - order.discountCents + order.feesCents + order.taxCents,
-      )
+      // A card order pays everything online; a booking to pay at the venue
+      // pays its booking fee and any tax online, and the ticket price at the
+      // door (CHECK order_venue_payment_shape).
+      if (order.paymentMethod === 'AT_VENUE') {
+        expect(order.totalCents).toBe(order.feesCents + order.taxCents)
+        expect(order.venueDueCents).toBe(order.subtotalCents - order.discountCents)
+      } else {
+        expect(order.paymentMethod).toBe('CARD')
+        expect(order.totalCents).toBe(
+          order.subtotalCents - order.discountCents + order.feesCents + order.taxCents,
+        )
+        expect(order.venueDueCents).toBe(0)
+      }
       expect(order.discountCents).toBeLessThanOrEqual(order.subtotalCents)
 
       for (const value of [
@@ -1245,11 +1263,47 @@ describe('seeded orders', () => {
     }
   })
 
-  it('records each order as a card order whose gross booking fee is the fee it charged (CHECK order_fee_parts)', () => {
+  it('charges the fee its terms came to, less all of it when a referral code waived it (CHECKs order_fee_parts, order_fee_waiver_whole)', () => {
     for (const order of data.orders) {
-      expect(order.feeGrossCents).toBe(order.feesCents)
-      expect(order.feeWaivedCents ?? 0).toBe(0)
-      expect(order.venueDueCents ?? 0).toBe(0)
+      expect(order.feesCents).toBe(order.feeGrossCents - order.feeWaivedCents)
+
+      if (order.referralCodeId) {
+        expect(order.feeGrossCents).toBeGreaterThan(0)
+        expect(order.feeWaivedCents).toBe(order.feeGrossCents)
+        expect(order.feesCents).toBe(0)
+      } else {
+        expect(order.feeWaivedCents).toBe(0)
+      }
+    }
+    // Both kinds are seeded, so neither branch above is vacuous.
+    expect(data.orders.some((order) => order.referralCodeId)).toBe(true)
+    expect(data.orders.some((order) => !order.referralCodeId)).toBe(true)
+  })
+
+  it('records the terms each fee was worked out with, as checkout does (CHECK order_fee_terms_shape)', () => {
+    const settingById = new Map(data.feeSettings.map((setting) => [setting.id, setting]))
+
+    for (const order of data.orders) {
+      const quantity = order.items.reduce((sum, item) => sum + item.quantity, 0)
+      const discounted = order.subtotalCents - order.discountCents
+
+      expect(order.feeGrossCents).toBe(
+        applyBps(discounted, order.feePercentageBps) + order.feeFlatCentsPerTicket * quantity,
+      )
+      if (order.feeSource === 'EVENT') {
+        const setting = settingById.get(order.feeSettingId)
+
+        expect(setting).toBeDefined()
+        expect(setting.eventId).toBe(order.eventId)
+        expect(order.feePercentageBps).toBe(setting.percentageBps)
+        expect(order.feeFlatCentsPerTicket).toBe(setting.flatCentsPerTicket)
+        // New orders only (A4): placed after the decision.
+        expect(order.placedAt.getTime()).toBeGreaterThanOrEqual(setting.createdAt.getTime())
+      } else {
+        expect(order.feeSource).toBe('SITE_DEFAULT')
+        expect(order.feeSettingId).toBeNull()
+        expect([order.feePercentageBps, order.feeFlatCentsPerTicket]).toEqual([590, 99])
+      }
     }
   })
 
@@ -1288,7 +1342,7 @@ describe('seeded orders', () => {
     }
   })
 
-  it('matches ticket status to order status', () => {
+  it('matches ticket status to order status, a paid order’s withdrawn ticket being one cancelled unpaid', () => {
     const expectedByOrderStatus = {
       PAID: new Set(['VALID', 'CHECKED_IN']),
       CANCELLED: new Set(['VOID']),
@@ -1299,6 +1353,12 @@ describe('seeded orders', () => {
       const allowed = expectedByOrderStatus[order.status]
       if (!allowed) continue
       for (const ticket of order.tickets) {
+        // SPEC3-XI XU7: a booking stays PAID for its other tickets when some
+        // of its unpaid ones are cancelled, and only those are REVOKED.
+        if (order.status === 'PAID' && ticket.status === 'REVOKED') {
+          expect(ticket.venueCancellationId).not.toBeNull()
+          continue
+        }
         expect(allowed).toContain(ticket.status)
       }
     }
@@ -1514,6 +1574,416 @@ describe('seeded promo codes', () => {
     for (const promo of data.promoCodes) {
       if (!promo.eventId) continue
       expect(orgIdByEventId.get(promo.eventId)).toBe(promo.organizationId)
+    }
+  })
+})
+
+describe('seeded booking fees, referral codes and paying at the venue (SPEC3 §15.5, SPEC3-XI §15)', () => {
+  const eventById = new Map(data.events.map((event) => [event.id, event]))
+  const event = (key) => data.events.find((candidate) => candidate.key === key)
+  const order = (reference) => data.orders.find((candidate) => candidate.reference === reference)
+  const platformAdmin = data.users.find((user) => user.key === 'platformAdmin')
+  const atVenue = data.orders.filter((candidate) => candidate.paymentMethod === 'AT_VENUE')
+
+  it('gives the first organisation’s Garba night its own booking fee, 3.00% + $1.49, in one decision by the platform administrator', () => {
+    const nightOne = event('night-one')
+
+    expect(data.feeSettings).toEqual([
+      expect.objectContaining({
+        eventId: nightOne.id,
+        sequence: 1,
+        source: 'EVENT',
+        percentageBps: 300,
+        flatCentsPerTicket: 149,
+        currency: 'USD',
+        reason: 'Demo: this event’s own booking fee',
+        setByEmail: platformAdmin.email,
+      }),
+    ])
+    // Within the bounds an administrator may set (open question 8) and the
+    // reason's 10–500 characters (CHECK event_fee_setting_shape).
+    const [setting] = data.feeSettings
+    expect(setting.percentageBps).toBeLessThanOrEqual(3000)
+    expect(setting.flatCentsPerTicket).toBeLessThanOrEqual(10000)
+    expect(setting.reason.trim().length).toBeGreaterThanOrEqual(10)
+    expect(setting.createdAt.getTime()).toBeLessThan(NOW.getTime())
+  })
+
+  it('keeps the fee an order was priced with: orders before the decision keep the site default, one after has the event’s own', () => {
+    const nightOne = event('night-one')
+    const [setting] = data.feeSettings
+    const onNightOne = data.orders.filter((candidate) => candidate.eventId === nightOne.id)
+
+    expect(onNightOne.map((candidate) => [candidate.reference, candidate.feeSource])).toEqual([
+      ['DE-US-200001', 'SITE_DEFAULT'],
+      ['DE-US-200014', 'EVENT'],
+    ])
+    expect(order('DE-US-200001').placedAt.getTime()).toBeLessThan(setting.createdAt.getTime())
+    expect(order('DE-US-200014')).toMatchObject({
+      feeSettingId: setting.id,
+      // Two $35.00 tickets: 7000 × 3% = 210, plus 2 × 149.
+      feeGrossCents: 210 + 298,
+      feeWaivedCents: 210 + 298,
+      feesCents: 0,
+      totalCents: 7000,
+    })
+  })
+
+  it('switches paying at the door on for the Houston dandiya night and the warm-up night only, each with a limit of 50 and its reason', () => {
+    expect(
+      data.venuePaymentChanges.map((change) => [
+        eventById.get(change.eventId).key,
+        change.enabled,
+        change.limit,
+        change.reason,
+        change.changedByEmail,
+      ]),
+    ).toEqual([
+      ['dandiya-dhol', true, 50, 'Demo: paying at the door', platformAdmin.email],
+      ['warm-up', true, 50, 'Demo: paying at the door', platformAdmin.email],
+    ])
+    const dhol = event('dandiya-dhol')
+
+    // Offered only where it can be (SPEC3 DV2): on sale, at a venue, not online.
+    expect(dhol.status).toBe('ON_SALE')
+    expect(dhol.venueId).not.toBeNull()
+    expect(dhol.isOnline).toBe(false)
+    expect(event('warm-up').isOnline).toBe(false)
+  })
+
+  it('books to pay at the door only where the switch was on, signed in, and after it went on', () => {
+    expect(atVenue.map((candidate) => candidate.reference)).toEqual([
+      'DE-US-200015',
+      'DE-US-200016',
+      'DE-US-200017',
+    ])
+    for (const booking of atVenue) {
+      const change = data.venuePaymentChanges.find(
+        (candidate) => candidate.eventId === booking.eventId,
+      )
+
+      expect(change).toBeDefined()
+      expect(booking.placedAt.getTime()).toBeGreaterThan(change.createdAt.getTime())
+      expect(booking.userEmail).not.toBeNull()
+    }
+    // The demo attendee's two bookings for the night still to come.
+    expect(
+      atVenue
+        .filter((booking) => booking.eventKey === 'dandiya-dhol')
+        .map((booking) => booking.userEmail),
+    ).toEqual(['aarav.shah@mail.example', 'aarav.shah@mail.example'])
+  })
+
+  it('pays only the booking fee online for every booking at the venue, adds no tax, and owes the ticket price at the door (SPEC3 §6)', () => {
+    for (const booking of atVenue) {
+      expect(booking.status).toBe('PAID')
+      expect(booking.taxCents).toBe(0)
+      expect(booking.totalCents).toBe(booking.feesCents + booking.taxCents)
+      expect(booking.venueDueCents).toBe(booking.subtotalCents - booking.discountCents)
+      expect(booking.venueDueCents).toBeGreaterThan(0)
+
+      for (const item of booking.items) {
+        expect(item.venueDueCents).toBe(item.subtotalCents)
+      }
+      // What each ticket owes adds up to what the booking owes, and never
+      // changes: a ticket's share is its unit price here.
+      expect(booking.tickets.reduce((sum, ticket) => sum + ticket.venueDueCents, 0)).toBe(
+        booking.venueDueCents,
+      )
+      for (const ticket of booking.tickets) {
+        expect(ticket.ownerEmail).toBe(booking.userEmail)
+      }
+      // One payment of the online total, or none when that is nothing.
+      if (booking.totalCents === 0) {
+        expect(booking.payments).toEqual([])
+      } else {
+        expect(booking.payments.map((payment) => payment.amountCents)).toEqual([booking.totalCents])
+      }
+    }
+    for (const card of data.orders.filter((candidate) => candidate.paymentMethod === 'CARD')) {
+      for (const ticket of card.tickets) expect(ticket.venueDueCents).toBe(0)
+    }
+  })
+
+  it('pays one booking’s fee online and waives the other’s with the all-events code, so it paid nothing online', () => {
+    expect(order('DE-US-200016')).toMatchObject({
+      referralKey: null,
+      // Two $30.00 tickets: 6000 × 5.9% = 354, plus 2 × 99.
+      feesCents: 354 + 198,
+      totalCents: 552,
+      venueDueCents: 6000,
+    })
+    expect(order('DE-US-200017')).toMatchObject({
+      referralKey: 'all-events',
+      feeGrossCents: 177 + 99,
+      feeWaivedCents: 177 + 99,
+      feesCents: 0,
+      totalCents: 0,
+      venueDueCents: 3000,
+    })
+    // Every ticket of the night still to come still owes its price.
+    for (const reference of ['DE-US-200016', 'DE-US-200017']) {
+      for (const ticket of order(reference).tickets) {
+        expect(ticket).toMatchObject({ status: 'VALID', venuePaymentId: null })
+        expect(ticket.venueDueCents).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('makes two referral codes by the platform administrator, without their text: one for every event with 100 uses, one for the Garba night that stops 60 days after seeding', () => {
+    expect(
+      data.referralCodes.map((code) => ({
+        scope: code.scope,
+        events: code.eventIds.map((id) => eventById.get(id).key),
+        maxUses: code.maxUses,
+        expiresAt: code.expiresAt,
+        createdByEmail: code.createdByEmail,
+      })),
+    ).toEqual([
+      {
+        scope: 'ALL_EVENTS',
+        events: [],
+        maxUses: 100,
+        expiresAt: null,
+        createdByEmail: platformAdmin.email,
+      },
+      {
+        scope: 'SELECTED_EVENTS',
+        events: ['night-one'],
+        maxUses: null,
+        expiresAt: offset(startOfUtcDay(NOW), 60),
+        createdByEmail: platformAdmin.email,
+      },
+    ])
+    for (const code of data.referralCodes) {
+      // The text is drawn when the row is first written, never here.
+      expect(code).not.toHaveProperty('code')
+      expect(code.label.trim().length).toBeGreaterThanOrEqual(1)
+      expect(code.label.length).toBeLessThanOrEqual(120)
+      if (code.expiresAt) {
+        expect(code.expiresAt.getTime()).toBeGreaterThan(code.createdAt.getTime())
+      }
+    }
+    // Found again on a re-seed by label and maker, so that pair is unique.
+    const keys = data.referralCodes.map((code) => `${code.createdByEmail}|${code.label}`)
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('counts each code’s uses from the orders that name it, within its limit, and never its maker’s', () => {
+    const uses = Object.fromEntries(data.referralCodes.map((code) => [code.key, code.useCount]))
+
+    expect(uses).toEqual({ 'all-events': 2, 'night-one-only': 0 })
+    for (const code of data.referralCodes) {
+      const named = data.orders.filter((candidate) => candidate.referralCodeId === code.id)
+
+      expect(code.useCount).toBe(named.length)
+      if (code.maxUses !== null) expect(code.useCount).toBeLessThanOrEqual(code.maxUses)
+      for (const candidate of named) {
+        expect(candidate.userEmail).not.toBe(code.createdByEmail)
+        expect(candidate.placedAt.getTime()).toBeGreaterThan(code.createdAt.getTime())
+        if (code.scope === 'SELECTED_EVENTS') expect(code.eventIds).toContain(candidate.eventId)
+      }
+    }
+    // One card order and one booking at the venue used the all-events code.
+    expect(
+      data.orders
+        .filter((candidate) => candidate.referralKey === 'all-events')
+        .map((candidate) => candidate.paymentMethod),
+    ).toEqual(['CARD', 'AT_VENUE'])
+  })
+
+  it('draws referral codes from the generated alphabet in the shape the database accepts', () => {
+    const pattern = new RegExp(
+      `^[${REFERRAL_CODE_ALPHABET}]{5}-[${REFERRAL_CODE_ALPHABET}]{5}$`,
+      'u',
+    )
+    const drawn = Array.from({ length: 50 }, () => generateSeedReferralCode())
+
+    for (const code of drawn) {
+      expect(code).toMatch(pattern)
+      // CHECK referral_code_shape.
+      expect(code).toMatch(/^[A-Z0-9][A-Z0-9-]{4,30}[A-Z0-9]$/u)
+      expect(code).not.toContain('--')
+    }
+    expect(REFERRAL_CODE_ALPHABET).not.toMatch(/[01ILO]/u)
+    expect(new Set(drawn).size).toBeGreaterThan(1)
+    // Every letter of the alphabet is reachable, and nothing outside it.
+    expect(generateSeedReferralCode(() => 0)).toBe('AAAAA-AAAAA')
+    expect(generateSeedReferralCode((max) => max - 1)).toBe('99999-99999')
+  })
+
+  it('records the one payment taken at the door with the admission it paid for, by the organisation’s owner during the night', () => {
+    const booking = order('DE-US-200015')
+    const warmUp = event('warm-up')
+    const meera = data.users.find((user) => user.key === 'meera')
+
+    expect(data.venuePayments).toHaveLength(1)
+    const [payment] = data.venuePayments
+    const paid = booking.tickets.filter((ticket) => ticket.venuePaymentId === payment.id)
+
+    expect(payment).toMatchObject({
+      orderId: booking.id,
+      eventId: warmUp.id,
+      organizationId: warmUp.organizationId,
+      amountCents: 1500,
+      currency: 'USD',
+      ticketCount: 1,
+      via: 'DOOR_TICKET',
+      authority: 'ORGANIZATION_ROLE',
+      role: 'OWNER',
+      recordedByEmail: meera.email,
+    })
+    // At commit the tickets it paid number its count and their dues its
+    // amount (desi_venue_payment_sum), and each was let in with it.
+    expect(paid).toHaveLength(payment.ticketCount)
+    expect(paid.reduce((sum, ticket) => sum + ticket.venueDueCents, 0)).toBe(payment.amountCents)
+    for (const ticket of paid) {
+      expect(ticket.status).toBe('CHECKED_IN')
+      expect(ticket.checkedInAt.getTime()).toBe(payment.recordedAt.getTime())
+      expect(data.checkIns.filter((checkIn) => checkIn.ticketId === ticket.id)).toEqual([
+        expect.objectContaining({ scannedAt: payment.recordedAt, scannedByEmail: meera.email }),
+      ])
+    }
+    expect(payment.recordedAt.getTime()).toBeGreaterThan(warmUp.startsAt.getTime())
+    expect(payment.recordedAt.getTime()).toBeLessThan(warmUp.endsAt.getTime())
+    // Nothing paid at the door is ever posted or refunded by the platform, and
+    // no ticket is let in owing a payment (check_in_payment_due).
+    for (const checkIn of data.checkIns) {
+      const ticket = data.orders
+        .flatMap((candidate) => candidate.tickets)
+        .find((candidate) => candidate.id === checkIn.ticketId)
+      expect(ticket.venueDueCents === 0 || ticket.venuePaymentId !== null).toBe(true)
+    }
+  })
+
+  it('cancels one unpaid ticket of that booking, by the Desi-Event team once the doors had opened, keeping its share of the booking fee (SPEC3-XI XU1, XU6)', () => {
+    const booking = order('DE-US-200015')
+    const warmUp = event('warm-up')
+
+    expect(data.venueCancellations).toHaveLength(1)
+    const [cancellation] = data.venueCancellations
+    const cancelled = booking.tickets.filter(
+      (ticket) => ticket.venueCancellationId === cancellation.id,
+    )
+
+    expect(cancellation).toMatchObject({
+      orderId: booking.id,
+      authority: 'PLATFORM_ROLE',
+      role: 'ADMIN',
+      reason: 'Demo: not paid before the doors opened',
+      cancelledByEmail: platformAdmin.email,
+      currency: 'USD',
+      // The place is freed, but the tier had stopped selling, so it is not
+      // claimed to be on sale again (XU5).
+      placesOnSale: 'NONE',
+    })
+    // CHECK venue_booking_cancellation_shape and desi_venue_booking_cancellation_sum.
+    expect(cancellation.reason.trim().length).toBeGreaterThanOrEqual(10)
+    expect(cancelled).toHaveLength(cancellation.ticketCount)
+    expect(cancelled.reduce((sum, ticket) => sum + ticket.venueDueCents, 0)).toBe(
+      cancellation.basisCents,
+    )
+    for (const ticket of cancelled) {
+      expect(ticket).toMatchObject({
+        status: 'REVOKED',
+        venuePaymentId: null,
+        revokedReason: `venue-unpaid:${cancellation.id}`,
+      })
+      expect(data.checkIns.some((checkIn) => checkIn.ticketId === ticket.id)).toBe(false)
+    }
+    // The fee kept is the cancelled tickets' share of the fee charged, as
+    // keptShareOf works it out: floor(563 × 1500 / 4500) = 187.
+    expect(cancellation.feeKeptCents).toBe(
+      seedFeeKeptCents({
+        feesCents: booking.feesCents,
+        venueDueCents: booking.venueDueCents,
+        basisCents: cancellation.basisCents,
+      }),
+    )
+    expect(cancellation.feeKeptCents).toBe(187)
+    // During the event, while it could still be cancelled (XU3, XU4).
+    expect(cancellation.createdAt.getTime()).toBeGreaterThan(warmUp.startsAt.getTime())
+    expect(cancellation.createdAt.getTime()).toBeLessThan(warmUp.endsAt.getTime())
+  })
+
+  it('leaves the booking’s sums, its line and its tier as the cancellation leaves them, and the kept fee out of reach of any refund', () => {
+    const booking = order('DE-US-200015')
+    const [cancellation] = data.venueCancellations
+    const [line] = booking.items
+    const tier = data.ticketTypes.find((type) => type.id === line.ticketTypeId)
+
+    expect(booking.venueCancelledBasisCents).toBe(cancellation.basisCents)
+    expect(booking.venueFeeKeptCents).toBe(cancellation.feeKeptCents)
+    expect(line.venueCancelledQuantity).toBe(cancellation.ticketCount)
+    expect(cancellation.placesReturned).toEqual({ [tier.id]: cancellation.ticketCount })
+
+    for (const candidate of data.orders) {
+      // CHECKs order_venue_cancel_shape and order_venue_kept_within_total
+      // (nothing seeded is refunded in part or pending).
+      expect(candidate.venueCancelledBasisCents).toBeLessThanOrEqual(candidate.venueDueCents)
+      expect(candidate.venueFeeKeptCents).toBeLessThanOrEqual(candidate.feesCents)
+      expect(candidate.venueFeeKeptCents).toBeLessThanOrEqual(candidate.totalCents)
+      if (candidate.paymentMethod === 'CARD') {
+        expect([candidate.venueCancelledBasisCents, candidate.venueFeeKeptCents]).toEqual([0, 0])
+      }
+      // CHECK order_item_venue_cancelled_within_line.
+      for (const item of candidate.items) {
+        expect(item.venueCancelledQuantity).toBeGreaterThanOrEqual(0)
+        expect(item.venueCancelledQuantity).toBeLessThanOrEqual(item.quantity)
+      }
+    }
+  })
+
+  it('never sells fewer places than the tickets still standing, and never below none (CHECK ticket_type_sold_not_negative)', () => {
+    const standing = new Map(data.ticketTypes.map((type) => [type.id, 0]))
+
+    for (const candidate of data.orders) {
+      for (const item of candidate.items) {
+        for (const ticket of candidate.tickets.filter((t) => t.orderItemId === item.id)) {
+          if (['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'].includes(ticket.status)) {
+            standing.set(item.ticketTypeId, standing.get(item.ticketTypeId) + 1)
+          }
+        }
+      }
+    }
+    for (const type of data.ticketTypes) {
+      expect(type.quantitySold).toBeGreaterThanOrEqual(0)
+      expect(type.quantitySold).toBeGreaterThanOrEqual(standing.get(type.id))
+    }
+    // The warm-up tier: three sold by card, three booked at the venue, one of
+    // those cancelled.
+    expect(data.ticketTypes.find((type) => type.key === 'warm-up-general').quantitySold).toBe(5)
+  })
+
+  it('leaves one ticket of that booking unpaid after the event: its holder did not come (SPEC3 DV6)', () => {
+    const booking = order('DE-US-200015')
+    const unpaid = booking.tickets.filter(
+      (ticket) => ticket.status === 'VALID' && ticket.venuePaymentId === null,
+    )
+
+    expect(unpaid).toHaveLength(1)
+    expect(event('warm-up').endsAt.getTime()).toBeLessThan(NOW.getTime())
+  })
+
+  it('audits each decision, payment and cancellation with ids, amounts and reasons, and never a code’s text or its label', () => {
+    const actions = data.auditLogs.map((log) => log.action)
+
+    for (const action of [
+      'event.platform_fee_changed',
+      'event.venue_payment_changed',
+      'referral_code.created',
+      'venue_payment.recorded',
+      'venue_booking.cancelled',
+    ]) {
+      expect(actions).toContain(action)
+    }
+    const labels = data.referralCodes.map((code) => code.label)
+
+    for (const log of data.auditLogs) {
+      const text = JSON.stringify(log.metadata)
+
+      for (const label of labels) expect(text).not.toContain(label)
+      expect(text).not.toMatch(/"(code|referralCode|buyerEmail|buyerName)"/u)
     }
   })
 })

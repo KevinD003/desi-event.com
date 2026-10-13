@@ -341,7 +341,7 @@ async function eventCurrency(db, eventId) {
  *
  * @param {object} db A Prisma client.
  * @param {object} options Options.
- * @param {object} options.event The event, with `id`, `title`, `endsAt`.
+ * @param {object} options.event The event, with `id`, `title`, `endsAt` and `timezone`.
  * @param {{authority: string}} options.reader The reader's authority.
  * @param {string|null} [options.orderReference] One booking only, by its reference.
  * @param {number} [options.page] The page, from 1.
@@ -452,6 +452,9 @@ export async function unpaidVenueBookings(db, options) {
   return {
     eventId: event.id,
     eventTitle: event.title,
+    // The event's own zone, so a screen writes each booking's date as the
+    // event keeps time.
+    timezone: event.timezone,
     currency,
     bookings,
     pagination: buildPaginationMeta({ page, perPage, total }),

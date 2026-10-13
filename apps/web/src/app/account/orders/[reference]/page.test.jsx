@@ -237,6 +237,21 @@ describe('what it cost', () => {
     expect(screen.getByText('₹18.00')).toBeInTheDocument()
   })
 
+  it('names the tax as the event’s place does, once the order says where the event is', async () => {
+    getMyOrder.mockResolvedValue(
+      order({
+        taxCents: 1800,
+        event: { ...order().event, country: 'IN', region: 'Maharashtra' },
+      }),
+    )
+
+    await renderPage()
+
+    expect(screen.getByText('GST')).toBeInTheDocument()
+    expect(screen.queryByText('Tax')).toBeNull()
+    expect(screen.getByText('₹18.00')).toBeInTheDocument()
+  })
+
   it('says a paid order’s payment was simulated, and says nothing about refunds', async () => {
     getMyOrder.mockResolvedValue(order())
 
@@ -979,6 +994,31 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
     expect(container.textContent).not.toContain('Paid — simulated')
   })
 
+  it('names the place’s tax on a booking paid at the venue, and says none is added to its tickets', async () => {
+    getMyOrder.mockResolvedValue(
+      atVenue(
+        {},
+        {
+          event: {
+            ...order().event,
+            timezone: 'America/Chicago',
+            city: 'Houston',
+            country: 'US',
+            region: 'TX',
+          },
+        },
+      ),
+    )
+
+    await renderPage()
+
+    expect(screen.getByText('Sales tax')).toBeInTheDocument()
+    expect(screen.queryByText('Tax')).toBeNull()
+    expect(
+      screen.getByText('No sales tax is added to tickets paid at the venue.'),
+    ).toBeInTheDocument()
+  })
+
   it('shows the waiver and says nothing was paid online when a referral code removed the fee', async () => {
     getMyOrder.mockResolvedValue(
       atVenue({}, { feesCents: 0, feeWaivedCents: 662, referralApplied: true, totalCents: 0 }),
@@ -1031,7 +1071,13 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
       ...base,
       tickets: [
         base.tickets[0],
-        { ...base.tickets[1], supersededByLaterTicket: true, purchaserHolding: 'TRANSFERRED_AWAY' },
+        {
+          ...base.tickets[1],
+          supersededByLaterTicket: true,
+          purchaserHolding: 'TRANSFERRED_AWAY',
+          // Where the ticket stands with its new holder: the API's to say.
+          passedOn: { state: 'OWES', dueCents: 4_000 },
+        },
       ],
     })
 
@@ -1064,7 +1110,12 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
       ...base,
       tickets: [
         base.tickets[0],
-        { ...base.tickets[1], supersededByLaterTicket: true, purchaserHolding: 'TRANSFERRED_AWAY' },
+        {
+          ...base.tickets[1],
+          supersededByLaterTicket: true,
+          purchaserHolding: 'TRANSFERRED_AWAY',
+          passedOn: { state: 'PAID', dueCents: 0 },
+        },
       ],
     })
 
@@ -1107,7 +1158,12 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
       ...base,
       tickets: [
         base.tickets[0],
-        { ...base.tickets[1], supersededByLaterTicket: true, purchaserHolding: 'TRANSFERRED_AWAY' },
+        {
+          ...base.tickets[1],
+          supersededByLaterTicket: true,
+          purchaserHolding: 'TRANSFERRED_AWAY',
+          passedOn: { state: 'CANCELLED', dueCents: 0 },
+        },
       ],
     })
 
@@ -1115,6 +1171,51 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
 
     expect(screen.getByText(/You no longer owe \$40\.00 for it\./u)).toBeInTheDocument()
     expect(screen.queryByText(/its new holder pays/u)).toBeNull()
+  })
+
+  it('names the exact amount still owed on each ticket passed on, when another passed on was paid since', async () => {
+    // Two tickets of different prices passed on; the dearer one was since paid
+    // at the door. The row still owing says its own amount, not a guess.
+    const base = atVenue(
+      {
+        state: 'PASSED_ON',
+        unpaidTickets: 0,
+        unpaidCents: 0,
+        paidByOthersTickets: 1,
+        paidByOthersCents: 4_000,
+        passedOnUnpaidTickets: 1,
+        passedOnUnpaidCents: 2_500,
+      },
+      { subtotalCents: 6_500 },
+    )
+
+    getMyOrder.mockResolvedValue({
+      ...base,
+      tickets: [
+        {
+          ...base.tickets[0],
+          supersededByLaterTicket: true,
+          purchaserHolding: 'TRANSFERRED_AWAY',
+          passedOn: { state: 'PAID', dueCents: 0 },
+        },
+        {
+          ...base.tickets[1],
+          venuePayment: { ...base.tickets[1].venuePayment, dueCents: 2_500 },
+          supersededByLaterTicket: true,
+          purchaserHolding: 'TRANSFERRED_AWAY',
+          passedOn: { state: 'OWES', dueCents: 2_500 },
+        },
+      ],
+    })
+
+    await renderPage()
+
+    expect(
+      screen.getByText('Passed on — its new holder pays $25.00 at the door'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/its new holder pays \$40\.00/u)).toBeNull()
+    // One row still owes; the one paid at the door is not listed as owing.
+    expect(screen.getAllByText(/^Passed on — its new holder pays/u)).toHaveLength(1)
   })
 
   it('draws a block for each cancellation of unpaid tickets, with or without a kept fee', async () => {

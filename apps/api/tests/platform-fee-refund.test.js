@@ -382,6 +382,52 @@ describe('platformFees.refund', () => {
     await app.close()
   })
 
+  it('records and answers that the booking fee’s refund withdrew no ticket and returned no place', async () => {
+    const { app, prisma, card, venue } = await withOrders()
+    const headers = await as(app, ADMIN)
+    const taxShare = Math.floor((1_118 * 600) / 8_600)
+
+    for (const [order, amount] of [
+      [card.order, 2 * FEE + taxShare],
+      [venue.order, 2 * FEE],
+    ]) {
+      const response = await refund(app, headers, order.reference, amount)
+
+      expect(response.statusCode, response.body).toBe(200)
+
+      const answered = response.json().data.refund
+
+      expect(answered).toMatchObject({ ticketsRevoked: false, inventoryReturned: false })
+      expect(stored(prisma, 'refund', answered.id)).toMatchObject({
+        status: 'SUCCEEDED',
+        ticketsRevoked: false,
+        inventoryReturned: false,
+      })
+    }
+
+    await app.close()
+  })
+
+  it('names how a card order was paid only when it was paid at the venue', async () => {
+    const { app, card } = await withOrders()
+    const taxShare = Math.floor((1_118 * 600) / 8_600)
+    const response = await refund(
+      app,
+      await as(app, ADMIN),
+      card.order.reference,
+      2 * FEE + taxShare,
+    )
+
+    expect(response.statusCode, response.body).toBe(200)
+
+    const answered = response.json().data.refund
+
+    expect(answered).not.toHaveProperty('paymentMethod')
+    expect(answered).not.toHaveProperty('paidAtDoorCents')
+
+    await app.close()
+  })
+
   it('is open to a finance administrator', async () => {
     const { app, accounts, venue } = await withOrders()
     const response = await refund(

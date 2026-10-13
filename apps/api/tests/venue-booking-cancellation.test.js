@@ -1388,6 +1388,9 @@ describe('the list of bookings waiting to be paid at the door (SPEC3-XI §11.2)'
       currency: CURRENCY,
       pagination: { page: 1, total: 1 },
     })
+    // The event's own zone, so the screens write each booking's date as the
+    // event keeps time rather than in UTC.
+    expect(data.timezone).toBe(ids.publishedEvent.timezone)
     // The card order owes nothing at the door and is not listed.
     expect(data.bookings).toHaveLength(1)
     expect(data.bookings[0]).toMatchObject({

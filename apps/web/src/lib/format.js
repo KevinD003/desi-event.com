@@ -166,6 +166,71 @@ export function formatTimeZoneLabel(event, locale = DEFAULT_LOCALE) {
 }
 
 /**
+ * A zone `Intl` can format in, or UTC for one it does not know.
+ *
+ * @param {string|null|undefined} timeZone Candidate IANA zone.
+ * @returns {string} The zone, or `UTC`.
+ */
+function knownZone(timeZone) {
+  if (typeof timeZone !== 'string' || timeZone === '') return 'UTC'
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone })
+
+    return timeZone
+  } catch {
+    return 'UTC'
+  }
+}
+
+/**
+ * An instant as a person reads it, in the zone named and saying which.
+ *
+ * For records an event keeps — a payment taken at its door, a ticket
+ * cancelled, a change to its terms — the zone is the event's own, so the
+ * organiser reads the time their door kept, not the server's or the
+ * browser's. Without a zone, or with one `Intl` does not know, it is written
+ * in UTC and labelled so: never in the reader's zone unsaid.
+ *
+ * @param {string|Date|null|undefined} value An ISO-8601 instant or `Date`.
+ * @param {string} [timeZone] IANA zone; UTC when absent.
+ * @param {string} [locale] BCP 47 locale tag.
+ * @returns {string|null} "Oct 9, 2026, 9:30 PM CDT", or null for no instant.
+ */
+export function formatInstantIn(value, timeZone = 'UTC', locale = DEFAULT_LOCALE) {
+  const at = toDate(value)
+  if (!at) return null
+
+  return new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: knownZone(timeZone),
+    timeZoneName: 'short',
+  }).format(at)
+}
+
+/**
+ * The day an instant falls on in the zone named.
+ *
+ * @param {string|Date|null|undefined} value An ISO-8601 instant or `Date`.
+ * @param {string} [timeZone] IANA zone; UTC when absent.
+ * @param {string} [locale] BCP 47 locale tag.
+ * @returns {string|null} "Oct 9, 2026", or null for no instant.
+ */
+export function formatDateIn(value, timeZone = 'UTC', locale = DEFAULT_LOCALE) {
+  const at = toDate(value)
+  if (!at) return null
+
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeZone: knownZone(timeZone),
+  }).format(at)
+}
+
+/**
  * The machine-readable value for a `<time dateTime="…">` attribute.
  *
  * @param {string|Date} value An ISO-8601 timestamp or `Date`.

@@ -37,7 +37,11 @@ describe('describeApiRefusal', () => {
     [{ status: 402, code: 'PAYMENT_DECLINED' }, 'payment-declined', true],
     [{ status: 503, code: 'DELIVERY_FAILED' }, 'delivery-failed', true],
     [{ status: 503, code: 'SERVICE_UNAVAILABLE', message: 'Nothing was saved.' }, 'busy', true],
-    [{ status: 503, code: 'TRY_AGAIN', message: 'Nothing was saved.' }, 'busy', true],
+    // The busy refusal is the code the API sends for it, SERVICE_UNAVAILABLE.
+    // No busy path sends a 503 TRY_AGAIN (the one that does, a run of
+    // clashing generated referral codes, is read by its own form), so one
+    // reads as any other 503.
+    [{ status: 503, code: 'TRY_AGAIN', message: 'Nothing was saved.' }, 'server-error', true],
     // Without the API's sentence a 503 is still a server error.
     [{ status: 503, code: 'SERVICE_UNAVAILABLE' }, 'server-error', true],
     [{ status: 429, code: 'RECIPIENT_DAILY_LIMIT' }, 'recipient-limit', false],
@@ -88,8 +92,9 @@ describe('describeApiRefusal', () => {
     expect(
       refusalSentence(503, { error: { code: 'SERVICE_UNAVAILABLE', message: sentence } }, 'x', 5),
     ).toBe(sentence)
-    expect(refusalSentence(503, { error: { code: 'TRY_AGAIN', message: sentence } }, 'x')).toBe(
-      sentence,
+    // Only the code the API sends keeps the sentence.
+    expect(refusalSentence(503, { error: { code: 'TRY_AGAIN', message: sentence } }, 'x')).toMatch(
+      /could not finish this/u,
     )
     expect(
       describeApiRefusal({

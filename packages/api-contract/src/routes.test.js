@@ -875,9 +875,39 @@ describe('unpaid pay-at-the-venue tickets cancelled (SPEC3-XI §11)', () => {
       'REFUND_IN_PROGRESS',
       'VENUE_CANCEL_TAXED',
       'CONFLICT_OF_INTEREST',
-      'TRY_AGAIN',
+      // What the API sends when the cancellation waited too long behind
+      // another change: `budgetedTransaction`'s 503, with `Retry-After`.
+      'SERVICE_UNAVAILABLE',
     ]) {
       expect(description, code).toContain(code)
     }
+
+    // The busy refusal is named by the code the API sends, never by one it
+    // does not (SPEC3-XI XU10 called it TRY_AGAIN).
+    expect(description).not.toContain('TRY_AGAIN')
+  })
+})
+
+describe('the busy refusal, named by the code the API sends', () => {
+  it('is 503 SERVICE_UNAVAILABLE on every route whose change waits behind another', () => {
+    for (const id of [
+      'paymentTerms.setFee',
+      'paymentTerms.setVenuePayment',
+      'platformFees.refund',
+      'venueBookings.cancel',
+    ]) {
+      const route = routeById(id)
+
+      expect(route.description, id).toContain('503 `SERVICE_UNAVAILABLE` with `Retry-After`')
+      expect(route.description, id).not.toContain('TRY_AGAIN')
+      expect(
+        route.errors.some((error) => error.code === 'SERVICE_UNAVAILABLE'),
+        id,
+      ).toBe(true)
+    }
+  })
+
+  it('stays TRY_AGAIN only where the API still sends it: a run of clashing generated referral codes', () => {
+    expect(routeById('referralCodes.create').description).toContain('503 `TRY_AGAIN`')
   })
 })

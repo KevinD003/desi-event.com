@@ -49,6 +49,11 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
+import {
+  GENERATED_REFERRAL_CODE_PATTERN,
+  REFERRAL_CODE_PATTERN,
+} from '@desi-event/schemas/payment-terms'
+
 import { reachableFrom } from './browser-bundle.js'
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -349,5 +354,204 @@ describe('the invariant itself', () => {
     )
 
     expect(leavesCodeInArtefacts(raw)).toBe(false)
+  })
+})
+
+/**
+ * Referral codes in end-to-end specs (SPEC3 §8.3, §13).
+ *
+ * A referral code is a bearer value worth one order's booking fee, made by the
+ * Desi-Event team and read back on their screens. A spec that reaches one —
+ * the checkout's field, the administrators' list, their "Copy code" button, the
+ * API's `referralCode` — holds a working code, so it is held to the rule above:
+ * screenshots, traces and video off at the top of the file. And the code it
+ * types comes from the page or from the seed's return at run time: a code
+ * written into a spec is a code in the repository, and an address with one in
+ * it is a code in every log and history that sees the address.
+ */
+describe('referral codes in end-to-end specs (SPEC3 §13)', () => {
+  /** What means a spec reaches a referral code. */
+  const NAMES_A_REFERRAL_CODE =
+    /referralCode|referral-codes|referral code(?!s)|copy (?:referral )?code\b/iu
+
+  /** A `.fill(…)` whose value is written in the spec, with its quote. */
+  const LITERAL_FILL = /\.fill\(\s*(['"`])((?:\\.|(?!\1)[^\\])*)\1\s*[,)]/gu
+
+  /**
+   * Every `.fill(` in a spec that types a literal shaped like a referral code
+   * into something named for one: the field's label, a test id, a variable.
+   * The statement is read from its start, so a locator chained over several
+   * lines is seen with its fill.
+   *
+   * @param {string} source The spec, comments removed.
+   * @returns {string[]} The literals.
+   */
+  function literalCodeFills(source) {
+    const found = []
+
+    for (const match of source.matchAll(LITERAL_FILL)) {
+      const value = match[2]
+      const start = Math.max(
+        source.lastIndexOf(';', match.index),
+        source.lastIndexOf('\n\n', match.index),
+        source.lastIndexOf('await ', match.index),
+        0,
+      )
+      const statement = source.slice(start, match.index)
+
+      if (!/referral/iu.test(statement)) continue
+
+      const typed = value.trim().toUpperCase()
+
+      if (REFERRAL_CODE_PATTERN.test(typed) && !typed.includes('--')) found.push(value)
+    }
+
+    return found
+  }
+
+  /**
+   * Every string literal in a spec shaped like a code the API generates (two
+   * groups of five): a code copied into the file from a run.
+   *
+   * @param {string} source The spec, comments removed.
+   * @returns {string[]} The literals.
+   */
+  function generatedCodeLiterals(source) {
+    // As the API hands one out: upper case, and (as nearly every one does) a digit.
+    return [...source.matchAll(/(['"`])([A-Z0-9]{5}-[A-Z0-9]{5})\1/gu)]
+      .map((match) => match[2])
+      .filter((value) => GENERATED_REFERRAL_CODE_PATTERN.test(value) && /\d/u.test(value))
+  }
+
+  /**
+   * Every `goto(` that opens an address with a referral code in it: a query
+   * naming one, or a substitution of a value named for one.
+   *
+   * @param {string} source The spec, comments removed.
+   * @returns {string[]} The arguments.
+   */
+  function gotosWithCode(source) {
+    const found = []
+
+    for (const match of source.matchAll(/\bgoto\(/gu)) {
+      let depth = 0
+      let end = match.index + match[0].length - 1
+
+      for (; end < source.length; end += 1) {
+        if (source[end] === '(') depth += 1
+        if (source[end] === ')') depth -= 1
+        if (depth === 0) break
+      }
+
+      const args = source.slice(match.index + match[0].length, end)
+
+      if (
+        /[?&](?:referralCode|referral)=/iu.test(args) ||
+        /\$\{[^}]*referral[^}]*\}/iu.test(args)
+      ) {
+        found.push(args.trim())
+      }
+    }
+
+    return found
+  }
+
+  it.each(SPECS)(
+    '%s types no written code, opens no address with one, and pictures none',
+    (file) => {
+      const source = withoutComments(readFileSync(join(e2e, file), 'utf8'))
+
+      expect(literalCodeFills(source), 'a referral code written into the spec').toEqual([])
+      expect(generatedCodeLiterals(source), 'a generated code copied into the spec').toEqual([])
+      expect(gotosWithCode(source), 'an address with a code in it').toEqual([])
+
+      if (NAMES_A_REFERRAL_CODE.test(source)) {
+        expect(turnsArtefactsOff(source), 'reaches a referral code with artefacts on').toBe(true)
+      }
+    },
+  )
+
+  it('names a referral code the way the field, the administrators’ screens and the contract do', () => {
+    const read = (...parts) => readFileSync(join(webRoot, ...parts), 'utf8')
+    const codes = ['src', 'app', 'admin', 'referral-codes']
+
+    expect(read('src', 'components', 'referral-code-field.jsx')).toContain(
+      "label: 'Referral code (optional)'",
+    )
+    expect(read(...codes, 'copy-code-button.jsx')).toMatch(
+      /'Copy code'[\s\S]*'Copy referral code'/u,
+    )
+    expect(read(...codes, 'referral-code-form.jsx')).toContain('/v1/platform/referral-codes')
+    expect(read('..', '..', 'packages', 'schemas', 'src', 'payment-terms.js')).toMatch(
+      /referralCode: referralCodeStringSchema/u,
+    )
+
+    for (const name of [
+      'Referral code (optional)',
+      'Copy code',
+      '/admin/referral-codes',
+      'referralCode',
+    ]) {
+      expect(NAMES_A_REFERRAL_CODE.test(name), name).toBe(true)
+    }
+  })
+
+  describe('the rules themselves', () => {
+    const off = "test.use({ screenshot: 'off', trace: 'off', video: 'off' })"
+
+    it('refuses a code typed from the spec, and takes one read from the page or the seed', () => {
+      expect(
+        literalCodeFills(
+          "  await page.getByLabel('Referral code (optional)').fill('WAIVE-12345')\n",
+        ),
+      ).toEqual(['WAIVE-12345'])
+      // Chained over lines, and typed in lower case as a buyer might.
+      expect(
+        literalCodeFills(
+          "  await page\n    .getByRole('textbox', { name: /referral code/i })\n    .fill('waive-12345')\n",
+        ),
+      ).toEqual(['waive-12345'])
+      expect(
+        literalCodeFills(
+          "  await page.getByLabel('Referral code (optional)').fill(seed.referralCode)\n",
+        ),
+      ).toEqual([])
+      // A promo code is the organiser's, typed into its own field.
+      expect(literalCodeFills("  await page.getByLabel('Promo code').fill('FREEALL')\n")).toEqual(
+        [],
+      )
+      expect(generatedCodeLiterals("const code = 'K7HQ2-PX9WM'")).toEqual(['K7HQ2-PX9WM'])
+      expect(generatedCodeLiterals("const night = 'night-1'")).toEqual([])
+      expect(generatedCodeLiterals("headers['retry-after']")).toEqual([])
+    })
+
+    it('refuses an address with a code in it, and takes the administrators’ pages', () => {
+      expect(gotosWithCode('await page.goto(`/events/diwali?referralCode=${code}`)')).toHaveLength(
+        1,
+      )
+      expect(
+        gotosWithCode('await page.goto(`/admin/referral-codes/${referralCode}`)'),
+      ).toHaveLength(1)
+      expect(gotosWithCode("await page.goto('/admin/referral-codes')")).toEqual([])
+      expect(gotosWithCode('await page.goto(`/admin/referral-codes/${row.id}`)')).toEqual([])
+      expect(gotosWithCode('await page.goto(`/events?q=${encodeURIComponent(tag)}`)')).toEqual([])
+    })
+
+    it('refuses a spec that reaches a code with artefacts on, and accepts one that turns them off', () => {
+      const reaches =
+        "test('copies', async ({ page }) => {\n  await page.goto('/admin/referral-codes')\n})"
+
+      expect(NAMES_A_REFERRAL_CODE.test(withoutComments(reaches))).toBe(true)
+      expect(turnsArtefactsOff(withoutComments(reaches))).toBe(false)
+      expect(turnsArtefactsOff(withoutComments(`${off}\n${reaches}`))).toBe(true)
+      // The limitations page's title names codes in general, and reaches none.
+      expect(NAMES_A_REFERRAL_CODE.test("['Rewards for referral codes', 'NOT IMPLEMENTED']")).toBe(
+        false,
+      )
+      // A comment naming a code reaches nothing.
+      expect(
+        NAMES_A_REFERRAL_CODE.test(withoutComments('// referral codes come later\nconst a = 1')),
+      ).toBe(false)
+    })
   })
 })

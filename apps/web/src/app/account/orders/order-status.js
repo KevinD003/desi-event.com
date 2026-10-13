@@ -138,31 +138,28 @@ export function orderStatusFor(order) {
 /**
  * What one of the buyer's tickets on a pay-at-the-venue order says about the
  * door, instead of its status word, when that says more (SPEC3-XI §12.7): a
- * ticket cancelled because it was not paid for, or one passed on, whose new
- * holder pays.
+ * ticket cancelled because it was not paid for, or one passed on whose new
+ * holder still pays.
  *
- * A passed-on row names what its new holder pays unless {@link owingPassedOnTickets}
- * could not tell which of the rows still owe and they owe different amounts;
- * it then says the order status's words for a booking passed on, without an
- * amount.
+ * A passed-on row's own `venuePayment` never records what became of the
+ * ticket since: a payment at the door, or a cancellation unpaid, lands on the
+ * ticket its new holder has now (XT2). So where it stands is the API's to
+ * say, read from that ticket (`passedOn`); the amount named is the one its
+ * holder owes now, never this row's own.
  *
- * @param {object} ticket A ticket from the order, with `venuePayment` and `purchaserHolding`.
+ * @param {object} ticket A ticket from the order, with `venuePayment`, `purchaserHolding` and `passedOn`.
  * @param {string} currency The order's currency.
- * @param {object} [options] Options.
- * @param {boolean} [options.dueKnown] Whether this row's amount is the one still owed.
  * @returns {StatusMeaning|null} The words and the tone, or null when the status word stands.
  */
-export function venueTicketMeaning(ticket, currency, { dueKnown = true } = {}) {
+export function venueTicketMeaning(ticket, currency) {
   const venue = ticket?.venuePayment ?? null
 
   if (!venue) return null
   if (venue.cancelled) return { label: 'Cancelled — not paid', tone: 'neutral' }
 
-  if (ticket.purchaserHolding === 'TRANSFERRED_AWAY' && !venue.paid) {
+  if (ticket.purchaserHolding === 'TRANSFERRED_AWAY' && ticket.passedOn?.state === 'OWES') {
     return {
-      label: dueKnown
-        ? `Passed on — its new holder pays ${formatAmount(venue.dueCents, currency)} at the door`
-        : 'Passed on — the new holder pays at the door',
+      label: `Passed on — its new holder pays ${formatAmount(ticket.passedOn.dueCents, currency)} at the door`,
       tone: 'info',
     }
   }
@@ -171,46 +168,23 @@ export function venueTicketMeaning(ticket, currency, { dueKnown = true } = {}) {
 }
 
 /**
- * The buyer's rows for the tickets they passed on that still owe at the door,
- * for a pay-at-the-venue order's ticket list (SPEC3-XI §12.7), so the buyer
- * sees whose turn it is to pay.
+ * The buyer's rows for the tickets they passed on whose new holders still owe
+ * at the door, for a pay-at-the-venue order's ticket list (SPEC3-XI §12.7), so
+ * the buyer sees whose turn it is to pay.
  *
- * Such a row is the buyer's own earlier ticket. A payment at the door, or a
- * cancellation of the ticket unpaid, lands on the ticket its new holder has
- * now, never on this row (XT2), so the row's own `venuePayment` reads unpaid
- * whatever became of the ticket since. How many of them still owe is the
- * order's to say: `venuePayment.passedOnUnpaidTickets`, counted from the
- * tickets as they stand. So no more rows than that are listed, and none at
- * all once the new holders have paid or the tickets were cancelled; nor more
- * than are missing from the buyer's current tickets (`room`), so a ticket
- * handed on and back is not counted twice.
+ * The API says, per row, where the ticket stands with whoever holds it now
+ * (`passedOn`: `OWES` with what they pay, `PAID`, `CANCELLED`, `NOTHING_DUE`,
+ * or `RETURNED` when it came back to the buyer, whose own later row then
+ * speaks for it). Only the rows that still owe are listed; nothing is
+ * inferred here from counts or from the rows' own door records.
  *
- * Which of the rows still owe the order does not say. Every row's amount is
- * the one owed when all of them still owe, or when they all owe the same;
- * otherwise `dueKnown` is false and their words leave the amount out rather
- * than guess it.
- *
- * @param {object} order The order, with `tickets` and `venuePayment`.
- * @param {number} room How many of the order's tickets are not among the buyer's current ones.
- * @returns {{tickets: object[], dueKnown: boolean}} The rows to list, and whether their amounts stand.
+ * @param {object} order The order, with `tickets`.
+ * @returns {object[]} The rows to list.
  */
-export function owingPassedOnTickets(order, room) {
-  const rows = (order?.tickets ?? []).filter(
-    (ticket) =>
-      ticket.supersededByLaterTicket &&
-      ticket.purchaserHolding === 'TRANSFERRED_AWAY' &&
-      ticket.venuePayment &&
-      !ticket.venuePayment.paid &&
-      !ticket.venuePayment.cancelled,
+export function owingPassedOnTickets(order) {
+  return (order?.tickets ?? []).filter(
+    (ticket) => ticket.purchaserHolding === 'TRANSFERRED_AWAY' && ticket.passedOn?.state === 'OWES',
   )
-  const owing = Math.max(
-    0,
-    Math.min(Number(room) || 0, order?.venuePayment?.passedOnUnpaidTickets ?? 0),
-  )
-  const tickets = rows.slice(0, owing)
-  const amounts = new Set(rows.map((ticket) => ticket.venuePayment.dueCents))
-
-  return { tickets, dueKnown: tickets.length === rows.length || amounts.size <= 1 }
 }
 
 /**

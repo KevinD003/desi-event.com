@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  formatDateIn,
   formatEventDate,
   formatEventLocation,
   formatEventStart,
   formatEventTime,
   formatEventWhen,
+  formatInstantIn,
   formatTimeZoneLabel,
   formatVenueAddress,
   toDateTimeAttribute,
@@ -183,6 +185,38 @@ describe('formatTimeZoneLabel', () => {
 
   it('is empty when there is nothing to label', () => {
     expect(formatTimeZoneLabel({})).toBe('')
+  })
+})
+
+describe('formatInstantIn', () => {
+  it('writes an instant in the zone named, and says which', () => {
+    // 02:30 UTC on 10 October is 9:30 PM the evening before in Chicago.
+    expect(formatInstantIn('2026-10-10T02:30:00.000Z', 'America/Chicago')).toBe(
+      'Oct 9, 2026, 9:30 PM CDT',
+    )
+    expect(formatInstantIn('2026-12-10T02:30:00.000Z', 'America/Chicago')).toBe(
+      'Dec 9, 2026, 8:30 PM CST',
+    )
+  })
+
+  it('is in UTC, saying so, when no zone is named', () => {
+    expect(formatInstantIn('2026-10-10T02:30:00.000Z')).toBe('Oct 10, 2026, 2:30 AM UTC')
+  })
+
+  it('falls back to UTC, saying so, for a zone it does not know, and is null for no instant', () => {
+    expect(formatInstantIn('2026-10-10T02:30:00.000Z', 'Mars/Olympus')).toBe(
+      'Oct 10, 2026, 2:30 AM UTC',
+    )
+    expect(formatInstantIn(null, 'America/Chicago')).toBeNull()
+    expect(formatInstantIn('not a date', 'America/Chicago')).toBeNull()
+  })
+})
+
+describe('formatDateIn', () => {
+  it('writes the day an instant falls on in the zone named', () => {
+    expect(formatDateIn('2026-10-10T02:30:00.000Z', 'America/Chicago')).toBe('Oct 9, 2026')
+    expect(formatDateIn('2026-10-10T02:30:00.000Z')).toBe('Oct 10, 2026')
+    expect(formatDateIn(null, 'America/Chicago')).toBeNull()
   })
 })
 

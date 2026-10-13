@@ -123,7 +123,64 @@ export const FORBIDDEN_CLIENT_LITERALS = Object.freeze({
   'event:import': 'who may import listed events and publish them (SPEC2-XI \u00a70.7).',
   'event:delete_unsold':
     'which organisation role may delete an event; the screen is told whether it may, never the name.',
+  // SPEC3 §0.4 and SPEC3-XI §13: booking fees, referral codes and paying at the venue.
+  'payment_terms:manage':
+    'who may set an event\u2019s booking fee and switch paying at the venue (SPEC3 \u00a70.4).',
+  'referral_code:manage':
+    'who may make, change and read the referral codes that waive the booking fee (SPEC3 \u00a70.4).',
+  'platform_fee:refund': 'who may refund a booking fee by hand (SPEC3 \u00a70.4).',
+  'venue_booking:cancel':
+    'who on the Desi-Event team may cancel unpaid pay-at-the-venue tickets (SPEC3-XI \u00a713); the dialog is told whether it may.',
 })
+
+/**
+ * Client modules that must stay client modules, each the browser half of a
+ * command SPEC3 or SPEC3-XI adds, with what it does.
+ *
+ * Listed so a refactor that turns one into a Server Component, or deletes it,
+ * fails the bundle test rather than silently moving its strings out of the
+ * walk: each is walked from, held to the literal rule above, and kept out of
+ * browser storage.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const REQUIRED_CLIENT_MODULES = Object.freeze({
+  'apps/web/src/components/cancel-unpaid-tickets-dialog.jsx':
+    'cancels unpaid pay-at-the-venue tickets (`/venue-cancellations`) after listing the booking (`/venue-bookings`).',
+  'apps/web/src/components/unpaid-venue-bookings.jsx':
+    'lists unpaid pay-at-the-venue bookings and opens the cancel dialog.',
+  'apps/web/src/components/referral-code-field.jsx':
+    'takes a buyer\u2019s referral code at checkout; the code lives in component state alone.',
+  'apps/web/src/components/payment-method-choice.jsx': 'lets a buyer choose to pay at the door.',
+  'apps/web/src/components/payment-terms-panel.jsx':
+    'sets an event\u2019s booking fee and its pay-at-the-venue switch (`/platform-fee`, `/venue-payment`).',
+  'apps/web/src/app/admin/referral-codes/referral-code-form.jsx':
+    'makes and changes referral codes (`/v1/platform/referral-codes`).',
+  'apps/web/src/app/admin/referral-codes/referral-code-switch.jsx':
+    'switches a referral code off and on.',
+  'apps/web/src/app/admin/fee-refunds/fee-refund-form.jsx':
+    'previews and refunds a booking fee (`/v1/platform/orders/…/fee-refund`).',
+})
+
+/** Browser storage a show-once or bearer value must never reach. */
+const BROWSER_STORAGE =
+  /\b(?:localStorage|sessionStorage|indexedDB)\b|\bdocument\s*\.\s*cookie\s*=(?!=)/u
+
+/**
+ * Whether a module's code (comments aside) touches browser storage: local or
+ * session storage, IndexedDB, or a cookie written from script.
+ *
+ * Reading `document.cookie` is not storage (the API client reads the CSRF
+ * cookie the server set); writing it is.
+ *
+ * @param {string} source The module's text.
+ * @returns {boolean} True when it does.
+ */
+export function usesBrowserStorage(source) {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1')
+
+  return BROWSER_STORAGE.test(code)
+}
 
 /**
  * The forbidden capability names a module's code (comments aside) contains.

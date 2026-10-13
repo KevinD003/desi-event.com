@@ -782,6 +782,55 @@ describe('the lists and reports', () => {
     await app.close()
   })
 
+  it('answers one code with every event of its scope, and a list row with the first three', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = await as(app, 'anil@desi-event.example')
+    const scope = [
+      ids.publishedEvent,
+      ids.draftEvent,
+      ids.reviewPendingEvent,
+      ids.rejectedEvent,
+      ids.approvedEvent,
+    ].map((event) => event.id)
+    const { row } = await referralCodeFixture(prisma, {
+      createdById: ids.platformAdministrator.id,
+      scope: 'SELECTED_EVENTS',
+      eventIds: scope,
+    })
+
+    // Added one after another, so "oldest first" has one answer.
+    prisma._store.referralCodeEvent
+      .filter((link) => link.referralCodeId === row.id)
+      .forEach((link) => {
+        link.addedAt = new Date(Date.UTC(2026, 9, 1, 0, scope.indexOf(link.eventId)))
+      })
+
+    const detail = await read(app, headers, `/v1/platform/referral-codes/${row.id}`)
+
+    expect(detail.statusCode, detail.body).toBe(200)
+    expect(referralCodeDetailResponseSchema.safeParse(detail.json()).success).toBe(true)
+    expect(detail.json().data.eventCount).toBe(5)
+    expect(detail.json().data.events.map((event) => event.id)).toEqual(scope)
+
+    const listed = await read(app, headers, '/v1/platform/referral-codes')
+    const listRow = listed.json().data.find((code) => code.id === row.id)
+
+    expect(listRow.eventCount).toBe(5)
+    expect(listRow.events.map((event) => event.id)).toEqual(scope.slice(0, 3))
+
+    // A change answers with the whole scope too, so the form that sent it
+    // starts its next change from every event, not from three.
+    const changed = await update(app, headers, row.id, {
+      label: 'Five nights',
+      expectedUpdatedAt: detail.json().data.updatedAt,
+    })
+
+    expect(changed.statusCode, changed.body).toBe(200)
+    expect(changed.json().data.events.map((event) => event.id)).toEqual(scope)
+
+    await app.close()
+  })
+
   it('pages the list and a code’s uses fifty at a time, as the contract says, and never more', async () => {
     const { app, prisma, ids } = await createTestApp()
     const headers = await as(app, 'anil@desi-event.example')

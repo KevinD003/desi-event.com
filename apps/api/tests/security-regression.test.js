@@ -35,6 +35,7 @@ import { apiRoutes, buildOpenApiDocument } from '@desi-event/api-contract'
 import { apiRouteManifest } from '@desi-event/api-contract/manifest'
 import { PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 import { STEP_UP_POLICIES } from '@desi-event/auth'
+import { SENSITIVE_FIELD_KEYS, WILDCARD_KEYS } from '@desi-event/logger'
 import { analyticsTrafficSchema, trafficEventListResponseSchema } from '@desi-event/schemas'
 import {
   ACTORS,
@@ -53,17 +54,23 @@ import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { addRows, makeWorld, platformHeldImportFixture } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
 import {
+  REPO_ROOT,
   WRITE_OPERATIONS,
+  balancedEnd,
   braceStarts,
   delegateCalls,
   functionRange,
+  lineOf,
   moduleLoads,
   namesColumn,
+  objectEntries,
   patternFilters,
+  rawCalls,
   rawWrites,
   readCode,
   relationsTo,
   routeRegistrations,
+  rowLockOf,
   sourceFiles,
   withoutComments,
   writesTo,
@@ -3400,6 +3407,1426 @@ describe('what a person types is matched as typed (LIKE wildcards)', () => {
 
     for (const [file, entry] of Object.entries(UNESCAPED)) {
       expect(readCode(file), `${file}: ${entry.why}`).toMatch(entry.reads)
+    }
+  })
+})
+
+describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC3-XI §13)', () => {
+  /**
+   * Every route SPEC3 §11.1 (thirteen) and SPEC3-XI §11.1 (two) add, as their
+   * tables declare them: method, path, tag, the capability the contract
+   * asserts (null where the handler decides who may, per event) and the
+   * step-up.
+   */
+  const ROUTES = {
+    'paymentTerms.get': [
+      'GET',
+      '/v1/platform/events/:id/payment-terms',
+      'events',
+      'payment_terms:manage',
+      null,
+    ],
+    'paymentTerms.setFee': [
+      'POST',
+      '/v1/platform/events/:id/platform-fee',
+      'events',
+      'payment_terms:manage',
+      'PAYMENT_TERMS',
+    ],
+    'paymentTerms.setVenuePayment': [
+      'POST',
+      '/v1/platform/events/:id/venue-payment',
+      'events',
+      'payment_terms:manage',
+      'PAYMENT_TERMS',
+    ],
+    'referralCodes.list': [
+      'GET',
+      '/v1/platform/referral-codes',
+      'referral-codes',
+      'referral_code:manage',
+      null,
+    ],
+    'referralCodes.byAdministrator': [
+      'GET',
+      '/v1/platform/referral-codes/by-administrator',
+      'referral-codes',
+      'referral_code:manage',
+      null,
+    ],
+    'referralCodes.create': [
+      'POST',
+      '/v1/platform/referral-codes',
+      'referral-codes',
+      'referral_code:manage',
+      'PAYMENT_TERMS',
+    ],
+    'referralCodes.get': [
+      'GET',
+      '/v1/platform/referral-codes/:id',
+      'referral-codes',
+      'referral_code:manage',
+      null,
+    ],
+    'referralCodes.update': [
+      'PATCH',
+      '/v1/platform/referral-codes/:id',
+      'referral-codes',
+      'referral_code:manage',
+      'PAYMENT_TERMS',
+    ],
+    'referralCodes.switchOff': [
+      'POST',
+      '/v1/platform/referral-codes/:id/switch-off',
+      'referral-codes',
+      'referral_code:manage',
+      null,
+    ],
+    'referralCodes.switchOn': [
+      'POST',
+      '/v1/platform/referral-codes/:id/switch-on',
+      'referral-codes',
+      'referral_code:manage',
+      'PAYMENT_TERMS',
+    ],
+    'platformFees.preview': [
+      'GET',
+      '/v1/platform/orders/:reference/fee',
+      'orders',
+      'platform_fee:refund',
+      null,
+    ],
+    'platformFees.refund': [
+      'POST',
+      '/v1/platform/orders/:reference/fee-refund',
+      'orders',
+      'platform_fee:refund',
+      'FINANCE_ACTION',
+    ],
+    'venuePayments.report': [
+      'GET',
+      '/v1/events/:id/venue-payments',
+      'events',
+      null,
+      'FINANCE_VIEW',
+    ],
+    'venueBookings.unpaid': [
+      'GET',
+      '/v1/events/:id/venue-bookings',
+      'events',
+      null,
+      'FINANCE_VIEW',
+    ],
+    'venueBookings.cancel': [
+      'POST',
+      '/v1/orders/:reference/venue-cancellations',
+      'orders',
+      null,
+      'FINANCE_ACTION',
+    ],
+  }
+
+  /** The capabilities SPEC3 §4.1 and SPEC3-XI §4.1 add, every one platform-only. */
+  const NEW_CAPABILITIES = [
+    'payment_terms:manage',
+    'referral_code:manage',
+    'platform_fee:refund',
+    'venue_booking:cancel',
+  ]
+
+  /** The five modules that register those routes. */
+  const ROUTE_MODULES = [
+    'apps/api/src/routes/payment-terms.js',
+    'apps/api/src/routes/platform-fees.js',
+    'apps/api/src/routes/referral-codes.js',
+    'apps/api/src/routes/venue-bookings.js',
+    'apps/api/src/routes/venue-payments.js',
+  ]
+
+  /** How a handler registered before it was built answered (SPEC3 §0.7), in any spelling. */
+  const NOT_IMPLEMENTED =
+    /\b(?:exposedServerError|httpError|createError|serverError)\s*\(\s*501\b|\.\s*(?:code|status)\s*\(\s*501\s*\)|\bstatusCode\s*[:=]\s*501\b|\bnotBuilt\b/u
+
+  const PAYMENT_TERMS = 'apps/api/src/lib/payment-terms.js'
+  const REFERRAL_CODES = 'apps/api/src/lib/referral-codes.js'
+  const REFERRAL_USES = 'apps/api/src/lib/referral-uses.js'
+  const VENUE_PAYMENTS = 'apps/api/src/lib/venue-payments.js'
+  const VENUE_BOOKINGS = 'apps/api/src/lib/venue-bookings.js'
+  const ORDERS_ROUTE = 'apps/api/src/routes/orders.js'
+  const CHECKOUT = 'apps/api/src/lib/checkout.js'
+  const TICKETS = 'apps/api/src/lib/tickets.js'
+  const ISSUE_TICKETS = 'apps/worker/src/processors/issue-tickets.js'
+
+  /**
+   * Every write to one model's rows, as {@link modelWrites} reads them, and
+   * its deletes as well: a delegate's `delete` or `deleteMany`, and a raw
+   * `DELETE FROM`.
+   *
+   * @param {string} model The model (`ReferralCodeEvent`).
+   * @returns {Array<object>} The writes, each with its file.
+   */
+  function everyWrite(model) {
+    const delegate = `${model[0].toLowerCase()}${model.slice(1)}`
+
+    return [
+      ...modelWrites(model),
+      ...sourceFiles().flatMap((file) => {
+        const code = readCode(file)
+
+        return [
+          ...delegateCalls(code, delegate, ['delete', 'deleteMany']).map((call) => ({
+            ...call,
+            file,
+            raw: false,
+            fields: new Set(),
+            opaque: false,
+          })),
+          ...rawWrites(code)
+            .filter((write) => write.table === model && write.verb === 'DELETE FROM')
+            .map((write) => ({ ...write, file, raw: true, fields: new Set(), opaque: false })),
+        ]
+      }),
+    ]
+  }
+
+  /**
+   * The files that write any of these columns of a model, raw statements
+   * included.
+   *
+   * @param {string} model The model.
+   * @param {string[]} columns The columns (and relation fields).
+   * @returns {string[]} The files.
+   */
+  function writersOf(model, columns) {
+    return filesOf(
+      modelWrites(model).filter((write) => columns.some((column) => writesColumn(write, column))),
+    )
+  }
+
+  /**
+   * Every key a request can carry, at any depth, on any route.
+   *
+   * @returns {Map<string, string[]>} Route id to keys.
+   */
+  function requestKeys() {
+    return new Map(
+      apiRoutes.map((route) => [
+        route.id,
+        [route.body, route.query, route.params].flatMap((schema) => [...schemaKeys(schema)]),
+      ]),
+    )
+  }
+
+  it('declares each of the fifteen routes exactly as SPEC3 §11.1 and SPEC3-XI §11.1 do', () => {
+    const manifest = new Set(apiRouteManifest.map((route) => route.id))
+
+    for (const [id, [method, path, tag, capability, stepUp]] of Object.entries(ROUTES)) {
+      const route = routeById(id)
+
+      expect([route.method, route.path], id).toEqual([method, path])
+      expect(route.tags, id).toContain(tag)
+      // The platform tag is the SECURITY_ROLE surface; these are money and terms.
+      expect(route.tags, id).not.toContain('platform')
+      expect(route.auth, id).toBe('session')
+      expect(route.capability ?? null, id).toBe(capability)
+      // Platform capabilities, never scoped to an organisation.
+      expect(route.capabilityScope ?? null, id).toBeNull()
+      expect(route.stepUp ?? null, id).toBe(stepUp)
+      expect(route.mfaExempt ?? false, `${id} is MFA-exempt`).toBe(false)
+      expect(manifest.has(id), `${id} is not in the manifest`).toBe(true)
+
+      if (stepUp) expect(Object.keys(STEP_UP_POLICIES), id).toContain(stepUp)
+    }
+
+    for (const capability of NEW_CAPABILITIES) {
+      expect(PLATFORM_ONLY_CAPABILITIES, capability).toContain(capability)
+    }
+
+    // No other route asserts one of them: each guards exactly these routes, and
+    // `venue_booking:cancel` is decided per event, in the handler (XU2).
+    expect(
+      apiRoutes
+        .filter((route) => NEW_CAPABILITIES.includes(route.capability))
+        .map((route) => route.id)
+        .sort(),
+    ).toEqual(
+      Object.entries(ROUTES)
+        .filter(([, declared]) => declared[3])
+        .map(([id]) => id)
+        .sort(),
+    )
+  })
+
+  it('registers them in their five modules, each with a handler of its own, and leaves no stub under apps/api/src', () => {
+    const registered = ROUTE_MODULES.flatMap((file) =>
+      routeRegistrations(readCode(file)).map((route) => ({ ...route, file })),
+    )
+
+    expect(registered.map((route) => route.id).sort()).toEqual(Object.keys(ROUTES).sort())
+
+    for (const route of registered) {
+      expect(route.body, `${route.file}: ${route.id}`).toMatch(/\bhandler\s*:\s*async\s*\(/u)
+    }
+
+    // SPEC3 §0.7: Stage A's stubs answered 501 NOT_BUILT; Stage B replaced
+    // every one. The literal is refused even in a comment, and a 501 in any
+    // spelling the API has used is refused in code.
+    const stubs = []
+
+    for (const file of sourceFiles().filter((path) => path.startsWith('apps/api/src/'))) {
+      if (readFileSync(`${REPO_ROOT}${file}`, 'utf8').includes('NOT_BUILT')) {
+        stubs.push(`${file}: NOT_BUILT`)
+      }
+
+      if (NOT_IMPLEMENTED.test(readCode(file))) stubs.push(`${file}: 501`)
+    }
+
+    expect(stubs).toEqual([])
+
+    // The scan sees the stub it was written for.
+    expect(
+      NOT_IMPLEMENTED.test(
+        "throw exposedServerError(501, NOT_BUILT, 'This route has no handler in this build.')",
+      ),
+    ).toBe(true)
+    expect(NOT_IMPLEMENTED.test('reply.code(501).send()')).toBe(true)
+    expect(NOT_IMPLEMENTED.test('reply.code(503).send()')).toBe(false)
+  })
+
+  it('answers every one of them no-store once past its guards, and none with 501', async () => {
+    const reason = 'Checked by the security regression suite.'
+    const bodies = {
+      'paymentTerms.setFee': { source: 'SITE_DEFAULT', reason, expectedSequence: 0 },
+      'paymentTerms.setVenuePayment': {
+        enabled: false,
+        seen: { enabled: false, limit: null },
+        reason,
+      },
+      'referralCodes.create': { generate: true, scope: 'ALL_EVENTS' },
+      'referralCodes.update': { label: null, expectedUpdatedAt: '2026-10-09T10:00:00.000Z' },
+      'referralCodes.switchOff': {},
+      'platformFees.refund': { reason, expectedRefundableCents: 0 },
+      'venueBookings.cancel': { ticketIds: [cuid()], reason },
+    }
+    const { app } = await createTestApp()
+    const administrator = 'anil@desi-event.example'
+    const headers = bearer(await signIn(app, administrator))
+
+    await stepUp(app, administrator, headers)
+
+    for (const id of Object.keys(ROUTES)) {
+      const route = routeById(id)
+      const url = route.path
+        .replace(':reference', 'DE-ABCDEF')
+        .replace(/:[A-Za-z]+/gu, () => cuid())
+      const response = await app.inject({
+        method: route.method,
+        url,
+        headers,
+        ...(bodies[id] ? { payload: bodies[id] } : {}),
+      })
+
+      // Past the session, the capability and the step-up, whatever it then
+      // answers about an id nobody knows: never a stub's 501, never a fault.
+      expect([401, 403, 501], `${id} answered ${response.statusCode}`).not.toContain(
+        response.statusCode,
+      )
+      expect(response.statusCode, `${id}: ${response.body}`).toBeLessThan(500)
+      expect(response.headers['cache-control'], id).toMatch(/\bno-store\b/u)
+    }
+
+    await app.close()
+  })
+
+  it('writes an event’s booking fee and its pay-at-the-venue switch in lib/payment-terms.js alone', () => {
+    const COLUMNS = [
+      'feeSource',
+      'feePercentageBps',
+      'feeFlatCentsPerTicket',
+      'feeCurrency',
+      'feeSettingId',
+      'feeSetting',
+      'venuePaymentEnabled',
+      'venuePaymentLimit',
+      'venuePaymentChangedAt',
+      'venuePaymentChangedById',
+      'venuePaymentChangedBy',
+      'venuePaymentReason',
+    ]
+    const writes = modelWrites('Event').filter(
+      (write) =>
+        COLUMNS.some((column) => writesColumn(write, column)) ||
+        [...write.fields].some((field) => /^(?:fee|venuePayment)[A-Z]/u.test(field)),
+    )
+
+    expect(filesOf(writes)).toEqual([PAYMENT_TERMS])
+    // One write for the fee and one for the switch, each naming its whole set.
+    expect(
+      writes.map((write) => [...write.fields].filter((field) => COLUMNS.includes(field)).sort()),
+    ).toEqual([
+      ['feeCurrency', 'feeFlatCentsPerTicket', 'feePercentageBps', 'feeSettingId', 'feeSource'],
+      [
+        'venuePaymentChangedAt',
+        'venuePaymentChangedById',
+        'venuePaymentEnabled',
+        'venuePaymentLimit',
+        'venuePaymentReason',
+      ],
+    ])
+
+    // Every event row built away from its write has been read and pinned
+    // (OPAQUE_EVENT_WRITES), and none of what those rows are built from can
+    // name these: the lifecycle's stamps, the website columns, the erasure,
+    // and the parsed request bodies the two event routes spread.
+    expect(
+      eventWrites()
+        .filter((write) => write.opaque)
+        .map((write) => write.label)
+        .sort(),
+    ).toEqual(Object.keys(OPAQUE_EVENT_WRITES).sort())
+
+    const lifecycle = readCode('apps/api/src/lib/event-lifecycle.js')
+    const stamps = functionRange(lifecycle, 'stampsFor')
+    const website = readCode('apps/api/src/lib/website-redirect.js')
+    const columnsFor = functionRange(website, 'websiteColumnsFor')
+    const redaction = readCode('apps/api/src/lib/privacy-redaction.js')
+
+    expect(lifecycle).toMatch(
+      /export function lifecycleStamps\(options\) \{\s*return stampsFor\(options\)\s*\}/u,
+    )
+
+    for (const column of COLUMNS) {
+      expect(namesColumn(lifecycle.slice(stamps.start, stamps.end), column), column).toBe(false)
+      expect(namesColumn(website.slice(columnsFor.start, columnsFor.end), column), column).toBe(
+        false,
+      )
+      expect(namesColumn(redaction, column), column).toBe(false)
+    }
+
+    for (const [id, keys] of requestKeys()) {
+      for (const column of COLUMNS) expect(keys, `${id} accepts ${column}`).not.toContain(column)
+    }
+  })
+
+  it('records the fee’s and the switch’s history in lib/payment-terms.js alone, one row at a time', () => {
+    for (const model of ['EventFeeSetting', 'EventVenuePaymentChange']) {
+      const writes = everyWrite(model)
+
+      expect(filesOf(writes), model).toEqual([PAYMENT_TERMS])
+      expect(
+        writes.filter((write) => write.opaque || write.raw),
+        model,
+      ).toEqual([])
+      // History is appended, never rewritten or removed.
+      expect(
+        writes.map((write) => write.operation),
+        model,
+      ).toEqual(['create'])
+    }
+  })
+
+  it('writes referral codes and their scopes in lib/referral-codes.js alone, and a code’s use count only in lib/referral-uses.js', () => {
+    const codes = everyWrite('ReferralCode')
+
+    expect(filesOf(codes)).toEqual([REFERRAL_CODES, REFERRAL_USES])
+
+    // The use count: two raw statements, so a use never moves `updatedAt`, the
+    // administrators' compare-and-set on an edit; and nothing else.
+    const counted = codes.filter((write) => write.file === REFERRAL_USES)
+
+    expect(counted.map((write) => [write.raw, write.verb])).toEqual([
+      [true, 'UPDATE'],
+      [true, 'UPDATE'],
+    ])
+
+    for (const write of counted) {
+      expect(write.text).toMatch(
+        /^UPDATE "ReferralCode" SET "useCount" = "useCount" (?:\+ 1|- \$\{lowered\}) WHERE "id" = \$\{\w+\}`$/u,
+      )
+    }
+
+    // The administrators' writes never touch it.
+    for (const write of codes.filter((candidate) => candidate.file === REFERRAL_CODES)) {
+      expect(write.raw, `${write.file}:${write.line}`).toBe(false)
+      expect(writesColumn(write, 'useCount'), `${write.file}:${write.line}`).toBe(false)
+    }
+
+    // The one code row built away from its call is the edit's, whose `data`
+    // is assigned the four columns an edit changes and nothing else.
+    const opaque = codes.filter((write) => write.opaque)
+
+    expect(opaque.map((write) => `${write.file} ${write.operation}`)).toEqual([
+      `${REFERRAL_CODES} update`,
+    ])
+    expect(opaque[0].args).toMatch(
+      /^\s*\{\s*where:\s*\{\s*id:\s*row\.id\s*\},\s*data:\s*\{\s*\.\.\.data,\s*updatedById:\s*actor\.id\s*\},?\s*\}\s*$/u,
+    )
+
+    const code = readCode(REFERRAL_CODES)
+    const edit = functionRange(code, 'updateReferralCode')
+
+    expect(assignedKeys(code.slice(edit.start, edit.end))).toEqual([
+      'expiresAt',
+      'label',
+      'maxUses',
+      'scope',
+    ])
+
+    // Nobody else's write, of any model, names a use count.
+    const counters = []
+
+    for (const file of sourceFiles({ packages: true })) {
+      const text = readCode(file)
+
+      for (const call of delegateCalls(text, '[a-z][A-Za-z]*', WRITE_OPERATIONS)) {
+        if (writtenFields(call.args).fields.has('useCount')) counters.push(file)
+      }
+
+      for (const write of rawWrites(text)) {
+        if (namesColumn(write.text, 'useCount')) counters.push(`${file} raw`)
+      }
+    }
+
+    expect([...new Set(counters)]).toEqual([`${REFERRAL_USES} raw`])
+
+    for (const [id, keys] of requestKeys()) {
+      expect(keys, `${id} accepts useCount`).not.toContain('useCount')
+    }
+
+    // The scope rows: added and removed by the administrators' writes only.
+    const scopes = everyWrite('ReferralCodeEvent')
+
+    expect(filesOf(scopes)).toEqual([REFERRAL_CODES])
+    expect(scopes.filter((write) => write.opaque || write.raw)).toEqual([])
+    expect(scopes.map((write) => write.operation).sort()).toEqual([
+      'create',
+      'create',
+      'deleteMany',
+    ])
+  })
+
+  it('sets an order’s referral return marker in lib/referral-uses.js alone, once, and names its code only when the order is written', () => {
+    const marked = modelWrites('Order').filter(
+      (write) =>
+        writesColumn(write, 'referralUseReturnedAt') ||
+        writesColumn(write, 'referralUseReturnCause'),
+    )
+
+    expect(
+      marked.map((write) => `${write.file} ${write.raw ? write.verb : write.operation}`),
+    ).toEqual([`${REFERRAL_USES} UPDATE`])
+    // Conditional on the marker being unset: the exactly-once decision (XR3).
+    expect(marked[0].text).toMatch(/"referralUseReturnedAt" IS NULL/u)
+    expect(marked[0].text).toMatch(/"referralCodeId" IS NOT NULL/u)
+
+    // The code an order used is written with the order, by the order route.
+    expect(
+      filesOf(
+        modelWrites('Order').filter(
+          (write) =>
+            !write.raw && (write.fields.has('referralCodeId') || write.fields.has('referralCode')),
+        ),
+      ),
+    ).toEqual([ORDERS_ROUTE])
+    // The marker's statement reads the code; it never sets it.
+    expect(marked[0].text).not.toMatch(/SET[\s\S]*"referralCodeId"\s*=/u)
+
+    for (const [id, keys] of requestKeys()) {
+      for (const column of ['referralCodeId', 'referralUseReturnedAt', 'referralUseReturnCause']) {
+        expect(keys, `${id} accepts ${column}`).not.toContain(column)
+      }
+    }
+  })
+
+  it('lets product code take only settleReferralUsesIfEnded and consumeReferralUse from lib/referral-uses.js, and no per-order return exists', () => {
+    /** @type {Record<string, string[]>} */
+    const importers = {}
+
+    for (const file of sourceFiles({ packages: true })) {
+      if (file === REFERRAL_USES) continue
+
+      for (const load of moduleLoads(readCode(file))) {
+        if (!/(?:^|\/)referral-uses\.js$/u.test(load.specifier)) continue
+
+        expect(load.names, `${file} takes referral-uses.js whole`).not.toBeNull()
+        importers[file] = [...(importers[file] ?? []), ...load.names].sort()
+      }
+    }
+
+    const settle = ['settleReferralUsesIfEnded']
+
+    expect(importers).toEqual({
+      [CHECKOUT]: settle,
+      'apps/api/src/lib/event-cancellation.js': settle,
+      'apps/api/src/lib/event-deletion.js': settle,
+      'apps/api/src/lib/refunds.js': settle,
+      'apps/api/src/lib/session-cancellation.js': settle,
+      [VENUE_BOOKINGS]: settle,
+      [ORDERS_ROUTE]: ['consumeReferralUse'],
+      'apps/api/src/routes/tickets.js': settle,
+    })
+
+    // Its two building blocks are exported for tests; product code never calls them.
+    for (const file of sourceFiles({ packages: true })) {
+      if (file === REFERRAL_USES) continue
+
+      expect(readCode(file), file).not.toMatch(
+        /\b(?:returnReferralUseOnce|orderEndedWithoutUse)\s*\(/u,
+      )
+    }
+
+    // SPEC3's single-order return is gone everywhere, tests included: a use
+    // goes back only through the batch (SPEC3-XI XR3, XR6).
+    const perOrder = new RegExp(`\\b${['return', 'ReferralUse'].join('')}\\s*\\(`, 'u')
+    const testFiles = readdirSync(`${REPO_ROOT}apps/api/tests`, { recursive: true })
+      .map(String)
+      .filter((name) => /\.(?:c|m)?js$/u.test(name))
+      .map((name) => `apps/api/tests/${name}`)
+
+    expect(
+      [...sourceFiles({ packages: true }), ...testFiles].filter((file) =>
+        perOrder.test(readCode(file)),
+      ),
+    ).toEqual([])
+  })
+
+  it('keeps cancelUnpaidOrders out of the referral uses, and settles a checkout under its tiers first', () => {
+    const deletion = readCode('apps/api/src/lib/event-deletion.js')
+    const cancel = functionRange(deletion, 'cancelUnpaidOrders')
+
+    expect(cancel).not.toBeNull()
+
+    const cancelling = deletion.slice(cancel.start, cancel.end)
+
+    // It hands the ids it cancelled to its caller's one batch (XR4) instead.
+    expect(cancelling).not.toMatch(
+      /\b(?:settleReferralUsesIfEnded|consumeReferralUse|returnReferralUseOnce|orderEndedWithoutUse)\s*\(/u,
+    )
+    expect(cancelling).toMatch(/\borderIds\b/u)
+
+    // SPEC3-XI §2.3.3: the tiers, sorted, before the order's compare-and-set.
+    const checkout = readCode(CHECKOUT)
+    const settle = functionRange(checkout, 'settleCheckout')
+    const body = checkout.slice(settle.start, settle.end)
+    const tiers = body.search(/\blockTicketTypes\s*\(/u)
+    const order = body.search(/\.\s*order\s*\.\s*updateMany\s*\(/u)
+
+    expect(tiers).toBeGreaterThan(-1)
+    expect(order).toBeGreaterThan(tiers)
+    // Nothing touches an order row before the tiers are held.
+    expect(body.slice(0, tiers)).not.toMatch(
+      /FROM\s+"Order"|\.\s*order\s*\.\s*(?:update|updateMany|upsert|findUnique)\s*\(/u,
+    )
+  })
+
+  it('writes what is due at the door with the order and its lines, and on a ticket only at settlement and as its predecessor’s copy', () => {
+    expect(writersOf('Order', ['venueDueCents'])).toEqual([ORDERS_ROUTE])
+    expect(writersOf('OrderItem', ['venueDueCents'])).toEqual([ORDERS_ROUTE])
+
+    const tickets = modelWrites('Ticket').filter((write) => writesColumn(write, 'venueDueCents'))
+
+    expect(filesOf(tickets)).toEqual([CHECKOUT, TICKETS])
+
+    // The successor copy, by name only (SPEC3-XI XT2): what its predecessor owed.
+    for (const write of tickets.filter((candidate) => candidate.file === TICKETS)) {
+      expect(write.args).toMatch(/\bvenueDueCents:\s*ticket\.venueDueCents\s*,/u)
+      expect([...write.args.matchAll(/\bvenueDueCents\b/gu)]).toHaveLength(2)
+    }
+
+    // Every ticket row built away from its write, read and pinned: the
+    // lifecycle's compare-and-set, and the worker's batch.
+    const OPAQUE_TICKET_WRITES = {
+      [`${TICKETS} updateMany`]:
+        /^\s*\{\s*where:\s*\{\s*id:\s*ticket\.id,\s*status:\s*ticket\.status\s*\},\s*data:\s*\{\s*status:\s*to,\s*\.\.\.data\s*\},?\s*\}\s*$/u,
+      [`${ISSUE_TICKETS} createMany`]: /^\s*\{\s*data:\s*rows\s*\}\s*$/u,
+    }
+    const opaque = modelWrites('Ticket').filter((write) => write.opaque)
+
+    expect(opaque.map((write) => `${write.file} ${write.operation}`).sort()).toEqual(
+      Object.keys(OPAQUE_TICKET_WRITES).sort(),
+    )
+
+    for (const write of opaque) {
+      expect(write.args, `${write.file}:${write.line}`).toMatch(
+        OPAQUE_TICKET_WRITES[`${write.file} ${write.operation}`],
+      )
+    }
+
+    // What `transition` spreads comes from its callers, and none names a door column.
+    const DOOR_COLUMNS = [
+      'venueDueCents',
+      'venuePaymentId',
+      'venuePayment',
+      'venueCancellationId',
+      'venueCancellation',
+    ]
+    let transitions = 0
+
+    for (const file of sourceFiles().filter((path) => path.startsWith('apps/api/src/'))) {
+      const code = readCode(file)
+
+      for (const match of code.matchAll(/(?<!function\s+)\btransition\(\s*tx\s*,/gu)) {
+        const open = match.index + 'transition'.length
+        const args = code.slice(open + 1, balancedEnd(code, open))
+
+        transitions += 1
+
+        for (const column of DOOR_COLUMNS) {
+          expect(namesColumn(args, column), `${file}:${lineOf(code, match.index)} ${column}`).toBe(
+            false,
+          )
+        }
+      }
+    }
+
+    expect(transitions).toBeGreaterThan(4)
+
+    // And the worker's rows are four columns, none of them a door column.
+    const worker = readCode(ISSUE_TICKETS)
+    const pushes = [...worker.matchAll(/\brows\.push\(\s*\{/gu)]
+
+    expect(pushes).toHaveLength(1)
+    expect(
+      objectEntries(worker, pushes[0].index + pushes[0][0].length - 1).map((entry) => entry.key),
+    ).toEqual(['orderItemId', 'code', 'status', 'attendeeName'])
+
+    for (const [id, keys] of requestKeys()) {
+      for (const column of DOOR_COLUMNS) {
+        expect(keys, `${id} accepts ${column}`).not.toContain(column)
+      }
+    }
+  })
+
+  it('records a payment taken at the door in lib/venue-payments.js alone, and a cancellation of unpaid tickets in lib/venue-bookings.js alone', () => {
+    expect(filesOf(everyWrite('VenuePayment'))).toEqual([VENUE_PAYMENTS])
+    expect(writersOf('Ticket', ['venuePaymentId', 'venuePayment'])).toEqual([VENUE_PAYMENTS])
+
+    // SPEC3-XI §13: the cancellation, the ticket's mark, the line's count and
+    // the booking's basis and kept share, one writer for all.
+    expect(filesOf(everyWrite('VenueBookingCancellation'))).toEqual([VENUE_BOOKINGS])
+    expect(writersOf('Ticket', ['venueCancellationId', 'venueCancellation'])).toEqual([
+      VENUE_BOOKINGS,
+    ])
+    expect(writersOf('OrderItem', ['venueCancelledQuantity'])).toEqual([VENUE_BOOKINGS])
+    expect(writersOf('Order', ['venueCancelledBasisCents', 'venueFeeKeptCents'])).toEqual([
+      VENUE_BOOKINGS,
+    ])
+
+    for (const [id, keys] of requestKeys()) {
+      for (const column of [
+        'venueCancelledQuantity',
+        'venueCancelledBasisCents',
+        'venueFeeKeptCents',
+      ]) {
+        expect(keys, `${id} accepts ${column}`).not.toContain(column)
+      }
+    }
+
+    // Nothing but the booking fee is ever kept (XU6): no source, schema or
+    // migration names a kept tax.
+    const keptTax = /tax\s*kept\s*cents/iu
+    const migrations = readdirSync(`${REPO_ROOT}packages/db/prisma/migrations`, {
+      recursive: true,
+    })
+      .map(String)
+      .filter((name) => name.endsWith('.sql'))
+      .map((name) => `packages/db/prisma/migrations/${name}`)
+
+    expect(
+      [
+        ...sourceFiles({ packages: true }),
+        'packages/db/prisma/schema.prisma',
+        ...migrations,
+      ].filter((file) => keptTax.test(readFileSync(`${REPO_ROOT}${file}`, 'utf8'))),
+    ).toEqual([])
+  })
+
+  it('takes a place back from sale only where unpaid tickets are cancelled, and sells one only at checkout', () => {
+    const moves = []
+
+    for (const write of modelWrites('TicketType')) {
+      if (!writesColumn(write, 'quantitySold')) continue
+
+      if (write.raw) {
+        const kind = /"?quantitySold"?\s*=\s*"?quantitySold"?\s*-/iu.test(write.text)
+          ? 'decrement'
+          : /"?quantitySold"?\s*=\s*"?quantitySold"?\s*\+/iu.test(write.text)
+            ? 'increment'
+            : 'set'
+
+        moves.push(`${write.file} raw ${kind}`)
+        continue
+      }
+
+      const value = /\bquantitySold\s*:\s*(\{[^}]*\}|[^,}\n]+)/u.exec(write.args)?.[1] ?? ''
+      const kind = /^\{\s*increment\s*:/u.test(value)
+        ? 'increment'
+        : /^\{\s*decrement\s*:/u.test(value)
+          ? 'decrement'
+          : 'set'
+
+      moves.push(`${write.file} ${kind}`)
+    }
+
+    expect(moves.sort()).toEqual([`${CHECKOUT} increment`, `${VENUE_BOOKINGS} decrement`])
+
+    // Every tier row built away from its write, read and pinned: none of them
+    // is built from anything that names the count.
+    const OPAQUE_TIER_WRITES = {
+      'apps/api/src/routes/event-authoring.js update': {
+        args: /\bdata:\s*toTierPatch\(patch\)/u,
+        builder: ['apps/api/src/routes/event-authoring.js', 'toTierPatch'],
+      },
+      'apps/api/src/routes/events.js update': {
+        args: /\bdata:\s*move\.data\b/u,
+        builder: ['apps/api/src/routes/events.js', 'tierWindowMoves'],
+      },
+      'apps/api/src/routes/ticket-types.js create': { args: /\.\.\.body,/u, builder: null },
+    }
+    const opaque = modelWrites('TicketType').filter((write) => write.opaque)
+
+    expect(opaque.map((write) => `${write.file} ${write.operation}`).sort()).toEqual(
+      Object.keys(OPAQUE_TIER_WRITES).sort(),
+    )
+
+    for (const write of opaque) {
+      const pinned = OPAQUE_TIER_WRITES[`${write.file} ${write.operation}`]
+
+      expect(write.args, `${write.file}:${write.line}`).toMatch(pinned.args)
+
+      if (!pinned.builder) continue
+
+      const code = readCode(pinned.builder[0])
+      const range = functionRange(code, pinned.builder[1])
+
+      expect(range, pinned.builder[1]).not.toBeNull()
+      expect(
+        namesColumn(code.slice(range.start, range.end), 'quantitySold'),
+        pinned.builder[1],
+      ).toBe(false)
+    }
+
+    // The tier create spreads its parsed body, and no request names the count.
+    for (const [id, keys] of requestKeys()) {
+      expect(keys, `${id} accepts quantitySold`).not.toContain('quantitySold')
+    }
+  })
+
+  it('mints tickets in the worker only in processors/issue-tickets.js, which refuses a booking to pay at the venue first', () => {
+    const writes = sourceFiles()
+      .filter((file) => file.startsWith('apps/worker/src/'))
+      .flatMap((file) => {
+        const code = readCode(file)
+
+        return [
+          ...writesTo(code, 'Ticket').map((write) => ({ ...write, file })),
+          ...rawWrites(code)
+            .filter((write) => write.table === 'Ticket')
+            .map((write) => ({ ...write, file, operation: write.verb })),
+        ]
+      })
+
+    expect(writes.map((write) => `${write.file} ${write.operation}`)).toEqual([
+      `${ISSUE_TICKETS} createMany`,
+    ])
+
+    // The refusal comes first: a pay-at-the-venue booking's tickets carry the
+    // door price only settlement splits, so the worker never mints one.
+    const code = readCode(ISSUE_TICKETS)
+    const refusal = code.search(
+      /if\s*\(\s*order\.paymentMethod\s*===\s*AT_VENUE\s*\)\s*\{\s*throw new PermanentJobError\(/u,
+    )
+
+    expect(code).toMatch(/const AT_VENUE = 'AT_VENUE'/u)
+    expect(refusal).toBeGreaterThan(-1)
+    expect(refusal).toBeLessThan(writes[0].index)
+
+    // A unit test proves the refusal.
+    const test = readFileSync(
+      `${REPO_ROOT}apps/worker/src/processors/issue-tickets.test.js`,
+      'utf8',
+    )
+
+    expect(test).toMatch(
+      /fails permanently for a %s order paid at the venue, and writes no ticket/u,
+    )
+    expect(test).toMatch(/paymentMethod: 'AT_VENUE'/u)
+  })
+
+  /**
+   * Every raw row lock under `apps/<app>/src` and `packages/<package>/src`,
+   * file by file in source order: the table and how strongly it is held.
+   * Pinned, so a new lock fails here until it has been read against the lock
+   * law (SPEC3-XI §2.1) and added.
+   */
+  const RAW_ROW_LOCKS = {
+    'apps/api/src/lib/admission.js': [
+      'Membership SHARE',
+      'ScannerScope SHARE',
+      'EventSession KEY SHARE',
+      'Order SHARE',
+      'OrderItem KEY SHARE',
+      'Ticket UPDATE',
+    ],
+    'apps/api/src/lib/checkout-pricing.js': ['PromoCode UPDATE'],
+    'apps/api/src/lib/event-authoring.js': ['EventSession UPDATE'],
+    'apps/api/src/lib/event-authority.js': ['EventPlatformEdit SHARE'],
+    'apps/api/src/lib/event-cancellation.js': ['Order UPDATE', 'Order UPDATE'],
+    'apps/api/src/lib/event-deletion.js': ['Order UPDATE', 'Order UPDATE', 'OrderItem KEY SHARE'],
+    'apps/api/src/lib/event-import.js': ['Event UPDATE', 'Event UPDATE', 'Event UPDATE'],
+    'apps/api/src/lib/event-media.js': ['Event UPDATE', 'Event UPDATE'],
+    'apps/api/src/lib/group-admission.js': [
+      'EventSession KEY SHARE',
+      'Order SHARE',
+      'GroupPass SHARE',
+      'OrderItem KEY SHARE',
+      'Ticket UPDATE',
+    ],
+    'apps/api/src/lib/inventory.js': ['TicketType UPDATE', 'TicketHold UPDATE'],
+    'apps/api/src/lib/memberships.js': [
+      'Membership UPDATE',
+      'Membership UPDATE',
+      'Membership UPDATE',
+    ],
+    'apps/api/src/lib/payment-terms.js': ['Event NO KEY UPDATE'],
+    'apps/api/src/lib/referral-codes.js': ['ReferralCode UPDATE', 'ReferralCode UPDATE'],
+    'apps/api/src/lib/referral-uses.js': ['Order UPDATE', 'ReferralCode UPDATE'],
+    'apps/api/src/lib/refunds.js': [
+      'Order UPDATE',
+      'Order UPDATE',
+      'OrderItem UPDATE',
+      'EventSession KEY SHARE',
+      'Refund UPDATE',
+      'Order UPDATE',
+      'Refund UPDATE',
+      'Order UPDATE',
+      'Refund UPDATE',
+      'Order UPDATE',
+    ],
+    'apps/api/src/lib/seating.js': ['TicketType KEY SHARE', 'EventSession KEY SHARE'],
+    'apps/api/src/lib/session-cancellation.js': ['Order UPDATE', 'Order UPDATE'],
+    'apps/api/src/lib/session-inventory.js': ['EventSession UPDATE'],
+    'apps/api/src/lib/tickets.js': ['Ticket UPDATE', 'OrderItem UPDATE'],
+    'apps/api/src/lib/venue-bookings.js': [
+      'EventSession KEY SHARE',
+      'Order UPDATE',
+      'OrderItem UPDATE',
+      'Ticket UPDATE',
+    ],
+    'apps/api/src/lib/website-redirect.js': ['Event UPDATE'],
+    'apps/api/src/routes/platform-fees.js': ['Order UPDATE'],
+    'apps/api/src/routes/platform.js': ['User UPDATE'],
+    'apps/api/src/routes/tickets.js': ['Order UPDATE'],
+    'apps/worker/src/processors/issue-tickets.js': ['Order UPDATE'],
+  }
+
+  /** Every raw write, by file: the referral counts and marker, and the visit roll-up. */
+  const RAW_WRITES = {
+    'apps/api/src/lib/referral-uses.js': [
+      'UPDATE ReferralCode',
+      'UPDATE Order',
+      'UPDATE ReferralCode',
+    ],
+    'packages/db/src/traffic-rollup.js': ['INSERT INTO TrafficDaily', 'DELETE FROM TrafficEvent'],
+  }
+
+  /**
+   * The raw statements that neither lock a row nor write one, by file: reads
+   * (the facet counts, the ended-order predicate, the venue-booking count,
+   * the roll-up's days), the two advisory locks, the transaction budget's
+   * settings and the health checks.
+   */
+  const RAW_OTHER = {
+    'apps/api/src/lib/delivery.js': 1,
+    'apps/api/src/lib/facets.js': 4,
+    'apps/api/src/lib/referral-uses.js': 1,
+    'apps/api/src/lib/transaction-budget.js': 1,
+    'apps/api/src/lib/venue-booking-limits.js': 2,
+    'apps/api/src/routes/health.js': 1,
+    'packages/db/src/index.js': 1,
+    'packages/db/src/traffic-rollup.js': 1,
+  }
+
+  it('binds every raw statement, and inventories every raw lock and raw write, the refund’s night lock and the door’s line lock among them', () => {
+    /** @type {Record<string, string[]>} */
+    const locks = {}
+    /** @type {Record<string, string[]>} */
+    const writes = {}
+    /** @type {Record<string, number>} */
+    const other = {}
+    const unbound = []
+
+    for (const file of sourceFiles({ packages: true })) {
+      const code = readCode(file)
+
+      if (/\bPrisma\s*\.\s*raw\s*\(/u.test(code)) unbound.push(`${file}: Prisma.raw`)
+
+      for (const call of rawCalls(code)) {
+        const at = `${file}:${call.line}`
+
+        // A tagged template binds every value; the facet counts' `Prisma.sql`
+        // is a tagged template too, passed in brackets. Anything else could
+        // splice text into SQL.
+        if (call.unsafe) unbound.push(`${at} ${call.method}Unsafe`)
+        else if (!call.tagged && !/^\(\s*Prisma\.sql`/u.test(call.text)) {
+          unbound.push(`${at} ${call.method}(…)`)
+        }
+
+        const lock = rowLockOf(call.text)
+        const written = rawWrites(call.text)
+
+        if (lock) {
+          locks[file] = [...(locks[file] ?? []), `${lock.table} ${lock.strength}`]
+
+          // A lock names its rows by bound values, never by text spliced in.
+          if (!/\$\{/u.test(call.text)) unbound.push(`${at} locks no bound row`)
+        } else if (written.length > 0) {
+          writes[file] = [
+            ...(writes[file] ?? []),
+            ...written.map((write) => `${write.verb} ${write.table}`),
+          ]
+        } else {
+          other[file] = (other[file] ?? 0) + 1
+        }
+      }
+    }
+
+    expect(unbound).toEqual([])
+    expect(locks).toEqual(RAW_ROW_LOCKS)
+    expect(writes).toEqual(RAW_WRITES)
+    expect(other).toEqual(RAW_OTHER)
+
+    // The refund's night (b1-open-needs: the `FOR KEY SHARE` refunds.js
+    // added), on a bound id, taken by settleRefund before it writes the order.
+    const refunds = readCode('apps/api/src/lib/refunds.js')
+    const night = functionRange(refunds, 'lockOrderNight')
+
+    expect(refunds.slice(night.start, night.end)).toContain(
+      'tx.$queryRaw`SELECT "id" FROM "EventSession" WHERE "id" = ${eventSessionId} FOR KEY SHARE`',
+    )
+
+    const settle = functionRange(refunds, 'settleRefund')
+    const settling = refunds.slice(settle.start, settle.end)
+    const nightFirst = settling.search(/\blockOrderNight\(\s*tx\s*,/u)
+    const orderWrite = settling.search(
+      /\.\s*order\s*\.\s*(?:update|updateMany)\s*\(|FROM\s+"Order"/u,
+    )
+
+    expect(nightFirst).toBeGreaterThan(-1)
+    expect(orderWrite).toBeGreaterThan(nightFirst)
+
+    // The door, one ticket and a group: the night, the order, the ticket's
+    // line, then the ticket (SPEC3-XI §2.1 rows 3, 5, 6, 7), in one function each.
+    for (const [file, name, expected] of [
+      [
+        'apps/api/src/lib/admission.js',
+        'decide',
+        ['EventSession KEY SHARE', 'Order SHARE', 'OrderItem KEY SHARE', 'Ticket UPDATE'],
+      ],
+      [
+        'apps/api/src/lib/group-admission.js',
+        'decideGroup',
+        [
+          'EventSession KEY SHARE',
+          'Order SHARE',
+          'GroupPass SHARE',
+          'OrderItem KEY SHARE',
+          'Ticket UPDATE',
+        ],
+      ],
+    ]) {
+      const code = readCode(file)
+      const range = functionRange(code, name)
+      const taken = rawCalls(code.slice(range.start, range.end))
+        .map((call) => rowLockOf(call.text))
+        .filter(Boolean)
+        .map((lock) => `${lock.table} ${lock.strength}`)
+
+      expect(taken, `${file} ${name}`).toEqual(expected)
+    }
+
+    // The helper sees what it is for.
+    expect(
+      rawCalls(
+        withoutComments(
+          'await tx.$queryRaw`SELECT 1 FROM "Order" WHERE id = ${id} FOR NO KEY UPDATE`\nawait tx.$executeRawUnsafe(\'UPDATE "Order" SET x = 1\')\nawait db.$queryRaw(Prisma.sql`SELECT 1`)',
+        ),
+      ).map((call) => [
+        call.method,
+        call.unsafe,
+        call.tagged,
+        rowLockOf(call.text)?.strength ?? null,
+      ]),
+    ).toEqual([
+      ['queryRaw', false, true, 'NO KEY UPDATE'],
+      ['executeRaw', true, false, null],
+      ['queryRaw', false, false, null],
+    ])
+  })
+
+  /** The modules that hold a referral code's row or its text. */
+  const REFERRAL_MODULES = [REFERRAL_CODES, REFERRAL_USES, 'apps/api/src/routes/referral-codes.js']
+
+  /** Keys that would carry a code's text or its label. */
+  const CODE_TEXT_KEYS = new Set(['code', 'referralCode', 'label', 'text'])
+
+  /**
+   * What, in the object literals of a call's arguments, could carry a code's
+   * text or its label: a key that names one, a value read from one, or a
+   * spread of something that is not an object literal.
+   *
+   * @param {string} args The text between the call's brackets.
+   * @returns {string[]} What was found.
+   */
+  function codeTextIn(args) {
+    const found = []
+
+    for (const open of braceStarts(args)) {
+      for (const entry of objectEntries(args, open)) {
+        const value = args.slice(entry.start, entry.end).trim()
+
+        if (
+          (entry.kind === 'property' || entry.kind === 'shorthand') &&
+          CODE_TEXT_KEYS.has(entry.key)
+        ) {
+          found.push(entry.key)
+        }
+
+        if (
+          entry.kind === 'property' &&
+          /^[\w$?.[\]]*\.(?:code|referralCode|label)$/u.test(value)
+        ) {
+          found.push(`${entry.key}: ${value}`)
+        }
+
+        // `...(labelChanged ? { labelChanged: true } : {})` is read as the
+        // object literals it holds; a spread of a row or a body is not.
+        if (entry.kind === 'spread' && !value.includes('{')) found.push(`...${value}`)
+      }
+    }
+
+    return found
+  }
+
+  it('never writes a referral code’s text or label into an audit row from the referral modules', () => {
+    let audits = 0
+
+    for (const file of REFERRAL_MODULES) {
+      const code = readCode(file)
+
+      for (const match of code.matchAll(/(?<!function\s+)\brecordAudit\s*\(/gu)) {
+        const open = match.index + match[0].length - 1
+        const args = code.slice(open + 1, balancedEnd(code, open))
+
+        audits += 1
+        expect(codeTextIn(args), `${file}:${lineOf(code, match.index)}`).toEqual([])
+      }
+    }
+
+    // Created, updated, switched off and on, and a use given back.
+    expect(audits).toBeGreaterThanOrEqual(4)
+
+    // The metadata helper names ids, the scope, the expiry, the limit and the switch.
+    const code = readCode(REFERRAL_CODES)
+    const helper = functionRange(code, 'referralAuditMetadata')
+    const returned = code.indexOf('{', code.indexOf('return', helper.start))
+
+    expect(objectEntries(code, returned).map((entry) => entry.key)).toEqual([
+      'referralCodeId',
+      'scope',
+      'expiresAt',
+      'maxUses',
+      'active',
+    ])
+
+    // The scan sees the leak it is for.
+    expect(codeTextIn('tx, { metadata: { referralCodeId: row.id, code: row.code } }')).toEqual([
+      'code',
+      'code: row.code',
+    ])
+    expect(codeTextIn('tx, { metadata: { ...row } }')).toEqual(['...row'])
+    expect(
+      codeTextIn(
+        'tx, { metadata: { labelSet: Boolean(row.label), ...(changed ? { labelChanged: true } : {}) } }',
+      ),
+    ).toEqual([])
+  })
+
+  it('never hands a log call in the referral modules a code’s row: ids only', () => {
+    const LOG_CALL =
+      /\b(?:log|logger)\s*(?:\?\.|\.)\s*(?:trace|debug|info|warn|error|fatal)\s*(?:\?\.)?\s*\(/gu
+    /** @type {Record<string, number>} */
+    const calls = {}
+
+    for (const file of REFERRAL_MODULES) {
+      const code = readCode(file)
+
+      for (const match of code.matchAll(LOG_CALL)) {
+        const open = match.index + match[0].length - 1
+        const args = code.slice(open + 1, balancedEnd(code, open)).trim()
+        const at = `${file}:${lineOf(code, match.index)}`
+
+        calls[file] = (calls[file] ?? 0) + 1
+
+        // A message alone, or an object of ids and then a message.
+        if (/^['"`]/u.test(args)) continue
+
+        expect(args.startsWith('{'), `${at} logs something other than ids`).toBe(true)
+
+        for (const entry of objectEntries(args, 0)) {
+          expect(['property', 'shorthand'], `${at}: ${entry.kind}`).toContain(entry.kind)
+          expect(entry.key, at).toMatch(/Ids?$/u)
+
+          const value =
+            entry.kind === 'shorthand' ? entry.key : args.slice(entry.start, entry.end).trim()
+
+          expect(value, at).toMatch(
+            /^(?:[\w$]+(?:\.[\w$]+)*\.id|\[\s*\.\.\.[\w$]+\s*\]|[\w$]+Ids?)$/u,
+          )
+        }
+      }
+    }
+
+    // The two there are (XR3 step 5's warning, and the route's note that a
+    // code was made), so the rule is not passing on nothing.
+    expect(calls).toEqual({ [REFERRAL_USES]: 1, 'apps/api/src/routes/referral-codes.js': 1 })
+
+    // And the logger redacts the text by key, wherever a body or a payload
+    // carries it (SPEC3 §13).
+    expect(SENSITIVE_FIELD_KEYS).toContain('referralCode')
+    expect(WILDCARD_KEYS).toContain('referralCode')
+  })
+
+  /** Payload keys no queued notice may carry: a code, a token, a credential or an address. */
+  const SECRET_PAYLOAD_KEY =
+    /^(?:code|referralCode|referralCodeId|token|tokenHash|invitationCode|credential|groupCode|secret|email|buyerEmail|recipientEmail|toEmail|address)$/u
+
+  /**
+   * The payload object of every row an outbox write makes, with its keys at
+   * every depth (a spread is reported as written), or `null` when the payload
+   * is built away from the write.
+   *
+   * @param {string} args The write's argument text.
+   * @returns {Array<string[]|null>} One entry per payload.
+   */
+  function payloadsIn(args) {
+    const payloads = []
+
+    for (const open of braceStarts(args)) {
+      for (const entry of objectEntries(args, open)) {
+        if (entry.key !== 'payload') continue
+
+        if (entry.kind !== 'property' || args[entry.start] !== '{') {
+          payloads.push(null)
+          continue
+        }
+
+        const keys = []
+        const visit = (at) => {
+          for (const inner of objectEntries(args, at)) {
+            keys.push(
+              inner.kind === 'spread'
+                ? `...${args.slice(inner.start, inner.end).trim()}`
+                : inner.key,
+            )
+
+            if (inner.kind === 'property' && args[inner.start] === '{') visit(inner.start)
+          }
+        }
+
+        visit(entry.start)
+        payloads.push(keys)
+      }
+    }
+
+    return payloads
+  }
+
+  it('queues no notice carrying a code, a token or an address, and the venue notices only the keys SPEC3-XI names', () => {
+    /** @type {Record<string, Array<string[]|null>>} */
+    const queued = {}
+
+    for (const file of sourceFiles({ packages: true })) {
+      const code = readCode(file)
+
+      for (const write of writesTo(code, 'NotificationOutbox')) {
+        const at = `${file}:${write.line}`
+
+        expect(
+          [...write.fields].filter((field) => SECRET_PAYLOAD_KEY.test(field)),
+          at,
+        ).toEqual([])
+
+        if (!['create', 'createMany', 'createManyAndReturn', 'upsert'].includes(write.operation)) {
+          continue
+        }
+
+        for (const keys of payloadsIn(write.args)) {
+          queued[file] = [...(queued[file] ?? []), keys]
+
+          expect(keys, `${at} builds its payload elsewhere`).not.toBeNull()
+          expect(
+            keys.filter(
+              (key) =>
+                SECRET_PAYLOAD_KEY.test(key) || /\b(?:email|referralCode|\.code)\b/u.test(key),
+            ),
+            at,
+          ).toEqual([])
+        }
+      }
+
+      for (const write of rawWrites(code)) {
+        expect(write.table, `${file}:${write.line} writes the outbox raw`).not.toBe(
+          'NotificationOutbox',
+        )
+      }
+    }
+
+    // The notices SPEC3 and SPEC3-XI add, key by key: the booking's buyer and
+    // each other holder when unpaid tickets are cancelled (venue_booking.cancelled),
+    // the holder variants of event.cancelled and event.session_cancelled, and
+    // the transfer invitation's door price.
+    expect(queued[VENUE_BOOKINGS]).toEqual([
+      [
+        'eventId',
+        'eventTitle',
+        'recipient',
+        'orderReference',
+        'ticketCount',
+        'dueCents',
+        'feeKeptCents',
+        'currency',
+        'reason',
+        'by',
+        'othersRemain',
+      ],
+      ['eventId', 'eventTitle', 'recipient', 'ticketCount', 'dueCents', 'currency', 'reason', 'by'],
+    ])
+    expect(queued['apps/api/src/lib/event-cancellation.js']?.[1]).toEqual([
+      'eventId',
+      'eventTitle',
+      'recipient',
+      'paidAtDoorCents',
+      'currency',
+      '...(night ? { sessionLabel: night.label ?? null } : {})',
+    ])
+    expect(queued['apps/api/src/routes/tickets.js']).toEqual([
+      ['ticketId', 'transferId', 'expiresAt', 'venueDueCents', 'currency'],
+    ])
+
+    // The buyer's pay-at-the-venue cancellation notice adds money and nothing else.
+    const cancellation = readCode('apps/api/src/lib/event-cancellation.js')
+    const extra = cancellation.indexOf('{', cancellation.search(/\bextra:\s*\{/u))
+
+    expect(objectEntries(cancellation, extra).map((entry) => entry.key)).toEqual([
+      'atVenue',
+      'onlineRefund',
+      'paidAtDoorCents',
+      'paidAtDoorByOthersCents',
+      'currency',
+    ])
+  })
+
+  it('names a code’s text referralCode only in the administrators’ answers, and takes it only in a POST body', () => {
+    const document = buildOpenApiDocument()
+    const components = document.components?.schemas ?? {}
+    /** @type {Record<string, string[]>} */
+    const carriers = {}
+
+    /**
+     * @param {unknown} node A JSON Schema fragment.
+     * @param {Set<string>} into Where to collect property names.
+     * @param {Set<string>} expanding The `$ref`s on this chain.
+     * @returns {Set<string>} The names.
+     */
+    const names = (node, into = new Set(), expanding = new Set()) => {
+      if (Array.isArray(node)) {
+        for (const item of node) names(item, into, expanding)
+
+        return into
+      }
+
+      if (!node || typeof node !== 'object') return into
+
+      if (typeof node.$ref === 'string') {
+        const name = node.$ref.split('/').at(-1)
+
+        if (!expanding.has(name)) names(components[name], into, new Set([...expanding, name]))
+      }
+
+      for (const [key, value] of Object.entries(node)) {
+        if (key === 'properties' && value && typeof value === 'object') {
+          for (const [property, child] of Object.entries(value)) {
+            into.add(property)
+            names(child, into, expanding)
+          }
+        } else if (key !== '$ref') {
+          names(value, into, expanding)
+        }
+      }
+
+      return into
+    }
+
+    for (const operations of Object.values(document.paths)) {
+      for (const operation of Object.values(operations)) {
+        const found = names(operation.responses ?? {})
+
+        for (const key of [
+          'referralCode',
+          'referralCodeId',
+          'referralUseReturnedAt',
+          'referralUseReturnCause',
+          'useReturned',
+          'createdBy',
+          'createdById',
+        ]) {
+          if (found.has(key))
+            carriers[key] = [...(carriers[key] ?? []), operation.operationId].sort()
+        }
+      }
+    }
+
+    // The named exception list (SPEC3 §13): the administrators' code answers
+    // carry the text and who made it; nothing answers an order's code id or
+    // its return marker; a use's return shows only on a code's own detail.
+    const ADMIN_CODE_ANSWERS = [
+      'referralCodes.create',
+      'referralCodes.get',
+      'referralCodes.list',
+      'referralCodes.switchOff',
+      'referralCodes.switchOn',
+      'referralCodes.update',
+    ]
+
+    expect(carriers).toEqual({
+      createdBy: ADMIN_CODE_ANSWERS,
+      referralCode: ADMIN_CODE_ANSWERS,
+      useReturned: ['referralCodes.get'],
+    })
+
+    // Never in a URL: no path or query takes it, and only the quote, the
+    // order and the administrators' create take it, in their bodies.
+    const takers = []
+
+    for (const route of apiRoutes) {
+      for (const [where, schema] of [
+        ['params', route.params],
+        ['query', route.query],
+        ['body', route.body],
+      ]) {
+        if (schemaKeys(schema).has('referralCode')) takers.push(`${route.id} ${where}`)
+      }
+    }
+
+    expect(takers.sort()).toEqual([
+      'orders.create body',
+      'orders.quote body',
+      'referralCodes.create body',
+    ])
+
+    for (const id of ['orders.create', 'orders.quote', 'referralCodes.create']) {
+      expect(routeById(id).method, id).toBe('POST')
     }
   })
 })

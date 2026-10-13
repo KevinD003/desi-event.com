@@ -173,17 +173,9 @@ async function withDoorFacts(prisma, rows) {
     for (const sum of sums) taken.set(sum.orderId, sum._sum?.amountCents ?? 0)
   }
 
-  // Said only of a pay-at-the-venue order: a card order's refund reads as it
-  // always did.
-  return rows.map((row) =>
-    row.order?.paymentMethod === 'AT_VENUE'
-      ? {
-          ...toRefund(row),
-          paymentMethod: 'AT_VENUE',
-          paidAtDoorCents: taken.get(row.orderId) ?? 0,
-        }
-      : toRefund(row),
-  )
+  // Said only of a pay-at-the-venue order (`toRefund` decides): a card
+  // order's refund reads as it always did.
+  return rows.map((row) => toRefund(row, { paidAtDoorCents: taken.get(row.orderId) ?? 0 }))
 }
 
 /**

@@ -64,6 +64,7 @@ import {
   PLACES_ON_SALE,
   REFERRAL_CODE_PATTERN,
   REFERRAL_LIMITS,
+  REFERRAL_LIST_EVENTS,
   REFERRAL_RETURN_CAUSES,
   REFERRAL_STATUSES,
   VENUE_CANCELLED_BY,
@@ -1957,26 +1958,35 @@ const waivedInCurrencySchema = z.object({ currency: z.string().length(3), cents:
 /** The administrator who made a code, or null once the account is gone. */
 const referralCreatorSchema = z.object({ id: cuidSchema, displayName: z.string() }).nullable()
 
+/** One event a referral code works for, as its administrators' screens name it. */
+const referralCodeEventSchema = z.object({
+  id: cuidSchema,
+  title: z.string(),
+  slug: z.string(),
+  status: eventStatusSchema,
+})
+
 /**
  * A referral code as platform administrators manage it (SPEC3 §8.4, SPEC3-XI
- * §8.4): its text (`referralCode`, never `code`), label, scope with up to three
- * of its events and how many, expiry and limit, its uses, the fees it waived per
- * currency, and who made it. `useCount` is the uses counted now (orders naming
- * it that have not given their use back, including orders still waiting for
- * payment); `usesPlaced` is every order placed with it and `usesReturned` the
- * orders that gave their use back, so `usesPlaced − usesReturned = useCount`.
- * `waived` is the booking fee a current use waived on a PAID order.
+ * §8.4): its text (`referralCode`, never `code`), label, scope with every event
+ * it names (at most fifty, oldest first) and how many, expiry and limit, its
+ * uses, the fees it waived per currency, and who made it. One code's answer
+ * (`referralCodes.get`, `.create`, `.update`, `.switchOff`, `.switchOn`)
+ * carries every event, so a change to its events starts from all of them; a
+ * row of the list carries the first {@link REFERRAL_LIST_EVENTS}
+ * ({@link referralCodeListItemSchema}). `useCount` is the uses counted now
+ * (orders naming it that have not given their use back, including orders
+ * still waiting for payment); `usesPlaced` is every order placed with it and
+ * `usesReturned` the orders that gave their use back, so
+ * `usesPlaced − usesReturned = useCount`. `waived` is the booking fee a
+ * current use waived on a PAID order.
  */
 export const adminReferralCodeSchema = z.object({
   id: cuidSchema,
   referralCode: z.string().regex(REFERRAL_CODE_PATTERN),
   label: z.string().max(REFERRAL_LIMITS.labelMax).nullable(),
   scope: referralCodeScopeSchema,
-  events: z
-    .array(
-      z.object({ id: cuidSchema, title: z.string(), slug: z.string(), status: eventStatusSchema }),
-    )
-    .max(3),
+  events: z.array(referralCodeEventSchema).max(REFERRAL_LIMITS.maxEvents),
   eventCount: z.int().min(0).max(REFERRAL_LIMITS.maxEvents),
   expiresAt: timestampSchema.nullable(),
   maxUses: z.int().min(1).max(REFERRAL_LIMITS.maxUses).nullable(),
@@ -1994,9 +2004,17 @@ export const adminReferralCodeSchema = z.object({
 /** `referralCodes.create` (201), `.update`, `.switchOff`, `.switchOn`. */
 export const referralCodeResponseSchema = z.object({ data: adminReferralCodeSchema })
 
+/**
+ * A code as a row of the list shows it: the first {@link REFERRAL_LIST_EVENTS}
+ * of its events, oldest first, and how many it names in all.
+ */
+export const referralCodeListItemSchema = adminReferralCodeSchema.extend({
+  events: z.array(referralCodeEventSchema).max(REFERRAL_LIST_EVENTS),
+})
+
 /** `referralCodes.list`: 50 a page, newest first. */
 export const referralCodeListResponseSchema = z.object({
-  data: z.array(adminReferralCodeSchema),
+  data: z.array(referralCodeListItemSchema),
   pagination: paginationMetaSchema,
 })
 
@@ -2163,6 +2181,8 @@ export const venueBookingsResponseSchema = z.object({
   data: z.object({
     eventId: cuidSchema,
     eventTitle: z.string(),
+    /** The event's own zone, for writing each booking's date as the event keeps time. */
+    timezone: z.string(),
     currency: z.string().length(3),
     bookings: z.array(
       z.object({

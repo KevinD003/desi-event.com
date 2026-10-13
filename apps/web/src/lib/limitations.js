@@ -15,6 +15,14 @@
  * published event left it the same way (ADR 0014): a new picture now appears
  * once somebody other than its uploader approves it.
  *
+ * The booking fee, referral codes and paying at the venue (ADRs 0016 and
+ * 0017, SPEC3 §15.1 and SPEC3-XI §15) added the entries from
+ * `paying-at-the-venue` to `referral-rewards` and `payment-after-cancellation`,
+ * and the sentences on them in `payments`, `group-booking`,
+ * `live-changes-not-reviewed` and `deleted-events-kept`. The page's "Also"
+ * list says what a referral code does and that tickets paid at the venue
+ * carry no sales tax.
+ *
  * @module lib/limitations
  */
 
@@ -44,14 +52,56 @@ export const LIMITATIONS = Object.freeze([
     name: 'Real payments, Stripe and Connect payouts',
     status: 'EXTERNAL VERIFICATION PENDING',
     meaning:
-      'Payments on this site are simulated. No card is asked for, nothing is charged, no refund returns money and no organiser is paid out. The connection to a real payment provider has not been verified against that provider, so this build runs on the simulation alone.',
+      'Payments on this site are simulated. No card is asked for, nothing is charged, no refund returns money and no organiser is paid out. The booking fee paid online for tickets paid at the venue is simulated too. The connection to a real payment provider has not been verified against that provider, so this build runs on the simulation alone.',
+  },
+  {
+    id: 'paying-at-the-venue',
+    name: 'Refunding money paid at the venue',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'When a ticket is paid for at the door, the organiser keeps that money. Desi-Event records the amount but does not hold it and cannot refund it: if the order is refunded, the event is cancelled or a night is called off, only the booking fee paid online is refunded (simulated), and money paid at the door has to be returned by the organiser. A ticket that is not paid for stays booked until the organiser or the Desi-Event team cancels it; its place is then freed and sells again whenever its sales are open, and Desi-Event keeps the booking fee paid online for it. Nothing is cancelled automatically, and a buyer who does not come gets no refund of the booking fee.',
+  },
+  {
+    id: 'tax-on-venue-tickets',
+    name: 'Sales tax on tickets paid at the venue',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'No sales tax is added to tickets paid at the venue, or to the booking fee paid online for them, and this site does not work out or report sales tax on them. The organiser may still owe sales tax on those sales.',
+  },
+  {
+    id: 'unpaid-bookings',
+    name: 'Cancelling your own unpaid booking',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'A buyer cannot cancel a booking they have not paid for at the door, and neither can anyone they passed a ticket to: only the organiser or the Desi-Event team can cancel its unpaid tickets, until the ticket’s night (or, for an event with no nights listed, the event) is over. Anybody signed in can book tickets to pay at the door without paying the ticket price, and with a referral code without paying anything online, up to the most unpaid tickets the Desi-Event team allows for that event; that limit, and cancelling, are what stop a booking holding places nobody pays for. The booking fee Desi-Event keeps when unpaid tickets are cancelled is not refunded afterwards, not even by the Desi-Event team.',
+  },
+  {
+    id: 'general-admission-refunds',
+    name: 'Putting refunded general-admission places back on sale',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'When an order is refunded, its reserved seats go back on sale (except in the 24 hours before the event, when a refunded seat is held back), but its general-admission places do not, so the event can sell that many fewer. Cancelling unpaid tickets booked to pay at the door is the one action that frees general-admission places for someone else.',
+  },
+  {
+    id: 'booking-fee-default',
+    name: 'Changing the standard booking fee on a screen',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'The booking fee buyers pay is Desi-Event’s charge, not the organiser’s. The Desi-Event team can give an event a booking fee of its own; every other event uses the standard booking fee, in this build 5.90% of the ticket price after any promo discount plus $0.99 a ticket, which is a setting on the server that no screen changes. A change to an event’s booking fee applies to orders placed after it: orders already placed keep the fee they were charged.',
+  },
+  {
+    id: 'referral-rewards',
+    name: 'Rewards for referral codes',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'Each referral code records the Desi-Event administrator who made it and every order that used it, but nobody is paid for referrals: there are no payouts to administrators.',
   },
   {
     id: 'group-booking',
     name: 'Splitting payment for a group',
     status: 'NOT IMPLEMENTED',
     meaning:
-      'Every order is paid for by one person. There is no way to split an order, or for each guest to pay their own share, and a group gets no discount of its own: a lower price comes only from a promo code the organiser has made. The buyer can put each guest’s name on their ticket, and while they hold between two and fifty tickets on an order that still admit, they can show one group pass at the door for all of them.',
+      'Every order is paid for by one person. There is no way to split an order, or for each guest to pay their own share, and a group gets no discount of its own: a lower price comes only from a promo code the organiser has made, or from a referral code from the Desi-Event team, which removes the booking fee. The buyer can put each guest’s name on their ticket, and while they hold between two and fifty tickets on an order that still admit, they can show one group pass at the door for all of them.',
   },
   {
     id: 'offline-admission',
@@ -93,7 +143,7 @@ export const LIMITATIONS = Object.freeze([
     name: 'Reviewing changes to a published event',
     status: 'NOT IMPLEMENTED',
     meaning:
-      'On a published, on-sale, paused, sold-out or postponed event, the organiser — or the Desi-Event team, in an editing session opened with a reason — can change everything without another review, and the change is public when it saves. The date, time, time zone, place, joining link, age limit and entry, refund and conduct terms change only with a reason, and every ticket holder is shown the change on their order page; it is not emailed. Ticket types can be added, edited, re-priced (people who already bought keep what they paid), closed, hidden, or removed if unused. Nights can be added, moved, given another seating map while nothing at them is sold, removed if unused, or cancelled with their tickets refunded. The venue cannot be changed while a night uses a seating map. New pictures appear only after someone on the Desi-Event team other than the person who uploaded them approves each one; the old cover stays until then. (Pictures copied by an import are the exception: the administrator who reviews the import approves them with the event.) A finished or cancelled event keeps its words and pictures editable. The organisation’s venue records can be edited at any time, and every event there shows the new details without review. An event’s website address can be changed at any time; a new address is not linked until an administrator approves it. Promo codes are never reviewed.',
+      'On a published, on-sale, paused, sold-out or postponed event, the organiser — or the Desi-Event team, in an editing session opened with a reason — can change everything without another review, and the change is public when it saves. The date, time, time zone, place, joining link, age limit and entry, refund and conduct terms change only with a reason, and every ticket holder is shown the change on their order page; it is not emailed. Ticket types can be added, edited, re-priced (people who already bought keep what they paid), closed, hidden, or removed if unused. Nights can be added, moved, given another seating map while nothing at them is sold, removed if unused, or cancelled with their tickets refunded. The venue cannot be changed while a night uses a seating map. New pictures appear only after someone on the Desi-Event team other than the person who uploaded them approves each one; the old cover stays until then. (Pictures copied by an import are the exception: the administrator who reviews the import approves them with the event.) A finished or cancelled event keeps its words and pictures editable. The organisation’s venue records can be edited at any time, and every event there shows the new details without review. An event’s website address can be changed at any time; a new address is not linked until an administrator approves it. Promo codes are never reviewed. The Desi-Event team can change an event’s booking fee, and whether it can be paid for at the venue, at any time; people who already booked keep what they paid.',
   },
   {
     id: 'night-cancellation-passes',
@@ -110,11 +160,18 @@ export const LIMITATIONS = Object.freeze([
       'Refunds caused by deleting an event or cancelling a night are sent while the page waits: up to 500 at a time with simulated payments and 25 at a time with a payment provider. Any left over are sent with “Finish refunds” on the event, or by the organisation’s finance team. An order whose payment is disputed is left to the finance team rather than refunded, so it is not paid back twice.',
   },
   {
+    id: 'payment-after-cancellation',
+    name: 'Refunding a payment completed after its event was cancelled',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'If a card payment is still going through when its event is cancelled, and is completed only afterwards, the order stays paid and is not refunded automatically: the organisation’s finance team can refund it, and deleting the event refunds it too (simulated here).',
+  },
+  {
     id: 'deleted-events-kept',
     name: 'Erasing a deleted event',
     status: 'NOT IMPLEMENTED',
     meaning:
-      'Deleting an event takes it off the site straight away, but its record, pictures, orders and history are kept so the Desi-Event team can restore it and so money stays accounted for. Nothing on this site erases a deleted event; removing somebody’s personal data goes through the privacy process. The reasons people type when deleting, restoring, cancelling a night or editing as the Desi-Event team are kept as written, and the privacy process does not rewrite them. A deleted event’s pictures stop being served at once, but a copy already in someone’s browser can stay there for up to a day.',
+      'Deleting an event takes it off the site straight away, but its record, pictures, orders and history are kept so the Desi-Event team can restore it and so money stays accounted for. Nothing on this site erases a deleted event; removing somebody’s personal data goes through the privacy process. The reasons people type when deleting, restoring, cancelling a night, editing as the Desi-Event team, changing a booking fee or the pay-at-the-venue setting, refunding a booking fee by hand, switching a referral code off or cancelling unpaid tickets, and referral codes’ labels, are kept as written, and the privacy process does not rewrite them. A deleted event’s pictures stop being served at once, but a copy already in someone’s browser can stay there for up to a day.',
   },
   {
     id: 'imported-events',

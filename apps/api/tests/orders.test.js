@@ -1242,6 +1242,36 @@ describe('a booking to pay at the venue, as its readers read it', () => {
     await app.close()
   })
 
+  it('says on each ticket the buyer passed on what its holder owes now, and where the event is', async () => {
+    const { app, order, tickets } = await booking((ids) => ({
+      // Ticket 2 passed on and still owing; ticket 3 passed on, then paid at
+      // the door by its new holder.
+      holders: [null, ids.owner.id],
+      paidBy: [{ index: 2, holderId: ids.owner.id }],
+    }))
+    const buyer = await readAs(app, order.reference, 'priya@example.com')
+    const [, passed] = tickets
+    const away = buyer.tickets.filter((row) => row.purchaserHolding === 'TRANSFERRED_AWAY')
+
+    expect(away).toHaveLength(2)
+    expect(
+      away.map((row) => row.passedOn).sort((left, right) => (left.state < right.state ? -1 : 1)),
+    ).toEqual([
+      { state: 'OWES', dueCents: passed.venueDueCents },
+      { state: 'PAID', dueCents: 0 },
+    ])
+    expect(
+      buyer.tickets
+        .filter((row) => row.purchaserHolding === 'HELD')
+        .every((row) => row.passedOn === null),
+    ).toBe(true)
+
+    // The place the event's tax is named for: its venue's country and region.
+    expect(buyer.event).toMatchObject({ country: 'IN', region: 'Maharashtra' })
+
+    await app.close()
+  })
+
   it('counts tickets passed on apart from the buyer’s, and door money by whoever paid it (XT7)', async () => {
     const { app, order, tickets } = await booking((ids) => ({
       // Ticket 2 passed on and still owing; ticket 3 passed on, then paid at

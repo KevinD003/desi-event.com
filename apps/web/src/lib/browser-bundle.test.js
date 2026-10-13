@@ -19,12 +19,14 @@ import { describe, expect, it } from 'vitest'
 import {
   FORBIDDEN,
   FORBIDDEN_CLIENT_LITERALS,
+  REQUIRED_CLIENT_MODULES,
   declaresUseClient,
   forbiddenLiteralsIn,
   forbiddenReason,
   reachableFrom,
   resolveSpecifier,
   specifiersIn,
+  usesBrowserStorage,
 } from './browser-bundle.js'
 
 /** The workspace root. */
@@ -284,6 +286,111 @@ describe('full control of posted events and the import (SPEC2-XI §0.7, §7)', (
     ]
 
     for (const file of IMPORT_MODULES) expect(reached, file).not.toContain(file)
+  })
+})
+
+describe('booking fees, referral codes and paying at the venue (SPEC3 §0.4, §13; SPEC3-XI §13)', () => {
+  /** The capability names SPEC3 and SPEC3-XI add, each forbidden in a client module. */
+  const NEW_LITERALS = [
+    'payment_terms:manage',
+    'referral_code:manage',
+    'platform_fee:refund',
+    'venue_booking:cancel',
+  ]
+
+  it('forbids the four capability names in a client module, in code and not in a comment', () => {
+    for (const literal of NEW_LITERALS) {
+      expect(Object.keys(FORBIDDEN_CLIENT_LITERALS), literal).toContain(literal)
+      expect(FORBIDDEN_CLIENT_LITERALS[literal], literal).toBeTruthy()
+      expect(forbiddenLiteralsIn(`const may = sessionCan(session, '${literal}')`)).toEqual([
+        literal,
+      ])
+      expect(forbiddenLiteralsIn(`/** For \`${literal}\` holders. */\nconst a = 1`)).toEqual([])
+    }
+  })
+
+  it('names those capabilities only in server modules, which no client module reaches', () => {
+    const entries = [...browserEntryPoints(), 'apps/web/src/lib/api-client.js']
+    const reached = new Set(reachableFrom(entries).keys())
+    const namers = []
+
+    for (const file of filesUnder('apps/web/src').filter(
+      (path) => /\.jsx?$/u.test(path) && !path.includes('.test.'),
+    )) {
+      const source = readFileSync(resolve(ROOT, file), 'utf8')
+      const found = forbiddenLiteralsIn(source).filter((literal) => NEW_LITERALS.includes(literal))
+
+      if (found.length === 0) continue
+
+      namers.push(file)
+      expect(declaresUseClient(source), `${file} is a client module naming ${found}`).toBe(false)
+      expect(reached.has(file), `${file} is reached from a client module`).toBe(false)
+    }
+
+    // The pages that decide, so the rule is not passing on nothing.
+    expect(namers).toEqual(
+      expect.arrayContaining([
+        'apps/web/src/app/admin/events/[id]/page.jsx',
+        'apps/web/src/app/admin/events/[id]/venue-bookings/page.jsx',
+        'apps/web/src/app/admin/fee-refunds/page.jsx',
+        'apps/web/src/app/admin/referral-codes/page.jsx',
+      ]),
+    )
+  })
+
+  it('keeps every new client module a client module, walked and held to the rules', () => {
+    const entries = browserEntryPoints()
+    const reached = reachableFrom([...entries, 'apps/web/src/lib/api-client.js'])
+
+    expect(Object.keys(REQUIRED_CLIENT_MODULES)).toEqual(
+      expect.arrayContaining([
+        'apps/web/src/components/cancel-unpaid-tickets-dialog.jsx',
+        'apps/web/src/components/unpaid-venue-bookings.jsx',
+      ]),
+    )
+
+    for (const [file, why] of Object.entries(REQUIRED_CLIENT_MODULES)) {
+      expect(why, file).toBeTruthy()
+      // Found by its directive, so the walk starts there.
+      expect(entries, `${file} is no longer a client module`).toContain(file)
+
+      // Nothing it reaches is server-only, and nothing it reaches names a capability.
+      for (const [module, chain] of reachableFrom([file])) {
+        expect(forbiddenReason(module), `${module} reached by ${chain.join(' -> ')}`).toBeNull()
+        expect(
+          forbiddenLiteralsIn(readFileSync(resolve(ROOT, module), 'utf8')),
+          `${module} reached by ${chain.join(' -> ')}`,
+        ).toEqual([])
+      }
+
+      expect(reached.has(file), file).toBe(true)
+    }
+  })
+
+  it('keeps a referral code out of browser storage: the field, the administrators’ screens and all they reach', () => {
+    const roots = [
+      'apps/web/src/components/referral-code-field.jsx',
+      ...filesUnder('apps/web/src/app/admin/referral-codes').filter(
+        (path) => /\.jsx?$/u.test(path) && !path.includes('.test.'),
+      ),
+      'apps/web/src/components/checkout-basket.jsx',
+      'apps/web/src/components/seat-checkout.jsx',
+    ]
+    const storing = []
+
+    for (const file of reachableFrom(roots).keys()) {
+      if (!file.startsWith('apps/web/')) continue
+
+      if (usesBrowserStorage(readFileSync(resolve(ROOT, file), 'utf8'))) storing.push(file)
+    }
+
+    expect(storing).toEqual([])
+    // The field says so in its own words, and the rule reads code, not comments.
+    expect(readFileSync(resolve(ROOT, roots[0]), 'utf8')).toMatch(/localStorage/u)
+    expect(usesBrowserStorage("window.sessionStorage.setItem('referralCode', code)")).toBe(true)
+    expect(usesBrowserStorage('// never localStorage\nconst a = 1')).toBe(false)
+    expect(usesBrowserStorage('document.cookie = `referral=${code}`')).toBe(true)
+    expect(usesBrowserStorage('const csrf = document.cookie.match(pattern)')).toBe(false)
   })
 })
 

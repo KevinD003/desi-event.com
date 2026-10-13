@@ -31,6 +31,7 @@
  */
 
 import { callApi } from './organizer-api.js'
+import { formatInstantIn } from './format.js'
 
 /** The page size the four lists ask for. The API's ceiling is 100. */
 export const LIST_PAGE_SIZE = 50
@@ -459,34 +460,21 @@ export function isPastTheEnd(shown, pagination, page) {
 export const PAGER_LINK_CLASSES =
   'inline-flex min-h-11 items-center rounded-lg border border-line-strong bg-surface-raised px-4 py-2 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none'
 
-/** How an instant is printed on these pages. */
-const INSTANT = new Intl.DateTimeFormat('en-US', {
-  month: 'short',
-  day: 'numeric',
-  year: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit',
-  timeZone: 'UTC',
-})
-
 /**
- * An instant as a person reads it, in UTC and saying so.
+ * An instant as a person reads it, in UTC and saying so — or, for a record an
+ * event keeps, in the event's zone and saying which.
  *
  * UTC rather than the server's zone, because a server's zone is an accident of
  * where it runs; the `time` element these are printed in carries the exact
- * instant for anything that wants it.
+ * instant for anything that wants it. A page about one event passes that
+ * event's zone, so the time reads as the event's door kept it.
  *
  * @param {string|null|undefined} value An ISO-8601 instant.
+ * @param {string} [timeZone] IANA zone; UTC when absent.
  * @returns {string|null} "Sep 23, 2026, 2:05 PM UTC", or null for no instant.
  */
-export function formatInstant(value) {
-  if (!value) return null
-
-  const at = new Date(value)
-
-  if (Number.isNaN(at.getTime())) return null
-
-  return `${INSTANT.format(at)} UTC`
+export function formatInstant(value, timeZone = 'UTC') {
+  return formatInstantIn(value, timeZone)
 }
 
 /**

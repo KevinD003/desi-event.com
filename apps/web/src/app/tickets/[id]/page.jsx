@@ -77,7 +77,7 @@ const STATUS = Object.freeze({
   },
   REVOKED: { label: 'Withdrawn by the organiser. It admits nobody.', admits: false },
   REFUNDED: { label: 'Refunded. It admits nobody.', admits: false },
-  CANCELLED: { label: 'Cancelled. It admits nobody.', admits: false },
+  CANCELLED: { label: 'Withdrawn — this ticket no longer works at the door.', admits: false },
   SUPERSEDED: { label: 'Replaced by a newer ticket.', admits: false },
   VOID: { label: 'Void. It admits nobody.', admits: false },
 })

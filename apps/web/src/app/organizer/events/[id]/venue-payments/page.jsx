@@ -178,6 +178,8 @@ export default async function VenuePaymentsPage({ params, searchParams }) {
   }
 
   const eventHref = `/organizer/events/${encodeURIComponent(event.id)}`
+  // Times are the event's door's: in its zone, named (as the buyer pages write them).
+  const timeZone = event.timezone ?? 'UTC'
 
   if (!sessionCan(session, 'finance:view', event.organizationId)) {
     return (
@@ -312,7 +314,9 @@ export default async function VenuePaymentsPage({ params, searchParams }) {
                 {payments.map((payment) => (
                   <tr key={payment.id} className={STACKED.row}>
                     <Cell label="When">
-                      <time dateTime={payment.recordedAt}>{formatInstant(payment.recordedAt)}</time>
+                      <time dateTime={payment.recordedAt}>
+                        {formatInstant(payment.recordedAt, timeZone)}
+                      </time>
                     </Cell>
                     <Cell label="Night">{payment.nightLabel ?? 'Every night'}</Cell>
                     <Cell label="Taken by">{payment.recordedByName ?? 'A former member'}</Cell>
@@ -342,6 +346,7 @@ export default async function VenuePaymentsPage({ params, searchParams }) {
         bookings={unpaidOrders}
         canCancel={Boolean(report.canCancelUnpaid)}
         note={report.canCancelUnpaid ? CANCEL_NOTE : null}
+        timeZone={timeZone}
       />
 
       <section aria-labelledby="venue-cancellations-heading" className="mt-8">
@@ -373,7 +378,9 @@ export default async function VenuePaymentsPage({ params, searchParams }) {
                 {cancellations.map((cancellation) => (
                   <tr key={cancellation.id} className={STACKED.row}>
                     <Cell label="When">
-                      <time dateTime={cancellation.at}>{formatInstant(cancellation.at)}</time>
+                      <time dateTime={cancellation.at}>
+                        {formatInstant(cancellation.at, timeZone)}
+                      </time>
                     </Cell>
                     <Cell label="By">{cancelledByWords(cancellation)}</Cell>
                     <Cell label="Booking" className="font-mono">

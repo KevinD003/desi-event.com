@@ -133,6 +133,7 @@ export default async function AdminVenueBookingsPage({ params, searchParams }) {
           canCancel
           layout="list"
           empty="No bookings are waiting to be paid at the door."
+          timeZone={list.timezone ?? 'UTC'}
         />
       )}
 

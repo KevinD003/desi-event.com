@@ -268,17 +268,19 @@ export function returnedText(use) {
 }
 
 /**
- * The browser's own time zone, or UTC when it says none.
+ * The zone a referral code's expiry is typed and shown in: UTC, named
+ * wherever it appears, as every Desi-Event administrator screen writes times
+ * (`formatInstant`). Never the browser's: a code works across events in every
+ * US zone, and a time typed in whichever zone a laptop happens to be set to
+ * would mean a different moment to the next administrator.
  *
- * @returns {string} An IANA zone name.
+ * @type {string}
  */
-export function browserTimeZone() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  } catch {
-    return 'UTC'
-  }
-}
+export const REFERRAL_EXPIRY_ZONE = 'UTC'
+
+/** What the expiry field says under its label. */
+export const EXPIRY_HINT =
+  'Date and time in UTC (Coordinated Universal Time), as every Desi-Event administrator screen writes times. UTC is 4 hours ahead of New York in summer and 5 in winter. With no expiry it works until it is switched off or used up.'
 
 /**
  * @typedef {object} ReferralFormValues

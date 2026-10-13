@@ -140,6 +140,34 @@ describe('the organiser’s table', () => {
   })
 })
 
+describe('the dates, as the event keeps time', () => {
+  it('says the day a booking was placed in the event’s zone, not in UTC', () => {
+    render(
+      <UnpaidVenueBookings
+        eventId={EVENT_ID}
+        currency="USD"
+        layout="list"
+        timeZone="America/Chicago"
+        canCancel
+        bookings={[
+          {
+            orderReference: 'DE-7Q2K9P',
+            // 03:00 UTC on 10 October is the evening of 9 October in Chicago.
+            placedAt: '2026-10-10T03:00:00.000Z',
+            buyerName: null,
+            unpaidTickets: 2,
+            unpaidCents: 9000,
+          },
+        ]}
+      />,
+    )
+
+    expect(
+      screen.getByText('Booking DE-7Q2K9P · placed Oct 9, 2026 · 2 unpaid ($90.00)'),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('the Desi-Event team’s list', () => {
   it('names no buyer, and says when each booking was placed and what it owes', () => {
     render(

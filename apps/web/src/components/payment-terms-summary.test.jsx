@@ -109,6 +109,34 @@ describe('the fee, in words', () => {
   })
 })
 
+describe('the dates, as the event keeps time', () => {
+  // 02:30 UTC on 10 October is the evening of 9 October in Chicago.
+  const LATE = { ...SWITCH, changedAt: '2026-10-10T02:30:00.000Z' }
+
+  it('dates a change on the day it was in the event’s zone, not in UTC', () => {
+    expect(changedSentence(LATE, 'America/Chicago')).toBe(
+      'Changed by the Desi-Event team on Oct 9, 2026: “The organiser takes cash at the door.”',
+    )
+    expect(changedSentence(LATE, 'Asia/Kolkata')).toBe(
+      'Changed by the Desi-Event team on Oct 10, 2026: “The organiser takes cash at the door.”',
+    )
+  })
+
+  it('dates the panel’s changes in the zone it is given', () => {
+    render(
+      <PaymentTermsSummary
+        eventId="evt1"
+        paymentTerms={terms(FEE, LATE)}
+        timeZone="America/Chicago"
+      />,
+    )
+
+    expect(screen.getByRole('region', { name: 'Booking fee and payment' })).toHaveTextContent(
+      'Changed by the Desi-Event team on Oct 9, 2026',
+    )
+  })
+})
+
 describe('the panel', () => {
   it('is read-only and labelled by its heading', () => {
     render(<PaymentTermsSummary eventId="evt1" paymentTerms={terms()} mayReadVenuePayments />)

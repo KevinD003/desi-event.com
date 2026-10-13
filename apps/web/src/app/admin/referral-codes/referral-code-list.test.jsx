@@ -135,6 +135,20 @@ describe('ReferralCodeList', () => {
     expect(second).toHaveTextContent('A former administrator')
   })
 
+  it('writes each expiry with its time and its zone, UTC, never a bare date', () => {
+    render(
+      <ReferralCodeList
+        codes={[code({ expiresAt: '2026-12-01T04:59:00.000Z' })]}
+        caption="Referral codes"
+      />,
+    )
+
+    const expiry = screen.getByText('Dec 1, 2026, 4:59 AM UTC')
+
+    expect(expiry.tagName).toBe('TIME')
+    expect(expiry).toHaveAttribute('dateTime', '2026-12-01T04:59:00.000Z')
+  })
+
   it('finds a code on the page by its text or label, and says once when none matches', async () => {
     const user = setup()
 

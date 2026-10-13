@@ -19,6 +19,13 @@ afterEach(cleanup)
 
 /** Each recorded limitation, and the status it must carry, word for word. */
 const RECORDED = [
+  ['Refunding money paid at the venue', 'NOT IMPLEMENTED'],
+  ['Sales tax on tickets paid at the venue', 'NOT IMPLEMENTED'],
+  ['Cancelling your own unpaid booking', 'NOT IMPLEMENTED'],
+  ['Putting refunded general-admission places back on sale', 'NOT IMPLEMENTED'],
+  ['Changing the standard booking fee on a screen', 'NOT IMPLEMENTED'],
+  ['Rewards for referral codes', 'NOT IMPLEMENTED'],
+  ['Refunding a payment completed after its event was cancelled', 'NOT IMPLEMENTED'],
   ['Splitting payment for a group', 'NOT IMPLEMENTED'],
   ['Check-in without a connection', 'NOT IMPLEMENTED'],
   ['Ticket passes on real phones', 'EXTERNAL DEVICE VERIFICATION PENDING'],
@@ -274,8 +281,10 @@ describe('LimitationsPage', () => {
 
     expect(kept).toMatch(/Nothing on this site erases a deleted event/)
     expect(kept).toMatch(/removing somebody’s personal data goes through the privacy process/)
-    expect(kept).toMatch(
-      /The reasons people type when deleting, restoring, cancelling a night or editing as the Desi-Event team are kept as written, and the privacy process does not rewrite them\./,
+    // SPEC3 §15.1 and SPEC3-XI §15: the booking-fee, pay-at-the-venue,
+    // referral-code and unpaid-ticket reasons are kept the same way.
+    expect(kept).toContain(
+      'The reasons people type when deleting, restoring, cancelling a night, editing as the Desi-Event team, changing a booking fee or the pay-at-the-venue setting, refunding a booking fee by hand, switching a referral code off or cancelling unpaid tickets, and referral codes’ labels, are kept as written, and the privacy process does not rewrite them.',
     )
     expect(kept).toMatch(/can stay there for up to a day/)
   })
@@ -384,6 +393,108 @@ describe('LimitationsPage', () => {
         .getByRole('link', { name: 'What can change after publication without another review' })
         .getAttribute('href'),
     ).toBe('#live-changes-not-reviewed')
+  })
+
+  it('says money paid at the door is the organiser’s to return, and what happens to a ticket nobody pays for, word for word (SPEC3-XI §15)', () => {
+    render(<LimitationsPage />)
+
+    expect(entryFor('Refunding money paid at the venue').textContent).toBe(
+      'Refunding money paid at the venueStatus: NOT IMPLEMENTEDWhen a ticket is paid for at the door, the organiser keeps that money. Desi-Event records the amount but does not hold it and cannot refund it: if the order is refunded, the event is cancelled or a night is called off, only the booking fee paid online is refunded (simulated), and money paid at the door has to be returned by the organiser. A ticket that is not paid for stays booked until the organiser or the Desi-Event team cancels it; its place is then freed and sells again whenever its sales are open, and Desi-Event keeps the booking fee paid online for it. Nothing is cancelled automatically, and a buyer who does not come gets no refund of the booking fee.',
+    )
+  })
+
+  it('says the site adds no tax to tickets paid at the venue and that the organiser may still owe sales tax on them', () => {
+    render(<LimitationsPage />)
+
+    const tax = entryFor('Sales tax on tickets paid at the venue').textContent
+
+    expect(tax).toContain(
+      'No sales tax is added to tickets paid at the venue, or to the booking fee paid online for them, and this site does not work out or report sales tax on them. The organiser may still owe sales tax on those sales.',
+    )
+  })
+
+  it('says buyers cannot cancel their own unpaid booking, what bounds a booking nobody pays for, and that a kept fee is never refunded', () => {
+    render(<LimitationsPage />)
+
+    const unpaid = entryFor('Cancelling your own unpaid booking').textContent
+
+    expect(unpaid).toMatch(/A buyer cannot cancel a booking they have not paid for at the door/)
+    expect(unpaid).toMatch(
+      /only the organiser or the Desi-Event team can cancel its unpaid tickets/,
+    )
+    // The owner's answer to question 1: no limit per buyer, only the event's.
+    expect(unpaid).toMatch(
+      /up to the most unpaid tickets the Desi-Event team allows for that event/,
+    )
+    expect(unpaid).not.toMatch(/per (account|buyer)|10 unpaid/i)
+    expect(unpaid).toMatch(/is not refunded afterwards, not even by the Desi-Event team/)
+  })
+
+  it('says refunds free reserved seats but not general-admission places, which only cancelling unpaid tickets frees', () => {
+    render(<LimitationsPage />)
+
+    const places = entryFor('Putting refunded general-admission places back on sale').textContent
+
+    expect(places).toMatch(/its reserved seats go back on sale/)
+    expect(places).toMatch(/held back/)
+    expect(places).toMatch(/its general-admission places do not/)
+    expect(places).toMatch(/Cancelling unpaid tickets booked to pay at the door is the one action/)
+  })
+
+  it('says the standard booking fee is a server setting, events can have their own, and orders keep the fee they were charged', () => {
+    render(<LimitationsPage />)
+
+    const fee = entryFor('Changing the standard booking fee on a screen').textContent
+
+    expect(fee).toMatch(/Desi-Event’s charge, not the organiser’s/)
+    expect(fee).toMatch(/5\.90% of the ticket price after any promo discount plus \$0\.99 a ticket/)
+    expect(fee).toMatch(/a setting on the server that no screen changes/)
+    expect(fee).toMatch(/orders already placed keep the fee they were charged/)
+  })
+
+  it('says referral codes record who made them and pay nobody', () => {
+    render(<LimitationsPage />)
+
+    expect(entryFor('Rewards for referral codes').textContent).toContain(
+      'Each referral code records the Desi-Event administrator who made it and every order that used it, but nobody is paid for referrals: there are no payouts to administrators.',
+    )
+  })
+
+  it('says a payment completed after its event was cancelled is not refunded automatically, and who refunds it', () => {
+    render(<LimitationsPage />)
+
+    const late = entryFor('Refunding a payment completed after its event was cancelled').textContent
+
+    expect(late).toMatch(/the order stays paid and is not refunded automatically/)
+    expect(late).toMatch(/the organisation’s finance team can refund it/)
+    expect(late).toMatch(/\(simulated here\)/)
+  })
+
+  it('names the booking fee paid online among simulated payments, and referral codes among lower prices', () => {
+    render(<LimitationsPage />)
+
+    expect(entryFor('Real payments, Stripe and Connect payouts').textContent).toContain(
+      'The booking fee paid online for tickets paid at the venue is simulated too.',
+    )
+    expect(entryFor('Splitting payment for a group').textContent).toContain(
+      'a lower price comes only from a promo code the organiser has made, or from a referral code from the Desi-Event team, which removes the booking fee.',
+    )
+    expect(entryFor('Reviewing changes to a published event').textContent).toContain(
+      'The Desi-Event team can change an event’s booking fee, and whether it can be paid for at the venue, at any time; people who already booked keep what they paid.',
+    )
+  })
+
+  it('says what a referral code takes off and gives back, and that tickets paid at the venue carry no sales tax', () => {
+    const { container } = render(<LimitationsPage />)
+
+    expect(container.textContent).toContain(
+      'A referral code from the Desi-Event team removes the whole booking fee from one order. It does not change the ticket price. When an order is refunded in full or cancelled, its use of the code is given back.',
+    )
+    expect(container.textContent).toContain(
+      'US sales tax is not calculated: checkout shows it as $0.00 for an event in the United States. Tickets paid at the venue carry no sales tax, and neither does the booking fee paid online for them.',
+    )
+    // Words buyers never read for the door: the site records an amount, not cash.
+    expect(container.textContent).not.toMatch(/\bcash\b/i)
   })
 
   it('makes no request of its own', () => {

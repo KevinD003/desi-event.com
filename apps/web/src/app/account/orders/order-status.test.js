@@ -308,69 +308,76 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
 })
 
 describe('a ticket of a booking paid at the venue', () => {
-  it('reads a cancelled one as not paid, and one passed on as its new holder’s to pay', () => {
+  /** A row's own door record: it never records what became of a ticket since it was passed on. */
+  const UNPAID = {
+    dueCents: 4_000,
+    paid: false,
+    currency: 'USD',
+    cancelled: null,
+    paidAtDoorByYou: false,
+  }
+
+  it('reads a cancelled one as not paid, and one passed on as owing what the API says its holder owes', () => {
     expect(
       venueTicketMeaning(
         {
           venuePayment: {
-            dueCents: 4_000,
-            paid: false,
-            currency: 'USD',
+            ...UNPAID,
             cancelled: { at: '2026-10-10T12:00:00.000Z', by: 'ORGANISER' },
-            paidAtDoorByYou: false,
           },
         },
         'USD',
       ),
     ).toEqual({ label: 'Cancelled — not paid', tone: 'neutral' })
 
+    // The amount is the API's, read from the ticket its holder has now, not
+    // the buyer's row's own due.
     expect(
       venueTicketMeaning(
         {
           purchaserHolding: 'TRANSFERRED_AWAY',
-          venuePayment: {
-            dueCents: 4_000,
-            paid: false,
-            currency: 'USD',
-            cancelled: null,
-            paidAtDoorByYou: false,
-          },
+          venuePayment: UNPAID,
+          passedOn: { state: 'OWES', dueCents: 2_500 },
         },
         'USD',
       ),
-    ).toEqual({ label: 'Passed on — its new holder pays $40.00 at the door', tone: 'info' })
+    ).toEqual({ label: 'Passed on — its new holder pays $25.00 at the door', tone: 'info' })
   })
 
-  it('says nothing of its own for a ticket that owes nothing, or one the buyer holds', () => {
+  it('says nothing of its own for a ticket that owes nothing, one the buyer holds, or one passed on that no longer owes', () => {
     expect(venueTicketMeaning({ venuePayment: null }, 'USD')).toBeNull()
-    expect(
-      venueTicketMeaning(
-        {
-          purchaserHolding: 'HELD',
-          venuePayment: {
-            dueCents: 4_000,
-            paid: false,
-            currency: 'USD',
-            cancelled: null,
-            paidAtDoorByYou: false,
-          },
-        },
-        'USD',
-      ),
-    ).toBeNull()
+    expect(venueTicketMeaning({ purchaserHolding: 'HELD', venuePayment: UNPAID }, 'USD')).toBeNull()
+
+    for (const passedOn of [
+      { state: 'PAID', dueCents: 0 },
+      { state: 'CANCELLED', dueCents: 0 },
+      { state: 'NOTHING_DUE', dueCents: 0 },
+      { state: 'RETURNED', dueCents: 0 },
+      null,
+      undefined,
+    ]) {
+      expect(
+        venueTicketMeaning(
+          { purchaserHolding: 'TRANSFERRED_AWAY', venuePayment: UNPAID, passedOn },
+          'USD',
+        ),
+      ).toBeNull()
+    }
   })
 })
 
 describe('the tickets a booking paid at the venue passed on', () => {
   /**
    * The buyer's row for a ticket they passed on, as the API presents it: its
-   * own `venuePayment` never records what became of the ticket since.
+   * own `venuePayment` never records what became of the ticket since; its
+   * `passedOn` says where the ticket stands with whoever holds it now.
    *
    * @param {string} id The row.
-   * @param {number} [dueCents] What it owed at the door.
+   * @param {object|null} passedOn Where the ticket stands now (`{state, dueCents}`).
+   * @param {number} [dueCents] What the row owed at the door when it was passed on.
    * @returns {object} The row.
    */
-  function passedOn(id, dueCents = 4_000) {
+  function passedOnRow(id, passedOn, dueCents = 4_000) {
     return {
       id,
       status: 'TRANSFERRED',
@@ -383,60 +390,70 @@ describe('the tickets a booking paid at the venue passed on', () => {
         cancelled: null,
         paidAtDoorByYou: false,
       },
+      passedOn,
     }
   }
 
-  /**
-   * An order with those rows and what it says still owes.
-   *
-   * @param {object[]} tickets The buyer's rows.
-   * @param {number} passedOnUnpaidTickets How many passed-on tickets still owe.
-   * @returns {object} The order.
-   */
-  function order(tickets, passedOnUnpaidTickets) {
-    return { tickets, venuePayment: { passedOnUnpaidTickets } }
-  }
+  const owes = (dueCents) => ({ state: 'OWES', dueCents })
+  const settled = (state) => ({ state, dueCents: 0 })
 
-  it('lists every row while every ticket passed on still owes, each with its amount', () => {
-    const rows = [passedOn('A'), passedOn('B', 2_500)]
+  it('lists every row whose holder still owes, each with the amount the API says', () => {
+    const rows = [passedOnRow('A', owes(4_000)), passedOnRow('B', owes(2_500), 2_500)]
 
-    expect(owingPassedOnTickets(order(rows, 2), 2)).toEqual({ tickets: rows, dueKnown: true })
+    expect(owingPassedOnTickets({ tickets: rows })).toEqual(rows)
   })
 
-  it('lists none once their new holders paid at the door, or the tickets were cancelled', () => {
-    // The rows still read unpaid; the order counts nothing still owed.
-    expect(owingPassedOnTickets(order([passedOn('A')], 0), 1).tickets).toEqual([])
-    expect(owingPassedOnTickets({ tickets: [passedOn('A')] }, 1).tickets).toEqual([])
+  it('lists none once their new holders paid at the door, or the tickets were cancelled or owe nothing', () => {
+    expect(
+      owingPassedOnTickets({
+        tickets: [
+          passedOnRow('A', settled('PAID')),
+          passedOnRow('B', settled('CANCELLED')),
+          passedOnRow('C', settled('NOTHING_DUE')),
+        ],
+      }),
+    ).toEqual([])
   })
 
-  it('lists only as many as still owe, with their amount when all owed the same', () => {
-    const rows = [passedOn('A'), passedOn('B')]
+  it('lists only the ones still owing, with their amounts, when some of them no longer owe', () => {
+    const rows = [passedOnRow('A', owes(4_000)), passedOnRow('B', settled('PAID'))]
+    const tickets = owingPassedOnTickets({ tickets: rows })
 
-    expect(owingPassedOnTickets(order(rows, 1), 2)).toEqual({ tickets: [rows[0]], dueKnown: true })
+    expect(tickets).toEqual([rows[0]])
+    expect(venueTicketMeaning(tickets[0], 'USD').label).toBe(
+      'Passed on — its new holder pays $40.00 at the door',
+    )
   })
 
-  it('leaves the amount out when the rows owed different amounts and only some still owe', () => {
-    const rows = [passedOn('A', 4_000), passedOn('B', 2_500)]
-    const { tickets, dueKnown } = owingPassedOnTickets(order(rows, 1), 2)
+  it('names the exact amount still owed when the rows owed different amounts and only some still owe', () => {
+    // The mixed case: two tickets of different prices passed on, the dearer
+    // one since paid at the door. The row that still owes says its own amount.
+    const rows = [passedOnRow('A', settled('PAID'), 4_000), passedOnRow('B', owes(2_500), 2_500)]
+    const tickets = owingPassedOnTickets({ tickets: rows })
 
-    expect(tickets).toHaveLength(1)
-    expect(dueKnown).toBe(false)
-    expect(venueTicketMeaning(tickets[0], 'USD', { dueKnown })).toEqual({
-      label: 'Passed on — the new holder pays at the door',
+    expect(tickets).toEqual([rows[1]])
+    expect(venueTicketMeaning(tickets[0], 'USD')).toEqual({
+      label: 'Passed on — its new holder pays $25.00 at the door',
       tone: 'info',
     })
   })
 
-  it('lists no more than are missing from the buyer’s current tickets', () => {
-    expect(owingPassedOnTickets(order([passedOn('A'), passedOn('B')], 2), 1).tickets).toHaveLength(
-      1,
-    )
+  it('lists none handed back to the buyer, whose own later row speaks for it', () => {
+    expect(owingPassedOnTickets({ tickets: [passedOnRow('A', settled('RETURNED'))] })).toEqual([])
   })
 
-  it('skips rows that are not passed on, or say they were paid or cancelled', () => {
-    const held = { ...passedOn('H'), purchaserHolding: 'HELD', supersededByLaterTicket: false }
-    const paid = { ...passedOn('P'), venuePayment: { ...passedOn('P').venuePayment, paid: true } }
+  it('skips rows that are not passed on, or that the API did not say anything about', () => {
+    const held = {
+      ...passedOnRow('H', owes(4_000)),
+      purchaserHolding: 'HELD',
+      supersededByLaterTicket: false,
+    }
 
-    expect(owingPassedOnTickets(order([held, paid], 2), 2).tickets).toEqual([])
+    expect(
+      owingPassedOnTickets({
+        tickets: [held, passedOnRow('N', null), { ...passedOnRow('U', null), passedOn: undefined }],
+      }),
+    ).toEqual([])
+    expect(owingPassedOnTickets({})).toEqual([])
   })
 })

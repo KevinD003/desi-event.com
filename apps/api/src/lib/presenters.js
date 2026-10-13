@@ -46,7 +46,11 @@ import { websiteHost } from '@desi-event/schemas/website'
 import { agingBand } from './reconciliation.js'
 import { admissionRefusal } from './tickets.js'
 import { venuePaymentAvailable } from './venue-booking-limits.js'
-import { toVenueCancellation, venuePaymentStateOf } from './venue-payment-filters.js'
+import {
+  isUnpaidVenueTicket,
+  toVenueCancellation,
+  venuePaymentStateOf,
+} from './venue-payment-filters.js'
 import { BADGED_STATES } from './verification.js'
 
 /** `TicketTypeStatus.ON_SALE`, inlined to avoid importing the database client. */
@@ -890,6 +894,68 @@ function orderFeeTerms(order) {
 const ORDER_READERS = new Set(['BUYER', 'ORGANISATION', 'PLATFORM'])
 
 /**
+ * Where a ticket the buyer passed on stands now with whoever holds it
+ * (`passedOnTicketSchema`, SPEC3-XI §12.7), read from the ticket that replaced
+ * it. Each accepted hand-on mints the next holder's ticket on the same order
+ * line, naming the one it replaced (`supersedesTicketId`), so the chain is
+ * followed forward to its last ticket:
+ *
+ * - back in the buyer's hands on the way (`RETURNED`): the buyer's later row
+ *   is on the order and speaks for the ticket, so this one is not counted as
+ *   owed by somebody else as well;
+ * - paid at the door (`PAID`), cancelled unpaid (`CANCELLED`), still standing
+ *   and owing (`OWES`, with what its holder pays), or none of these: refunded,
+ *   withdrawn, or owing nothing at the door (`NOTHING_DUE`).
+ *
+ * Only a state and an amount leave here: never the holder's ticket, code or
+ * name, which are not the buyer's to see.
+ *
+ * @param {object} ticket The buyer's passed-on row (`TRANSFERRED`).
+ * @param {Map<string, object>} successorOf Each ticket on the order by the id it replaced.
+ * @param {object} order The order, with `userId`.
+ * @returns {{state: string, dueCents: number}|null} The state, or null when the ticket its holder has is not on the order.
+ */
+function passedOnState(ticket, successorOf, order) {
+  const seen = new Set([ticket.id])
+  let current = successorOf.get(ticket.id) ?? null
+
+  if (!current) return null
+
+  while (true) {
+    if (heldByTheBuyer(current, order)) return { state: 'RETURNED', dueCents: 0 }
+
+    const next = successorOf.get(current.id)
+
+    if (!next || seen.has(next.id)) break
+
+    seen.add(current.id)
+    current = next
+  }
+
+  if ((current.venuePaymentId ?? null) !== null) return { state: 'PAID', dueCents: 0 }
+  if ((current.venueCancellationId ?? null) !== null) return { state: 'CANCELLED', dueCents: 0 }
+  if (isUnpaidVenueTicket(current)) return { state: 'OWES', dueCents: current.venueDueCents }
+
+  return { state: 'NOTHING_DUE', dueCents: 0 }
+}
+
+/**
+ * The event an order is for: its summary, and the country and region of its
+ * venue, the place its tax is named for (`orderEventSummarySchema`). Both null
+ * for an event with no venue.
+ *
+ * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
+ * @returns {object} The payload.
+ */
+function toOrderEvent(event) {
+  return {
+    ...toEventSummary(event),
+    country: event.venue?.country ?? null,
+    region: event.venue?.region ?? null,
+  }
+}
+
+/**
  * An order with its line items, its tickets and a summary of its event.
  *
  * Each line says what it bought (`ticketTypeName`) and for which night, from
@@ -965,13 +1031,23 @@ export function toOrder(order, { buyerAddress = true, joinUrl = false, reader = 
 
   const held = onThisOrder.filter((ticket) => heldByTheBuyer(ticket, order))
   const cancellations = new Map(venueCancellations.map((row) => [row.id, row]))
-  const tickets = held.map((ticket) =>
-    toOrderTicket(ticket, superseded, {
+
+  // Each ticket by the one it replaced, so a passed-on row of a booking to pay
+  // at the venue can say where its ticket stands now (`passedOnState`).
+  const successorOf = new Map(
+    onThisOrder
+      .filter((ticket) => ticket.supersedesTicketId)
+      .map((ticket) => [ticket.supersedesTicketId, ticket]),
+  )
+  const tickets = held.map((ticket) => ({
+    ...toOrderTicket(ticket, superseded, {
       viewerUserId: order.userId ?? null,
       currency: order.currency,
       cancellations,
     }),
-  )
+    passedOn:
+      atVenue && ticket.status === TRANSFERRED ? passedOnState(ticket, successorOf, order) : null,
+  }))
 
   // For the buyer, of a paid order, while one of the tickets they hold still
   // admits. Nobody else, and never in a list.
@@ -989,7 +1065,7 @@ export function toOrder(order, { buyerAddress = true, joinUrl = false, reader = 
     ...(buyerAddress ? { buyerEmail } : {}),
     items: lineItems,
     tickets,
-    event: event ? toEventSummary(event) : null,
+    event: event ? toOrderEvent(event) : null,
     paymentMethod: order.paymentMethod ?? 'CARD',
     feeGrossCents: order.feeGrossCents ?? order.feesCents ?? 0,
     feeWaivedCents: order.feeWaivedCents ?? 0,
@@ -1452,10 +1528,20 @@ export function toOperatorNotification(row) {
  * `providerRefundId` passes through exactly as the provider gave it, or stays
  * null. Nothing in this path manufactures one.
  *
- * @param {object} row A `Refund` row, optionally with `items` and its order.
+ * A refund of an order booked to pay at the venue also says so
+ * (`paymentMethod: 'AT_VENUE'`) and what was taken at the door for its
+ * tickets (`paidAtDoorCents`, SPEC3 §9.7, §11.3): only the booking fee paid
+ * online comes back, and the door money stays with the organiser. A card
+ * order's refund carries neither, as it always read.
+ *
+ * @param {object} row A `Refund` row, optionally with `items` and its order (with `paymentMethod`).
+ * @param {object} [options] Options.
+ * @param {number} [options.paidAtDoorCents] What was taken at the door for the order's tickets, for a pay-at-the-venue order.
  * @returns {object} A payload satisfying `refundSchema`.
  */
-export function toRefund(row) {
+export function toRefund(row, { paidAtDoorCents = 0 } = {}) {
+  const atVenue = row.order?.paymentMethod === 'AT_VENUE'
+
   return {
     id: row.id,
     orderId: row.orderId,
@@ -1485,6 +1571,7 @@ export function toRefund(row) {
     settledAt: row.settledAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    ...(atVenue ? { paymentMethod: 'AT_VENUE', paidAtDoorCents } : {}),
   }
 }
 

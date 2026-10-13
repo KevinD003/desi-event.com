@@ -322,13 +322,57 @@ describe('changing a referral code', () => {
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
-  it('says only some of many chosen events can be shown, and that choosing replaces them', () => {
+  it('starts from every event of the code’s scope, so removing one keeps all the others', async () => {
+    const user = userEvent.setup()
+    const events = ['Diwali Mela', 'Garba Night', 'Holi Fest', 'Navratri Gala', 'Eid Bazaar'].map(
+      (title, index) => ({
+        id: `cevent0000000000000000${index + 1}`,
+        title,
+        slug: `event-${index + 1}`,
+        status: 'ON_SALE',
+      }),
+    )
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: code({ scope: 'SELECTED_EVENTS', events: events.slice(1), eventCount: 4 }),
+      }),
+    )
+    render(
+      <ReferralCodeForm
+        mode="edit"
+        code={code({ scope: 'SELECTED_EVENTS', events, eventCount: 5 })}
+      />,
+    )
+
+    const chosen = screen.getByRole('list', { name: 'Chosen events' })
+
+    expect(within(chosen).getAllByRole('listitem')).toHaveLength(5)
+    expect(screen.queryByText(/can be shown here/u)).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Remove Diwali Mela' }))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await screen.findByText('Changes saved.')
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      scope: 'SELECTED_EVENTS',
+      eventIds: events.slice(1).map((event) => event.id),
+      expectedUpdatedAt: '2026-10-01T10:00:00.000Z',
+    })
+  })
+
+  it('keeps the scope as it is when the code was read without all its events, and never replaces it', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, { data: code({ label: null }) }))
     render(
       <ReferralCodeForm
         mode="edit"
         code={code({
           scope: 'SELECTED_EVENTS',
-          events: [{ id: 'e1', title: 'Diwali Mela', slug: 'd', status: 'ON_SALE' }],
+          events: [
+            { id: 'cevent00000000000000001', title: 'Diwali Mela', slug: 'd', status: 'ON_SALE' },
+          ],
           eventCount: 7,
         })}
       />,
@@ -336,8 +380,64 @@ describe('changing a referral code', () => {
 
     expect(
       screen.getByText(
-        'This code works for 7 events; only 1 of them can be shown here. Adding or removing an event replaces all 7 with the events chosen here.',
+        'This code works for 7 events, but they could not all be read, so its events can’t be changed here. Reload the page to change them.',
       ),
     ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Remove /u })).toBeNull()
+    expect(screen.getByRole('radio', { name: 'All events' })).toBeDisabled()
+
+    // Anything else still saves, without touching the events.
+    await user.clear(screen.getByLabelText('Label (optional)'))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await screen.findByText('Changes saved.')
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      label: null,
+      expectedUpdatedAt: '2026-10-01T10:00:00.000Z',
+    })
+  })
+})
+
+describe('the expiry’s time zone', () => {
+  let resolved
+
+  beforeEach(() => {
+    // The browser says Los Angeles; the form must not follow it.
+    const original = Intl.DateTimeFormat.prototype.resolvedOptions
+
+    resolved = vi
+      .spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions')
+      .mockImplementation(function resolvedOptions() {
+        return { ...original.call(this), timeZone: 'America/Los_Angeles' }
+      })
+  })
+
+  afterEach(() => {
+    resolved.mockRestore()
+  })
+
+  it('is typed in UTC, named in the label, whatever zone the browser is in', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(201, { data: code() }))
+    render(<ReferralCodeForm mode="create" />)
+
+    const expires = screen.getByLabelText('Expires (optional, UTC)')
+
+    expect(expires).toHaveAccessibleDescription(
+      'Date and time in UTC (Coordinated Universal Time), as every Desi-Event administrator screen writes times. UTC is 4 hours ahead of New York in summer and 5 in winter. With no expiry it works until it is switched off or used up.',
+    )
+
+    await user.type(expires, '2026-12-01T04:59')
+    await user.click(screen.getByRole('button', { name: 'Make referral code' }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body).expiresAt).toBe('2026-12-01T04:59:00.000Z')
+  })
+
+  it('shows a code’s expiry as it reads in UTC', () => {
+    render(<ReferralCodeForm mode="edit" code={code({ expiresAt: '2026-12-01T04:59:00.000Z' })} />)
+
+    expect(screen.getByLabelText('Expires (optional, UTC)')).toHaveValue('2026-12-01T04:59')
   })
 })

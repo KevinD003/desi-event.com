@@ -834,3 +834,48 @@ its validator refuses email addresses and phone numbers anywhere in it, and no
 phone number or email address was kept from the listings. It names organisers
 as their listings did ("Presented by"), which is public business information,
 not an account. Nobody belongs to the organisation that holds imported events.
+
+## Booking fees, referral codes and paying at the venue — 2026-10-09
+
+ADRs 0016 and 0017 add reason boxes, a label and three kinds of record.
+
+**More free-text reasons, kept as typed.** Each takes 10–500 characters (a
+code's switch-off reason is optional) and is not redacted by the privacy
+process, for the reasons above:
+
+- an event's booking-fee decision (`EventFeeSetting.reason`, the audit row),
+  shown to the organiser with the administrator's name;
+- a pay-at-the-venue change (`EventVenuePaymentChange.reason`,
+  `Event.venuePaymentReason`, the audit row), shown the same way;
+- a booking fee refunded by hand (`Refund.reasonNote`, the refund's audits);
+- a referral code switched off (the audit row);
+- a cancellation of unpaid tickets (`VenueBookingCancellation.reason`, the audit
+  row, and the `venue_booking.cancelled` notice queued for the buyer and each
+  other holder, which prints it). It is shown to the buyer and to every holder
+  of a cancelled ticket, and its box says so.
+
+**Referral codes' labels** are notes for administrators (1–120 characters),
+never copied into an audit row, and kept as typed.
+
+**What the boxes say.** The fee and switch reasons: "Shown to the organiser
+with your name. Do not include anybody's personal details. At least 10
+characters." The cancellation reason: "Shown to the buyer and to anybody holding
+these tickets. Do not include anybody's personal details. At least 10
+characters." A referral code's label: "For the Desi-Event team only, for example
+the partner organisation or the campaign it is for. Do not include anybody's
+personal details." The other reasons keep "Shown with the event's history. Do
+not include anybody's personal details."
+
+**No buyer data where it is not needed.**
+
+- Referral-code reports name orders by reference, event, date, payment method,
+  status and fee waived — never a buyer's name, address or account.
+- A payment taken at the door records the order, the night, the door authority
+  and the steward's account, not the buyer; its audit row never names the
+  buyer.
+- A cancellation of unpaid tickets and a referral return marker hold no buyer
+  data. The administrators' list of bookings waiting to be paid at the door has
+  no buyer or attendee names; the organiser's page shows them as their order
+  pages already do.
+- Notices carry ids, amounts and prose only; no notice carries a code or an
+  address beyond the recipient's own.

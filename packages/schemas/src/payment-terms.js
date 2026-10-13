@@ -68,6 +68,12 @@ export const REFERRAL_LIMITS = Object.freeze({
   labelMax: 120,
 })
 
+/**
+ * How many of a referral code's events one row of the administrators' list
+ * names (SPEC3 §8.4); one code's own answer names every one of them.
+ */
+export const REFERRAL_LIST_EVENTS = 3
+
 /** Every reason box of this area: 10 to 500 characters (SPEC3 §0.6). */
 export const REASON_LIMITS = Object.freeze({ min: 10, max: 500 })
 
@@ -648,6 +654,40 @@ export const ticketVenuePaymentSchema = z.object({
   cancelled: z.object({ at: timestampSchema, by: z.enum([...VENUE_CANCELLED_BY]) }).nullable(),
   paidAtDoorByYou: z.boolean(),
 })
+
+/**
+ * Where a ticket the buyer passed on stands now with whoever holds it (SPEC3-XI
+ * §12.7), so the buyer's order says, row by row, whose turn it is to pay:
+ *
+ * - `OWES`: its holder still pays `dueCents` at the door;
+ * - `PAID`: its holder paid at the door;
+ * - `CANCELLED`: it was cancelled because it was not paid for;
+ * - `NOTHING_DUE`: nothing is to be paid at the door for it any more (it was
+ *   refunded or withdrawn, or owed nothing there);
+ * - `RETURNED`: it came back to the buyer, whose later row on the order says
+ *   where it stands.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const PASSED_ON_STATES = Object.freeze([
+  'OWES',
+  'PAID',
+  'CANCELLED',
+  'NOTHING_DUE',
+  'RETURNED',
+])
+
+/**
+ * A passed-on ticket's state, read by the API from the ticket its holder has
+ * now (the row that replaced the buyer's): `dueCents` is what its holder pays
+ * at the door, above 0 exactly while it `OWES`, and 0 otherwise.
+ */
+export const passedOnTicketSchema = z
+  .object({ state: z.enum([...PASSED_ON_STATES]), dueCents: centsSchema })
+  .refine((value) => (value.state === 'OWES') === value.dueCents > 0, {
+    message: 'A passed-on ticket names an amount exactly while its holder owes it.',
+    path: ['dueCents'],
+  })
 
 /**
  * One ticket of a booking waiting to be paid at the door, as the cancel

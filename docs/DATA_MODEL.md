@@ -926,3 +926,133 @@ On a copy of the shared test database (52,017 order lines, 10,160 hold lines)
 deleting one organisation with one event and one tier made one sequential
 scan of each table; with the indexes it makes none. Each index is the
 `@@index` of its model in `schema.prisma`, under Prisma's default name.
+
+## Booking fees, referral codes and paying at the venue — 2026-10-09
+
+Three migrations after `20261008090000_foreign_key_indexes`, appended to the
+upgrade verifier's list: `20261009090000_refund_reason_booking_fee` (the
+`RefundReason` value `BOOKING_FEE` alone), `20261009100000_payment_terms_and_referral_codes`
+and `20261009110000_pay_at_the_venue`. SPEC3-XI's cancellation model, return
+marker and their checks are in the last two. Every refusal below raises SQLSTATE
+23514 with its constraint name in the message and maps to a 4xx
+(`DATABASE_REFUSALS`), so none reaches a 5xx. ADRs 0016 and 0017 hold the
+reasons.
+
+### Enums
+
+`FeeSource` (`SITE_DEFAULT`, `EVENT`), `OrderPaymentMethod` (`CARD`,
+`AT_VENUE`), `ReferralCodeScope` (`ALL_EVENTS`, `SELECTED_EVENTS`),
+`VenuePaymentVia` (`DOOR_TICKET`, `DOOR_GROUP`) and `ReferralUseReturnCause`
+(`PAYMENT_FAILED`, `NOT_COMPLETED`, `UNPAID_ORDER_CANCELLED`, `REFUNDED`,
+`VENUE_UNPAID_CANCELLED`, `EVENT_CANCELLED`, `EVENT_DELETED`,
+`SESSION_CANCELLED`, `TICKETS_REVOKED`).
+
+### Models and columns, with their only writers
+
+| Model / columns                                                                                                                                      | What it holds                                                                                                                                                  | Only written by                                                       |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `Event.feeSource`, `feePercentageBps`, `feeFlatCentsPerTicket`, `feeCurrency`, `feeSettingId`                                                        | the event's own booking fee, or the site default; `feeSettingId` points at the current decision while the terms are the event's                                | `lib/payment-terms.js`                                                |
+| `Event.venuePaymentEnabled`, `venuePaymentLimit`, `venuePaymentChangedAt`, `venuePaymentChangedById`, `venuePaymentReason`                           | the pay-at-the-venue switch, its limit across all buyers, and the last change                                                                                  | `lib/payment-terms.js`                                                |
+| `EventFeeSetting`                                                                                                                                    | one fee decision: sequence per event, source, numbers, currency, reason, who, when. Never edited                                                               | `lib/payment-terms.js`                                                |
+| `EventVenuePaymentChange`                                                                                                                            | one change of the switch or limit, with its reason                                                                                                             | `lib/payment-terms.js`                                                |
+| `ReferralCode`                                                                                                                                       | the code (plain text, upper case, unique), label, scope, expiry, limit, `useCount`, on/off, maker                                                              | `lib/referral-codes.js`; `useCount` only `lib/referral-uses.js`       |
+| `ReferralCodeEvent`                                                                                                                                  | one event of a chosen-events code                                                                                                                              | `lib/referral-codes.js`                                               |
+| `Order.paymentMethod`, `feeSource`, `feeSettingId`, `feePercentageBps`, `feeFlatCentsPerTicket`, `feeGrossCents`, `feeWaivedCents`, `referralCodeId` | how the order pays, and the fee it was priced with: the terms, the gross fee, the part a referral code waived, the code                                        | `routes/orders.js` (at placing)                                       |
+| `Order.venueDueCents`, `OrderItem.venueDueCents`                                                                                                     | the ticket price to pay at the door, for the order and each line; 0 for a card order                                                                           | `routes/orders.js`                                                    |
+| `Ticket.venueDueCents`                                                                                                                               | the ticket's share of its line's door price. Never changes                                                                                                     | `lib/checkout.js` (issuing), `lib/tickets.js` (copied to a successor) |
+| `VenuePayment`                                                                                                                                       | a payment taken at the door for one or more tickets of one order, with its night, door authority, role, who and gate. Never edited                             | `lib/venue-payments.js`                                               |
+| `Ticket.venuePaymentId`                                                                                                                              | the payment that paid the ticket. Set once                                                                                                                     | `lib/venue-payments.js`                                               |
+| `VenueBookingCancellation`                                                                                                                           | unpaid tickets of one order cancelled: count, door price no longer owed (`basisCents`), booking fee kept, currency, authority, role, reason, who. Never edited | `lib/venue-bookings.js`                                               |
+| `Ticket.venueCancellationId`, `OrderItem.venueCancelledQuantity`, `Order.venueCancelledBasisCents`, `Order.venueFeeKeptCents`                        | which cancellation withdrew a ticket; the line's cancelled count; the order's sums                                                                             | `lib/venue-bookings.js`                                               |
+| `Order.referralUseReturnedAt`, `referralUseReturnCause`                                                                                              | the referral use given back, once, and why                                                                                                                     | `lib/referral-uses.js`                                                |
+| `TicketType.quantitySold`                                                                                                                            | decremented only by cancel-unpaid (by the tickets it withdrew); incremented only by settlement                                                                 | `lib/venue-bookings.js` (down), `lib/checkout.js` (up)                |
+
+`VenuePayment.organizationId` and `VenueBookingCancellation.organizationId` are
+plain columns copied from the event, with no foreign key, so organisation
+deletion rules are untouched.
+
+### CHECKs
+
+- `event_fee_shape`: site default with no numbers, or the event's own terms with
+  0–3000 basis points, 0–10,000 minor units and a currency code.
+  `event_fee_setting_shape`: the same rule on a decision, a sequence from 1 and
+  a reason of 10–500 characters.
+- `event_venue_payment_shape` and `event_venue_payment_change_shape`: a reason
+  of 10–500 characters, a limit of 1–100,000, and a limit whenever the switch is
+  on.
+- `referral_code_shape` (the code's pattern, a label of 1–120 characters, a
+  limit of 1–1,000,000, `useCount ≥ 0`, an expiry after creation, a
+  switched-off code stamped) and `referral_code_use_within_limit` (`useCount ≤
+maxUses`; its refusal is the buyer's `REFERRAL_NOT_ACCEPTED`).
+- `order_fee_parts` (`feesCents = feeGrossCents − feeWaivedCents`, waived within
+  gross), `order_fee_waiver_whole` (a code waives all of a positive fee; no code,
+  no waiver) and `order_fee_terms_shape` (both numbers or neither, within the
+  environment's bounds, and an `EVENT` order explainable after its decision row
+  is gone).
+- `order_referral_return_shape`: a return marker only on an order with a code,
+  with its cause.
+- `order_venue_payment_shape`: a card order owes nothing at the door; a
+  pay-at-the-venue order owes its discounted ticket price there and pays only
+  `feesCents + taxCents` online. `order_item_venue_due_shape`: a line's door
+  price within its subtotal. `ticket_venue_due_shape`: a paid ticket owes
+  something.
+- `venue_payment_shape`: an amount above 0, 1–100 tickets, a currency, an
+  authority from the door's closed list, a role of 1–40 and a gate of 1–60
+  characters.
+- `venue_booking_cancellation_shape`: 1–100 tickets, a basis above 0, a kept fee
+  of 0 or more, `ORGANIZATION_ROLE` or `PLATFORM_ROLE`, a role of 1–40 and a
+  reason of 10–500 characters. `ticket_venue_cancellation_shape`: a cancelled
+  ticket is REVOKED, unpaid and owed something.
+- `order_venue_cancel_shape`: the door price no longer owed within what was
+  owed, the fee kept within the fee charged, and neither on a card order.
+  `order_venue_kept_within_total`: `refundedCents + refundPendingCents +
+venueFeeKeptCents ≤ totalCents`, so no refund reaches a kept fee.
+- `order_item_venue_cancelled_within_line`: refunded and cancelled tickets
+  together within the line. `ticket_type_sold_not_negative`: `quantitySold ≥ 0`.
+
+### Triggers
+
+- `desi_event_fee_setting_append_only`: no edit of a fee decision but clearing
+  `setById`, no delete but the cascade from the event row.
+- `desi_order_referral_fixed`: an order keeps the code it was placed with
+  (`order_referral_code_fixed`) and a set return marker never changes
+  (`order_referral_return_once`).
+- `desi_check_in_ticket_admissible` (replaced, its per-night rules verbatim):
+  no admission while a ticket owes and is unpaid (`check_in_payment_due`).
+- `desi_ticket_venue_due_guard`: a ticket's due never changes, a transfer
+  successor owes what its predecessor owed, and a ticket is not inserted
+  already paid or cancelled (`ticket_venue_due_fixed`,
+  `ticket_venue_due_successor`, `ticket_venue_insert_unpaid`).
+- `desi_ticket_venue_payment_guard`: the payment is set once, to its own order's
+  (`ticket_venue_payment_fixed`, `venue_payment_order`).
+- `desi_venue_payment_append_only`; `desi_venue_payment_sum` (deferred) with
+  `desi_ticket_venue_payment_sum` and `desi_ticket_venue_payment_sum_on_delete`
+  (deferred, from the ticket side): a payment equals its tickets at every commit
+  (`venue_payment_sum`).
+- `desi_ticket_venue_cancellation_guard` (`ticket_venue_cancellation_fixed`,
+  `venue_cancellation_ticket`), `desi_venue_booking_cancellation_append_only`
+  and `desi_venue_booking_cancellation_sum` with
+  `desi_ticket_venue_cancellation_sum` and `…_on_delete` (deferred): a
+  cancellation equals its tickets' dues at every commit
+  (`venue_booking_cancellation_sum`).
+
+The ticket status trigger is left as `20260929100000_check_in_per_night` wrote
+it: a ticket that owes a payment can be handed on (question 7), and one already
+let in still cannot.
+
+### How a past order stays explainable
+
+| Question                            | Answered by                                                                                                                        |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Card or at the venue?               | `Order.paymentMethod`                                                                                                              |
+| Which fee terms?                    | `feeSource`, `feePercentageBps`, `feeFlatCentsPerTicket` (the numbers used), `feeSettingId` (the decision, with who, when and why) |
+| How much fee?                       | `feeGrossCents` (worked out), `feeWaivedCents`, `feesCents` (charged)                                                              |
+| Waived by which code?               | `referralCodeId` (administrators only)                                                                                             |
+| Tax applied?                        | `taxCents`; `pricingSnapshot.tax.applied`, `notAppliedReason`                                                                      |
+| Due and paid at the door?           | `Order.venueDueCents`; per ticket `venueDueCents` and `venuePaymentId`; who, when, how much, which night: `VenuePayment`           |
+| Cancelled unpaid, and the fee kept? | `Ticket.venueCancellationId`; `VenueBookingCancellation`; `Order.venueCancelledBasisCents`, `venueFeeKeptCents`                    |
+| Referral use given back?            | `Order.referralUseReturnedAt`, `referralUseReturnCause`                                                                            |
+
+Orders placed before 9 October 2026 have no recorded terms unless their pricing
+snapshot carried them (the backfill copied those); their order page says the
+terms were not recorded.

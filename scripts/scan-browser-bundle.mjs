@@ -155,6 +155,12 @@ const FORBIDDEN = [
       ['capability: event:platform_delete', 'event:platform_delete'],
       ['capability: event:import', 'event:import'],
       ['capability: event:delete_unsold', 'event:delete_unsold'],
+      // SPEC3 §0.4 and SPEC3-XI §13: booking fees, referral codes and paying
+      // at the venue. The pages that decide hand their components booleans.
+      ['capability: payment_terms:manage', 'payment_terms:manage'],
+      ['capability: referral_code:manage', 'referral_code:manage'],
+      ['capability: platform_fee:refund', 'platform_fee:refund'],
+      ['capability: venue_booking:cancel', 'venue_booking:cancel'],
       ['step-up policy name on a route', 'capabilityScope'],
     ],
   },
@@ -461,6 +467,32 @@ const FORBIDDEN = [
       ['stored-size measure', 'jsonbTextBytes'],
     ],
   },
+  {
+    /*
+     * Booking fees, referral codes and paying at the venue (SPEC3, SPEC3-XI).
+     * How a code is judged, drawn, counted and given back, what share of a
+     * booking fee is kept, and how a payment at the door is recorded are the
+     * server's rules; a screen is told whether a code applied, what is due
+     * and what was kept, never the rule. A browser that can name the
+     * evaluator is one somebody will probe for which codes exist.
+     */
+    group: 'booking fees, referral codes and paying at the venue (server-only)',
+    markers: [
+      ['referral code evaluator', 'evaluateReferral'],
+      ['referral code generator', 'generateReferralCode'],
+      ['referral audit metadata', 'referralAuditMetadata'],
+      ['referral use writer', 'consumeReferralUse'],
+      ['referral use returner', 'settleReferralUsesIfEnded'],
+      ['ended-order predicate', 'orderEndedWithoutUse'],
+      ['kept booking-fee share', 'keptShareOf'],
+      ['places put back on sale', 'placesOnSaleOf'],
+      ['unpaid ticket cancellation', 'cancelUnpaidVenueTickets'],
+      ['payment taken at the door', 'recordVenuePayment'],
+      ['the booking fee set per event', 'setEventFee'],
+      ['a refund order’s night lock', 'lockOrderNight'],
+      ['venue-booking advisory lock key', 'venue-booking:'],
+    ],
+  },
 ]
 
 /**
@@ -556,6 +588,17 @@ const REQUIRED = [
   ['import picture retry path', '/images/retry'],
   ['import target search path', '/v1/platform/import-targets'],
   ['imported event move path', '/reassign'],
+  // Booking fees, referral codes and paying at the venue: the commands the
+  // new client components issue. The cancel dialog lists unpaid bookings and
+  // cancels tickets; the referral code form and switch make and change codes;
+  // the fee refund form previews and refunds a booking fee; the terms panel
+  // sets the fee and the switch under its event's payment terms.
+  ['unpaid ticket cancellation path', '/venue-cancellations'],
+  ['unpaid bookings path', '/venue-bookings'],
+  ['referral code path', '/v1/platform/referral-codes'],
+  ['booking fee refund path', '/fee-refund'],
+  ['platform order path (booking fee)', '/v1/platform/orders/'],
+  ['payment terms path', '/payment-terms'],
 ]
 
 /**

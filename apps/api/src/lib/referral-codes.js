@@ -34,6 +34,7 @@ import {
   REFERRAL_ALPHABET,
   REFERRAL_CODE_PATTERN,
   REFERRAL_LIMITS,
+  REFERRAL_LIST_EVENTS,
   REFERRAL_PAGE_SIZE,
 } from '@desi-event/schemas/payment-terms'
 
@@ -61,8 +62,15 @@ export const GENERATION_ATTEMPTS = 5
  */
 const PAGE_MAX = REFERRAL_PAGE_SIZE
 
-/** The events a list row names, at most (`adminReferralCodeSchema.events`). */
-const LISTED_EVENTS = 3
+/** The events a list row names, at most (`referralCodeListItemSchema.events`). */
+const LISTED_EVENTS = REFERRAL_LIST_EVENTS
+
+/**
+ * The events one code's own answer names: every one its scope holds, which a
+ * code keeps to fifty (`adminReferralCodeSchema.events`), so a change to its
+ * events starts from all of them rather than from the list's three.
+ */
+const EVERY_EVENT = REFERRAL_LIMITS.maxEvents
 
 /**
  * Where a code stands now. OFF wins, then EXPIRED, then USED_UP (from the uses
@@ -569,13 +577,16 @@ export async function referralCodeStats(db, codeIds) {
 }
 
 /**
- * The events each code names, the first three of each with their count.
+ * The events each code names, oldest first, up to `shown` of each, with their
+ * count.
  *
  * @param {object} db A Prisma client.
  * @param {string[]} codeIds The codes.
+ * @param {number} shown How many of each code's events to name: a list row's
+ *   {@link LISTED_EVENTS}, or one code's {@link EVERY_EVENT}.
  * @returns {Promise<Map<string, {events: object[], eventCount: number}>>} By code id.
  */
-async function scopedEvents(db, codeIds) {
+async function scopedEvents(db, codeIds, shown) {
   const rows =
     codeIds.length === 0
       ? []
@@ -591,7 +602,7 @@ async function scopedEvents(db, codeIds) {
 
     entry.eventCount += 1
 
-    if (entry.events.length < LISTED_EVENTS && row.event) {
+    if (entry.events.length < shown && row.event) {
       entry.events.push({
         id: row.event.id,
         title: row.event.title,
@@ -648,11 +659,15 @@ const CODE_INCLUDE = Object.freeze({ createdBy: { select: { id: true, displayNam
  * @param {object} db A Prisma client.
  * @param {object[]} rows The rows, with `createdBy`.
  * @param {Date} now The moment.
+ * @param {number} shown How many of each code's events to name (see {@link scopedEvents}).
  * @returns {Promise<object[]>} The payloads, in the rows' order.
  */
-async function presentCodes(db, rows, now) {
+async function presentCodes(db, rows, now, shown) {
   const ids = rows.map((row) => row.id)
-  const [stats, scopes] = await Promise.all([referralCodeStats(db, ids), scopedEvents(db, ids)])
+  const [stats, scopes] = await Promise.all([
+    referralCodeStats(db, ids),
+    scopedEvents(db, ids, shown),
+  ])
 
   return rows.map((row) =>
     toAdminReferralCode(row, { now, stats: stats.get(row.id), scope: scopes.get(row.id) }),
@@ -660,7 +675,7 @@ async function presentCodes(db, rows, now) {
 }
 
 /**
- * One code as administrators read it.
+ * One code as administrators read it, naming every event of its scope.
  *
  * @param {object} db A Prisma client.
  * @param {string} id The code.
@@ -673,7 +688,7 @@ export async function adminReferralCode(db, id, now) {
 
   if (!row) throw notFound('No such referral code.')
 
-  const [shown] = await presentCodes(db, [row], now)
+  const [shown] = await presentCodes(db, [row], now, EVERY_EVENT)
 
   return shown
 }
@@ -724,7 +739,7 @@ export async function listReferralCodes(db, query, now) {
     const matching = candidates.filter((row) => referralStatus(row, now) === query.status)
     const pageRows = matching.slice((page - 1) * perPage, page * perPage)
 
-    return { data: await presentCodes(db, pageRows, now), total: matching.length }
+    return { data: await presentCodes(db, pageRows, now, LISTED_EVENTS), total: matching.length }
   }
 
   const [rows, total] = await Promise.all([
@@ -738,7 +753,7 @@ export async function listReferralCodes(db, query, now) {
     db.referralCode.count({ where }),
   ])
 
-  return { data: await presentCodes(db, rows, now), total }
+  return { data: await presentCodes(db, rows, now, LISTED_EVENTS), total }
 }
 
 /**

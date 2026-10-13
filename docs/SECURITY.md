@@ -963,3 +963,83 @@ send it to every buyer). See
 [PRIVACY_AND_RETENTION.md](PRIVACY_AND_RETENTION.md#free-text-reasons--2026-10-06).
 Every such form says: "Shown with the event's history. Do not include
 anybody's personal details."
+
+## Booking fees, referral codes and paying at the venue — 2026-10-09
+
+ADRs 0016 and 0017.
+
+### Referral codes are bearer codes
+
+Stored in plain text, as promo codes are (ADR 0016 §4), and kept out of every
+place a promo code's text is kept out of: no route takes a code in its path or
+query; responses carrying one name the field `referralCode`, never `code`, and
+only `referral_code:manage` responses carry it; `referralCode` is in both of the
+logger's redaction lists; the `err` serialiser drops PostgreSQL's `detail` from
+an error's `cause`, `meta` and driver-adapter chain, which could quote a failing
+row; audit metadata records a label only as `labelSet` / `labelChanged`; no
+outbox payload carries a code; nothing stores one in the browser; the browser
+journeys turn screenshots, traces and video off. Buyers send a code only in the
+bodies of `orders.quote` and `orders.create`, signed in.
+
+### Guessing, and the two residuals (DR10)
+
+Every reason a code does not apply answers the same `NOT_ACCEPTED`, after the
+same queries. The control is a budget of wrong guesses only: 10 per 10 minutes
+per account, 30 per 10 minutes per address (an HMAC of the address with a
+process key), and, when no address is known, one shared bucket of 300 per 10
+minutes that is never skipped.
+
+- **Timing.** A guesser could still tell that a code exists, and applies to
+  them, from a lock wait at the charge. The budget is what bounds it.
+- **The shared bucket with no proxy named.** A production web server with
+  `TRAFFIC_TRUSTED_PROXY_HOPS` 0 (or unset or unusable) forwards **no** address
+  on checkouts, because without a named proxy the last `X-Forwarded-For` entry
+  is one the browser chose. Every wrong code then counts in `referral:shared`,
+  which one guesser can fill for everybody naming a code for ten minutes. A
+  deployment behind a proxy or load balancer must set the hops to match it;
+  with hops ≥ 1 the entry the nearest named proxy appended is forwarded, as for
+  visit counting.
+
+### Conflict of interest
+
+- An administrator holding any membership in an event's organisation cannot
+  change its booking fee or pay-at-the-venue switch.
+- An administrator cannot refund the booking fee of their own order, by account
+  or as a guest with their own address, nor of an order on an event of an
+  organisation they belong to.
+- A referral code's maker cannot use it.
+- Unpaid tickets are cancelled on the actor's own membership first: an
+  administrator whose membership in the organisation lacks `order:refund` is
+  refused rather than allowed through platform authority.
+
+Each is a 403 `CONFLICT_OF_INTEREST`, tested.
+
+### Capabilities and step-up
+
+Four platform-only capabilities join the platform administrator's allow-list,
+now fourteen and still checked at load: `payment_terms:manage`,
+`referral_code:manage`, `platform_fee:refund` (also FINANCE_ADMIN) and
+`venue_booking:cancel`. A new step-up policy, `PAYMENT_TERMS` (ten minutes),
+covers the fee, the switch and referral codes, except switching a code off; the
+booking-fee refund and cancelling unpaid tickets use `FINANCE_ACTION`, and the
+two reports of bookings and payments at the venue `FINANCE_VIEW`. All four
+capability literals are forbidden in browser bundles; client components get
+booleans. Every new route answers `no-store`.
+
+### Source scans
+
+`security-regression.test.js` holds the writers of every new column to their one
+module (`docs/DATA_MODEL.md`, "Booking fees, referral codes and paying at the
+venue"), including the one decrement of `quantitySold`; no `NOT_BUILT` stub
+literal survives under `apps/api/src`; no `returnReferralUse(` exists and only
+`settleReferralUsesIfEnded` gives uses back; the referral modules pass no code
+or label to an audit or a log call; settlement locks its tiers before its order;
+the worker's ticket issuer refuses pay-at-the-venue orders.
+
+### Free text
+
+Reasons for a booking fee, a pay-at-the-venue change, a booking-fee refund, a
+referral code switched off and a cancellation of unpaid tickets, and referral
+codes' labels, are stored as typed like the reasons above, and are not redacted
+(`docs/PRIVACY_AND_RETENTION.md`). The cancellation's reason is shown to the
+buyer and to each holder of a cancelled ticket; the forms say so.

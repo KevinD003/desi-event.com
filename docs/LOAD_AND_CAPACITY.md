@@ -103,7 +103,10 @@ whether the run was correct:
 
 - No tier sold more than it has: a general-admission tier its quantity, a
   reserved tier its seats (the seats it prices, and any already sold on its
-  lines), because a seated tier's quantity column is not its stock.
+  lines), because a seated tier's quantity column is not its stock. What a
+  tier has sold is what its paid lines still hold: a place cancelled unpaid on
+  a pay-at-the-venue booking goes back on sale (ADR 0017) while its line keeps
+  its quantity, so the line's `venueCancelledQuantity` is not counted.
 - No seat carries two live tickets.
 - No order line holds more tickets than it bought.
 - No source event posted two ledger batches.

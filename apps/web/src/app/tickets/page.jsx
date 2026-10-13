@@ -87,11 +87,13 @@ export const metadata = { title: 'My tickets', robots: { index: false, follow: f
 
 /*
  * How each reachable status reads is `TICKET_STATUS_WORDS` in `lib/wallet.js`,
- * shared with the ticket's and the order's pages. Six entries, not nine:
- * `VOID`, `SUPERSEDED` and `CANCELLED` are declared by the database enum and
- * written by no application code anywhere — see `REACHABLE_STATUSES` for the
- * audit — so anything not in that table renders as its raw value, which is
- * what a demo database's seeded `VOID` gets. `ticketChip` reads that table,
+ * shared with the ticket's and the order's pages. Seven entries, not nine:
+ * `VOID` and `SUPERSEDED` are declared by the database enum and written by no
+ * application code anywhere — see `REACHABLE_STATUSES` for the audit — so
+ * anything not in that table renders as its raw value, which is what a demo
+ * database's seeded `VOID` gets. A ticket withdrawn because its night was
+ * cancelled or its event deleted (`CANCELLED`) reads "Withdrawn — this ticket
+ * no longer works at the door". `ticketChip` reads that table,
  * and puts a ticket's door payment first when it says more (SPEC3 §12.7).
  *
  * The word carries the meaning; the colour and the glyph only repeat it.

@@ -562,3 +562,129 @@ fails; the answer says what the pass did.
 
 In this build payments are simulated (`PAYMENT_MODE=MOCK`): no money moves.
 The limitations page states the batch as `event-refunds-batch`.
+
+## Booking fees, referral codes and paying at the venue — 2026-10-09
+
+ADRs 0016 and 0017. Card orders refund exactly as before; what follows is what
+changed for an order paid at the venue, and the new booking-fee refund.
+
+### What a pay-at-the-venue order is made of
+
+`orderParts` splits an order into face value, booking fee and tax. For a
+pay-at-the-venue order the face value is 0 — the ticket price was never paid
+online — so its parts are the fee and the tax on it, and they add up to its
+online total. Shares of fee and tax are apportioned by **basis**, the net
+ticket price (`subtotalCents − discountCents`), door or card, and every refund
+now stores `allocation.basisCents`: the face value for a card order (so card
+orders compute as before), the basis left for a whole refund, the named
+tickets' basis for a lines refund, and 0 for a booking-fee refund.
+
+### The forms, for an order paid at the venue
+
+| What happens                                                             | Refunded online                                                                                                 | Tickets                              | Money taken at the door                                                    |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------------------------------------------------------- |
+| Refunded whole (event cancelled, event deleted, `refunds.request` whole) | what is left of the fee and its tax; nothing left online makes it a zero-value withdrawal, with no `Refund` row | every standing ticket withdrawn      | stays with the organiser; the dialog, the order page and the notice say so |
+| A night cancelled                                                        | that night's tickets' share                                                                                     | that night's tickets withdrawn       | as above                                                                   |
+| `refunds.request` lines                                                  | the named tickets' share                                                                                        | the named tickets withdrawn          | as above                                                                   |
+| `refunds.request` amount                                                 | refused 422 `AMOUNT_REFUND_NOT_FOR_VENUE_ORDERS`                                                                | —                                    | —                                                                          |
+| The booking fee refunded by hand                                         | the fee and its tax                                                                                             | none                                 | none                                                                       |
+| No-show                                                                  | nothing                                                                                                         | stay valid, reported after the event | none taken                                                                 |
+
+An amount refund is refused so an organiser can never refund Desi-Event's fee
+without withdrawing tickets, and so no amount is ever promoted to a whole refund
+on such an order. A lines share that rounds to 0 is a zero-value withdrawal in
+the drivers and a 422 through `refunds.request`.
+
+### The booking fee refunded by hand (`fee` form)
+
+`platformFees.refund` asks for, approves and submits a refund of one order's
+booking fee left and the tax that fee carried — `{ face 0, fee, taxOnFee }`,
+basis 0, no `RefundItem` — with the same administrator as requester and
+approver, a reason and `FINANCE_ACTION` step-up (ADR 0016 §2). It withdraws no
+ticket, returns no place and never moves the order to REFUNDED, so a buyer let
+in at the door keeps a PAID order. Since 2026-10-13 its `Refund` row records
+that, `ticketsRevoked: false` and `inventoryReturned: false`, and the answer
+says the same; every other form still records what settling it did.
+
+**The tax pool.** For a pay-at-the-venue order all its tax is on the fee, so
+`taxOnFee` is the tax left. For a card order it is the fee's share of the tax,
+`min(taxLeft, floor(taxCents × feeLeft / (basis + fee)))` — 0 for every US
+order. A FEE refund's tax is then kept out of later lines refunds' tax shares.
+
+### Disputes and payouts
+
+A dispute on a fee-only payment is taken from `platform_fee_revenue`, not from
+an organiser who never received that money (`heldFrom`, `docs/FINANCIAL_LEDGER.md`).
+An organiser's available balance holds back only what is theirs to cover: the
+pending refunds of **card** orders, less pending booking-fee refunds on them,
+and disputes on card orders. For an organisation with card orders only and no
+booking-fee refunds every figure is what it was.
+
+### In the simulation
+
+Refunds settle through the mock provider as before. Refunding a seeded order —
+its booking fee by hand included — answers that the refund failed: the seeded
+payments were never made through the API process's in-memory provider, which
+has no record of them. An order placed through the site refunds normally
+(`docs/development.md`, "Seeding").
+
+## Unpaid tickets cancelled, kept fees and referral returns — 2026-10-09
+
+SPEC3-XI. Cancelling unpaid tickets (ADR 0017 §5) is not a refund, but every
+refund now has to stay out of what it keeps.
+
+### Kept money is out of reach of every refund
+
+- `refundableCents(order) = max(0, totalCents − refundedCents −
+refundPendingCents − venueFeeKeptCents)`.
+- `partsSpokenFor` adds the kept part — fee `venueFeeKeptCents`, basis
+  `venueCancelledBasisCents` — to what settled and pending refunds hold, so
+  every form (whole, lines, fee, a night's quote, the drivers) computes from
+  what is left after kept shares, and every later share stays exact.
+- CHECK `order_venue_kept_within_total` refuses any reservation that would reach
+  into kept money (`FEE_KEPT` on a race). A booking whose whole remaining fee is
+  kept answers `NO_FEE_TO_REFUND` to a booking-fee refund.
+- The quantity left on a line subtracts its cancelled tickets wherever a refund
+  counts them, `refunds.summary` included (`cancelledQuantity`), so the refund
+  dialog never offers a cancelled ticket.
+- `settleRefund` marks an order REFUNDED when `refundedCents +
+venueFeeKeptCents ≥ totalCents` and no ticket stands.
+- A cancellation is refused while a refund of the booking is pending
+  (`REFUND_IN_PROGRESS`): a pending reservation could still fail and release
+  money the kept share must not overlap.
+
+The kept share of a first cancellation is `floor(fee × basis cancelled /
+booking basis)`, capped at the fee still held; later ones are cumulative floors,
+as a lines refund's are. Examples: two $40 tickets at 3.00% + $1.49 (fee 538)
+keep 269 for one, and the other's later refund is 269; $40 + $25 + $25 at the
+site default (fee 828) keep 230 and 230 for the two $25s, then 368.
+
+### A referral use given back
+
+When an order that used a referral code ends without being used — refunded in
+full, cancelled, its unpaid tickets all cancelled, its event or night called
+off with nothing of it left, or every ticket withdrawn with nothing left to
+refund — the code gets that use back once, by a marker on the order (ADR 0016
+§6). `settleRefund` gives it back after its REFUNDED decision; the multi-order
+paths (event cancellation, deletion, a night's cancellation) give theirs back in
+one batch after their last order, line, ticket and seat write, codes locked
+last in ascending id order. Partial refunds and the booking fee refunded by hand
+keep the use. Promo codes are unchanged.
+
+### Proved on PostgreSQL
+
+`venue-booking-cancellation-integration.test.js` (C1–C15, with C3c, C7b and C7c
+added by the gate and its fixers) races cancel-unpaid against the door, a
+night's cancellation, deletion, refunds, transfer acceptance and offers,
+checkout, settlement, another cancellation and event cancellation, and proves
+no oversell after places return. `referral-returns-integration.test.js` (R1–R13,
+with R12b) proves every return happens once and no code is held while waiting
+for an order. The lock order they rely on is ADR 0017 §9.
+
+### Not repaired: a payment completed after its event was cancelled
+
+A card order whose settlement starts only after its event's cancellation has
+committed ends up PAID on a cancelled event, and nothing asks for its refund
+until the event is deleted (`refundWhatIsLeft`) or the finance team refunds it.
+It predates this work; its referral use is given back when that refund settles.
+The limitations page lists it (`payment-after-cancellation`).

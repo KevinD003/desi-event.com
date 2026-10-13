@@ -282,3 +282,56 @@ sale. Lock order for a seat hold: the paths that give seats back lock the
 `TicketHold` and then its `EventSeat` rows, settlement the other way round; they
 never meet on one hold because settlement touches only its own PENDING order's
 holds, which the other paths skip.
+
+## Booking fees, referral codes and paying at the venue — 2026-10-09
+
+ADRs 0016 and 0017 add a second way to pay and a way to waive the booking fee.
+Everything here runs in `PAYMENT_MODE=MOCK`; every pay button says
+"(simulated)".
+
+### Two payment methods
+
+`Order.paymentMethod` is `CARD` or `AT_VENUE`, chosen at checkout with "Pay by
+card now" or "Pay at the venue" when the event offers both.
+
+| Method     | Paid online (`totalCents`)                                          | Paid at the door (`venueDueCents`)                  |
+| ---------- | ------------------------------------------------------------------- | --------------------------------------------------- |
+| `CARD`     | ticket price after the promo, the booking fee, and tax on both      | nothing                                             |
+| `AT_VENUE` | the booking fee and any tax on it — no tax on it in this build (R1) | the ticket price after the promo, shared per ticket |
+
+CHECK `order_venue_payment_shape` holds the second row: `totalCents = feesCents
+
+- taxCents`and`venueDueCents = subtotalCents − discountCents > 0`. The door
+  part never reaches the payment provider or the ledger (ADR 0017 §8).
+
+### The online part, and when it is nothing
+
+A pay-at-the-venue order becomes PAID when its online part settles, through the
+same two-phase boundary as a card order: the mock provider captures the booking
+fee exactly as it captures a card order's total. When that part is 0 — the
+booking fee waived by a referral code (ADR 0016), or an event whose own fee is
+0% and $0 — no `Payment` row exists; the order is settled in its own
+transaction, as a free order is. The checkout button then reads "Book now — pay
+{amount} at the door" instead of "Pay booking fee {amount} (simulated)".
+
+### The fee, and what the buyer agreed to
+
+`priceCheckout` prices the quote and the charge with one function, now with the
+event's own terms when it has them, and records them on the order
+(`feeSource`, `feeSettingId`, `feePercentageBps`, `feeFlatCentsPerTicket`,
+`feeGrossCents`, `feeWaivedCents`). The order refuses with 409 `PRICE_CHANGED`
+when the buyer's figures no longer match — the online total
+(`expectedTotalCents`) and, for a booking to pay at the venue, the door price
+(`expectedVenueDueCents`) — so a fee changed while a buyer was paying is shown
+to them before anything is charged. The site default's flat part comes from
+`PLATFORM_FEE_FLAT_CENTS` for INR orders only; every other currency takes the
+currency table, so a USD order pays $0.99 a ticket whatever that variable says.
+
+### A future real-payments stage
+
+The online booking fee of a pay-at-the-venue order is Desi-Event's revenue, with
+no organiser share. A stage that switches on real payments must charge it as a
+platform charge — no `on_behalf_of`, no `transfer_data` — and refund it with
+`reverseTransfer: false`, so the fee is never routed to, or clawed back from,
+the organiser's connected account (ADR 0017 §8, ADR 0003). No code here makes
+such a call: production payments stay unreachable, as above.

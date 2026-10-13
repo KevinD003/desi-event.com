@@ -42,6 +42,11 @@ overrides:
   'sharp@<0.35.5': '^0.35.5'
   'fastify@<5.12.5': '^5.12.5'
   'source-map-js@>=1.0.0 <1.2.2': '^1.2.2'
+  # Added 2026-10-13, for an advisory published after the lockfile was last
+  # resolved; the patched release is inside the range its consumer asks for.
+  #   fast-jwt: the verifier's cache accepted an expired token that carried no
+  #   `iat` (GHSA-x937-hj6v-793p), through @fastify/jwt, which asks ^6.2.4.
+  'fast-jwt@<6.3.4': '^6.3.4'
 
 # One local change to Next.js, kept as a patch so it is reviewed like code and
 # fails the install loudly when Next is upgraded: pnpm refuses a patch that no

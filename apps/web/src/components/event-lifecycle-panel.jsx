@@ -67,6 +67,7 @@ import { Alert, Badge, Button, Card, CardBody, FormField, Select, Textarea } fro
 import { apiFetch } from '../lib/api-fetch.js'
 import { atVenueSentences } from '../lib/door.js'
 import { COMMANDS, REASON_CODES, statusReading } from '../lib/event-status.js'
+import { formatInstantIn } from '../lib/format.js'
 
 /**
  * Which commands to offer out of a status.
@@ -709,7 +710,7 @@ export function EventLifecyclePanel({
                 </p>
                 <p className="text-ink-muted">
                   <time dateTime={entry.createdAt}>
-                    {new Date(entry.createdAt).toLocaleString('en-US')}
+                    {formatInstantIn(entry.createdAt, event.timezone)}
                   </time>
                 </p>
                 {entry.reason ? <p className="mt-1 text-ink-muted">{entry.reason}</p> : null}

@@ -26,13 +26,14 @@ import { useId, useState } from 'react'
 
 import { Badge } from '../../../components/ui.jsx'
 import { TEXT_LINK } from '../../../components/workspace-kit.jsx'
+import { formatInstantIn } from '../../../lib/format.js'
 import { CopyCodeButton } from './copy-code-button.jsx'
 import {
   NO_MATCH,
   REFERRAL_CODES_PATH,
+  REFERRAL_EXPIRY_ZONE,
   STACKED,
   STATUS_WORDS,
-  dayWords,
   makerName,
   usesDetail,
   usesText,
@@ -184,7 +185,9 @@ export function ReferralCodeList({ codes, caption }) {
                   </Cell>
                   <Cell name="Expires">
                     {code.expiresAt ? (
-                      <time dateTime={code.expiresAt}>{dayWords(code.expiresAt)}</time>
+                      <time dateTime={code.expiresAt}>
+                        {formatInstantIn(code.expiresAt, REFERRAL_EXPIRY_ZONE)}
+                      </time>
                     ) : (
                       <span className="text-ink-muted">Never</span>
                     )}

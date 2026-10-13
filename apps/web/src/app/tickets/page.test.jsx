@@ -153,6 +153,22 @@ describe('MyTicketsPage', () => {
     expect(within(item).getByText('Lamplight Expo Hall, Edison')).toBeTruthy()
   })
 
+  it('says a ticket withdrawn because its night or event was called off no longer works, never the raw CANCELLED', async () => {
+    await renderWallet([
+      walletTicket({
+        status: 'CANCELLED',
+        admits: false,
+        admissionRefusal: null,
+        revokedAt: '2026-10-08T15:00:00.000Z',
+      }),
+    ])
+
+    expect(
+      screen.getByText('Withdrawn — this ticket no longer works at the door'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('CANCELLED')).toBeNull()
+  })
+
   it('keeps the count of what still admits', async () => {
     await renderWallet([walletTicket()])
 

@@ -70,6 +70,17 @@ async function stockOf(prisma, type) {
 /**
  * More tickets sold than exist.
  *
+ * What a tier has given out is what its paid lines still hold: each line's
+ * quantity, less the places on it cancelled unpaid. Cancelling an unpaid
+ * pay-at-the-venue ticket gives its place back to the tier — the only thing
+ * that ever lowers `TicketType.quantitySold` (SPEC3-XI XU5,
+ * `apps/api/src/lib/venue-bookings.js`) — while the booking stays PAID and the
+ * line keeps its quantity, recording the cancelled count in
+ * `OrderItem.venueCancelledQuantity`. A new buyer may then take that place, so
+ * counting line quantities alone read a correct resale as an oversell. A
+ * refund lowers no tier's count (it can return a reserved seat, which
+ * {@link stockOf} already counts), so a refunded line still counts in full.
+ *
  * @param {object} prisma A Prisma client.
  * @param {object} scope What to check.
  * @returns {Promise<{name: string, ok: boolean, detail: string}>} The result.
@@ -82,10 +93,10 @@ async function noOverselling(prisma, scope) {
   for (const type of types) {
     const sold = await prisma.orderItem.aggregate({
       where: { ticketTypeId: type.id, order: { status: { in: ['PAID', 'REFUNDED'] } } },
-      _sum: { quantity: true },
+      _sum: { quantity: true, venueCancelledQuantity: true },
     })
 
-    const total = sold._sum.quantity ?? 0
+    const total = (sold._sum.quantity ?? 0) - (sold._sum.venueCancelledQuantity ?? 0)
     const stock = await stockOf(prisma, type)
 
     if (total > stock.available) {

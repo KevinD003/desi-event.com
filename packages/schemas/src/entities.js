@@ -47,6 +47,7 @@ import {
   orderFeeTermsSchema,
   orderVenueCancellationSchema,
   orderVenuePaymentSchema,
+  passedOnTicketSchema,
   paymentMethodSchema,
   paymentTermsViewSchema,
   publicVenuePaymentSchema,
@@ -799,6 +800,26 @@ export const orderTicketSchema = ticketSchema.extend({
    * `supersedesTicketId` names this one — so it costs no extra query.
    */
   supersededByLaterTicket: z.boolean(),
+  /**
+   * For a ticket of a pay-at-the-venue order that the buyer passed on
+   * (`TRANSFERRED_AWAY`), where it stands now with whoever holds it: still
+   * owing (and how much), paid at the door, cancelled unpaid, owing nothing
+   * at the door any more, or back with the buyer. Read from the ticket that
+   * replaced this one, following each hand-on to the last, so a screen never
+   * has to guess which passed-on row still owes. Null for every other row.
+   */
+  passedOn: passedOnTicketSchema.nullable().optional(),
+})
+
+/**
+ * The event an order is for, as its readers see it: the summary every listing
+ * shows, plus the country and region (state or province) of its venue, the
+ * place its tax is named for (SPEC3 §12). Both null for an online event, or a
+ * venue the API cannot place.
+ */
+export const orderEventSummarySchema = eventSummarySchema.extend({
+  country: countrySchema.nullish(),
+  region: nonEmptyStringSchema.nullish(),
 })
 
 /**
@@ -810,7 +831,7 @@ export const orderTicketSchema = ticketSchema.extend({
 export const orderWithItemsSchema = orderSchema.extend({
   items: z.array(orderItemSchema).default([]),
   tickets: z.array(orderTicketSchema).optional(),
-  event: eventSummarySchema.nullish(),
+  event: orderEventSummarySchema.nullish(),
   /**
    * The online event's joining link, for the buyer only, once the order is
    * paid and while one of the tickets they hold still admits. Null otherwise,

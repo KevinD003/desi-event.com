@@ -271,6 +271,25 @@ describe('the tables', () => {
   })
 })
 
+describe('the dates, as the event keeps time', () => {
+  it('writes when a payment was taken and a ticket cancelled in the event’s zone, naming it', async () => {
+    api.getOrganizerEvent.mockResolvedValue({ ...EVENT, timezone: 'America/Chicago' })
+    api.getVenuePayments.mockResolvedValue(report())
+
+    await renderPage()
+
+    const payments = screen.getByRole('table', { name: 'Payments taken at the door' })
+    const cancelled = screen.getByRole('table', { name: 'Cancelled unpaid tickets' })
+
+    expect(within(payments).getByText('Oct 11, 2026, 2:00 PM CDT').tagName).toBe('TIME')
+    expect(within(cancelled).getByText('Oct 12, 2026, 4:05 PM CDT')).toHaveAttribute(
+      'dateTime',
+      '2026-10-12T21:05:00.000Z',
+    )
+    expect(screen.queryByText(/ UTC$/u)).toBeNull()
+  })
+})
+
 describe('who may read it', () => {
   it('offers the second factor in place when it has lapsed', async () => {
     api.getVenuePayments.mockRejectedValue(

@@ -86,7 +86,7 @@ import { Breadcrumbs } from '../../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getMyOrder } from '../../../../lib/account-api.js'
 import { formatEventDate, formatEventLocation } from '../../../../lib/format.js'
-import { formatAmount } from '../../../../lib/pricing.js'
+import { formatAmount, taxNameForPlace, taxNameInSentence } from '../../../../lib/pricing.js'
 import { deletedForHolder } from '../../../../lib/event-control.js'
 import { describeApiRefusal } from '../../../../lib/refusal.js'
 import { readSession } from '../../../../lib/session.js'
@@ -462,13 +462,10 @@ function Tickets({ order, holder, now }) {
   const current = currentTickets(order)
   const bought = ticketCount(order)
   const handedOn = handedAnyOn(order)
-  // A booking to pay at the venue lists the tickets it passed on that still
-  // owe, so the buyer sees whose turn it is to pay: as many as the order says
-  // still owe, and at most as many as are missing from the list, so a ticket
-  // handed on and back is not counted twice (`owingPassedOnTickets`).
-  const { tickets: passedOn, dueKnown } = atVenue
-    ? owingPassedOnTickets(order, Math.max(0, bought - current.length))
-    : { tickets: [], dueKnown: true }
+  // A booking to pay at the venue lists the tickets it passed on whose new
+  // holders still owe, so the buyer sees whose turn it is to pay. Which do,
+  // and how much, is the API's to say (`passedOn` on each row).
+  const passedOn = atVenue ? owingPassedOnTickets(order) : []
   const missing = missingSentence(bought, current.length + passedOn.length, handedOn)
   // A ticket's page opens only for the account holding it, and checkout
   // issues the tickets to the account that placed the order.
@@ -485,9 +482,8 @@ function Tickets({ order, holder, now }) {
             const label = `Ticket ${index + 1} of ${listed.length}`
             const away = index >= current.length
             const meaning =
-              (atVenue
-                ? venueTicketMeaning(ticket, order.currency, { dueKnown: away ? dueKnown : true })
-                : null) ?? ticketStatusMeaning(ticket.status)
+              (atVenue ? venueTicketMeaning(ticket, order.currency) : null) ??
+              ticketStatusMeaning(ticket.status)
 
             return (
               <li
@@ -651,6 +647,10 @@ export default async function OrderPage({ params }) {
     ? order.feeGrossCents
     : (order.feesCents ?? 0)
   const waived = order.feeWaivedCents ?? 0
+  // The tax is named as the event's place names it ("Sales tax", "GST",
+  // "HST"); "Tax" only where the order does not say where the event is.
+  const place = { country: order.event?.country ?? null, region: order.event?.region ?? null }
+  const taxName = taxNameForPlace(place)
 
   return (
     <div>
@@ -766,9 +766,11 @@ export default async function OrderPage({ params }) {
             </Sum>
           ) : null}
           {atVenue ? (
-            <Sum term="Tax">{formatAmount(order.taxCents ?? 0, order.currency)}</Sum>
+            <Sum term={order.taxCents > 0 ? `${taxName} on the booking fee` : taxName}>
+              {formatAmount(order.taxCents ?? 0, order.currency)}
+            </Sum>
           ) : order.taxCents ? (
-            <Sum term="Tax">{formatAmount(order.taxCents, order.currency)}</Sum>
+            <Sum term={taxName}>{formatAmount(order.taxCents, order.currency)}</Sum>
           ) : null}
           {atVenue ? (
             <VenueSums order={order} />
@@ -781,7 +783,7 @@ export default async function OrderPage({ params }) {
 
         {atVenue ? (
           <p className="mt-2 text-sm text-ink-muted">
-            No tax is added to tickets paid at the venue.
+            No {taxNameInSentence(place)} is added to tickets paid at the venue.
           </p>
         ) : null}
 

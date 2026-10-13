@@ -650,6 +650,35 @@ describe('what a moderator asked for', () => {
   })
 })
 
+describe('the history’s dates', () => {
+  it('writes when each change happened in the event’s zone, naming it, not in the browser’s', () => {
+    render(
+      <EventLifecyclePanel
+        event={{ ...event, status: 'CHANGES_REQUIRED', timezone: 'America/Chicago' }}
+        readiness={{ ...ready, status: 'CHANGES_REQUIRED' }}
+        transitions={transitions([])}
+        history={[
+          {
+            id: 'ema3',
+            fromStatus: 'REVIEW_PENDING',
+            toStatus: 'CHANGES_REQUIRED',
+            reason: 'Name the language.',
+            requestedChanges: null,
+            actorId: null,
+            // 02:30 UTC on 2 September is 9:30 PM on 1 September in Chicago.
+            createdAt: '2026-09-02T02:30:00.000Z',
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('Sep 1, 2026, 9:30 PM CDT')).toHaveAttribute(
+      'dateTime',
+      '2026-09-02T02:30:00.000Z',
+    )
+  })
+})
+
 describe('the preview link', () => {
   it('points at the public page and says what it shows', () => {
     render(

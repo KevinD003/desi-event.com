@@ -63,7 +63,7 @@ const TRANSFERRED = 'TRANSFERRED'
  *
  * `TicketStatus` declares nine values. An audit of every writer in
  * `apps/api/src`, `apps/worker/src` and `packages/*` found application code for
- * six of them:
+ * seven of them:
  *
  * | State              | Written by                                                   |
  * | ------------------ | ------------------------------------------------------------ |
@@ -73,13 +73,11 @@ const TRANSFERRED = 'TRANSFERRED'
  * | `TRANSFERRED`      | `acceptTransfer`, on the sender's row                        |
  * | `REVOKED`          | `revokeTicket`                                               |
  * | `REFUNDED`         | the refund service, by its own conditional update            |
+ * | `CANCELLED`        | `withdrawTickets`, when a night is cancelled or an event deleted (`apps/api/src/lib/tickets.js`) |
  *
- * `VOID`, `SUPERSEDED` and `CANCELLED` have **no writer at all**. Two of them
- * are declared as legal targets in the transition table and one is not even
- * that; there is no reissue endpoint, and cancelling an event raises refunds
- * and notifications without touching a `Ticket` row. A wallet that offered a
- * polished sentence for each of them would be describing a product that does
- * not exist.
+ * `VOID` and `SUPERSEDED` have **no writer at all**; there is no reissue
+ * endpoint. A wallet that offered a polished sentence for either would be
+ * describing a product that does not exist.
  *
  * ## What happens to a state that is not here
  *
@@ -99,6 +97,7 @@ export const REACHABLE_STATUSES = Object.freeze([
   'TRANSFERRED',
   'REVOKED',
   'REFUNDED',
+  'CANCELLED',
 ])
 
 /**
@@ -121,6 +120,7 @@ export const TICKET_STATUS_WORDS = Object.freeze({
   CHECKED_IN: { label: 'Used — you went in', tone: 'info' },
   REVOKED: { label: 'Withdrawn by the organiser', tone: 'danger' },
   REFUNDED: { label: 'Refunded', tone: 'info' },
+  CANCELLED: { label: 'Withdrawn — this ticket no longer works at the door', tone: 'danger' },
 })
 
 /** The states in which a ticket that owes its price can still be paid for at the door. */

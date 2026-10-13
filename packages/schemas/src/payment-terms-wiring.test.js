@@ -7,13 +7,14 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { orderSchema, refundSchema, ticketSchema } from './entities.js'
+import { orderSchema, orderWithItemsSchema, refundSchema, ticketSchema } from './entities.js'
 import {
   atVenueFactsSchema,
   eventDeletionPreviewSchema,
   platformEventRowSchema,
   sessionCancellationPreviewSchema,
 } from './event-control.js'
+import { PASSED_ON_STATES, REFERRAL_LIMITS, passedOnTicketSchema } from './payment-terms.js'
 import {
   checkInRequestSchema,
   createOrderRequestSchema,
@@ -33,6 +34,8 @@ import {
   platformFeeRefundResponseSchema,
   referralAdministratorRowSchema,
   referralCodeDetailResponseSchema,
+  referralCodeListItemSchema,
+  referralCodeListResponseSchema,
   referralUseSchema,
   ticketPassResponseSchema,
   venueBookingCancellationResponseSchema,
@@ -593,12 +596,62 @@ describe('referral code responses', () => {
     expect(adminReferralCodeSchema.safeParse(withoutPlaced).success).toBe(false)
   })
 
-  it('shows at most three of the code’s events, and a former administrator as null', () => {
+  it('lists at most three of a code’s events in a list row, and a former administrator as null', () => {
     expect(
-      adminReferralCodeSchema.safeParse({ ...code, events: Array(4).fill(code.events[0]) }).success,
+      referralCodeListItemSchema.safeParse({ ...code, events: Array(4).fill(code.events[0]) })
+        .success,
+    ).toBe(false)
+    expect(
+      referralCodeListResponseSchema.safeParse({
+        data: [{ ...code, events: Array(4).fill(code.events[0]), eventCount: 4 }],
+        pagination: {
+          page: 1,
+          perPage: 50,
+          total: 1,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      }).success,
     ).toBe(false)
     expect(adminReferralCodeSchema.safeParse({ ...code, createdBy: null }).success).toBe(true)
     expect(adminReferralCodeSchema.safeParse({ ...code, status: 'PAUSED' }).success).toBe(false)
+  })
+
+  it('carries every event of one code’s scope, up to the fifty a code can name', () => {
+    const every = Array.from({ length: REFERRAL_LIMITS.maxEvents }, (_, index) => ({
+      id: id(100 + index),
+      title: `Night ${index + 1}`,
+      slug: `night-${index + 1}`,
+      status: 'ON_SALE',
+    }))
+    const parsed = adminReferralCodeSchema.parse({
+      ...code,
+      events: every,
+      eventCount: every.length,
+    })
+
+    expect(parsed.events.map((event) => event.id)).toEqual(every.map((event) => event.id))
+    expect(
+      adminReferralCodeSchema.safeParse({
+        ...code,
+        events: [...every, { ...every[0], id: id(999) }],
+        eventCount: REFERRAL_LIMITS.maxEvents,
+      }).success,
+    ).toBe(false)
+    expect(
+      referralCodeDetailResponseSchema.parse({
+        data: { ...code, events: every, eventCount: every.length, uses: [] },
+        pagination: {
+          page: 1,
+          perPage: 50,
+          total: 0,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      }).data.events,
+    ).toHaveLength(REFERRAL_LIMITS.maxEvents)
   })
 
   it('lists a code’s uses without the buyer', () => {
@@ -898,6 +951,7 @@ describe('unpaid pay-at-the-venue bookings (SPEC3-XI §11.2)', () => {
   const list = {
     eventId: id(1),
     eventTitle: 'Garba Night',
+    timezone: 'America/Chicago',
     currency: 'USD',
     bookings: [
       {
@@ -915,6 +969,10 @@ describe('unpaid pay-at-the-venue bookings (SPEC3-XI §11.2)', () => {
 
   it('lists bookings with their tickets, names left out for a platform reader', () => {
     expect(venueBookingsResponseSchema.safeParse({ data: list }).success).toBe(true)
+    // The event's zone travels with the list, so its dates read as the event keeps time.
+    expect(
+      venueBookingsResponseSchema.safeParse({ data: { ...list, timezone: undefined } }).success,
+    ).toBe(false)
     expect(
       venueBookingsResponseSchema.safeParse({
         data: {
@@ -1000,5 +1058,68 @@ describe('unpaid pay-at-the-venue bookings (SPEC3-XI §11.2)', () => {
         false,
       )
     }
+  })
+})
+
+describe('an order’s event and its passed-on tickets', () => {
+  const event = {
+    id: id(1),
+    organizationId: id(2),
+    title: 'Garba Night',
+    slug: 'garba-night',
+    summary: 'Dance all night.',
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    startsAt: NOW,
+    endsAt: NOW,
+    timezone: 'America/Chicago',
+  }
+  const order = {
+    id: id(3),
+    reference: 'DE-ABCDEFGH',
+    eventId: id(1),
+    userId: id(4),
+    status: 'PAID',
+    currency: 'USD',
+    subtotalCents: 8_000,
+    discountCents: 0,
+    feesCents: 600,
+    taxCents: 0,
+    totalCents: 600,
+    buyerName: 'A Buyer',
+    createdAt: NOW,
+    updatedAt: NOW,
+  }
+
+  it('keeps the country and region of the event’s venue, so its tax can be named', () => {
+    const parsed = orderWithItemsSchema.parse({
+      ...order,
+      event: { ...event, country: 'us', region: 'TX' },
+    })
+
+    expect(parsed.event).toMatchObject({ country: 'US', region: 'TX' })
+    expect(
+      orderWithItemsSchema.parse({ ...order, event: { ...event, country: null, region: null } })
+        .event,
+    ).toMatchObject({ country: null, region: null })
+    expect(
+      orderWithItemsSchema.safeParse({ ...order, event: { ...event, country: 'Texas' } }).success,
+    ).toBe(false)
+  })
+
+  it('says per passed-on row what its holder owes now, with the amount only while it owes', () => {
+    expect([...PASSED_ON_STATES]).toEqual(['OWES', 'PAID', 'CANCELLED', 'NOTHING_DUE', 'RETURNED'])
+    expect(passedOnTicketSchema.parse({ state: 'OWES', dueCents: 4_500 })).toEqual({
+      state: 'OWES',
+      dueCents: 4_500,
+    })
+    expect(passedOnTicketSchema.safeParse({ state: 'OWES', dueCents: 0 }).success).toBe(false)
+
+    for (const state of ['PAID', 'CANCELLED', 'NOTHING_DUE', 'RETURNED']) {
+      expect(passedOnTicketSchema.safeParse({ state, dueCents: 0 }).success, state).toBe(true)
+      expect(passedOnTicketSchema.safeParse({ state, dueCents: 100 }).success, state).toBe(false)
+    }
+
+    expect(passedOnTicketSchema.safeParse({ state: 'SOLD', dueCents: 0 }).success).toBe(false)
   })
 })

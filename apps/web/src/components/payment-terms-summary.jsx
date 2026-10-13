@@ -21,10 +21,8 @@
 import Link from 'next/link'
 
 import { percentText, venueStatusText } from '../lib/event-control.js'
+import { formatDateIn } from '../lib/format.js'
 import { formatAmount } from '../lib/pricing.js'
-
-/** Dates are written in UTC, the way the server's records are kept. */
-const DATE = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
 
 /** The link's classes: a 44px target, underlined, with a visible focus ring. */
 const LINK =
@@ -77,14 +75,17 @@ export function venuePaymentSentence(venuePayment) {
 /**
  * Who changed a setting, when and why, or null when it was never changed.
  *
+ * The date is the day it was where the event is (its own zone), as every
+ * other date on the organiser's event pages is written.
+ *
  * @param {{changedAt?: string|null, changedByName?: string|null, reason?: string|null}} setting The fee or the switch.
+ * @param {string} [timeZone] The event's IANA zone; UTC when unknown.
  * @returns {string|null} "Changed by {name} on {date}: “{reason}”".
  */
-export function changedSentence(setting) {
+export function changedSentence(setting, timeZone = 'UTC') {
   if (!setting?.changedAt) return null
 
-  const at = new Date(setting.changedAt)
-  const date = Number.isNaN(at.getTime()) ? null : DATE.format(at)
+  const date = formatDateIn(setting.changedAt, timeZone)
   const who = setting.changedByName ?? 'the Desi-Event team'
   const when = date ? ` on ${date}` : ''
 
@@ -98,6 +99,7 @@ export function changedSentence(setting) {
  * @property {string} eventId The event.
  * @property {object} paymentTerms The event's `paymentTerms`: `{ fee, siteDefault, venuePayment }`.
  * @property {boolean} [mayReadVenuePayments] Whether this reader may read the organisation's finance.
+ * @property {string} [timeZone] The event's IANA zone, which the changes' dates are written in.
  */
 
 /**
@@ -106,10 +108,15 @@ export function changedSentence(setting) {
  * @param {PaymentTermsSummaryProps} props Component props.
  * @returns {JSX.Element} The panel.
  */
-export function PaymentTermsSummary({ eventId, paymentTerms, mayReadVenuePayments = false }) {
+export function PaymentTermsSummary({
+  eventId,
+  paymentTerms,
+  mayReadVenuePayments = false,
+  timeZone = 'UTC',
+}) {
   const { fee, venuePayment } = paymentTerms
-  const feeChange = changedSentence(fee)
-  const switchChange = changedSentence(venuePayment)
+  const feeChange = changedSentence(fee, timeZone)
+  const switchChange = changedSentence(venuePayment, timeZone)
   const link =
     mayReadVenuePayments && (venuePayment.enabled || venuePayment.hasOrders)
       ? `/organizer/events/${encodeURIComponent(eventId)}/venue-payments`

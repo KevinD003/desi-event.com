@@ -134,6 +134,12 @@ const ACCOUNT_PAGES = Object.freeze([
  */
 const RECORDED_LIMITATIONS = Object.freeze([
   ['Real payments, Stripe and Connect payouts', 'EXTERNAL VERIFICATION PENDING'],
+  ['Refunding money paid at the venue', 'NOT IMPLEMENTED'],
+  ['Sales tax on tickets paid at the venue', 'NOT IMPLEMENTED'],
+  ['Cancelling your own unpaid booking', 'NOT IMPLEMENTED'],
+  ['Putting refunded general-admission places back on sale', 'NOT IMPLEMENTED'],
+  ['Changing the standard booking fee on a screen', 'NOT IMPLEMENTED'],
+  ['Rewards for referral codes', 'NOT IMPLEMENTED'],
   ['Splitting payment for a group', 'NOT IMPLEMENTED'],
   ['Check-in without a connection', 'NOT IMPLEMENTED'],
   ['Ticket passes on real phones', 'EXTERNAL DEVICE VERIFICATION PENDING'],
@@ -143,6 +149,7 @@ const RECORDED_LIMITATIONS = Object.freeze([
   ['Reviewing changes to a published event', 'NOT IMPLEMENTED'],
   ['Refunding part of an every-night ticket', 'NOT IMPLEMENTED'],
   ['Refunding a large cancelled event in the background', 'NOT IMPLEMENTED'],
+  ['Refunding a payment completed after its event was cancelled', 'NOT IMPLEMENTED'],
   ['Erasing a deleted event', 'NOT IMPLEMENTED'],
   ['Keeping imported events up to date', 'NOT IMPLEMENTED'],
   ['Checking the organiser’s website itself', 'NOT IMPLEMENTED'],

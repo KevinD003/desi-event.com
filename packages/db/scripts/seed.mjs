@@ -30,6 +30,16 @@
  *     picture somebody has since approved or rejected back in the queue.
  *   - **Visit totals the roll-up has written** (`demonstration = false`) are
  *     never overwritten with demonstration figures.
+ *   - **Booking-fee decisions, pay-at-the-venue switches, referral codes, door
+ *     payments and cancelled unpaid tickets** (SPEC3 §15.5, SPEC3-XI §15) are
+ *     created once. A fee decision and a cancellation are never edited (their
+ *     triggers refuse it), so a re-seed does not try; an event's own fee and
+ *     its switch are written only together with the decision row that sets
+ *     them, so a fee or switch a developer changed since is left as they left
+ *     it. A referral code is found again by its label and the administrator
+ *     who made it, and its text is made at write time from the generated
+ *     alphabet, never written in this repository, never printed, and never
+ *     made again for a code that exists: read it at `/admin/referral-codes`.
  *
  * Usage:
  *   DATABASE_URL=postgresql://… node scripts/seed.mjs
@@ -37,7 +47,7 @@
  * @module @desi-event/db/scripts/seed
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomInt } from 'node:crypto'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import path from 'node:path'
 import { crc32, deflateSync } from 'node:zlib'
@@ -282,30 +292,60 @@ export function applyBps(cents, bps) {
  */
 
 /**
+ * @typedef {object} SeedFeeTerms
+ * @property {number} percentageBps The booking fee's percentage, in basis points.
+ * @property {number} flatCentsPerTicket Its amount per ticket, in cents.
+ */
+
+/**
  * @typedef {object} SeedOrderTotals
  * @property {number} quantity Total tickets across all lines.
  * @property {number} subtotalCents Sum of line subtotals before discount.
  * @property {number} discountCents Discount applied, never above the subtotal.
- * @property {number} feesCents Platform fee on the discounted subtotal.
- * @property {number} taxCents Tax on discounted subtotal plus fees.
- * @property {number} totalCents Amount the buyer is charged.
+ * @property {number} feeGrossCents The booking fee the terms come to, on the discounted subtotal.
+ * @property {number} feeWaivedCents The part of it a referral code removed: all of it or none.
+ * @property {number} feesCents The booking fee charged: gross less waived.
+ * @property {number} taxCents Tax charged online.
+ * @property {number} totalCents Amount the buyer pays online.
+ * @property {number} venueDueCents Ticket price to be paid at the door; 0 on a card order.
  */
+
+/** The site default's terms in US dollars, as the pricing contract states them. */
+const SITE_DEFAULT_FEE_TERMS = Object.freeze({
+  percentageBps: PLATFORM_FEE_BPS,
+  flatCentsPerTicket: PLATFORM_FEE_FLAT_CENTS,
+})
 
 /**
  * Compute order money columns from its lines, mirroring `@desi-event/pricing`.
  *
  * Fees are charged on the discounted subtotal (a discount reduces what the
- * platform earns, which is what the pricing contract specifies), and tax is
- * charged on the discounted subtotal plus fees.
+ * platform earns, which is what the pricing contract specifies), with the
+ * event's own terms when it has them (SPEC3 §6.1). A referral code removes the
+ * whole booking fee and any tax on it, and nothing else. A card order pays
+ * everything online, with tax on the discounted subtotal plus the fee charged.
+ * An order paid at the venue pays only its booking fee online and carries no
+ * tax, on the ticket price or on that fee (R1 and open question 9); the
+ * discounted ticket price is what is due at the door.
  *
  * @param {object} input Order inputs.
  * @param {SeedOrderLine[]} input.lines Lines on the order; must be non-empty.
  * @param {SeedPromo|null} [input.promo] Promo code applied, if any.
  * @param {number} input.taxBps Tax rate in basis points.
+ * @param {SeedFeeTerms} [input.fee] The booking fee's terms; the site default if left out.
+ * @param {'CARD'|'AT_VENUE'} [input.paymentMethod] How the ticket price is paid.
+ * @param {boolean} [input.waived] Whether a referral code removes the booking fee.
  * @returns {SeedOrderTotals} Integer-cent totals for the order.
  * @throws {Error} If the order has no lines.
  */
-export function computeSeedOrderTotals({ lines, promo = null, taxBps }) {
+export function computeSeedOrderTotals({
+  lines,
+  promo = null,
+  taxBps,
+  fee = SITE_DEFAULT_FEE_TERMS,
+  paymentMethod = 'CARD',
+  waived = false,
+}) {
   if (!lines || lines.length === 0) {
     throw new Error('An order needs at least one line')
   }
@@ -320,11 +360,79 @@ export function computeSeedOrderTotals({ lines, promo = null, taxBps }) {
   }
 
   const discountedCents = subtotalCents - discountCents
-  const feesCents = applyBps(discountedCents, PLATFORM_FEE_BPS) + PLATFORM_FEE_FLAT_CENTS * quantity
+  const feeGrossCents =
+    applyBps(discountedCents, fee.percentageBps) + fee.flatCentsPerTicket * quantity
+  const feeWaivedCents = waived ? feeGrossCents : 0
+  const feesCents = feeGrossCents - feeWaivedCents
+
+  if (paymentMethod === 'AT_VENUE') {
+    return {
+      quantity,
+      subtotalCents,
+      discountCents,
+      feeGrossCents,
+      feeWaivedCents,
+      feesCents,
+      taxCents: 0,
+      totalCents: feesCents,
+      venueDueCents: discountedCents,
+    }
+  }
+
   const taxCents = applyBps(discountedCents + feesCents, taxBps)
   const totalCents = discountedCents + feesCents + taxCents
 
-  return { quantity, subtotalCents, discountCents, feesCents, taxCents, totalCents }
+  return {
+    quantity,
+    subtotalCents,
+    discountCents,
+    feeGrossCents,
+    feeWaivedCents,
+    feesCents,
+    taxCents,
+    totalCents,
+    venueDueCents: 0,
+  }
+}
+
+/** The alphabet generated referral codes use: no 0, O, 1, I or L (SPEC3 DR3). */
+export const REFERRAL_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+
+/**
+ * A referral code's text, made the way `referralCodes.create` generates one:
+ * `XXXXX-XXXXX` from {@link REFERRAL_CODE_ALPHABET}, each letter drawn with
+ * `crypto.randomInt`. Called only when a code is written for the first time,
+ * so no text is ever written in this repository, printed, or made twice.
+ *
+ * @param {function(number): number} [draw] A uniform draw in `[0, max)` for a given `max`.
+ * @returns {string} The code, upper case.
+ */
+export function generateSeedReferralCode(draw = randomInt) {
+  const half = () =>
+    Array.from(
+      { length: 5 },
+      () => REFERRAL_CODE_ALPHABET[draw(REFERRAL_CODE_ALPHABET.length)],
+    ).join('')
+
+  return `${half()}-${half()}`
+}
+
+/**
+ * The booking fee Desi-Event keeps for unpaid tickets cancelled from a
+ * booking, as `keptShareOf` in `apps/api/src/lib/venue-bookings.js` works it
+ * out for a booking's first cancellation: the fee charged, apportioned by the
+ * door price, floored.
+ *
+ * @param {object} input The booking.
+ * @param {number} input.feesCents The booking fee charged.
+ * @param {number} input.venueDueCents What the whole booking owed at the door.
+ * @param {number} input.basisCents What the cancelled tickets owed.
+ * @returns {number} The fee kept, in cents.
+ */
+export function seedFeeKeptCents({ feesCents, venueDueCents, basisCents }) {
+  if (venueDueCents <= 0 || feesCents <= 0 || basisCents <= 0) return 0
+
+  return Math.min(feesCents, Math.floor((feesCents * basisCents) / venueDueCents))
 }
 
 /**
@@ -2663,6 +2771,186 @@ const ORDERS = [
     payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
     hold: { status: 'CONVERTED', offsetMinutes: 10 },
   },
+  // Booking fees, referral codes and paying at the venue (SPEC3 §15.5,
+  // SPEC3-XI §15). A card order on the Garba night after its own booking fee
+  // was set, with the fee waived by the all-events referral code: the tickets
+  // are paid for, the booking fee is not.
+  {
+    key: 'us14',
+    reference: 'DE-US-200014',
+    eventKey: 'night-one',
+    userKey: 'aarav',
+    buyerName: 'Aarav Shah',
+    buyerEmail: 'aarav.shah@mail.example',
+    status: 'PAID',
+    promoKey: null,
+    referralKey: 'all-events',
+    placedDays: -1,
+    lines: [{ ticketTypeKey: 'night-one-general', quantity: 2 }],
+    attendees: ['Aarav Shah', 'Riddhi Shah'],
+    ticketStatus: 'VALID',
+    payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
+    hold: { status: 'CONVERTED', offsetMinutes: 10 },
+  },
+  // A booking to pay at the door for the warm-up night, which has happened.
+  // Only its booking fee was paid online. At the door one ticket was paid for
+  // and let in, one was cancelled unpaid by the Desi-Event team once the doors
+  // had opened (its place freed, its share of the booking fee kept), and one
+  // was never paid: its holder did not come.
+  {
+    key: 'us15',
+    reference: 'DE-US-200015',
+    eventKey: 'warm-up',
+    userKey: 'diya',
+    buyerName: 'Diya Patel',
+    buyerEmail: 'diya.patel@mail.example',
+    status: 'PAID',
+    paymentMethod: 'AT_VENUE',
+    promoKey: null,
+    placedDays: -16,
+    lines: [{ ticketTypeKey: 'warm-up-general', quantity: 3 }],
+    attendees: ['Diya Patel', 'Mihir Patel', 'Asha Patel'],
+    ticketStatus: 'VALID',
+    payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
+    hold: { status: 'CONVERTED', offsetMinutes: 10 },
+    // The ticket paid for at the door, by its position on the order, and who
+    // took the payment: the organisation's owner, on the door's own authority.
+    doorPayment: {
+      ticketIndexes: [0],
+      recordedByKey: 'meera',
+      authority: 'ORGANIZATION_ROLE',
+      role: 'OWNER',
+      gate: 'Main doors',
+      afterStartMinutes: CHECK_IN_AFTER_START_MINUTES,
+    },
+    unpaidCancellation: {
+      ticketIndexes: [1],
+      cancelledByKey: 'platformAdmin',
+      authority: 'PLATFORM_ROLE',
+      role: 'ADMIN',
+      reason: 'Demo: not paid before the doors opened',
+      afterStartMinutes: 45,
+    },
+  },
+  // Two bookings by the demo attendee to pay at the door for the Houston
+  // dandiya night, still to come: one paid its booking fee online, one had it
+  // waived by the all-events referral code and paid nothing online. Every
+  // ticket still owes its price at the door.
+  {
+    key: 'us16',
+    reference: 'DE-US-200016',
+    eventKey: 'dandiya-dhol',
+    userKey: 'aarav',
+    buyerName: 'Aarav Shah',
+    buyerEmail: 'aarav.shah@mail.example',
+    status: 'PAID',
+    paymentMethod: 'AT_VENUE',
+    promoKey: null,
+    placedDays: -3,
+    lines: [{ ticketTypeKey: 'dhol-general', quantity: 2 }],
+    attendees: ['Aarav Shah', 'Riddhi Shah'],
+    ticketStatus: 'VALID',
+    payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
+    hold: { status: 'CONVERTED', offsetMinutes: 10 },
+  },
+  {
+    key: 'us17',
+    reference: 'DE-US-200017',
+    eventKey: 'dandiya-dhol',
+    userKey: 'aarav',
+    buyerName: 'Aarav Shah',
+    buyerEmail: 'aarav.shah@mail.example',
+    status: 'PAID',
+    paymentMethod: 'AT_VENUE',
+    promoKey: null,
+    referralKey: 'all-events',
+    placedDays: -2,
+    lines: [{ ticketTypeKey: 'dhol-general', quantity: 1 }],
+    attendees: ['Aarav Shah'],
+    ticketStatus: 'VALID',
+    // Nothing is paid online: the booking fee was waived and the ticket price
+    // is paid at the door, so there is no payment at all.
+    payments: [],
+    hold: { status: 'CONVERTED', offsetMinutes: 10 },
+  },
+]
+
+/**
+ * Events with their own booking fee, each set by one decision of the
+ * Desi-Event team (SPEC3 §15.5): the first demonstration organisation's Garba
+ * night, at 3.00% plus $1.49 a ticket, set two days before the seed.
+ */
+const EVENT_FEE_SETTINGS = [
+  {
+    key: 'night-one-own-fee',
+    eventKey: 'night-one',
+    percentageBps: 300,
+    flatCentsPerTicket: 149,
+    reason: 'Demo: this event’s own booking fee',
+    setByKey: 'platformAdmin',
+    setDays: -2,
+    setHour: 15,
+  },
+]
+
+/**
+ * Events where tickets can be paid for at the venue, each switched on by the
+ * Desi-Event team with a limit and a reason: the Houston dandiya night, still
+ * on sale, and the warm-up night, which has happened.
+ */
+const VENUE_PAYMENT_SWITCHES = [
+  {
+    key: 'dandiya-dhol-at-venue',
+    eventKey: 'dandiya-dhol',
+    limit: 50,
+    reason: 'Demo: paying at the door',
+    changedByKey: 'platformAdmin',
+    changedDays: -6,
+    changedHour: 16,
+  },
+  {
+    key: 'warm-up-at-venue',
+    eventKey: 'warm-up',
+    // It was on sale when the switch went on; it has happened since.
+    statusThen: 'ON_SALE',
+    limit: 50,
+    reason: 'Demo: paying at the door',
+    changedByKey: 'platformAdmin',
+    changedDays: -24,
+    changedHour: 16,
+  },
+]
+
+/**
+ * Referral codes made by the platform administrator (SPEC3 §15.5): one for
+ * every event with a limit of 100 uses, one for the Garba night only that
+ * stops working 60 days after the seed first runs. Their texts are not here:
+ * each is made when its row is first written. A code is found again by its
+ * label and the administrator who made it.
+ */
+const REFERRAL_CODES = [
+  {
+    key: 'all-events',
+    label: 'Demo: every event, 100 uses',
+    scope: 'ALL_EVENTS',
+    eventKeys: [],
+    maxUses: 100,
+    expiresDays: null,
+    createdByKey: 'platformAdmin',
+    createdDays: -9,
+    createdHour: 11,
+  },
+  {
+    key: 'night-one-only',
+    label: 'Demo: Navratri Night One only',
+    scope: 'SELECTED_EVENTS',
+    eventKeys: ['night-one'],
+    maxUses: null,
+    expiresDays: 60,
+    createdByKey: 'platformAdmin',
+    createdDays: -9,
+    createdHour: 11,
+  },
 ]
 
 /** Waitlist interest, including on the sold-out marathon. */
@@ -3123,8 +3411,104 @@ export function buildSeedData(now = new Date()) {
     }),
   )
 
+  // An event's own booking fee: one decision by the Desi-Event team, in the
+  // event's one currency, the first in its history (SPEC3 §5.2, DF3).
+  const feeSettings = EVENT_FEE_SETTINGS.map((setting) => {
+    const event = eventByKey.get(setting.eventKey)
+    if (!event) {
+      throw new Error(`Unknown event key "${setting.eventKey}" on fee setting "${setting.key}"`)
+    }
+    const setBy = userByKey.get(setting.setByKey)
+    if (!setBy) throw new Error(`Unknown user key "${setting.setByKey}" setting "${setting.key}"`)
+
+    return {
+      key: setting.key,
+      id: seedId(`seed-fee-setting-${setting.key}`),
+      eventId: event.id,
+      eventKey: event.key,
+      eventStatus: event.status,
+      sequence: 1,
+      source: 'EVENT',
+      percentageBps: setting.percentageBps,
+      flatCentsPerTicket: setting.flatCentsPerTicket,
+      currency: event.currency,
+      reason: setting.reason,
+      setByEmail: setBy.email,
+      createdAt: offset(anchor, setting.setDays, setting.setHour),
+    }
+  })
+  const feeSettingByEventKey = new Map(feeSettings.map((setting) => [setting.eventKey, setting]))
+
+  // Paying at the venue switched on, with its limit and reason, by the
+  // Desi-Event team (SPEC3 §9.1): never for an online event.
+  const venuePaymentChanges = VENUE_PAYMENT_SWITCHES.map((change) => {
+    const event = eventByKey.get(change.eventKey)
+    if (!event) {
+      throw new Error(`Unknown event key "${change.eventKey}" on venue switch "${change.key}"`)
+    }
+    if (event.isOnline) throw new Error(`Event "${event.slug}" is online and has no door`)
+    const changedBy = userByKey.get(change.changedByKey)
+    if (!changedBy) {
+      throw new Error(`Unknown user key "${change.changedByKey}" on venue switch "${change.key}"`)
+    }
+
+    return {
+      key: change.key,
+      id: seedId(`seed-venue-payment-change-${change.key}`),
+      eventId: event.id,
+      eventKey: event.key,
+      eventStatus: change.statusThen ?? event.status,
+      enabled: true,
+      limit: change.limit,
+      reason: change.reason,
+      changedByEmail: changedBy.email,
+      createdAt: offset(anchor, change.changedDays, change.changedHour),
+    }
+  })
+  const venueSwitchByEventKey = new Map(
+    venuePaymentChanges.map((change) => [change.eventKey, change]),
+  )
+
+  // Referral codes, without their text: it is made when the row is written.
+  const referralCodes = REFERRAL_CODES.map((code) => {
+    const createdBy = userByKey.get(code.createdByKey)
+    if (!createdBy) throw new Error(`Unknown user key "${code.createdByKey}" on code "${code.key}"`)
+    const eventIds = code.eventKeys.map((key) => {
+      const event = eventByKey.get(key)
+      if (!event) throw new Error(`Unknown event key "${key}" in the scope of code "${code.key}"`)
+      return event.id
+    })
+    if ((code.scope === 'SELECTED_EVENTS') !== eventIds.length > 0) {
+      throw new Error(
+        `Referral code "${code.key}" names events only when its scope is chosen events`,
+      )
+    }
+
+    return {
+      key: code.key,
+      id: seedId(`seed-referral-code-${code.key}`),
+      label: code.label,
+      scope: code.scope,
+      eventIds,
+      maxUses: code.maxUses,
+      expiresAt: code.expiresDays === null ? null : offset(anchor, code.expiresDays),
+      createdByEmail: createdBy.email,
+      createdAt: offset(anchor, code.createdDays, code.createdHour),
+      // Derived below from the orders that used it, none of which gave it back.
+      useCount: 0,
+    }
+  })
+  const referralByKey = new Map(referralCodes.map((code) => [code.key, code]))
+
   const seenReferences = new Set()
   const seenTicketCodes = new Set()
+
+  /** @type {object[]} */
+  const venuePayments = []
+  /** @type {object[]} */
+  const checkIns = []
+  /** @type {object[]} */
+  const venueCancellations = []
 
   const orders = ORDERS.map((order) => {
     if (seenReferences.has(order.reference)) {
@@ -3142,6 +3526,46 @@ export function buildSeedData(now = new Date()) {
     if (promo && promo.eventId && promo.eventId !== event.id) {
       throw new Error(`Promo "${promo.code}" is not valid for event "${event.slug}"`)
     }
+
+    const placedAt = offset(anchor, order.placedDays, 6, 45)
+    const paymentMethod = order.paymentMethod ?? 'CARD'
+    const buyerEmail = order.userKey ? userByKey.get(order.userKey).email : null
+
+    // Checkout's rules, so that no seeded order is one checkout would refuse.
+    const referral = order.referralKey ? referralByKey.get(order.referralKey) : null
+    if (order.referralKey && !referral) {
+      throw new Error(`Unknown referral code "${order.referralKey}" on order ${order.reference}`)
+    }
+    if (referral) {
+      if (referral.scope === 'SELECTED_EVENTS' && !referral.eventIds.includes(event.id)) {
+        throw new Error(`Referral code "${referral.key}" does not apply to event "${event.slug}"`)
+      }
+      // Naming a code needs an account (DR9), and its maker cannot use it (DR13).
+      if (!buyerEmail || buyerEmail === referral.createdByEmail) {
+        throw new Error(`Order ${order.reference} may not use referral code "${referral.key}"`)
+      }
+      if (
+        placedAt < referral.createdAt ||
+        (referral.expiresAt !== null && placedAt >= referral.expiresAt)
+      ) {
+        throw new Error(`Referral code "${referral.key}" was not live for order ${order.reference}`)
+      }
+    }
+    if (paymentMethod === 'AT_VENUE') {
+      const venueSwitch = venueSwitchByEventKey.get(event.key)
+      if (!venueSwitch || placedAt < venueSwitch.createdAt) {
+        throw new Error(`Event "${event.slug}" took no payment at the venue for ${order.reference}`)
+      }
+      if (!buyerEmail) throw new Error(`Order ${order.reference} pays at the venue with no account`)
+      // The door price per ticket is its unit price; a promo's share across
+      // door prices is the pricing package's to apportion, not the seed's.
+      if (promo) throw new Error(`Order ${order.reference} pays at the venue with a promo code`)
+    }
+
+    // New orders only (A4): an order placed after the event's own fee was set
+    // is priced with it; one placed before keeps the site default it had.
+    const ownFee = feeSettingByEventKey.get(event.key)
+    const feeTerms = ownFee && placedAt >= ownFee.createdAt ? ownFee : null
 
     const lines = order.lines.map((line) => {
       const ticketType = ticketTypeByKey.get(line.ticketTypeKey)
@@ -3164,10 +3588,29 @@ export function buildSeedData(now = new Date()) {
     // An online event has no venue; every organisation here is American, so
     // its supply is taxed as a US one.
     const taxBps = TAX_BPS_BY_COUNTRY[event.venueCountry ?? 'US'] ?? 0
-    const totals = computeSeedOrderTotals({ lines, promo, taxBps })
+    const totals = computeSeedOrderTotals({
+      lines,
+      promo,
+      taxBps,
+      fee: feeTerms ?? SITE_DEFAULT_FEE_TERMS,
+      paymentMethod,
+      waived: Boolean(referral),
+    })
+    // A code is not consumed with nothing to waive (DR2), and a booking to pay
+    // at the venue has a ticket price to pay there (DV2).
+    if (referral && totals.feeGrossCents <= 0) {
+      throw new Error(`Order ${order.reference} has no booking fee for its referral code to waive`)
+    }
+    if (paymentMethod === 'AT_VENUE' && totals.venueDueCents <= 0) {
+      throw new Error(`Order ${order.reference} has nothing to pay at the venue`)
+    }
 
-    const placedAt = offset(anchor, order.placedDays, 6, 45)
     const issueTickets = order.issueTickets !== false
+    const atVenue = paymentMethod === 'AT_VENUE'
+    // The orders this phase adds are written as checkout writes one now: each
+    // ticket held by the buyer's account. The older demonstration orders keep
+    // the shape they had.
+    const newShape = atVenue || Boolean(referral)
 
     const items = lines.map((line, index) => ({
       id: seedId(`seed-item-${order.key}-${index}`),
@@ -3176,6 +3619,10 @@ export function buildSeedData(now = new Date()) {
       quantity: line.quantity,
       unitPriceCents: line.unitPriceCents,
       subtotalCents: line.quantity * line.unitPriceCents,
+      // No promo on a booking to pay at the venue here, so a line's door price
+      // is its subtotal, and each of its tickets owes the unit price.
+      venueDueCents: atVenue ? line.quantity * line.unitPriceCents : 0,
+      venueCancelledQuantity: 0,
     }))
 
     /** @type {object[]} */
@@ -3187,11 +3634,18 @@ export function buildSeedData(now = new Date()) {
           const code = `${order.reference}-T${String(index + 1)}${String(n + 1).padStart(2, '0')}`
           if (seenTicketCodes.has(code)) throw new Error(`Duplicate ticket code "${code}"`)
           seenTicketCodes.add(code)
+          const status = order.ticketStatus ?? 'VALID'
           tickets.push({
+            ...(newShape ? { id: seedId(`seed-ticket-${code}`) } : {}),
             orderItemId: item.id,
+            ticketTypeKey: item.ticketTypeKey,
             code,
             attendeeName: order.attendees[seat] ?? order.buyerName,
-            status: order.ticketStatus ?? 'VALID',
+            ownerEmail: newShape ? buyerEmail : null,
+            // What a door payment or a cancellation moves it from, when one
+            // does; otherwise the status it is written with.
+            initialStatus: status,
+            status,
             // Through the door twenty minutes after the start, in whatever
             // zone and season the event fell in — a fixed UTC hour would put
             // some check-ins before the doors opened.
@@ -3199,10 +3653,150 @@ export function buildSeedData(now = new Date()) {
               order.ticketStatus === 'CHECKED_IN'
                 ? new Date(event.startsAt.getTime() + CHECK_IN_AFTER_START_MINUTES * MINUTE_MS)
                 : null,
+            venueDueCents: atVenue ? item.unitPriceCents : 0,
+            venuePaymentId: null,
+            venueCancellationId: null,
+            revokedAt: null,
+            revokedReason: null,
           })
           seat += 1
         }
       }
+    }
+
+    const orderId = seedId(`seed-order-${order.key}`)
+
+    /**
+     * The tickets named by position on the order, each owing at the door.
+     *
+     * @param {number[]} indexes Positions, from 0.
+     * @param {string} what What names them, for the error.
+     * @returns {object[]} The tickets.
+     */
+    const ticketsAt = (indexes, what) =>
+      indexes.map((position) => {
+        const ticket = tickets[position]
+        if (!ticket || ticket.venueDueCents <= 0) {
+          throw new Error(`${what} on order ${order.reference} names no ticket owing at the door`)
+        }
+        if (ticket.status !== 'VALID') {
+          throw new Error(`${what} on order ${order.reference} names a ticket already moved`)
+        }
+        return ticket
+      })
+
+    // A payment taken at the door, recorded in the step that let its tickets
+    // in (DV7): the payment, each ticket pointed at it, its admission.
+    if (order.doorPayment) {
+      if (!atVenue) throw new Error(`Order ${order.reference} is not paid at the venue`)
+      const door = order.doorPayment
+      const recordedBy = userByKey.get(door.recordedByKey)
+      if (!recordedBy) throw new Error(`Unknown user key "${door.recordedByKey}" at the door`)
+      const paid = ticketsAt(door.ticketIndexes, 'A door payment')
+      const recordedAt = new Date(event.startsAt.getTime() + door.afterStartMinutes * MINUTE_MS)
+      const id = seedId(`seed-venue-payment-${order.key}`)
+
+      for (const ticket of paid) {
+        ticket.status = 'CHECKED_IN'
+        ticket.checkedInAt = recordedAt
+        ticket.venuePaymentId = id
+        checkIns.push({
+          id: seedId(`seed-check-in-${ticket.code}`),
+          ticketId: ticket.id,
+          ticketCode: ticket.code,
+          // An event with no nights admits without naming one.
+          eventSessionId: null,
+          scannedByEmail: recordedBy.email,
+          method: 'QR_SCAN',
+          scannedAt: recordedAt,
+          gate: door.gate,
+        })
+      }
+      venuePayments.push({
+        key: order.key,
+        id,
+        orderId,
+        eventId: event.id,
+        eventSessionId: null,
+        organizationId: event.organizationId,
+        amountCents: paid.reduce((sum, ticket) => sum + ticket.venueDueCents, 0),
+        currency: event.currency,
+        ticketCount: paid.length,
+        via: paid.length > 1 ? 'DOOR_GROUP' : 'DOOR_TICKET',
+        authority: door.authority,
+        role: door.role,
+        recordedByEmail: recordedBy.email,
+        recordedAt,
+        gate: door.gate,
+        ticketIds: paid.map((ticket) => ticket.id),
+      })
+    }
+
+    // Unpaid tickets cancelled (SPEC3-XI XU1): withdrawn, their places freed,
+    // their share of the booking fee kept, nothing refunded.
+    let venueCancelledBasisCents = 0
+    let venueFeeKeptCents = 0
+
+    if (order.unpaidCancellation) {
+      if (!atVenue) throw new Error(`Order ${order.reference} is not paid at the venue`)
+      const cancel = order.unpaidCancellation
+      const cancelledBy = userByKey.get(cancel.cancelledByKey)
+      if (!cancelledBy) throw new Error(`Unknown user key "${cancel.cancelledByKey}" cancelling`)
+      const cancelled = ticketsAt(cancel.ticketIndexes, 'A cancellation')
+      const createdAt = new Date(event.startsAt.getTime() + cancel.afterStartMinutes * MINUTE_MS)
+      if (createdAt >= event.endsAt) {
+        throw new Error(`Order ${order.reference} is cancelled after its event ended`)
+      }
+      const id = seedId(`seed-venue-cancellation-${order.key}`)
+      const basisCents = cancelled.reduce((sum, ticket) => sum + ticket.venueDueCents, 0)
+      const feeKeptCents = seedFeeKeptCents({
+        feesCents: totals.feesCents,
+        venueDueCents: totals.venueDueCents,
+        basisCents,
+      })
+      const returned = new Map()
+
+      for (const ticket of cancelled) {
+        ticket.status = 'REVOKED'
+        ticket.revokedAt = createdAt
+        ticket.revokedReason = `venue-unpaid:${id}`
+        ticket.venueCancellationId = id
+        items.find((item) => item.id === ticket.orderItemId).venueCancelledQuantity += 1
+        const tier = ticketTypeByKey.get(ticket.ticketTypeKey)
+        returned.set(tier.id, (returned.get(tier.id) ?? 0) + 1)
+      }
+      venueCancelledBasisCents = basisCents
+      venueFeeKeptCents = feeKeptCents
+
+      // Whether the places freed sell again: only while their tier sells.
+      const onSale = [...returned.keys()].map((tierId) => {
+        const tier = [...ticketTypeByKey.values()].find((type) => type.id === tierId)
+        return (
+          tier.status === 'ON_SALE' &&
+          (tier.salesStartAt === null || tier.salesStartAt <= createdAt) &&
+          (tier.salesEndAt === null || createdAt < tier.salesEndAt)
+        )
+      })
+
+      venueCancellations.push({
+        key: order.key,
+        id,
+        orderId,
+        eventId: event.id,
+        organizationId: event.organizationId,
+        ticketCount: cancelled.length,
+        basisCents,
+        feeKeptCents,
+        currency: event.currency,
+        authority: cancel.authority,
+        role: cancel.role,
+        reason: cancel.reason,
+        cancelledByEmail: cancelledBy.email,
+        createdAt,
+        ticketIds: cancelled.map((ticket) => ticket.id),
+        placesReturned: Object.fromEntries(returned),
+        placesOnSale: onSale.every(Boolean) ? 'ALL' : onSale.some(Boolean) ? 'SOME' : 'NONE',
+      })
     }
 
     const payments = order.payments.map((payment) => ({
@@ -3213,6 +3807,9 @@ export function buildSeedData(now = new Date()) {
       currency: event.currency,
       failureCode: payment.failureCode ?? null,
     }))
+    if (payments.length > 0 && totals.totalCents <= 0) {
+      throw new Error(`Order ${order.reference} pays nothing online and has a payment`)
+    }
 
     const holdQuantity = lines.reduce((sum, line) => sum + line.quantity, 0)
     const hold = order.hold
@@ -3229,7 +3826,7 @@ export function buildSeedData(now = new Date()) {
           //
           // User ids are assigned by the database, so the owner travels as an
           // email here and is resolved when the row is written.
-          userEmail: order.userKey ? userByKey.get(order.userKey).email : null,
+          userEmail: buyerEmail,
           guestTokenHash: order.userKey ? null : seedGuestTokenHash(order.key),
           // An ACTIVE hold must be genuinely unexpired for the availability
           // logic to treat it as reserved, so it tracks the wall clock rather
@@ -3242,25 +3839,37 @@ export function buildSeedData(now = new Date()) {
 
     return {
       key: order.key,
-      id: seedId(`seed-order-${order.key}`),
+      id: orderId,
       reference: order.reference,
       eventId: event.id,
       eventKey: event.key,
       buyerEmail: order.buyerEmail,
       buyerName: order.buyerName,
-      userEmail: order.userKey ? userByKey.get(order.userKey).email : null,
+      userEmail: buyerEmail,
       status: order.status,
       currency: event.currency,
+      paymentMethod,
       subtotalCents: totals.subtotalCents,
       discountCents: totals.discountCents,
+      // The terms the fee was worked out with, as checkout records them: the
+      // event's own decision, or the site default's numbers (SPEC3 §5.4).
+      feeSource: feeTerms ? 'EVENT' : 'SITE_DEFAULT',
+      feeSettingId: feeTerms ? feeTerms.id : null,
+      feePercentageBps: (feeTerms ?? SITE_DEFAULT_FEE_TERMS).percentageBps,
+      feeFlatCentsPerTicket: (feeTerms ?? SITE_DEFAULT_FEE_TERMS).flatCentsPerTicket,
+      feeGrossCents: totals.feeGrossCents,
+      feeWaivedCents: totals.feeWaivedCents,
       feesCents: totals.feesCents,
-      // No demo order here has a waiver, so the fee the terms came to is the
-      // fee charged (CHECK `order_fee_parts`).
-      feeGrossCents: totals.feesCents,
       taxCents: totals.taxCents,
       totalCents: totals.totalCents,
+      venueDueCents: totals.venueDueCents,
+      venueCancelledBasisCents,
+      venueFeeKeptCents,
+      referralCodeId: referral ? referral.id : null,
+      referralKey: referral ? referral.key : null,
       promoCodeId: promo ? promo.id : null,
       promoKey: promo ? promo.key : null,
+      placedAt,
       expiresAt:
         order.status === 'PENDING'
           ? new Date(now.getTime() + 10 * MINUTE_MS)
@@ -3281,16 +3890,29 @@ export function buildSeedData(now = new Date()) {
     }
   })
 
-  // Derive inventory and redemption counters from the orders above.
+  // Derive inventory, redemption and referral-use counters from the orders
+  // above. A tier's sold count falls by the unpaid tickets cancelled from it,
+  // the one decrement anywhere (SPEC3-XI XU5).
   for (const order of orders) {
     if (order.status === 'PAID') {
       for (const item of order.items) {
         const ticketType = ticketTypeByKey.get(item.ticketTypeKey)
-        ticketType.quantitySold += item.quantity
+        ticketType.quantitySold += item.quantity - item.venueCancelledQuantity
       }
     }
     if (order.promoKey && REDEEMING_STATUSES.has(order.status)) {
       promoByKey.get(order.promoKey).redemptionCount += 1
+    }
+    // Every seeded order that used a code still stands, so none has given its
+    // use back (SPEC3-XI XR1).
+    if (order.referralKey) {
+      referralByKey.get(order.referralKey).useCount += 1
+    }
+  }
+
+  for (const code of referralCodes) {
+    if (code.maxUses !== null && code.useCount > code.maxUses) {
+      throw new Error(`Referral code "${code.key}" is used more than its limit`)
     }
   }
 
@@ -3513,6 +4135,112 @@ export function buildSeedData(now = new Date()) {
         },
         createdAt: event.deletion.deletedAt,
       })),
+    // Each booking-fee decision and pay-at-the-venue switch, as
+    // `lib/payment-terms.js` audits it: the terms and the reason, by a
+    // platform administrator.
+    ...feeSettings.map((setting) => ({
+      id: seedId(`seed-audit-${setting.key}`),
+      actorEmail: setting.setByEmail,
+      action: 'event.platform_fee_changed',
+      entityType: 'Event',
+      entityId: setting.eventId,
+      metadata: {
+        sequence: setting.sequence,
+        source: setting.source,
+        percentageBps: setting.percentageBps,
+        flatCentsPerTicket: setting.flatCentsPerTicket,
+        currency: setting.currency,
+        previous: null,
+        reason: setting.reason,
+        eventStatus: setting.eventStatus,
+        platformRole: 'ADMIN',
+      },
+      createdAt: setting.createdAt,
+    })),
+    ...venuePaymentChanges.map((change) => ({
+      id: seedId(`seed-audit-${change.key}`),
+      actorEmail: change.changedByEmail,
+      action: 'event.venue_payment_changed',
+      entityType: 'Event',
+      entityId: change.eventId,
+      metadata: {
+        enabled: change.enabled,
+        limit: change.limit,
+        previousEnabled: false,
+        previousLimit: null,
+        reason: change.reason,
+        eventStatus: change.eventStatus,
+        platformRole: 'ADMIN',
+      },
+      createdAt: change.createdAt,
+    })),
+    // Making a referral code records its terms and that it has a label, never
+    // its text or the label's words.
+    ...referralCodes.map((code) => ({
+      id: seedId(`seed-audit-referral-code-${code.key}-created`),
+      actorEmail: code.createdByEmail,
+      action: 'referral_code.created',
+      entityType: 'ReferralCode',
+      entityId: code.id,
+      metadata: {
+        referralCodeId: code.id,
+        generated: true,
+        scope: code.scope,
+        eventIds: code.eventIds,
+        expiresAt: code.expiresAt ? code.expiresAt.toISOString() : null,
+        maxUses: code.maxUses,
+        labelSet: true,
+      },
+      createdAt: code.createdAt,
+    })),
+    // The payment taken at the door, and the unpaid ticket cancelled: ids,
+    // amounts and authority, never the buyer.
+    ...venuePayments.map((payment) => ({
+      id: seedId(`seed-audit-venue-payment-${payment.key}`),
+      actorEmail: payment.recordedByEmail,
+      action: 'venue_payment.recorded',
+      entityType: 'VenuePayment',
+      entityId: payment.id,
+      metadata: {
+        venuePaymentId: payment.id,
+        orderId: payment.orderId,
+        eventId: payment.eventId,
+        eventSessionId: payment.eventSessionId,
+        ticketCount: payment.ticketCount,
+        amountCents: payment.amountCents,
+        currency: payment.currency,
+        via: payment.via,
+        authority: payment.authority,
+        role: payment.role,
+        organizationId: payment.organizationId,
+      },
+      createdAt: payment.recordedAt,
+    })),
+    ...venueCancellations.map((cancellation) => ({
+      id: seedId(`seed-audit-venue-cancellation-${cancellation.key}`),
+      actorEmail: cancellation.cancelledByEmail,
+      action: 'venue_booking.cancelled',
+      entityType: 'VenueBookingCancellation',
+      entityId: cancellation.id,
+      metadata: {
+        cancellationId: cancellation.id,
+        orderId: cancellation.orderId,
+        eventId: cancellation.eventId,
+        organizationId: cancellation.organizationId,
+        ticketIds: cancellation.ticketIds,
+        ticketCount: cancellation.ticketCount,
+        basisCents: cancellation.basisCents,
+        feeKeptCents: cancellation.feeKeptCents,
+        currency: cancellation.currency,
+        seatsReturned: 0,
+        placesReturned: cancellation.placesReturned,
+        placesOnSale: cancellation.placesOnSale,
+        authority: cancellation.authority,
+        role: cancellation.role,
+        reason: cancellation.reason,
+      },
+      createdAt: cancellation.createdAt,
+    })),
   ]
 
   return {
@@ -3534,6 +4262,12 @@ export function buildSeedData(now = new Date()) {
     organizerInvitations,
     pictures,
     trafficDaily,
+    feeSettings,
+    venuePaymentChanges,
+    referralCodes,
+    venuePayments,
+    checkIns,
+    venueCancellations,
     // The roll-up last finished as the seed ran, so the screens read the
     // demonstration totals as current rather than "never added up".
     trafficRollup: { lastCompletedAt: now },
@@ -4148,10 +4882,176 @@ export async function writeSeedData(prisma, data) {
     })
   }
 
+  // An event's own booking fee: its decision is created once and never
+  // edited (`desi_event_fee_setting_append_only`), and the event's terms are
+  // written in the same transaction as the decision that sets them. An event
+  // with a decision of its own already — the seed's, or one a developer made
+  // since — is left exactly as it is.
+  /** Computed ids of decisions this seed could not make, so no order names one. */
+  const skippedFeeSettings = new Set()
+  let feeSettingCount = 0
+
+  for (const setting of data.feeSettings) {
+    if (untouched.has(setting.eventId)) {
+      skippedFeeSettings.add(setting.id)
+      continue
+    }
+
+    const own = await prisma.eventFeeSetting.findUnique({
+      where: { id: setting.id },
+      select: { id: true },
+    })
+    if (own) continue
+
+    const other = await prisma.eventFeeSetting.findFirst({
+      where: { eventId: real(setting.eventId) },
+      select: { id: true },
+    })
+    if (other) {
+      skippedFeeSettings.add(setting.id)
+      continue
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.eventFeeSetting.create({
+        data: {
+          id: setting.id,
+          eventId: real(setting.eventId),
+          sequence: setting.sequence,
+          source: setting.source,
+          percentageBps: setting.percentageBps,
+          flatCentsPerTicket: setting.flatCentsPerTicket,
+          currency: setting.currency,
+          reason: setting.reason,
+          setById: userIdByEmail.get(setting.setByEmail) ?? null,
+          createdAt: setting.createdAt,
+        },
+      })
+      await tx.event.update({
+        where: { id: real(setting.eventId) },
+        data: {
+          feeSource: setting.source,
+          feePercentageBps: setting.percentageBps,
+          feeFlatCentsPerTicket: setting.flatCentsPerTicket,
+          feeCurrency: setting.currency,
+          feeSettingId: setting.id,
+        },
+      })
+    })
+    feeSettingCount += 1
+  }
+
+  // Paying at the venue switched on: the change row and the event's switch,
+  // limit and reason together, once. An event whose switch has a history
+  // already is left as it is.
+  let venuePaymentChangeCount = 0
+
+  for (const change of data.venuePaymentChanges) {
+    if (untouched.has(change.eventId)) continue
+
+    const present = await prisma.eventVenuePaymentChange.findFirst({
+      where: { eventId: real(change.eventId) },
+      select: { id: true },
+    })
+    if (present) continue
+
+    const changedById = userIdByEmail.get(change.changedByEmail) ?? null
+
+    await prisma.$transaction(async (tx) => {
+      await tx.eventVenuePaymentChange.create({
+        data: {
+          id: change.id,
+          eventId: real(change.eventId),
+          enabled: change.enabled,
+          limit: change.limit,
+          reason: change.reason,
+          changedById,
+          createdAt: change.createdAt,
+        },
+      })
+      await tx.event.update({
+        where: { id: real(change.eventId) },
+        data: {
+          venuePaymentEnabled: change.enabled,
+          venuePaymentLimit: change.limit,
+          venuePaymentChangedAt: change.createdAt,
+          venuePaymentChangedById: changedById,
+          venuePaymentReason: change.reason,
+        },
+      })
+    })
+    venuePaymentChangeCount += 1
+  }
+
+  // Referral codes, found again by their label and maker (or by the id the
+  // seed gave them) and otherwise made now, with their text drawn here and
+  // never shown. A code the seed finds is left exactly as it is.
+  let referralCodeCount = 0
+
+  for (const code of data.referralCodes) {
+    const createdById = userIdByEmail.get(code.createdByEmail) ?? null
+    const found =
+      (await prisma.referralCode.findFirst({
+        where: { label: code.label, createdById },
+        select: { id: true },
+      })) ??
+      (await prisma.referralCode.findUnique({ where: { id: code.id }, select: { id: true } }))
+
+    if (found) {
+      realId.set(code.id, found.id)
+      continue
+    }
+
+    let made = null
+
+    // Five draws, as `referralCodes.create` makes, before giving up on a
+    // clash with a code that exists.
+    for (let attempt = 0; attempt < 5 && !made; attempt += 1) {
+      try {
+        made = await prisma.$transaction(async (tx) => {
+          const row = await tx.referralCode.create({
+            data: {
+              id: code.id,
+              code: generateSeedReferralCode(),
+              label: code.label,
+              scope: code.scope,
+              expiresAt: code.expiresAt,
+              maxUses: code.maxUses,
+              createdById,
+              createdAt: code.createdAt,
+            },
+            select: { id: true },
+          })
+
+          for (const eventId of code.eventIds) {
+            await tx.referralCodeEvent.create({
+              data: { referralCodeId: row.id, eventId: real(eventId), addedAt: code.createdAt },
+            })
+          }
+
+          return row
+        })
+      } catch (error) {
+        // A clash on the text is drawn again; anything else is a fault. The
+        // error is rethrown without its text, which never reaches a log.
+        if (error?.code !== 'P2002') {
+          throw new Error(`Referral code "${code.key}" could not be written (${error?.code})`)
+        }
+      }
+    }
+
+    if (!made) throw new Error(`Referral code "${code.key}" clashed five times; seed again`)
+    realId.set(code.id, made.id)
+    referralCodeCount += 1
+  }
+
   let orderItemCount = 0
   let ticketCount = 0
   let paymentCount = 0
   let holdCount = 0
+  let venuePaymentCount = 0
+  let checkInCount = 0
+  let venueCancellationCount = 0
 
   for (const order of data.orders) {
     if (untouched.has(order.eventId)) continue
@@ -4163,12 +5063,27 @@ export async function writeSeedData(prisma, data) {
       buyerName: order.buyerName,
       status: order.status,
       currency: order.currency,
+      paymentMethod: order.paymentMethod,
       subtotalCents: order.subtotalCents,
       discountCents: order.discountCents,
+      feeSource: order.feeSource,
+      feeSettingId:
+        order.feeSettingId && !skippedFeeSettings.has(order.feeSettingId)
+          ? order.feeSettingId
+          : null,
+      feePercentageBps: order.feePercentageBps,
+      feeFlatCentsPerTicket: order.feeFlatCentsPerTicket,
       feesCents: order.feesCents,
       feeGrossCents: order.feeGrossCents,
+      feeWaivedCents: order.feeWaivedCents,
       taxCents: order.taxCents,
       totalCents: order.totalCents,
+      // Fixed for the life of the row (`desi_order_referral_fixed`): the same
+      // code on every run.
+      referralCodeId: real(order.referralCodeId),
+      venueDueCents: order.venueDueCents,
+      venueCancelledBasisCents: order.venueCancelledBasisCents,
+      venueFeeKeptCents: order.venueFeeKeptCents,
       promoCodeId: real(order.promoCodeId),
       expiresAt: order.expiresAt,
       paidAt: order.paidAt,
@@ -4190,6 +5105,8 @@ export async function writeSeedData(prisma, data) {
         quantity: item.quantity,
         unitPriceCents: item.unitPriceCents,
         subtotalCents: item.subtotalCents,
+        venueDueCents: item.venueDueCents,
+        venueCancelledQuantity: item.venueCancelledQuantity,
       }
       await prisma.orderItem.upsert({
         where: { id: item.id },
@@ -4199,19 +5116,151 @@ export async function writeSeedData(prisma, data) {
       orderItemCount += 1
     }
 
+    /** @type {Map<string, string>} ticket code -> Ticket.id */
+    const ticketIdByCode = new Map()
+
     for (const ticket of order.tickets) {
+      // A ticket a door payment or a cancellation moves is written as it was
+      // before, and moved by that step below; a re-seed leaves its status to
+      // the triggers that hold it there. What it owes is written once
+      // (`desi_ticket_venue_due_guard`).
+      const staged = ticket.status !== ticket.initialStatus
+      const ownerUserId = ticket.ownerEmail ? userIdByEmail.get(ticket.ownerEmail) : null
       const ticketFields = {
         orderItemId: ticket.orderItemId,
         attendeeName: ticket.attendeeName,
-        status: ticket.status,
-        checkedInAt: ticket.checkedInAt,
+        ...(staged ? {} : { status: ticket.status, checkedInAt: ticket.checkedInAt }),
+        ...(ticket.ownerEmail ? { ownerUserId } : {}),
       }
-      await prisma.ticket.upsert({
+      const row = await prisma.ticket.upsert({
         where: { code: ticket.code },
         update: ticketFields,
-        create: { code: ticket.code, ...ticketFields },
+        create: {
+          ...(ticket.id ? { id: ticket.id } : {}),
+          code: ticket.code,
+          ...ticketFields,
+          status: ticket.initialStatus,
+          checkedInAt: staged ? null : ticket.checkedInAt,
+          venueDueCents: ticket.venueDueCents,
+        },
+        select: { id: true },
       })
+      ticketIdByCode.set(ticket.code, row.id)
       ticketCount += 1
+    }
+
+    const realTicket = (id) => {
+      const ticket = order.tickets.find((candidate) => candidate.id === id)
+      return ticketIdByCode.get(ticket.code)
+    }
+
+    // The payment taken at the door and the admission it paid for, in one
+    // transaction as the door records them (DV7): the payment's sum is
+    // checked at commit (`desi_venue_payment_sum`), and a ticket is let in
+    // only once it points at it (`check_in_payment_due`). Once.
+    for (const payment of data.venuePayments.filter((entry) => entry.orderId === order.id)) {
+      const present = await prisma.venuePayment.findUnique({
+        where: { id: payment.id },
+        select: { id: true },
+      })
+      if (present) continue
+
+      const recordedById = userIdByEmail.get(payment.recordedByEmail) ?? null
+
+      await prisma.$transaction(async (tx) => {
+        await tx.venuePayment.create({
+          data: {
+            id: payment.id,
+            orderId,
+            eventId: real(payment.eventId),
+            eventSessionId: payment.eventSessionId,
+            organizationId: real(payment.organizationId),
+            amountCents: payment.amountCents,
+            currency: payment.currency,
+            ticketCount: payment.ticketCount,
+            via: payment.via,
+            authority: payment.authority,
+            role: payment.role,
+            recordedById,
+            recordedAt: payment.recordedAt,
+            gate: payment.gate,
+          },
+        })
+
+        for (const ticketId of payment.ticketIds.map(realTicket)) {
+          await tx.ticket.update({ where: { id: ticketId }, data: { venuePaymentId: payment.id } })
+        }
+        for (const checkIn of data.checkIns.filter((entry) =>
+          payment.ticketIds.includes(entry.ticketId),
+        )) {
+          await tx.checkIn.create({
+            data: {
+              id: checkIn.id,
+              ticketId: realTicket(checkIn.ticketId),
+              eventSessionId: checkIn.eventSessionId,
+              scannedByUserId: userIdByEmail.get(checkIn.scannedByEmail) ?? null,
+              method: checkIn.method,
+              scannedAt: checkIn.scannedAt,
+              gate: checkIn.gate,
+            },
+          })
+          await tx.ticket.update({
+            where: { id: realTicket(checkIn.ticketId) },
+            data: { status: 'CHECKED_IN', checkedInAt: checkIn.scannedAt },
+          })
+          checkInCount += 1
+        }
+      })
+      venuePaymentCount += 1
+    }
+
+    // Unpaid tickets cancelled, as `cancelUnpaidVenueTickets` withdraws them:
+    // the cancellation and each ticket's move to REVOKED together, its pass
+    // cleared and its version moved on; the sum is checked at commit
+    // (`desi_venue_booking_cancellation_sum`). Once.
+    for (const cancellation of data.venueCancellations.filter(
+      (entry) => entry.orderId === order.id,
+    )) {
+      const present = await prisma.venueBookingCancellation.findUnique({
+        where: { id: cancellation.id },
+        select: { id: true },
+      })
+      if (present) continue
+
+      await prisma.$transaction(async (tx) => {
+        await tx.venueBookingCancellation.create({
+          data: {
+            id: cancellation.id,
+            orderId,
+            eventId: real(cancellation.eventId),
+            organizationId: real(cancellation.organizationId),
+            ticketCount: cancellation.ticketCount,
+            basisCents: cancellation.basisCents,
+            feeKeptCents: cancellation.feeKeptCents,
+            currency: cancellation.currency,
+            authority: cancellation.authority,
+            role: cancellation.role,
+            reason: cancellation.reason,
+            cancelledById: userIdByEmail.get(cancellation.cancelledByEmail) ?? null,
+            createdAt: cancellation.createdAt,
+          },
+        })
+
+        for (const ticketId of cancellation.ticketIds.map(realTicket)) {
+          await tx.ticket.update({
+            where: { id: ticketId },
+            data: {
+              status: 'REVOKED',
+              revokedAt: cancellation.createdAt,
+              revokedReason: `venue-unpaid:${cancellation.id}`,
+              credentialHash: null,
+              credentialVersion: { increment: 1 },
+              venueCancellationId: cancellation.id,
+            },
+          })
+        }
+      })
+      venueCancellationCount += 1
     }
 
     for (const payment of order.payments) {
@@ -4253,6 +5302,22 @@ export async function writeSeedData(prisma, data) {
       })
       holdCount += 1
     }
+  }
+
+  // Each code's uses: the orders that name it and have not given their use
+  // back (the identity `lib/referral-uses.js` keeps, SPEC3-XI XR3), whoever
+  // placed them. Written only when it differs, so the row's `updatedAt` moves
+  // only when the count does.
+  for (const code of data.referralCodes) {
+    const id = real(code.id)
+    const uses = await prisma.order.count({
+      where: { referralCodeId: id, referralUseReturnedAt: null },
+    })
+
+    await prisma.referralCode.updateMany({
+      where: { id, NOT: { useCount: uses } },
+      data: { useCount: uses },
+    })
   }
 
   for (const entry of data.waitlist) {
@@ -4490,6 +5555,12 @@ export async function writeSeedData(prisma, data) {
     pictures: data.pictures.length,
     trafficDaily: trafficDailyCount,
     eventsLeftDeleted: untouched.size,
+    eventFeeSettings: feeSettingCount,
+    eventVenuePaymentChanges: venuePaymentChangeCount,
+    referralCodes: referralCodeCount,
+    venuePayments: venuePaymentCount,
+    checkIns: checkInCount,
+    venueBookingCancellations: venueCancellationCount,
   }
 }
 
@@ -4523,6 +5594,13 @@ export async function countRows(prisma) {
     organizerInvitations,
     mediaAssets,
     trafficDaily,
+    eventFeeSettings,
+    eventVenuePaymentChanges,
+    referralCodes,
+    referralCodeEvents,
+    venuePayments,
+    checkIns,
+    venueBookingCancellations,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.organization.count(),
@@ -4545,6 +5623,13 @@ export async function countRows(prisma) {
     prisma.organizerInvitation.count(),
     prisma.mediaAsset.count(),
     prisma.trafficDaily.count(),
+    prisma.eventFeeSetting.count(),
+    prisma.eventVenuePaymentChange.count(),
+    prisma.referralCode.count(),
+    prisma.referralCodeEvent.count(),
+    prisma.venuePayment.count(),
+    prisma.checkIn.count(),
+    prisma.venueBookingCancellation.count(),
   ])
 
   return {
@@ -4569,6 +5654,13 @@ export async function countRows(prisma) {
     organizerInvitations,
     mediaAssets,
     trafficDaily,
+    eventFeeSettings,
+    eventVenuePaymentChanges,
+    referralCodes,
+    referralCodeEvents,
+    venuePayments,
+    checkIns,
+    venueBookingCancellations,
   }
 }
 
@@ -4615,6 +5707,16 @@ export async function runSeed(options = {}) {
       `  visit totals            ${data.trafficDaily.length} demonstration days across ${TRAFFIC_DEMONSTRATION_EVENT_KEYS.length} events`,
     )
     console.log(`  ticket types            ${soldOut} sold out`)
+    console.log(
+      `  booking fees            ${data.feeSettings.length} event with its own booking fee, ${data.orders.filter((order) => order.referralKey).length} orders with their booking fee waived by a referral code`,
+    )
+    console.log(
+      `  paying at the venue     ${data.venuePaymentChanges.length} events, ${data.orders.filter((order) => order.paymentMethod === 'AT_VENUE').length} bookings, ${data.venuePayments.length} payment taken at the door, ${data.venueCancellations.length} cancellation of unpaid tickets`,
+    )
+    // Never the codes themselves: they are read on the administrators' page.
+    console.log(
+      `  referral codes          ${data.referralCodes.length} referral codes (read them at /admin/referral-codes)`,
+    )
     console.log(
       `  paid orders             ${paidOrders.length} worth ${grossCents} cents gross (USD)`,
     )

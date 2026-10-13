@@ -344,6 +344,7 @@ export default async function EditEventPage({ params }) {
             eventId={event.id}
             paymentTerms={event.paymentTerms}
             mayReadVenuePayments={sessionCan(session, 'finance:view', orgId)}
+            timeZone={event.timezone}
           />
         </div>
       ) : null}

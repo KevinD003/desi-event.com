@@ -212,6 +212,11 @@ with the owning organisation in the message.
 
 ### Locks, in one order everywhere
 
+> **Corrected 2026-10-09.** Paying at the door changed the first locks: a
+> confirmation now takes the door's night, the order and the ticket's order
+> line before the ticket ("Paying at the door — 2026-10-09", below, and ADR 0017
+> §9). The rest of this section stands.
+
 The confirmation locks the ticket row, then the caller's membership, then the
 scope — `FOR UPDATE`, `FOR SHARE`, `FOR SHARE` — before reading any of them. The
 team routes lock the membership before touching its scopes. So a scope
@@ -519,3 +524,103 @@ through offer, acceptance, refund and check-in races. Both run in
 | How is a pass drawn and read?       | `apps/web/src/lib/qr.js`, `lib/qr-decode.js`                 |
 | The door screen                     | `apps/web/src/components/door-workspace.jsx`                 |
 | What does the database enforce?     | `packages/db/prisma/migrations/` (the trigger)               |
+
+## Paying at the door — 2026-10-09
+
+ADR 0017. On an event where paying at the venue is on, a ticket can owe its
+share of the ticket price at the door (`Ticket.venueDueCents`). Such a ticket
+lets nobody in until it is paid, and the payment is recorded only in the step
+that lets it in.
+
+### One ticket
+
+The preview says how much to take: `payment: { dueCents, currency, paid: false,
+booking: { otherUnpaidTickets, otherUnpaidCents, groupPass } }` — the rest
+counts the other unpaid tickets **of the same holder** on the booking, and
+`groupPass` says whether the booking's group pass covers them. A ticket paid on
+an earlier night reads `paid: true` and admits normally ("Paid at the door
+earlier"); a card ticket reads `payment: null`.
+
+The steward's button reads "Payment taken: {amount} — admit" and sends
+`payment: { amountCents }`. The amount must equal what the ticket owes (422
+`PAYMENT_AMOUNT_MISMATCH` otherwise; no partial payments, tips or change);
+without it the confirmation is refused 409 `PAYMENT_DUE`, audited as a refused
+admission. With it, one transaction writes the `VenuePayment` (`via`
+`DOOR_TICKET`, the door's authority and role, the night, the gate), points the
+ticket at it with a conditional update (409 `PAYMENT_NOT_RECORDED` if it moved),
+and admits. The result says "Payment recorded: {amount}". A confirmation
+retried after a lost answer finds the ticket admitted and records nothing twice:
+the ticket's payment, once set, never changes. If the server gives no answer the
+steward is told to keep the money in hand and press "Retry: payment taken
+{amount} — admit", which sends the same request.
+
+### The group pass
+
+Each line reads "Pay {amount} at the door" or "Paid at the door earlier"; a
+"Payment to take" box totals the ticked tickets and the button includes it.
+The confirmation sends `paymentCents`, which must equal the named tickets'
+unpaid shares; one `VenuePayment` (`via` `DOOR_GROUP`) pays exactly those, and
+each is admitted. Paying for a ticket that is not being let in is not possible.
+The group pass covers only the buyer's own tickets: a ticket passed on leaves
+the group, the preview counts it in `handedOnUnpaidTickets`, and its new holder
+pays at the single-ticket door.
+
+### Passed-on tickets
+
+A ticket that owes a payment can be passed on (the owner's answer to question
+7). What is due goes with it — a successor owes exactly what its predecessor
+owed (`desi_ticket_venue_due_guard`) — and the door shows the amount for the
+ticket presented, whoever holds it. Money paid at the door by a new holder is
+theirs: notices about a cancelled event or night tell each holder about their
+own payment.
+
+### Cancelled unpaid tickets
+
+A ticket cancelled because it was not paid for (ADR 0017 §5) is refused
+`UNPAID_CANCELLED` — "This ticket was cancelled because it was not paid for." —
+when it is looked up by its printed code, or when its pass was previewed before
+the cancellation and is then confirmed; the screen's heading reads "Cancelled —
+not paid". A fresh scan of its old pass answers "No ticket with that pass.", as
+for every withdrawn ticket, because its credential was cleared. The database
+refuses its admission and refuses a payment for it anyway.
+
+### No undo
+
+Recording a payment cannot be undone, as letting a ticket in cannot. The
+organiser's "Payments at the venue" page lists every payment taken — when,
+which night, who took it, which booking and tickets, how much, single or group —
+and is what they reconcile their takings against. The site records the amount,
+not how it was paid; screens say "payment taken", never "cash".
+
+### What the database holds
+
+- `desi_check_in_ticket_admissible` refuses an admission of a ticket that owes
+  something and has no payment (`check_in_payment_due`), beside its per-night
+  rules.
+- `desi_ticket_venue_payment_guard`: a ticket's payment is set once, to a
+  payment of its own order, only while it owes something.
+- `desi_venue_payment_sum` (deferred) and, from the ticket side,
+  `desi_ticket_venue_payment_sum` and `…_on_delete`: at every commit a payment's
+  tickets number its `ticketCount` and their dues sum to its `amountCents`.
+- `desi_venue_payment_append_only`: a payment is never edited or deleted.
+- `desi_ticket_venue_cancellation_guard`: a ticket is cancelled unpaid only by a
+  cancellation of its own order, while it owes something, unpaid and never let
+  in, in the same change that withdraws it.
+
+### The lock order, corrected
+
+The confirmation's locks, single and group, are now taken in this order before
+anything is decided: the door's night `FOR KEY SHARE` (when the event has
+nights) → the order `FOR SHARE` → (group) the pass `FOR SHARE` → the ticket's
+order line(s) `FOR KEY SHARE` → the ticket(s) `FOR UPDATE` → membership and
+scope `FOR SHARE`. This replaces "the confirmation locks the ticket row first"
+under "Locks, in one order everywhere" above. The night and the order come
+first because a refund, a night's cancellation or a deletion that holds either
+must never wait on a door that holds the ticket and waits for them. The line
+comes before the ticket because a door that records a payment updates the
+ticket twice, and the second update re-checks its foreign keys, taking
+`KEY SHARE` on the line; a transfer acceptance locks the line before the ticket,
+so taken after the ticket the two deadlocked (race test 14). Two stewards both
+hold the order `FOR SHARE` and take turns on the ticket: one records and
+admits, the other is told the ticket is already in. The whole law, every path's
+place in it and the reasons are in ADR 0017 §9.

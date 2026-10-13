@@ -98,7 +98,7 @@ than a confusing failure an hour later.
 | `JWT_EXPIRES_IN`                                                                                       | `7d`                                | Token lifetime, as `30m`, `12h` or `7d`                                                                                                                                                              |
 | `CORS_ORIGIN`                                                                                          | `*`                                 | `*` for any origin, or a comma-separated allow-list                                                                                                                                                  |
 | `PLATFORM_FEE_BPS`                                                                                     | `590`                               | Platform fee in basis points; 590 = 5.90% of the discounted subtotal                                                                                                                                 |
-| `PLATFORM_FEE_FLAT_CENTS`                                                                              | `99`                                | Flat fee per ticket, in integer cents                                                                                                                                                                |
+| `PLATFORM_FEE_FLAT_CENTS`                                                                              | `99`                                | Flat fee per ticket, in integer cents, for INR orders only: every other currency takes the currency table (99 cents for USD), whatever this says. An event's own booking fee replaces both           |
 | `TICKET_HOLD_TTL_SECONDS`                                                                              | `600`                               | How long a checkout hold reserves inventory                                                                                                                                                          |
 | `DELIVERY_MODE`                                                                                        | `MANUAL`                            | How single-use codes reach people: `MANUAL` shows each once to whoever issued it; `EMAIL` sends it through `SMTP_HOST` (see "Emailing codes locally")                                                |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_TLS`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | port `587`, `SMTP_REQUIRE_TLS=true` | The mail server for `EMAIL` delivery. `SMTP_FROM` is required with it; user and password go together or not at all; production refuses a server that is neither `SMTP_SECURE` nor `SMTP_REQUIRE_TLS` |
@@ -251,7 +251,7 @@ It produces the USA garba catalogue the site's sample data shows: 26 users
 (a super administrator, a platform administrator and a moderator among them),
 11 organisations (one waiting in the verification queue), 11 venues, 24 events
 (21 across every public lifecycle state, 2 drafts and 1 deleted; 1 online), 39
-ticket types and 13 orders in USD at the demo's 0% US tax, plus 10 sessions (the
+ticket types and 17 orders in USD at the demo's 0% US tax, plus 10 sessions (the
 nine nights of the season pass and the live-band evening), a published 24-seat
 balcony plan sold through a reserved tier, holds, promo codes, waitlist entries
 and audit logs. Every name, address and email is invented, on `.example`
@@ -295,10 +295,62 @@ asked to set up two-step sign-in the first time it signs in.
 - **No imported events**: run `pnpm import:events` after seeding (README,
   "Importing the Sulekha events").
 
+**What else it seeds for booking fees, referral codes and paying at the venue
+(2026-10-13, ADRs 0016 and 0017):**
+
+- **An event with its own booking fee.** "Navratri Night One: Garba Under the
+  Lights" (Mirrorwork Events) charges 3.00% + $1.49 a ticket, set two days
+  before the seed by the platform administrator with the reason "Demo: this
+  event’s own booking fee". Its older order keeps the site default it was
+  placed with; the newer one, DE-US-200014, was priced with the event's fee and
+  had it waived by a referral code.
+- **Two referral codes**, made by the platform administrator: "Demo: every
+  event, 100 uses" (every event, up to 100 uses, used twice) and "Demo:
+  Navratri Night One only" (that event only, stopping 60 days after the first
+  seed). Their texts are drawn when the rows are first written, never written in
+  this repository and never printed: sign in as
+  `platform-admin@desi-event.example` and read them at `/admin/referral-codes`.
+  A code's maker cannot use it, so try one as `aarav.shah@mail.example`.
+- **Paying at the venue, on two events,** with a limit of 50 and the reason
+  "Demo: paying at the door":
+  - "Dandiya Raas with a Live Dhol Ensemble" (Chaniya Collective, Houston), on sale:
+    Aarav Shah's two bookings to pay at the door, DE-US-200016 (two tickets, its
+    booking fee paid online) and DE-US-200017 (one ticket, its booking fee
+    waived by the all-events code, so nothing was paid online). Every ticket
+    still owes $30.00 at the door, so the organiser's "Payments at the venue"
+    page and the administrators' "Bookings waiting to be paid at the door" list
+    them, and "Cancel unpaid tickets" works on them.
+  - "Garba Warm-Up Night" (Peachtree Raas Club), which has happened:
+    Diya Patel's booking DE-US-200015, three tickets at $15.00. One was paid for
+    at the door and let in by the club's owner during the night (a
+    `VenuePayment` with its admission), one was cancelled unpaid by the
+    platform administrator once the doors had opened, with the reason "Demo: not
+    paid before the doors opened" (its place freed, $1.87 of the booking fee
+    kept), and one was never paid: its holder did not come.
+- **Their history:** the fee decision, both switches, both codes, the payment
+  and the cancellation each have their audit row.
+
+**Trying it.** Sign in as `aarav.shah@mail.example` and book the Houston
+dandiya night with "Pay at the venue": the checkout shows the booking fee paid
+now and the ticket price at the door; type a referral code from
+`/admin/referral-codes` into "Referral code (optional)" to see the booking fee waived. As
+`anjali.desai@chaniya.example` (Chaniya's owner) open the event's "Payments at
+the venue" page to see the bookings and cancel unpaid tickets; the door
+(`/organizer/check-in`) takes the payment and lets the ticket in. As the
+platform administrator, the event's page under `/admin/events` has its "Booking
+fee and payment" section, and `/admin/fee-refunds` refunds a booking fee by
+hand. Refunding a **seeded** order — its booking fee by hand included —
+answers that the refund failed, because its payment was never made through the
+API process's in-memory provider; place an order on the site first and refund
+that one.
+
 A re-seed leaves three things as it finds them: a deleted event (seeded, or
 deleted by you since) with everything under it; the invitation and the picture,
 which are created once; and any day the traffic roll-up has written real totals
-for.
+for. The booking-fee decision, the pay-at-the-venue switches, the referral codes,
+the payment taken at the door and the cancelled unpaid ticket are made once and
+then left as they are: a fee or switch you change afterwards stays yours, and a
+code's text is never drawn again.
 
 The seed only adds and updates rows. A database seeded by an older version
 keeps that version's rows beside the new ones until `pnpm db:reset`.

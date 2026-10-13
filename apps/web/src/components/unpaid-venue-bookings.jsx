@@ -32,10 +32,8 @@ import { useId, useRef, useState } from 'react'
 import { CancelUnpaidTicketsDialog, cancellationOutcome } from './cancel-unpaid-tickets-dialog.jsx'
 import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Button } from './ui.jsx'
+import { formatDateIn } from '../lib/format.js'
 import { formatAmount } from '../lib/pricing.js'
-
-/** Dates are written in UTC, the way the admin lists write them. */
-const DATE = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
 
 /** The stacked-table classes: cards below `sm`, a table from `sm` up. */
 const STACKED = Object.freeze({
@@ -49,17 +47,15 @@ const STACKED = Object.freeze({
 })
 
 /**
- * A booking's placing date, in words.
+ * A booking's placing date, in words: the day it was in the event's zone, as
+ * the event keeps time (the buyer pages write the event's times the same way).
  *
  * @param {string|null|undefined} value An ISO timestamp.
+ * @param {string} timeZone The event's IANA zone.
  * @returns {string} "Oct 12, 2026", or an empty string.
  */
-function placedWords(value) {
-  if (!value) return ''
-
-  const at = new Date(value)
-
-  return Number.isNaN(at.getTime()) ? '' : DATE.format(at)
+function placedWords(value, timeZone) {
+  return formatDateIn(value, timeZone) ?? ''
 }
 
 /**
@@ -82,6 +78,7 @@ export function cancelButtonName(reference) {
  * @property {string} [heading] The section's heading.
  * @property {string} [empty] What an empty list says.
  * @property {string|null} [note] A note under the list.
+ * @property {string} [timeZone] The event's IANA zone, which dates and times are written in; UTC (named) when unknown.
  */
 
 /**
@@ -99,6 +96,7 @@ export function UnpaidVenueBookings({
   heading = 'Bookings with unpaid tickets',
   empty = 'No bookings are waiting to be paid at the door.',
   note = null,
+  timeZone = 'UTC',
 }) {
   const router = useRouter()
   const id = useId()
@@ -116,7 +114,7 @@ export function UnpaidVenueBookings({
    */
   function cancelled(result) {
     setOpen(null)
-    setAnnouncement(cancellationOutcome(result))
+    setAnnouncement(cancellationOutcome(result, timeZone))
     focusAfterRender(headingRef)
     router.refresh()
   }
@@ -181,7 +179,7 @@ export function UnpaidVenueBookings({
               <p className="min-w-0 text-sm break-words text-ink">
                 {[
                   `Booking ${booking.orderReference}`,
-                  booking.placedAt ? `placed ${placedWords(booking.placedAt)}` : null,
+                  booking.placedAt ? `placed ${placedWords(booking.placedAt, timeZone)}` : null,
                   `${booking.unpaidTickets} unpaid (${formatAmount(booking.unpaidCents, currency)})`,
                 ]
                   .filter(Boolean)

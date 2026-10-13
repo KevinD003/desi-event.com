@@ -292,14 +292,7 @@ export function registerPlatformFeeRoutes(app, { prisma, providers, feeRefundLim
 
       return {
         data: {
-          refund:
-            fresh.paymentMethod === 'AT_VENUE'
-              ? {
-                  ...toRefund(row),
-                  paymentMethod: 'AT_VENUE',
-                  paidAtDoorCents: doorCents._sum?.amountCents ?? 0,
-                }
-              : toRefund(row),
+          refund: toRefund(row, { paidAtDoorCents: doorCents._sum?.amountCents ?? 0 }),
           fee: await feeFigures(prisma, fresh),
         },
       }

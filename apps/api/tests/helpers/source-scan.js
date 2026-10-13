@@ -987,6 +987,59 @@ export function rawWrites(code) {
 }
 
 /**
+ * Every raw SQL call in a file: `$queryRaw`, `$executeRaw` and their `Unsafe`
+ * twins, on any client.
+ *
+ * A tagged call (`` tx.$queryRaw`SELECT …` ``) binds every `${…}` as a
+ * parameter; a call with brackets (`$queryRaw(Prisma.sql`…`)`, or an
+ * `Unsafe` one with a string) is reported with `tagged: false` and its
+ * argument text, so a rule can tell the two apart. `text` is the template's
+ * text, quotes included, or the bracketed argument.
+ *
+ * @param {string} code The text, comments blanked.
+ * @returns {Array<{method: string, unsafe: boolean, tagged: boolean, line: number, text: string}>} The calls, in source order.
+ */
+export function rawCalls(code) {
+  /** @type {Array<{method: string, unsafe: boolean, tagged: boolean, line: number, text: string}>} */
+  const calls = []
+
+  for (const match of code.matchAll(/\$(queryRaw|executeRaw)(Unsafe)?\b/gu)) {
+    let at = match.index + match[0].length
+
+    while (at < code.length && /\s/u.test(code[at])) at += 1
+
+    const tagged = code[at] === '`'
+    const end = tagged ? skipString(code, at) : code[at] === '(' ? balancedEnd(code, at) + 1 : at
+
+    calls.push({
+      method: match[1],
+      unsafe: Boolean(match[2]),
+      tagged,
+      line: lineOf(code, match.index),
+      text: code.slice(at, end),
+    })
+  }
+
+  return calls
+}
+
+/** A row lock in a raw statement: the table, and how strongly it is held. */
+const ROW_LOCK = /\bFROM\s+"(\w+)"[\s\S]*?\bFOR\s+(NO\s+KEY\s+UPDATE|KEY\s+SHARE|UPDATE|SHARE)\b/u
+
+/**
+ * The row lock a raw statement takes, if it takes one: `SELECT … FROM
+ * "<Table>" … FOR UPDATE | NO KEY UPDATE | SHARE | KEY SHARE`.
+ *
+ * @param {string} statement A raw call's text.
+ * @returns {{table: string, strength: string}|null} The lock, or null for none.
+ */
+export function rowLockOf(statement) {
+  const match = ROW_LOCK.exec(statement)
+
+  return match ? { table: match[1], strength: match[2].replace(/\s+/gu, ' ') } : null
+}
+
+/**
  * Every `defineRoute(app, '<id>', …)` registration in a file, with the text of
  * its options (handler included).
  *

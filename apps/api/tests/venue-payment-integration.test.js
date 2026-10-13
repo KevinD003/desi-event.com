@@ -1231,6 +1231,56 @@ when()('the door and the money after the order (SPEC3 §14.3)', () => {
     for (const ticket of tickets) expect((await ticketRow(ticket.id)).status).toBe('CHECKED_IN')
   })
 
+  it('9b. a booking-fee refund withdraws no ticket and returns no place, and its Refund row and answer say so', async () => {
+    // Thirty days out, so a refund that did withdraw tickets would resell
+    // their places: the old record said `ticketsRevoked` and
+    // `inventoryReturned` true for a refund that touched neither.
+    const world = await venueWorld('feeonlyflags')
+    const { order, tickets } = await booking(world, { quantity: 2 })
+    const headers = await headersFor(administrator)
+    const preview = await app.inject({
+      method: 'GET',
+      url: `/v1/platform/orders/${order.reference}/fee`,
+      headers,
+    })
+
+    expect(preview.statusCode, preview.body).toBe(200)
+
+    const refunded = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/orders/${order.reference}/fee-refund`,
+      headers,
+      payload: {
+        reason: REASON,
+        expectedRefundableCents:
+          preview.json().data.refundableFeeCents + preview.json().data.taxOnFeeCents,
+      },
+    })
+
+    expect(refunded.statusCode, refunded.body).toBe(200)
+
+    const answered = refunded.json().data.refund
+
+    expect(answered).toMatchObject({
+      status: 'SUCCEEDED',
+      ticketsRevoked: false,
+      inventoryReturned: false,
+    })
+    expect(await prisma.refund.findUnique({ where: { id: answered.id } })).toMatchObject({
+      status: 'SUCCEEDED',
+      ticketsRevoked: false,
+      inventoryReturned: false,
+    })
+
+    // What the record says is what happened: every ticket stands, still owing
+    // its price at the door, and the order is still the buyer's booking.
+    for (const ticket of tickets) {
+      expect(await ticketRow(ticket.id)).toMatchObject({ status: 'VALID', venuePaymentId: null })
+    }
+
+    expect((await prisma.order.findUnique({ where: { id: order.id } })).status).toBe('PAID')
+  })
+
   it('10. a dispute of a pay-at-the-venue booking fee is held from the booking-fee revenue: the organiser’s payable and balance do not move', async () => {
     const world = await venueWorld('dispute')
     const { order, payment } = await booking(world)
@@ -1352,6 +1402,13 @@ when()('the door and the money after the order (SPEC3 §14.3)', () => {
 
     for (const ticket of tickets) expect((await ticketRow(ticket.id)).status).toBe('REFUNDED')
 
+    // The whole form still records what it did: tickets withdrawn, and their
+    // places returned (thirty days out, they resell).
+    expect(await prisma.refund.findUnique({ where: { id: row.id } })).toMatchObject({
+      status: 'SUCCEEDED',
+      ticketsRevoked: true,
+      inventoryReturned: true,
+    })
     expect(await prisma.order.findUnique({ where: { id: order.id } })).toMatchObject({
       status: 'REFUNDED',
       refundedCents: order.totalCents,

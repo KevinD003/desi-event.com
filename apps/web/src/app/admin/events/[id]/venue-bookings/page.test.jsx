@@ -151,6 +151,24 @@ describe('the list', () => {
   })
 })
 
+describe('the dates, as the event keeps time', () => {
+  it('says the day each booking was placed in the event’s zone, which the list names', async () => {
+    const [row] = list().bookings
+
+    api.getVenueBookings.mockResolvedValue({
+      ...list([{ ...row, placedAt: '2026-10-10T03:00:00.000Z' }]),
+      timezone: 'America/Chicago',
+    })
+
+    await renderPage()
+
+    // 03:00 UTC on 10 October is the evening of 9 October in Chicago.
+    expect(
+      screen.getByText('Booking DE-7Q2K9P · placed Oct 9, 2026 · 1 unpaid ($40.00)'),
+    ).toBeInTheDocument()
+  })
+})
+
 describe('who may read it', () => {
   it('offers the second factor in place when the read asks for one', async () => {
     api.getVenueBookings.mockRejectedValue(

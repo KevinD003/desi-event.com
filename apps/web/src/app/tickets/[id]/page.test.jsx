@@ -263,6 +263,23 @@ describe('what changed since the ticket was bought', () => {
   })
 })
 
+describe('a withdrawn ticket', () => {
+  it('says under "Where it stands" that it no longer works at the door, in the wallet’s words', async () => {
+    getTicket.mockResolvedValue(
+      detail({ ticket: { ...detail().ticket, status: 'CANCELLED' }, onlineJoinUrl: null }),
+    )
+
+    await renderPage()
+
+    const section = screen.getByRole('region', { name: 'Where it stands' })
+
+    expect(section).toHaveTextContent(
+      'Does not admit. Withdrawn — this ticket no longer works at the door.',
+    )
+    expect(section).not.toHaveTextContent('Cancelled. It admits nobody.')
+  })
+})
+
 describe('a ticket booked to pay at the door (SPEC3-XI §12.7)', () => {
   /**
    * What a ticket owing $40.00 at the door carries, with fields changed.

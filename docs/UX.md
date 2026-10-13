@@ -775,3 +775,119 @@ every dialog, an error summary with links, targets at least 44 px, polite live
 regions, and focus returned to the opener. Their component tests check this;
 the browser accessibility sweep cases for these screens belong to the end-to-end
 stage that follows this documentation, and were not run when it was written.
+
+## Booking fees, referral codes and paying at the venue — 2026-10-09
+
+ADRs 0016 and 0017. What each screen says, and the rules behind it.
+
+### Checkout
+
+- **The choice.** When an event takes payment at the venue, the checkout offers
+  "Pay by card now" and "Pay at the venue". Choosing the venue explains what is
+  paid now (the booking fee, simulated, or nothing when a referral code removed
+  it) and what at the door (the ticket price). Signing in is required for it.
+- **The button says what happens:** "Pay {total} (simulated)", "Pay booking fee
+  {fee} (simulated)", or "Book now — pay {amount} at the door" when nothing is
+  paid online.
+- **Referral code.** A "Referral code" field, separate from the promo code box,
+  with "Apply referral code" and "Remove referral code". The code is never
+  echoed back; a refusal is one sentence for every reason, and after too many
+  wrong codes "Too many referral codes were tried. Wait a few minutes, then try
+  again." keeps the last good figures. A code that stops applying between the
+  quote and the order brings the fee back and asks the buyer to check the new
+  total before paying.
+- **The summary** names the booking fee as "Booking fee", adds "Booking fee
+  waived (referral code)" when a code removed it, and keeps the tax line
+  honest: $0.00 for an event in the United States, and no tax at all on tickets
+  paid at the venue. The venue choice's hint says "No {tax} is added to tickets
+  paid at the venue.", that the organiser or Desi-Event can cancel a ticket not
+  paid for, keeping its booking fee, and that whoever holds a passed-on ticket
+  pays at the door.
+
+### What buyers read afterwards
+
+- **The order page** derives its words from the tickets: booked and to pay at
+  the door, paid at the door, passed on ("Passed on — the new holder pays at the
+  door", and per row "Passed on — its new holder pays {amount} at the door"
+  from the API's own figure), cancelled ("Cancelled — not paid at the door",
+  with who cancelled, the reason, and the booking fee kept or "Nothing was paid
+  online"). The tax row is named for the place — "Sales tax" (US), "GST"
+  (India), "HST" (Ontario) — and says "No {tax} is added to tickets paid at the
+  venue."; "Tax" stays only where the order does not say where the event is.
+- **The wallet and the ticket page** show "Pay at the door: {amount}" on a
+  ticket that owes, and "Withdrawn — this ticket no longer works at the door"
+  on a withdrawn one, never the raw word "CANCELLED". A holder who paid at the
+  door for a passed-on ticket is told on its page that the money is with the
+  organiser.
+- **Passing a ticket on** tells the sender before sending that the new holder
+  pays the door price; the one-time code panel says "Tell them: whoever holds
+  this ticket pays {amount} at the door."; the receiver is told again after
+  accepting.
+
+### The door
+
+The payment card says how much to take for the ticket presented, and the
+button "Payment taken: {amount} — admit" records it and lets the ticket in in
+one step; the result says "Payment recorded: {amount}", and only when the
+lookup said the ticket owed. Group passes total the ticked tickets in "Payment
+to take". A ticket cancelled unpaid shows "Cancelled — not paid".
+`docs/CHECK_IN.md`, "Paying at the door — 2026-10-09", has the rest. The door's
+"Recent" list shows the times of lookups made on that device during the visit,
+in the device's own time zone; it is never saved, and the stewards are at the
+venue.
+
+### Organisers
+
+- **"Booking fee and payment"** on the organiser's event page shows the event's
+  booking fee and whether it can be paid at the venue, with the history of
+  changes, the administrator's name and reason. Read-only.
+- **"Payments at the venue"** (`/organizer/events/[id]/venue-payments`,
+  `finance:view`, a second factor within fifteen minutes): payments taken at
+  the door, bookings still unpaid with "Cancel unpaid tickets in booking
+  {reference}" for owners and administrators, cancellations, and after the event
+  "Not paid by the end of the event".
+- **The cancel dialog** pre-selects every unpaid ticket with a native tri-state
+  "Select all {n} unpaid tickets", says what is kept (the booking fee paid
+  online for them, or nothing when none was paid), asks for a reason shown to
+  the buyer and holders, and after cancelling says whether the freed places are
+  on sale again (all, some or none), telling an organiser whose event is paused
+  or sold out to open sales on the event page to sell them.
+- **Times are in the event's time zone**, labelled: "Oct 11, 2026, 2:00 PM
+  CDT". The payments page, the booking-fee panel, the unpaid-bookings list, the
+  cancel dialog, the administrators' bookings page and the lifecycle panel's
+  history all use it.
+
+### Administrators
+
+- **The event's "Booking fee and payment" section** on `/admin/events/[id]`
+  opens with "Buyers pay a booking fee (the platform fee) on every ticket. It is
+  Desi-Event's money, not the organiser's." Setting the fee or the switch takes
+  a reason and a second factor; "This event has no booking fee." when both
+  numbers are 0.
+- **Referral codes** (`/admin/referral-codes`): "Make referral code" with a typed
+  code or "Generate a code for me", each code shown once after making it with
+  "Copy code"; the list stacks into cards at narrow widths, finds a code only
+  among the rows on the page, and shows uses placed, given back and now.
+  Editing keeps a chosen-events scope as it is when the answer named fewer
+  events than the code holds. **The expiry is typed and shown in UTC**,
+  labelled "Expires (optional, UTC)", with a hint saying how far UTC is from New
+  York, as every other administrator screen writes times in UTC.
+- **"Booking fee refunds"** (`/admin/fee-refunds`): "Find order" by reference,
+  then "Refund {amount} booking fee (simulated)". A refund whose provider has
+  not answered links to its refund page only for accounts that hold
+  `finance:view`; others read "The booking fee refund has not settled".
+- **"Bookings waiting to be paid at the door"** (`/admin/events/[id]/venue-bookings`):
+  any event's unpaid bookings, with no buyer or attendee names, and the same
+  cancel dialog.
+
+### "Busy, try again"
+
+A refusal is read as "busy, try again" only when the API answers 503
+`SERVICE_UNAVAILABLE` with `Retry-After` — the answer every bounded wait gives
+(setting the fee, setting pay-at-the-venue, cancelling unpaid tickets, refunding
+a fee). SPEC3 §12.3 and SPEC3-XI XU10 name that refusal `TRY_AGAIN`; the built
+API sends `SERVICE_UNAVAILABLE`, and this document records the built name.
+`TRY_AGAIN` remains for two answers only: a 503 from making a referral code
+after five generated codes in a row were taken, which the form shows with the
+API's sentence, and a 409 from a retryable database conflict, which reads as a
+conflict.

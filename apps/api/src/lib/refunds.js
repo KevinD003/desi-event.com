@@ -2401,6 +2401,11 @@ export async function settleRefund(tx, params) {
 
   const policy = seatPolicyFor({ eventStartsAt, now, override: seatPolicy })
 
+  // The booking fee refunded on its own (SPEC3 §10.2) withdraws no ticket and
+  // returns no place, so its record says neither; every other form records
+  // what settling it does to the tickets, as before.
+  const feeOnly = refund.allocation?.form === FORMS.FEE
+
   // The order's night first, `FOR KEY SHARE` (SPEC3-XI §2.1: nights before
   // orders). This settlement writes the order more than once (its counters,
   // then REFUNDED, then the referral marker), and PostgreSQL checks a row's
@@ -2418,8 +2423,8 @@ export async function settleRefund(tx, params) {
       providerRefundId: result.providerRefundId,
       rawProviderStatus: result.rawStatus,
       settledAt: now,
-      ticketsRevoked: true,
-      inventoryReturned: policy === SEAT_POLICIES.RESELL,
+      ticketsRevoked: !feeOnly,
+      inventoryReturned: !feeOnly && policy === SEAT_POLICIES.RESELL,
     },
   })
 
@@ -2456,7 +2461,6 @@ export async function settleRefund(tx, params) {
   // "In full" counts the booking fee Desi-Event kept when unpaid tickets were
   // cancelled (SPEC3-XI §10.2): it is never refunded, so an order whose every
   // other cent went back is refunded as far as it ever will be.
-  const feeOnly = refund.allocation?.form === FORMS.FEE
   const refundedInFull = after.refundedCents + (after.venueFeeKeptCents ?? 0) >= after.totalCents
 
   if (!feeOnly && refundedInFull && after.status !== 'REFUNDED') {
