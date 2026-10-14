@@ -425,3 +425,35 @@ cancelled tickets had been passed on to other people, the buyer was told they
 no longer owe those tickets' price too; the buyer is now told only what they
 no longer owe for their own tickets, and the ones they passed on are named
 apart (their holders are told separately, as before).
+
+### The final gate and CI
+
+The review fixes were committed as `226d75a`. GitHub's CI ran on that exact
+commit (run 79) and every job passed: the verify job (policy, lint, contract,
+every test suite, the build) and all seven browser suites, among them the
+journeys for booking fees, referral codes and paying at the venue.
+
+The full local gate ran on `226d75a` on 13 October 2026, from 23:17 to 23:47
+UTC, on a clean tree:
+
+- the coverage step ran 13,901 test cases across 16 packages, none failed and
+  none was skipped (3,906 in the API, 4,525 in the web app);
+- coverage held every threshold: the API 93.32% of statements, 83.99% of
+  branches, 97.51% of functions and 95.45% of lines, against 80, 75, 80 and 80;
+  the web app 87.78%, 81.66%, 81.55% and 88.62%;
+- the database checks: 348 of 348 on a fresh database and 98 of 98 on one
+  upgraded from the previous release;
+- the contract, the OpenAPI document, the build manifest, the browser bundle
+  scan, the dependency audit ("No known vulnerabilities found"), the payment
+  kill switch, and the reliability smoke and the whole reliability suite.
+
+One step did not pass: `pnpm verify`, which runs every package's suite at once,
+failed three API tests while the machine was heavily slowed down (neighbouring
+tests ran 10 to 30 times slower than in the coverage step minutes later). Two
+were one real defect: a team invitation that waited past five seconds answered
+an error (500) instead of "busy, try again", because the database library
+handed back nothing instead of saying its time had run out. That is fixed in
+`fbe2b9d`: team invitations and new codes for them now wait a bounded time and
+answer 503 with nothing issued, and a test holds the organisation past five
+seconds to prove it. The third was a test's own transaction starved of time,
+with no defect behind it.
