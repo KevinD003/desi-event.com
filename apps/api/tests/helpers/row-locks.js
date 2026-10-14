@@ -20,9 +20,12 @@
  * `FOR KEY SHARE`, order `FOR SHARE`, ticket `FOR UPDATE`). `Order`,
  * `OrderItem`, `TicketType` and `ReferralCode` are for SPEC3-XI's: cancelling
  * unpaid tickets (order, then lines, then tiers) and the referral returns,
- * whose codes are every transaction's last locks.
+ * whose codes are every transaction's last locks. `Organization` is for a row
+ * that refers to one: its insert waits on the organisation's row (the foreign
+ * key's `FOR KEY SHARE`) while another transaction holds it for update.
  */
 export const TABLES = new Set([
+  'Organization',
   'Membership',
   'Invitation',
   'Order',

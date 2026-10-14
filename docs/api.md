@@ -192,7 +192,9 @@ Orders).
 A command that waits behind another change to the same event (deleting it,
 cancelling a night, restoring it, opening or closing a sitting, the website
 link, a picture's decision, an import's listing or approval, the refund
-driver's passes) runs in a transaction with a budget and bounded waits
+driver's passes), and a team invitation or a new code for one, which waits
+behind another change to its organisation or its address, runs in a
+transaction with a budget and bounded waits
 (`apps/api/src/lib/transaction-budget.js`): no lock is waited for longer than
 15 seconds and no statement outlives the budget. One that runs out is rolled
 back whole and answered `503 SERVICE_UNAVAILABLE` with `Retry-After: 5` and a

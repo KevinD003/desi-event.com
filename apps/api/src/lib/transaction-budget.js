@@ -22,6 +22,14 @@
  * cancellation queued behind a deletion, under load, answered 500 after
  * thirteen seconds (`P2028` at its first write after the wait).
  *
+ * Worse, an operation Prisma runs as more than one statement — a `create`
+ * with an `include`, which inserts and then reads the row back — does not
+ * fail when the timeout passes while its insert waits: once the insert is
+ * let through, the read-back finds the transaction already gone and the
+ * operation resolves to `null`. The caller then fails on that null (a team
+ * invitation read `created.id` and answered 500 "Cannot read properties of
+ * null") before any statement could say `P2028`.
+ *
  * ## What it does
  *
  * - **A bounded wait.** Every such transaction first sets `lock_timeout` for
@@ -39,8 +47,10 @@
  *   that reserves a refund per paid order, that much per order: the figures
  *   `event-cancellation.js` measured for a cancellation (`CANCELLATION_BUDGET`).
  * - **A precise 503.** One that runs out anyway — past its budget (`P2028`),
- *   past its lock wait (`55P03`), a statement past the budget (`57014`), or
- *   unable to start (`P2028` from `maxWait`) — was rolled back whole. Its caller is told so, as a 503 with the code the
+ *   past its lock wait (`55P03`), a statement past the budget (`57014`),
+ *   unable to start (`P2028` from `maxWait`), or failing on what an operation
+ *   that outlived the budget handed back (asked of the transaction itself,
+ *   which answers `P2028` once it has expired) — was rolled back whole. Its caller is told so, as a 503 with the code the
  *   contract documents for one (`SERVICE_UNAVAILABLE`, `API_ERRORS.unavailable`),
  *   a sentence saying what was not done, and `Retry-After`; never as a 500
  *   carrying the driver's message.
@@ -56,7 +66,12 @@
  * @module @desi-event/api/lib/transaction-budget
  */
 
-import { OUT_OF_TIME_RETRY_AFTER_SECONDS, exposedServerError, isOutOfTime } from './errors.js'
+import {
+  OUT_OF_TIME_RETRY_AFTER_SECONDS,
+  databaseErrorCode,
+  exposedServerError,
+  isOutOfTime,
+} from './errors.js'
 import { CANCELLATION_BUDGET } from './event-cancellation.js'
 
 /**
@@ -74,7 +89,8 @@ export const CONNECTION_WAIT_MS = CANCELLATION_BUDGET.maxWaitMs
  * The work of each kind of transaction, on top of {@link LOCK_WAIT_MS}.
  *
  * - `ROW`: a row or two and an audit row (a restore, a sitting, the website
- *   link, a picture's decision, one imported listing): Prisma's own default.
+ *   link, a picture's decision, one imported listing, a team invitation or a
+ *   new code for one): Prisma's own default.
  * - `PICTURE`: the same, with a picture's bytes written in it.
  * - `ORDERS`: a command that reserves a refund for every paid order, under
  *   each order's lock (a deletion, a night's cancellation): the
@@ -193,11 +209,45 @@ export async function budgetedTransaction(prisma, { budget, orders = 0, refusal 
     return await prisma.$transaction(async (tx) => {
       await boundLockWait(tx, { statementMs: options.timeout })
 
-      return work(tx)
+      try {
+        return await work(tx)
+      } catch (error) {
+        throw await explainedFailure(tx, error)
+      }
     }, options)
   } catch (error) {
     throw outOfTimeRefusal(error, refusal)
   }
+}
+
+/**
+ * What a failure inside a budgeted transaction was: itself, or the
+ * transaction having run out of time underneath it.
+ *
+ * An error the code raised for itself — a `TypeError` on a `null` that Prisma
+ * handed back from an operation that outlived the budget (see the module
+ * note) — is not a database error and says nothing about the time. The
+ * transaction is asked: one that has expired refuses any statement with
+ * `P2028`, without reaching the database, and that refusal is the failure.
+ * A live one answers, and the error stands. An HTTP refusal and a database
+ * error explain themselves and are not asked about.
+ *
+ * @param {object} tx The transaction client.
+ * @param {unknown} error What the work threw.
+ * @returns {Promise<unknown>} What to throw: the expiry, or the error itself.
+ */
+async function explainedFailure(tx, error) {
+  const raw = /** @type {{statusCode?: unknown}} */ (error)
+
+  if (typeof raw?.statusCode === 'number' || databaseErrorCode(error) !== null) return error
+
+  try {
+    await tx.$queryRaw`SELECT 1`
+  } catch (probe) {
+    if (isOutOfTime(probe)) return probe
+  }
+
+  return error
 }
 
 /**

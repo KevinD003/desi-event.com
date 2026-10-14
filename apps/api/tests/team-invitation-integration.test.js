@@ -406,6 +406,65 @@ describeWhen('an invitation code, in the database', () => {
   })
 })
 
+describeWhen('an invitation issued behind another change to its organisation', () => {
+  it('waits past Prisma’s five seconds, then issues the invitation and the new code, never a 500', async () => {
+    const outstanding = (await invite(`waiting.reissue.${RUN}@${DOMAIN}`)).json().data
+    const email = `waiting.${RUN}@${DOMAIN}`
+    // Each new invitation row refers to the organisation, so its insert waits
+    // for the organisation's row while another transaction holds it.
+    const holder = await holdRow(prisma, 'Organization', world.organization.id)
+    let invited
+    let reissued
+
+    try {
+      const pending = [
+        invite(email),
+        app.inject({
+          method: 'POST',
+          url: `/v1/organizations/${world.organization.id}/invitations/${outstanding.id}/reissue`,
+          headers: world.ownerSession.headers,
+        }),
+      ]
+
+      await untilWaiting(prisma, () => [holder.pid], 2, 'the invitation and the new code')
+
+      // Longer than the five seconds Prisma gives an interactive transaction
+      // by default. On that default, each insert outlived its transaction and
+      // the insert-then-read-back resolved to null: 500 "Cannot read
+      // properties of null (reading 'id')".
+      await new Promise((resolve) => {
+        setTimeout(resolve, 6_000)
+      })
+      holder.release()
+      ;[invited, reissued] = await Promise.all(pending)
+    } finally {
+      holder.release()
+      await holder.done
+    }
+
+    expect(invited.statusCode, invited.body).toBe(201)
+    expect(reissued.statusCode, reissued.body).toBe(201)
+
+    const [fresh] = await pendingTo(email)
+    const [row] = await prisma.$queryRaw`
+      SELECT "tokenHash" FROM "Invitation" WHERE "id" = ${fresh.id}`
+
+    expect(fresh.id).toBe(invited.json().data.id)
+    expect(row.tokenHash).toBe(sha256(invited.json().data.delivery.invitationCode))
+
+    const [old] =
+      await prisma.$queryRaw`SELECT "status" FROM "Invitation" WHERE "id" = ${outstanding.id}`
+    const [replacement] = await prisma.$queryRaw`
+      SELECT "tokenHash", "status" FROM "Invitation" WHERE "id" = ${reissued.json().data.id}`
+
+    expect(old.status).toBe('REVOKED')
+    expect(replacement).toEqual({
+      tokenHash: sha256(reissued.json().data.delivery.invitationCode),
+      status: 'PENDING',
+    })
+  })
+})
+
 describeWhen('posting roles, in the database', () => {
   it('lets the owner invite a finance member, and refuses a posting role with no row written', async () => {
     const finance = await invite(`finance.${RUN}@${DOMAIN}`, 'FINANCE')

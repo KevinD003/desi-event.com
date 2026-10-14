@@ -245,6 +245,78 @@ describe('budgetedTransaction', () => {
     expect(isBudgetRefusal(exposedServerError(503, 'SERVICE_UNAVAILABLE', 'Down.'))).toBe(false)
   })
 
+  it('answers a failure on what an operation that outlived the budget handed back with the same 503', async () => {
+    // Prisma 7 resolves a `create` with an `include` to null when its insert
+    // finished after the transaction's timeout; the work then fails on that
+    // null before any statement could say P2028. The expired transaction says
+    // it when asked.
+    for (const live of [false, true]) {
+      const sent = []
+      const tx = {
+        $queryRaw: async (strings) => {
+          const sql = Array.from(strings).join('?')
+
+          sent.push(sql)
+
+          if (sql === 'SELECT 1' && !live) throw expired()
+
+          return []
+        },
+      }
+      const prisma = { $transaction: async (fn) => fn(tx) }
+      const thrown = await budgetedTransaction(
+        prisma,
+        { budget: TRANSACTION_BUDGETS.ROW, refusal: 'No invitation was issued.' },
+        async () => {
+          const created = null
+
+          return created.id
+        },
+      ).catch((caught) => caught)
+
+      expect(sent).toEqual([bounds(budgetOptions(TRANSACTION_BUDGETS.ROW)).sql, 'SELECT 1'])
+
+      if (live) {
+        // A live transaction: the failure is the code's own, a 500 as before.
+        expect(thrown).toBeInstanceOf(TypeError)
+      } else {
+        expect(thrown).toMatchObject({
+          statusCode: 503,
+          code: 'SERVICE_UNAVAILABLE',
+          message: 'No invitation was issued.',
+          retryAfterSeconds: OUT_OF_TIME_RETRY_AFTER_SECONDS,
+        })
+      }
+    }
+
+    // A refusal or a database error explains itself: nothing is asked.
+    for (const error of [httpError(409, 'CONFLICT', 'Taken.'), lockTimedOut('23505')]) {
+      const sent = []
+      const tx = {
+        $queryRaw: async (strings) => {
+          const sql = Array.from(strings).join('?')
+
+          sent.push(sql)
+
+          // Expired, were it asked: it is not.
+          if (sql === 'SELECT 1') throw expired()
+
+          return []
+        },
+      }
+      const thrown = await budgetedTransaction(
+        { $transaction: async (fn) => fn(tx) },
+        { budget: TRANSACTION_BUDGETS.ROW, refusal: 'Not saved.' },
+        async () => {
+          throw error
+        },
+      ).catch((caught) => caught)
+
+      expect(thrown).toBe(error)
+      expect(sent).toEqual([bounds(budgetOptions(TRANSACTION_BUDGETS.ROW)).sql])
+    }
+  })
+
   it('refuses one imported listing that ran out, for the run to carry on with the rest', () => {
     for (const error of [
       expired(),

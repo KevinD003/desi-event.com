@@ -89,6 +89,7 @@ import {
   hasConfirmedFactor,
 } from '../lib/privilege-change.js'
 import { defineRoute } from '../lib/register.js'
+import { TRANSACTION_BUDGETS, budgetedTransaction } from '../lib/transaction-budget.js'
 import { authRateLimit } from '../plugins/rate-limit.js'
 
 /**
@@ -222,6 +223,26 @@ function isUniqueViolation(error) {
 /** The refusal for two invitations to one address issued at the same moment. */
 const CONCURRENT_INVITATION =
   'Another invitation to that address was issued at the same moment. Reload the team page to see it.'
+
+/**
+ * The budget of issuing a team invitation or a new code for one. Each waits
+ * behind another change: on the address's lock in `EMAIL` mode, on a waiting
+ * invitation to the same address, and on the organisation's and the
+ * inviter's rows its new row refers to. On Prisma's default five seconds, a
+ * wait longer than that answered 500 (see `lib/transaction-budget.js`).
+ */
+const INVITATION_BUDGET = {
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Another change to this organisation or to that address was being saved at the same moment, so no invitation was issued and nothing was sent. Try again in a moment.',
+}
+
+/** The same, for a new code: the old one is withdrawn only with the new one. */
+const REISSUE_BUDGET = {
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Another change to this organisation or to that address was being saved at the same moment, so no new code was issued and the old one still works. Try again in a moment.',
+}
 
 /** The refusal for an organiser invitation code typed where a team code goes. */
 export const WRONG_INVITATION_KIND_SENTENCE =
@@ -550,7 +571,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
       let invitation
 
       try {
-        invitation = await prisma.$transaction(async (tx) => {
+        invitation = await budgetedTransaction(prisma, INVITATION_BUDGET, async (tx) => {
           // In EMAIL mode, one address is sent at most three codes a day, so
           // this form cannot be used to fill a stranger's inbox. Counted here,
           // under a lock on the address, so codes sent to it at the same
@@ -665,7 +686,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
       let invitation
 
       try {
-        invitation = await prisma.$transaction(async (tx) => {
+        invitation = await budgetedTransaction(prisma, REISSUE_BUDGET, async (tx) => {
           // The recipient cap, as for a first invitation: in the transaction
           // that writes the new code, under the address lock.
           if (mode === DELIVERY_MODES.EMAIL) {

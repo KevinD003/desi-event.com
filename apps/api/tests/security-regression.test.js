@@ -4337,13 +4337,14 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
    * The raw statements that neither lock a row nor write one, by file: reads
    * (the facet counts, the ended-order predicate, the venue-booking count,
    * the roll-up's days), the two advisory locks, the transaction budget's
-   * settings and the health checks.
+   * settings and its question to an expired transaction, and the health
+   * checks.
    */
   const RAW_OTHER = {
     'apps/api/src/lib/delivery.js': 1,
     'apps/api/src/lib/facets.js': 4,
     'apps/api/src/lib/referral-uses.js': 1,
-    'apps/api/src/lib/transaction-budget.js': 1,
+    'apps/api/src/lib/transaction-budget.js': 2,
     'apps/api/src/lib/venue-booking-limits.js': 2,
     'apps/api/src/routes/health.js': 1,
     'packages/db/src/index.js': 1,
