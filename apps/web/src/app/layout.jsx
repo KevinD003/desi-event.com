@@ -21,12 +21,12 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://127.0.0.1:3000'
 export const metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'Desi-Event — garba and dandiya nights across the USA, ticketed properly',
-    template: '%s · Desi-Event',
+    default: 'The Desi Events — garba and dandiya nights across the USA, ticketed properly',
+    template: '%s · The Desi Events',
   },
   description:
     'Find Navratri garba and dandiya nights, beginner garba classes and Navratri melas across the USA — Edison, Queens, Houston, Chicago, the Bay Area, Atlanta and more — with every price shown in US dollars with its fee.',
-  applicationName: 'Desi-Event',
+  applicationName: 'The Desi Events',
   keywords: [
     'garba tickets',
     'dandiya night',
@@ -38,15 +38,15 @@ export const metadata = {
   ],
   openGraph: {
     type: 'website',
-    siteName: 'Desi-Event',
+    siteName: 'The Desi Events',
     locale: 'en_US',
-    title: 'Desi-Event — garba and dandiya nights across the USA',
+    title: 'The Desi Events — garba and dandiya nights across the USA',
     description:
       'Nine nights of garba in Edison, dandiya to a live dhol in Houston, a glow night in Santa Clara and a mela in Queens. All in one place, priced in dollars.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Desi-Event',
+    title: 'The Desi Events',
     description: 'Garba and dandiya nights across the USA, ticketed properly.',
   },
   robots: { index: true, follow: true },

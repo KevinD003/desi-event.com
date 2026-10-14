@@ -776,7 +776,7 @@ describe('what changed since the order was placed', () => {
     expect(within(changes).getByText('The event changed')).toBeInTheDocument()
     expect(changes).toHaveTextContent(/The start time: .*Oct 10, 2026.* → .*Oct 17, 2026/)
     expect(changes).toHaveTextContent('Reason given: The garden was booked twice.')
-    expect(changes).toHaveTextContent('Changed by the Desi-Event team.')
+    expect(changes).toHaveTextContent('Changed by the team at The Desi Events.')
     expect(changes).toHaveTextContent('These notices are not emailed.')
   })
 
@@ -989,7 +989,7 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
     expect(screen.getByText('No tax is added to tickets paid at the venue.')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Until a ticket is paid for at the door, the organiser or Desi-Event can cancel it; the booking fee is not refunded if they do.',
+        'Until a ticket is paid for at the door, the organiser or The Desi Events can cancel it; the booking fee is not refunded if they do.',
       ),
     ).toBeInTheDocument()
     expect(container.textContent).not.toContain('Paid — simulated')
@@ -1033,7 +1033,7 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
     expect(screen.getByText('Nothing was paid online for this order.')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Until a ticket is paid for at the door, the organiser or Desi-Event can cancel it.',
+        'Until a ticket is paid for at the door, the organiser or The Desi Events can cancel it.',
       ),
     ).toBeInTheDocument()
   })
@@ -1246,7 +1246,7 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
       'The organiser cancelled 2 tickets on Thu, Oct 8, 2026 because they were not paid for. You no longer owe $80.00 for them.',
     )
     expect(block).toHaveTextContent(
-      'The booking fee paid for them online, $6.62, is kept by Desi-Event and is not refunded.',
+      'The booking fee paid for them online, $6.62, is kept by The Desi Events and is not refunded.',
     )
     expect(block).toHaveTextContent('Reason given: “Not paid by the deadline we set.”')
     expect(screen.getByText('Cancelled — not paid at the door')).toBeInTheDocument()
@@ -1281,7 +1281,7 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
     expect(block).not.toHaveTextContent(/Nothing was paid online/u)
   })
 
-  it('writes a cancellation by the Desi-Event team of one ticket with nothing paid online', () => {
+  it('writes a cancellation by the team at The Desi Events of one ticket with nothing paid online', () => {
     expect(
       venueCancellationSentences(
         {
@@ -1296,7 +1296,7 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
         'UTC',
       ),
     ).toEqual([
-      'The Desi-Event team cancelled 1 ticket on Thu, Oct 8, 2026 because it was not paid for. You no longer owe $40.00 for it.',
+      'The Desi Events team cancelled 1 ticket on Thu, Oct 8, 2026 because it was not paid for. You no longer owe $40.00 for it.',
       'Nothing was paid online for it.',
       'Reason given: “Duplicate booking.”',
     ])
@@ -1343,7 +1343,7 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
     ).toEqual([
       'The organiser cancelled 1 ticket on Thu, Oct 8, 2026 because it was not paid for. You no longer owe $40.00 for it.',
       '1 ticket you passed on to someone else was cancelled too.',
-      'The booking fee paid for them online, $6.62, is kept by Desi-Event and is not refunded.',
+      'The booking fee paid for them online, $6.62, is kept by The Desi Events and is not refunded.',
       'Reason given: “Not paid by the deadline we set.”',
     ])
   })
@@ -1366,7 +1366,7 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
     )
 
     expect(sentences[0]).toBe(
-      'The Desi-Event team cancelled 2 tickets you passed on to other people on Thu, Oct 8, 2026 because they were not paid for.',
+      'The Desi Events team cancelled 2 tickets you passed on to other people on Thu, Oct 8, 2026 because they were not paid for.',
     )
     expect(sentences.join(' ')).not.toContain('You no longer owe')
     expect(sentences).toContain('Nothing was paid online for them.')
@@ -1382,7 +1382,7 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
       }),
     ).toEqual([
       'The rest of the booking fee you paid online was refunded (simulated); $3.31 of it was kept when unpaid tickets were cancelled.',
-      'The $40.00 you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      'The $40.00 you paid at the door is with the organiser, not with The Desi Events. Ask the organiser to return it.',
       '$40.00 was paid at the door by people you passed tickets to; it is with the organiser.',
     ])
     expect(
@@ -1432,7 +1432,7 @@ describe('a booking paid at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
       }),
     ).toEqual([
       'None of these tickets can be used any more, so nothing is owed at the door for them.',
-      'The $40.00 you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      'The $40.00 you paid at the door is with the organiser, not with The Desi Events. Ask the organiser to return it.',
     ])
   })
 

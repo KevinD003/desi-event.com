@@ -22,7 +22,17 @@
 import { DEMO_LABEL, DEMO_PAYMENT_NOTICE, DEMO_TICKET_NOTICE } from '@desi-event/providers'
 
 /** Sender name shown to recipients. */
-export const BRAND_NAME = 'Desi-Event'
+export const BRAND_NAME = 'The Desi Events'
+
+/**
+ * The public contact address of The Desi Events, printed under the sign-off of
+ * every email. It is the address published on thedesievents.com for anybody to
+ * write to, not a recipient's, so it is the same in every message.
+ */
+export const CONTACT_EMAIL = 'info@thedesievents.com'
+
+/** The footer line under the sign-off, in the text body. */
+export const CONTACT_LINE = `Contact us at ${CONTACT_EMAIL}.`
 
 /** HTML entities that must never survive interpolation. */
 const HTML_ESCAPES = Object.freeze({
@@ -97,7 +107,8 @@ function toHtml(heading, lines) {
     '<div style="font-family:system-ui,sans-serif;line-height:1.5;max-width:40rem">',
     `    <h1 style="font-size:1.25rem">${escapeHtml(heading)}</h1>`,
     paragraphs,
-    `    <p style="color:#666;font-size:0.875rem">— ${escapeHtml(BRAND_NAME)}</p>`,
+    `    <p style="color:#666;font-size:0.875rem">— ${escapeHtml(BRAND_NAME)}<br>`,
+    `      Contact us at <a href="mailto:${escapeHtml(CONTACT_EMAIL)}">${escapeHtml(CONTACT_EMAIL)}</a>.</p>`,
     '</div>',
   ].join('\n')
 }
@@ -187,7 +198,7 @@ function changedFieldsLine(data) {
 
 /**
  * Who made a change, as the people holding tickets are told it: the organiser,
- * or the Desi-Event team when it changed the event in one of its editing
+ * or the team at The Desi Events when it changed the event in one of its editing
  * sittings (`data.byPlatform`). Never an administrator's name.
  *
  * @param {Record<string, unknown>} data The payload data bag.
@@ -195,7 +206,8 @@ function changedFieldsLine(data) {
  * @returns {string} The phrase.
  */
 function byWhom(data, capitalised = false) {
-  if (data?.byPlatform === true) return capitalised ? 'The Desi-Event team' : 'the Desi-Event team'
+  if (data?.byPlatform === true)
+    return capitalised ? 'The Desi Events team' : 'the team at The Desi Events'
 
   return capitalised ? 'The organiser' : 'the organiser'
 }
@@ -280,7 +292,7 @@ function doorAmountOf(data, key) {
  * What a cancellation notice says about money taken at the door for a
  * booking paid at the venue (SPEC3 §9.9, SPEC3-XI XT7): what the buyer paid
  * there for the tickets they hold is with the organiser, and so is what people
- * they passed tickets to paid there. Desi-Event never holds door money.
+ * they passed tickets to paid there. The Desi Events never holds door money.
  *
  * @param {Record<string, unknown>} data The payload data bag.
  * @returns {string[]} The lines; none when nothing was paid at the door.
@@ -292,7 +304,7 @@ function doorMoneyLines(data) {
   return [
     own === null
       ? ''
-      : `The ${own} you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+      : `The ${own} you paid at the door is with the organiser, not with The Desi Events. Ask the organiser to return it.`,
     others === null
       ? ''
       : `${others} was paid at the door by people you passed tickets to; it is with the organiser.`,
@@ -317,7 +329,7 @@ function paidAtDoor(data) {
 /**
  * What a cancelled event means for a booking paid at the venue (SPEC3 §9.9),
  * by what became of its booking fee paid online (`onlineRefund`): being
- * refunded, nothing paid online, refunded earlier, kept by Desi-Event when
+ * refunded, nothing paid online, refunded earlier, kept by The Desi Events when
  * unpaid tickets were cancelled (SPEC3-XI XU6), or held by a dispute.
  *
  * @param {Record<string, unknown>} data The payload data bag.
@@ -330,7 +342,7 @@ function venueCancelledLine(data) {
     REQUESTED: `${opening} The booking fee you paid online is being refunded (simulated).`,
     NONE_PAID: `${opening} Nothing was paid online for them.`,
     ALREADY_REFUNDED: `${opening} The booking fee you paid online was refunded earlier.`,
-    FEE_KEPT: `${opening} The booking fee paid online for tickets cancelled because they were not paid for was kept by Desi-Event, and nothing else paid online is left to refund.`,
+    FEE_KEPT: `${opening} The booking fee paid online for tickets cancelled because they were not paid for was kept by The Desi Events, and nothing else paid online is left to refund.`,
     DISPUTED: `${opening} Your payment is under dispute, so any refund is handled with the dispute.`,
   }
 
@@ -361,14 +373,14 @@ function holderDoorLines(data, night) {
   return [
     'Hello,',
     what,
-    `${amount === 'The money' ? amount : `The ${amount}`} you paid at the door for it is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+    `${amount === 'The money' ? amount : `The ${amount}`} you paid at the door for it is with the organiser, not with The Desi Events. Ask the organiser to return it.`,
   ]
 }
 
 /**
  * What a notice of unpaid tickets cancelled says (SPEC3-XI §9.9), for the buyer
  * (`recipient: 'BUYER'`) or for another account holding some of the tickets
- * (`'HOLDER'`). Who cancelled is "The organiser" or "The Desi-Event team",
+ * (`'HOLDER'`). Who cancelled is "The organiser" or "The Desi Events team",
  * never a person. Nothing here says a place is back on sale: whether it is
  * depends on sales the notice cannot see.
  *
@@ -377,7 +389,7 @@ function holderDoorLines(data, night) {
  */
 function venueCancellationLines(data) {
   const currency = field(data, 'currency', 'INR')
-  const by = data?.by === 'DESI_EVENT' ? 'The Desi-Event team' : 'The organiser'
+  const by = data?.by === 'DESI_EVENT' ? 'The Desi Events team' : 'The organiser'
   const reason = field(data, 'reason', '')
   const reasonLine = reason === '' ? '' : `Reason given: ${reason}`
 
@@ -470,7 +482,7 @@ function onlineFeeLine(data, currency, them) {
       : null
 
   if (feeKept !== null) {
-    return `The booking fee you paid online for ${them}, ${feeKept}, is kept by Desi-Event and is not refunded.`
+    return `The booking fee you paid online for ${them}, ${feeKept}, is kept by The Desi Events and is not refunded.`
   }
 
   if (data?.onlineFee === 'REFUNDED_EARLIER') {
@@ -491,7 +503,7 @@ function onlineFeeLine(data, currency, them) {
  */
 export const TEMPLATES = Object.freeze({
   ORDER_CONFIRMATION: (data) => ({
-    subject: `Your ${BRAND_NAME} order ${field(data, 'orderReference', 'is confirmed')}`,
+    subject: `Your order ${field(data, 'orderReference', 'is confirmed')} on ${BRAND_NAME}`,
     heading: 'Thanks for your order',
     lines: [
       `Hi ${field(data, 'buyerName', 'there')},`,
@@ -514,7 +526,7 @@ export const TEMPLATES = Object.freeze({
   }),
 
   ORDER_CANCELLED: (data) => ({
-    subject: `Your ${BRAND_NAME} order was cancelled`,
+    subject: `Your order on ${BRAND_NAME} was cancelled`,
     heading: 'Order cancelled',
     lines: [
       `Hi ${field(data, 'buyerName', 'there')},`,
@@ -546,23 +558,23 @@ export const TEMPLATES = Object.freeze({
       `Hi ${field(data, 'buyerName', 'there')},`,
       `${field(data, 'quantity', 'Tickets')} became available for ${field(data, 'eventTitle', 'the event you joined the waitlist for')}.`,
       eventLine(data),
-      `Claim them here: ${field(data, 'claimUrl', 'open the event page on Desi-Event')}`,
+      `Claim them here: ${field(data, 'claimUrl', 'open the event page on The Desi Events')}`,
       'Waitlist spots are first come, first served, so they may not last long.',
     ],
   }),
 
   EMAIL_VERIFICATION: (data) => ({
-    subject: `Confirm your ${BRAND_NAME} email address`,
+    subject: `Confirm your email address for ${BRAND_NAME}`,
     heading: 'Confirm your email address',
     lines: [
       `Hi ${field(data, 'displayName', 'there')},`,
       `Confirm your address to finish setting up your account: ${field(data, 'verifyUrl', 'see your account settings')}`,
-      'If you did not create a Desi-Event account, you can ignore this email.',
+      'If you did not create an account on The Desi Events, you can ignore this email.',
     ],
   }),
 
   PASSWORD_RESET: (data) => ({
-    subject: `Reset your ${BRAND_NAME} password`,
+    subject: `Reset your password for ${BRAND_NAME}`,
     heading: 'Reset your password',
     lines: [
       `Hi ${field(data, 'displayName', 'there')},`,
@@ -728,7 +740,7 @@ export const TEMPLATES = Object.freeze({
   }),
 
   'security.alert': (data) => ({
-    subject: `A security change on your ${BRAND_NAME} account`,
+    subject: `A security change on your account at ${BRAND_NAME}`,
     heading: 'Something changed on your account',
     lines: [
       'Hello,',
@@ -742,7 +754,7 @@ export const TEMPLATES = Object.freeze({
  * Templates whose subject is money or admission, and which therefore have to
  * say so when neither is real.
  *
- * Desi-Event has no payment integration: every order is settled by an
+ * The Desi Events has no payment integration: every order is settled by an
  * in-memory mock and every ticket admits nobody. A confirmation that reads like
  * a receipt, or a pass that reads like a ticket, is the point at which a
  * demonstration starts misleading somebody — so these carry the notice in the
@@ -793,7 +805,7 @@ export function renderEmail({ template, data = {}, subject }) {
 
   return {
     subject: notice ? `[${DEMO_LABEL}] ${headline}` : headline,
-    text: [...lines, '', `— ${BRAND_NAME}`].join('\n\n'),
+    text: [...lines, '', `— ${BRAND_NAME}\n${CONTACT_LINE}`].join('\n\n'),
     html: toHtml(rendered.heading, lines),
   }
 }

@@ -15,7 +15,7 @@
  * of hosts, and an address on any other host is refused for that key, so an
  * "Instagram" label can never point at a look-alike domain. The organiser's own
  * website is not a social link: it has its own field, `websiteUrl`
- * (`@desi-event/schemas/website`), behind a switch only the Desi-Event team
+ * (`@desi-event/schemas/website`), behind a switch only the team at The Desi Events
  * turns, and a `website` key here is refused with a sentence saying so.
  *
  * ## Public contact is not the account contact
@@ -275,12 +275,12 @@ const socialLinkSchema = z.preprocess(blankToNull, httpsUrlSchema.nullish())
  * Why a `website` key in the social links is refused.
  *
  * It used to be one: a direct link to any https address, with no switch and no
- * count. The organiser's website now has its own field, shown only while the
- * Desi-Event team has the link on, so the old key is refused by name rather
+ * count. The organiser's website now has its own field, shown only while the team
+ * at The Desi Events has the link on, so the old key is refused by name rather
  * than dropped, and an old client is told where it went.
  */
 export const SOCIAL_WEBSITE_MOVED_MESSAGE =
-  'Your website has its own field: send it as websiteUrl. It appears on the event page only while the Desi-Event team has the website link on.'
+  'Your website has its own field: send it as websiteUrl. It appears on the event page only while the team at The Desi Events has the website link on.'
 
 /**
  * Links to the organiser's accounts, one per network.

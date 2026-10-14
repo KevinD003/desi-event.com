@@ -181,7 +181,7 @@ export function describeApiRefusal(error) {
       title: 'That address has had its codes for today',
       detail:
         specificMessage(error) ??
-        'This address has already been sent three codes from Desi-Event today. Try again tomorrow.',
+        'This address has already been sent three codes from The Desi Events today. Try again tomorrow.',
       recoverable: false,
       retryAfterSeconds,
     }
@@ -192,7 +192,7 @@ export function describeApiRefusal(error) {
       state: 'network',
       title: 'The service is not answering',
       detail:
-        'Nothing reached Desi-Event, so nothing was changed. Check your connection, then try again.',
+        'Nothing reached The Desi Events, so nothing was changed. Check your connection, then try again.',
       recoverable: true,
       retryAfterSeconds: null,
     }

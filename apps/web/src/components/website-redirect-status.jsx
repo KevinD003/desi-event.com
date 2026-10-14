@@ -1,8 +1,8 @@
 /**
  * The website link's switch as the organiser sees it: read-only.
  *
- * Under the "Your website" field. On or off, since when, who on the
- * Desi-Event team decided and why, and where the link goes — in the sentences
+ * Under the "Your website" field. On or off, since when, who on the team at
+ * The Desi Events decided and why, and where the link goes — in the sentences
  * of `lib/website-redirect.js`. Nothing here can change the switch; the last
  * line says who can.
  *

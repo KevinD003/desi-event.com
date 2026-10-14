@@ -1,5 +1,5 @@
 /**
- * Every organisation's events, for the Desi-Event team's platform editors.
+ * Every organisation's events, for the platform editors at The Desi Events.
  *
  * Platform administrators and super administrators edit a posted event in an
  * editing session opened with a reason, delete any event and restore a
@@ -49,7 +49,7 @@ const PATH = '/admin/events'
 
 /** What a session without the capability is told. */
 export const NOT_FOR_THIS_ACCOUNT =
-  'Every organisation’s events are edited, deleted and restored by the Desi-Event team’s platform administrators. Nothing on this page can grant it.'
+  'Every organisation’s events are edited, deleted and restored by the platform administrators at The Desi Events. Nothing on this page can grant it.'
 
 /** What the page says about itself. */
 export const INTRODUCTION =

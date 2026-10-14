@@ -259,7 +259,7 @@ function Visits({ traffic, eventView, organizationId, own, keep }) {
             value={totals.websiteRedirects}
             hint={`People sent to ${
               own ? 'your own website' : 'the organiser’s own website'
-            } by the event page’s link. Counted only while the Desi-Event team has that link turned on.`}
+            } by the event page’s link. Counted only while the team at The Desi Events has that link turned on.`}
           />
           <CountFigure
             label="Visitors to paid orders"

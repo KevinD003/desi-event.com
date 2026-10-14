@@ -1,4 +1,4 @@
-# Desi-Event language and technology policy
+# The Desi Events language and technology policy
 
 This document is the authoritative statement of what may be written, and in
 what language, inside this repository. It is enforced mechanically by
@@ -9,9 +9,9 @@ script should say.
 
 ## 1. The short version
 
-**Desi-Event is a JavaScript application.** Backend, frontend, mobile, workers,
-migrations, seeds and tooling are all written in modern JavaScript with ES
-modules. TypeScript is prohibited outright. Other programming languages are
+**The Desi Events is a JavaScript application.** Backend, frontend, mobile,
+workers, migrations, seeds and tooling are all written in modern JavaScript with
+ES modules. TypeScript is prohibited outright. Other programming languages are
 available, but only for the narrow set of problems Node.js genuinely cannot
 serve well, and only after the justification below is written down.
 

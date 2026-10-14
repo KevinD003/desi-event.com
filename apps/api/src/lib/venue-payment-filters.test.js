@@ -493,7 +493,7 @@ describe('toVenueCancellation', () => {
     ).toMatchObject({ by: 'DESI_EVENT', byName: 'Ravi' })
   })
 
-  it('says "A Desi-Event administrator" once a Desi-Event canceller’s account is gone', () => {
+  it('says "An administrator at The Desi Events" once the account of a canceller at The Desi Events is gone', () => {
     expect(
       toVenueCancellation(
         row({ authority: 'PLATFORM_ROLE', cancelledById: null, cancelledBy: null }),
@@ -501,7 +501,7 @@ describe('toVenueCancellation', () => {
           reader: 'ORGANISATION',
         },
       ).byName,
-    ).toBe('A Desi-Event administrator')
+    ).toBe('An administrator at The Desi Events')
     expect(
       toVenueCancellation(row({ cancelledById: null, cancelledBy: null }), {
         reader: 'ORGANISATION',

@@ -1363,7 +1363,7 @@ describe('the record (SPEC3-XI §4.3)', () => {
 })
 
 describe('the list of bookings waiting to be paid at the door (SPEC3-XI §11.2)', () => {
-  it('gives the organisation names and the Desi-Event team none', async () => {
+  it('gives the organisation names and the team at The Desi Events none', async () => {
     const {
       app,
       prisma,

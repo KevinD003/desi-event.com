@@ -440,13 +440,13 @@ describe('what the event’s status allows', () => {
     expect(screen.getByText(/2 of 8 pictures/)).toBeInTheDocument()
   })
 
-  it('offers uploads, describing, reordering and removing on a live event, each new picture shown once the Desi-Event team approves it', () => {
+  it('offers uploads, describing, reordering and removing on a live event, each new picture shown once the team at The Desi Events approves it', () => {
     renderPanel({ status: 'PUBLISHED', media: [picture(), galleryPicture(0), galleryPicture(1)] })
 
     expect(screen.getByRole('form', { name: 'Replace the cover' })).toBeInTheDocument()
     expect(screen.getByRole('form', { name: 'Add a gallery picture' })).toBeInTheDocument()
     expect(
-      screen.getByText(/appears on the public page once the Desi-Event team approves it/),
+      screen.getByText(/appears on the public page once the team at The Desi Events approves it/),
     ).toBeInTheDocument()
     // The current cover stays up until a replacement is approved.
     expect(screen.getByText(/stays on the page until then/)).toBeInTheDocument()
@@ -477,7 +477,7 @@ describe('what the event’s status allows', () => {
     expect(screen.queryByText(/moderator is looking/i)).toBeNull()
   })
 
-  it('offers describing, reordering, removal and uploads on a cancelled event, each new picture shown once the Desi-Event team approves it', () => {
+  it('offers describing, reordering, removal and uploads on a cancelled event, each new picture shown once the team at The Desi Events approves it', () => {
     renderPanel({ status: 'CANCELLED', media: [picture(), galleryPicture(0), galleryPicture(1)] })
 
     expect(screen.getAllByRole('button', { name: 'Edit description' })).toHaveLength(3)
@@ -485,7 +485,7 @@ describe('what the event’s status allows', () => {
     expect(screen.getByRole('button', { name: 'Remove: the cover' })).toBeEnabled()
     expect(screen.getByRole('form', { name: 'Add a gallery picture' })).toBeInTheDocument()
     expect(
-      screen.getByText(/appears on the public page once the Desi-Event team approves it/),
+      screen.getByText(/appears on the public page once the team at The Desi Events approves it/),
     ).toBeInTheDocument()
   })
 
@@ -538,14 +538,14 @@ describe('a new cover on a posted event', () => {
     expect(within(old).getByText('On the public page')).toBeInTheDocument()
     expect(within(old).getByRole('img', { name: 'The current poster' })).toBeInTheDocument()
     expect(screen.getByRole('status', { name: '' })).toHaveTextContent(
-      /once the Desi-Event team approves it\. The current cover stays until then\./,
+      /once the team at The Desi Events approves it\. The current cover stays until then\./,
     )
   })
 
   it('says a gallery picture waiting on a posted event waits for approval, as the new cover does', () => {
     // Nothing posted is reviewed again (SPEC2-XI X-2): "Waiting for review"
     // there reads as the event going back into review. The picture waits for
-    // the Desi-Event team's approval of it alone, in the cover's words.
+    // approval of it alone by the team at The Desi Events, in the cover's words.
     const waitingGallery = { ...galleryPicture(0), altText: 'The band warming up' }
     const waitingCover = picture({
       id: 'cmedia0000000000000000009',
@@ -677,9 +677,9 @@ describe('a list the editor shell owns', () => {
   })
 })
 
-describe('writing as the Desi-Event team, whose second factor lapses every 10 minutes', () => {
+describe('writing as the team at The Desi Events, whose second factor lapses every 10 minutes', () => {
   const PLATFORM_SENTENCE =
-    'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.'
+    'Confirm it’s you to keep editing. The Desi Events team confirms every 10 minutes while editing someone else’s event.'
 
   /**
    * Answer the first write with STEP_UP_REQUIRED, the second factor with

@@ -333,7 +333,7 @@ async function checkGate(gate, prisma, event) {
  * The same checks {@link transitionEvent} runs, for a move another module
  * makes itself: an import's own moves into review and into PUBLISHED
  * (`lib/event-import.js`, SPEC2-XI I-C), which the table's actor would refuse
- * the Desi-Event team.
+ * the team at The Desi Events.
  *
  * @param {object} prisma The Prisma client or a transaction client.
  * @param {object} event The event, loaded as {@link loadForTransition} loads it.
@@ -351,7 +351,7 @@ export async function gateProblems(prisma, event, gates) {
 
 /**
  * Why an event in the organisation that holds imported events cannot be sent
- * back for changes (SPEC2-XI O16): nobody runs it on Desi-Event, so nobody
+ * back for changes (SPEC2-XI O16): nobody runs it on The Desi Events, so nobody
  * could make them.
  *
  * Word for word the web's `IMPORTED_EVENT_NO_EDITOR_NOTICE`
@@ -359,7 +359,7 @@ export async function gateProblems(prisma, event, gates) {
  * "yet", which the honest-copy rule forbids; both now say what is true today.
  */
 export const IMPORTED_EVENT_NO_EDITOR_SENTENCE =
-  'Nobody runs this event on Desi-Event, so nobody could make changes you ask for. Approve it and correct it once it is published, reject it, or delete it.'
+  'Nobody runs this event on The Desi Events, so nobody could make changes you ask for. Approve it and correct it once it is published, reject it, or delete it.'
 
 /**
  * Whether an event belongs to an organisation that holds imported events.
@@ -396,8 +396,8 @@ export function refuseSoldOnSource(event) {
  * authority it is made under.
  *
  * An organiser's move follows Rule L (SPEC2-XI X-A): the actor's membership,
- * or a SUPER_ADMIN's platform role, recorded as the Desi-Event team's; a
- * platform ADMIN is refused with `ORGANIZER_ONLY`.
+ * or a SUPER_ADMIN's platform role, recorded as the doing of the team at The
+ * Desi Events; a platform ADMIN is refused with `ORGANIZER_ONLY`.
  *
  * @param {object} move The transition from the table.
  * @param {object} actor The request actor.
@@ -417,7 +417,7 @@ function assertEntitled(move, actor, event) {
     // is a command of its own with its own preview, confirmation and audit
     // (`lib/event-deletion.js`). `transitionEvent` never makes either.
     throw conflict(
-      'Deletion and restore are commands of their own: delete an event with POST /v1/events/:id/delete; only the Desi-Event team restores one.',
+      'Deletion and restore are commands of their own: delete an event with POST /v1/events/:id/delete; only the team at The Desi Events restores one.',
       { from: event.status, to: move.to, code: 'ILLEGAL_TRANSITION' },
     )
   }
@@ -695,7 +695,7 @@ export async function transitionEvent(prisma, options) {
         : null
 
       // A SUPER_ADMIN's move on an organisation it is not a member of is
-      // recorded as the Desi-Event team's (Rule L).
+      // recorded as the doing of the team at The Desi Events (Rule L).
       await recordAudit(tx, {
         action: `event.${to.toLowerCase()}`,
         entityType: 'Event',
@@ -825,7 +825,7 @@ function stampsFor({ to, reason, event }) {
  * The columns a move to `to` writes, as {@link transitionEvent} writes them:
  * for a deletion that cancels an event before taking it off (SPEC2-XI X-D),
  * which writes CANCELLED itself because `assertEntitled` would refuse the
- * Desi-Event team, and must stamp it exactly as a cancellation does.
+ * team at The Desi Events, and must stamp it exactly as a cancellation does.
  *
  * @param {object} options Options.
  * @param {string} options.to The destination.

@@ -1054,7 +1054,7 @@ async function openDisputeTask(tx, { order, event, night }) {
  * @param {object} options.payment Its succeeded payment.
  * @param {'WHOLE'|'LINES'} options.plan Whether the whole order is refunded, or only its lines for the night.
  * @param {string} options.nightId The night cancelled.
- * @param {string} options.reason Why, as the organiser or the Desi-Event team wrote it.
+ * @param {string} options.reason Why, as the organiser or the team at The Desi Events wrote it.
  * @param {string|null} options.actorId Who cancelled it.
  * @param {string|null} options.requestId For the audit trail.
  * @param {Date} options.now The instant.

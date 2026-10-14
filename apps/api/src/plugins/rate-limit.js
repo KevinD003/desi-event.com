@@ -744,7 +744,7 @@ export function organizerAcceptRateLimit(overrides = {}) {
  * Ticket-transfer mail budget, per sender: five an hour, in `EMAIL` mode only.
  *
  * A transfer code goes to whatever address the holder types. With a mail
- * server wired in, that is a way to send Desi-Event email to strangers, so a
+ * server wired in, that is a way to send email from The Desi Events to strangers, so a
  * sender may email five an hour. In `MANUAL` nothing is emailed and the
  * budget does not apply.
  *

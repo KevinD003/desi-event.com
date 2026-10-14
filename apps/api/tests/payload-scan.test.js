@@ -496,7 +496,7 @@ describe('booking fees, referral codes and paying at the venue, read from the ou
     await app.close()
   })
 
-  it('answers the Desi-Event team the unpaid bookings with no buyer or attendee name, and the organisation with them (SPEC3-XI §11.2)', async () => {
+  it('answers the team at The Desi Events the unpaid bookings with no buyer or attendee name, and the organisation with them (SPEC3-XI §11.2)', async () => {
     const { app, ids, admin, referralCode } = await world()
     const url = `/v1/events/${ids.publishedEvent.id}/venue-bookings`
     const team = await app.inject({ method: 'GET', url, headers: admin })

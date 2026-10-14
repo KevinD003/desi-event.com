@@ -7,8 +7,8 @@
  * A booking to pay at the venue is booked, not paid (SPEC3 §12.1, SPEC3-XI
  * §12.1): its heading says so, it names what is paid at the door, what was paid
  * online (the booking fee, simulated) or that nothing was, and that unpaid
- * tickets can be cancelled by the organiser or Desi-Event until they are paid
- * for. It never reads "Paid".
+ * tickets can be cancelled by the organiser or The Desi Events until they are
+ * paid for. It never reads "Paid".
  *
  * @module components/booked-order
  */
@@ -34,8 +34,8 @@ export const AT_THE_DOOR_SENTENCE =
  */
 export function unpaidCancellationSentence(waived) {
   return waived
-    ? 'Until you pay at the door, the organiser or Desi-Event can cancel unpaid tickets, and nothing was paid online for them.'
-    : 'Until you pay at the door, the organiser or Desi-Event can cancel unpaid tickets, and the booking fee is not refunded if they do.'
+    ? 'Until you pay at the door, the organiser or The Desi Events can cancel unpaid tickets, and nothing was paid online for them.'
+    : 'Until you pay at the door, the organiser or The Desi Events can cancel unpaid tickets, and the booking fee is not refunded if they do.'
 }
 
 /**

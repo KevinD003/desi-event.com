@@ -179,8 +179,8 @@ const OWNER_RAIL = Object.freeze([
  * any door by platform role (ADR 0007), and the rail offers what the API would
  * answer. Analytics is one too, now that the platform's list of every event's
  * visits (`analytics:view_all`) is held without a membership; so are the
- * Desi-Event team's own pages: the pictures and website links waiting for a
- * decision, inviting organisers, every organisation's events, imports, and
+ * pages for the team at The Desi Events: the pictures and website links
+ * waiting for a decision, inviting organisers, every organisation's events, imports, and
  * people and roles.
  *
  * Asserted by the links' names: a spec that named the invitations page's path
@@ -206,7 +206,7 @@ const PLATFORM_RAIL = Object.freeze([
   'Website links',
   'Organiser invitations',
   'All events',
-  // SPEC3 §12.10: the Desi-Event team's referral codes and booking fee refunds.
+  // SPEC3 §12.10: referral codes and booking fee refunds, for the team at The Desi Events.
   'Referral codes',
   'Booking fee refunds',
   'Imports',
@@ -215,7 +215,7 @@ const PLATFORM_RAIL = Object.freeze([
 
 /**
  * What a platform administrator's rail offers (SPEC2 P, SPEC2-XI O1): the
- * Desi-Event team's own pages — every event's visits, review, organisation
+ * pages for the team at The Desi Events — every event's visits, review, organisation
  * checks, pictures and website links waiting, inviting organisers, every
  * organisation's events and imports — and none that needs a membership,
  * money, a door, personal data or the power to change who can do what.
@@ -233,7 +233,7 @@ const ADMIN_RAIL = Object.freeze([
   'Website links',
   'Organiser invitations',
   'All events',
-  // SPEC3 §12.10: the Desi-Event team's referral codes and booking fee refunds.
+  // SPEC3 §12.10: referral codes and booking fee refunds, for the team at The Desi Events.
   'Referral codes',
   'Booking fee refunds',
   'Imports',
@@ -462,7 +462,7 @@ test.describe('the workspace rail', () => {
     await expect(pageHeading(platform, 'Team and roles')).toHaveCount(0)
   })
 
-  test('offers a platform administrator the Desi-Event team’s pages, and not People and roles', async ({
+  test('offers a platform administrator the pages for the team at The Desi Events, and not People and roles', async ({
     browser,
   }) => {
     // An account of this spec's own, so the onboarding story's administrator

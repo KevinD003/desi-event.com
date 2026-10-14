@@ -1,7 +1,7 @@
 /**
  * Organiser invitations: the only way anybody comes to post events here.
  *
- * The Desi-Event team (a platform administrator or super administrator,
+ * The Desi Events team (a platform administrator or super administrator,
  * holding `organizer:invite`) invites an address to start a new organisation.
  * The recipient accepts with the single-use code, signed in as that address,
  * and the organisation is created verified with them as its owner.
@@ -76,9 +76,9 @@ export const ORGANIZER_INVITATION_SENTENCES = Object.freeze({
   SELF_INVITATION:
     'You cannot invite your own address. Another platform administrator has to invite you.',
   STAFF_ACCOUNT:
-    'That address belongs to a Desi-Event staff account. Organiser invitations are for people outside the team; a super administrator can add a staff account to an organisation directly from People and roles.',
+    'That address belongs to a staff account at The Desi Events. Organiser invitations are for people outside the team; a super administrator can add a staff account to an organisation directly from People and roles.',
   STAFF_ACCOUNT_ACCEPT:
-    'This account holds a Desi-Event staff role, so it cannot accept an organiser invitation. A super administrator can add a staff account to an organisation directly.',
+    'This account holds a staff role at The Desi Events, so it cannot accept an organiser invitation. A super administrator can add a staff account to an organisation directly.',
   SELF_ACCEPT:
     'You sent this invitation, so you cannot accept it. It is for the person you invited.',
   INVITATION_OUTSTANDING:

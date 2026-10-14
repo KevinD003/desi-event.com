@@ -1,6 +1,6 @@
 /**
- * "Bookings waiting to be paid at the door" for one event, for the Desi-Event
- * team (SPEC3-XI §12.13).
+ * "Bookings waiting to be paid at the door" for one event, for the team at
+ * The Desi Events (SPEC3-XI §12.13).
  *
  * A platform administrator holding `venue_booking:cancel` (ADMIN, SUPER_ADMIN)
  * may cancel unpaid pay-at-the-venue tickets of any event; this page lists the
@@ -45,7 +45,7 @@ export const HEADING = 'Bookings waiting to be paid at the door'
 
 /** What the page is for (SPEC3-XI §12.13). */
 export const INTRO =
-  'Tickets booked to pay at the door and not paid for yet. Cancelling them frees their places; Desi-Event keeps any booking fee paid online for them.'
+  'Tickets booked to pay at the door and not paid for yet. Cancelling them frees their places; The Desi Events keeps any booking fee paid online for them.'
 
 /** A link's classes: a 44px target, underlined, with a visible focus ring. */
 const LINK =

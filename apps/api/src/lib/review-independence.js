@@ -1,7 +1,7 @@
 /**
  * Reviewers are independent of what they review.
  *
- * An event is public only after the Desi-Event team has reviewed it. That
+ * An event is public only after the team at The Desi Events has reviewed it. That
  * means somebody other than the people running it: a platform account that is
  * also a member of the event's organisation, or the account that sent the
  * event for review, would be approving its own work. A super administrator
@@ -16,7 +16,7 @@
  *   - `SELF_REVIEW` — the reviewer is the account behind the event's latest move
  *     into review (event decisions), or the account that uploaded the picture
  *     being decided (picture decisions, SPEC2-XI X-3: nobody approves their
- *     own upload, which also closes the path of a Desi-Event administrator
+ *     own upload, which also closes the path of an administrator at The Desi Events
  *     uploading in an editing sitting and approving it themselves).
  *
  * One exemption (SPEC2-XI O5): an event imported into the platform-held
@@ -28,8 +28,8 @@
  * withdrew the import and sent it back by hand is its submitter, not its
  * importer, and is refused as any submitter is. That organisation has no members (a trigger
  * refuses any), so `CONFLICT_OF_INTEREST` cannot arise there, and the import is
- * the Desi-Event team's own work, reviewed on the run page. The exemption is
- * `PLATFORM_HELD_IMPORT`, returned to the caller, which records it with who
+ * work done by the team at The Desi Events itself, reviewed on the run page.
+ * The exemption is `PLATFORM_HELD_IMPORT`, returned to the caller, which records it with who
  * imported and who approved. Once the event is moved to an organiser's own
  * organisation the exemption no longer applies.
  *
@@ -51,16 +51,17 @@ export const REVIEW_INDEPENDENCE = Object.freeze({
   CONFLICT_OF_INTEREST: Object.freeze({
     code: 'CONFLICT_OF_INTEREST',
     message:
-      'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.',
+      'You belong to this organisation, so somebody else on the team at The Desi Events has to decide this.',
   }),
   SELF_REVIEW: Object.freeze({
     code: 'SELF_REVIEW',
     message:
-      'You sent this event for review, so somebody else on the Desi-Event team has to decide it.',
+      'You sent this event for review, so somebody else on the team at The Desi Events has to decide it.',
   }),
   SELF_UPLOAD: Object.freeze({
     code: 'SELF_REVIEW',
-    message: 'You uploaded this picture, so somebody else on the Desi-Event team has to decide it.',
+    message:
+      'You uploaded this picture, so somebody else on the team at The Desi Events has to decide it.',
   }),
 })
 

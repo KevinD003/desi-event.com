@@ -1,8 +1,8 @@
 'use client'
 
 /**
- * A referral code box for checkout: a code from the Desi-Event team that
- * removes the booking fee from this booking (SPEC3 §12.1, §8.2).
+ * A referral code box for checkout: a code from the team at The Desi Events
+ * that removes the booking fee from this booking (SPEC3 §12.1, §8.2).
  *
  * The server decides everything, and says only whether the code was applied:
  * an unknown code, an expired one, one used up or one for other events all
@@ -42,7 +42,7 @@ export const REFERRAL_ENTRY_MAX_LENGTH = 64
 /** What each state of the box says (SPEC3 §12.1). */
 export const REFERRAL_FIELD_COPY = Object.freeze({
   label: 'Referral code (optional)',
-  hint: 'From the Desi-Event team. It removes the booking fee, not the ticket price.',
+  hint: 'From the team at The Desi Events. It removes the booking fee, not the ticket price.',
   applied: 'Booking fee removed with your referral code.',
   notAccepted: 'This referral code can’t be used for this booking.',
   nothingToWaive: 'There’s no booking fee on this booking, so no referral code is needed.',

@@ -5,11 +5,11 @@
  * tickets…" button when this reader may cancel them (SPEC3-XI §12.9, §12.13).
  *
  * Shared by the organiser's "Payments at the venue" page (a table: booking,
- * buyer, unpaid tickets, amount) and the Desi-Event team's "Bookings waiting
- * to be paid at the door" (a list with no names: booking, when it was placed,
- * unpaid tickets and amount). Whether this reader may cancel is a boolean the
- * server page was given by the API (`canCancelUnpaid`) or worked out from the
- * session; this component asks nothing about capabilities.
+ * buyer, unpaid tickets, amount) and the "Bookings waiting to be paid at the
+ * door" of the team at The Desi Events (a list with no names: booking, when it
+ * was placed, unpaid tickets and amount). Whether this reader may cancel is a
+ * boolean the server page was given by the API (`canCancelUnpaid`) or worked
+ * out from the session; this component asks nothing about capabilities.
  *
  * Each button's accessible name begins with its visible words and names its
  * booking, "Cancel unpaid tickets in booking {reference}", so a screen
@@ -74,7 +74,7 @@ export function cancelButtonName(reference) {
  * @property {string} currency The event's currency.
  * @property {Array<{orderReference: string, placedAt?: string, buyerName?: string|null, unpaidTickets: number, unpaidCents: number}>} bookings The bookings.
  * @property {boolean} canCancel Whether this reader may cancel unpaid tickets (the server's answer).
- * @property {'table'|'list'} [layout] The organiser's table, or the Desi-Event team's list with no names.
+ * @property {'table'|'list'} [layout] The organiser's table, or the list with no names of the team at The Desi Events.
  * @property {string} [heading] The section's heading.
  * @property {string} [empty] What an empty list says.
  * @property {string|null} [note] A note under the list.

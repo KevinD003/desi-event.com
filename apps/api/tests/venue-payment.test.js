@@ -1288,7 +1288,7 @@ describe('the organiser’s balance (SPEC3 §9.8, §10.1)', () => {
         ],
         refund: [
           // The booking fee of a card order, refunded on its own and on its
-          // way: Desi-Event's money, not the organiser's.
+          // way: money of The Desi Events, not the organiser's.
           {
             id: cuid(),
             orderId: card.id,

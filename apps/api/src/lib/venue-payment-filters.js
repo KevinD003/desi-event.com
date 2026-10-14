@@ -141,7 +141,7 @@ export function isUnpaidVenueTicket(ticket) {
  *   another account holds still owe; whoever holds them pays.
  * - `cancelledCents`, `cancelledTickets`: the door price no longer owed for
  *   the tickets cancelled unpaid.
- * - `feeKeptCents`: the booking fee Desi-Event kept for those tickets.
+ * - `feeKeptCents`: the booking fee The Desi Events kept for those tickets.
  * - `state`, by precedence: `ENDED` when the order's event was cancelled or
  *   deleted (nothing is owed at the door of an event that will not happen,
  *   whatever was paid there before); else `TO_PAY` while a ticket of the
@@ -269,12 +269,12 @@ export const VENUE_CANCELLATION_READERS = deepFreeze([
 /**
  * One cancellation of unpaid tickets (a `VenueBookingCancellation` row), as
  * the order presenters and the report show it (SPEC3-XI §4.6, §11.2): when,
- * by the organiser or the Desi-Event team, how many tickets, the door price no
+ * by the organiser or the team at The Desi Events, how many tickets, the door price no
  * longer owed, the booking fee kept, and the reason given.
  *
  * Only organisation readers get `byName` (SPEC2 W6): the canceller's display
- * name, or "A Desi-Event administrator" for a Desi-Event cancellation whose
- * administrator's account is gone (null for an organiser's account gone).
+ * name, or "An administrator at The Desi Events" for a cancellation by The
+ * Desi Events whose administrator's account is gone (null for an organiser's account gone).
  * Buyers, holders and the platform's own pages get no name.
  *
  * @param {{createdAt: Date|string, authority: string, cancelledById?: string|null, cancelledBy?: {displayName?: string|null}|null, ticketCount: number, basisCents: number, feeKeptCents: number, reason: string}} row The row; with `cancelledBy` included for an organisation reader.

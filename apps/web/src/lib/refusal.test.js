@@ -104,10 +104,10 @@ describe('describeApiRefusal', () => {
         retryAfterSeconds: 5,
       }),
     ).toMatchObject({ state: 'busy', detail: sentence, recoverable: true, retryAfterSeconds: 5 })
-    // The proxy's own 503 is still "nothing reached Desi-Event", and a 503
+    // The proxy's own 503 is still "nothing reached The Desi Events", and a 503
     // without a sentence still a server error, whose wording is replaced.
     expect(refusalSentence(503, { error: { code: 'API_UNREACHABLE', message: 'x' } }, 'y')).toMatch(
-      /Nothing reached Desi-Event/u,
+      /Nothing reached The Desi Events/u,
     )
     expect(refusalSentence(503, { error: { code: 'SERVICE_UNAVAILABLE' } }, 'y')).toMatch(
       /could not finish this/u,
@@ -116,7 +116,7 @@ describe('describeApiRefusal', () => {
 
   it('keeps the API’s sentence for an address that has had its codes for the day', () => {
     const sentence =
-      'This address has already been sent three codes from Desi-Event today. Try again tomorrow.'
+      'This address has already been sent three codes from The Desi Events today. Try again tomorrow.'
 
     expect(
       refusalSentence(429, { error: { code: 'RECIPIENT_DAILY_LIMIT', message: sentence } }, 'x'),

@@ -117,7 +117,7 @@ describe('MEDIA_LIMITS and the status sets', () => {
 
   it('adds new pixels while the event is editable or posted, each waiting for approval once posted', () => {
     // SPEC2-XI X-3: a posted event (live, finished or cancelled) takes new
-    // pictures; each is stored waiting for the Desi-Event team's approval.
+    // pictures; each is stored waiting for approval by the team at The Desi Events.
     expect([...MEDIA_UPLOAD_STATUSES].sort()).toEqual(
       [...EDITABLE_STATUSES, ...PUBLICLY_VISIBLE_STATUSES].sort(),
     )
@@ -459,7 +459,7 @@ describe('response schemas', () => {
   })
 })
 
-describe('the queue of pictures waiting for the Desi-Event team', () => {
+describe('the queue of pictures waiting for the team at The Desi Events', () => {
   it('lists PENDING by default, REJECTED on request, and nothing else', () => {
     expect(mediaQueueQuerySchema.parse({})).toMatchObject({ status: 'PENDING', page: 1 })
     expect(mediaQueueQuerySchema.parse({ status: 'REJECTED', page: '2' })).toMatchObject({

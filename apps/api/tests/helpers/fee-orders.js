@@ -807,7 +807,7 @@ export async function atVenueOrder(
           })
         : null
 
-      // The fee-only batch (SPEC3 §10.1): the online part is Desi-Event's fee
+      // The fee-only batch (SPEC3 §10.1): the online part is the fee of The Desi Events
       // and any tax on it, so no organiser share and no discount is posted —
       // the promo lowered the door price, which is not platform money.
       if (totals.totalCents > 0) {

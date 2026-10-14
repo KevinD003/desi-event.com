@@ -16,7 +16,7 @@
  * The preview says what to take; the steward takes it and admits in one step,
  * and the confirmation records the payment with the admission. The sentences
  * for that, and for what the cancellation and deletion screens say about money
- * taken at the door (the organiser holds it, never Desi-Event, SPEC3 §9.7),
+ * taken at the door (the organiser holds it, never The Desi Events, SPEC3 §9.7),
  * are here too, so every screen says it the same way. Amounts arrive in cents
  * and are written with `formatAmount`, in the order's or event's currency.
  *
@@ -40,7 +40,7 @@ export const REFUSAL_SENTENCES = Object.freeze({
   NOT_ADMISSIBLE: 'This ticket cannot be admitted.',
   ORDER_NOT_PAID: 'The order for this ticket is not paid. Do not admit.',
   EVENT_CANCELLED: 'This event was cancelled. Nobody is admitted to it.',
-  EVENT_DELETED: 'This event was taken off Desi-Event. Nobody is admitted to it.',
+  EVENT_DELETED: 'This event was taken off The Desi Events. Nobody is admitted to it.',
   SESSION_CANCELLED: 'This night was cancelled. Nobody is admitted to it.',
   WRONG_EVENT: 'This ticket is for a different event.',
   WRONG_NIGHT: 'This ticket is for a different night. Do not admit.',
@@ -569,7 +569,7 @@ export function atVenueSentences(atVenue, currency = 'USD', { refunds = true } =
 
   if ((atVenue.ticketsPaidAtDoor ?? 0) > 0) {
     sentences.push(
-      `Payment taken at the door for ${atVenue.ticketsPaidAtDoor} of these tickets (${formatAmount(atVenue.paidAtDoorCents ?? 0, currency)}) is held by the organiser. Desi-Event does not hold it and cannot refund it.`,
+      `Payment taken at the door for ${atVenue.ticketsPaidAtDoor} of these tickets (${formatAmount(atVenue.paidAtDoorCents ?? 0, currency)}) is held by the organiser. The Desi Events does not hold it and cannot refund it.`,
     )
   }
 

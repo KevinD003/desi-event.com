@@ -100,13 +100,13 @@ beforeEach(() => {
   api.listMaps.mockResolvedValue([])
 })
 
-describe('one event, for the Desi-Event team', () => {
+describe('one event, for the team at The Desi Events', () => {
   it('offers to open an editing session with a reason, and the danger zone, before any editor', async () => {
     await renderPage()
 
     expect(screen.getByRole('heading', { level: 1, name: 'Diwali Mela' })).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'Edit this event as the Desi-Event team' }),
+      screen.getByRole('heading', { name: 'Edit this event as the team at The Desi Events' }),
     ).toBeInTheDocument()
     expect(screen.getByLabelText(/Why are you editing this event/)).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Editor steps' })).not.toBeInTheDocument()
@@ -115,13 +115,13 @@ describe('one event, for the Desi-Event team', () => {
     expect(api.getEventSessions).not.toHaveBeenCalled()
   })
 
-  it('shows the editor, under the Desi-Event team’s authority, once its own session is open', async () => {
+  it('shows the editor, under the authority of the team at The Desi Events, once its own session is open', async () => {
     api.getPlatformEdits.mockResolvedValue([SITTING])
 
     await renderPage()
 
     expect(screen.getByRole('navigation', { name: 'Editor steps' })).toBeInTheDocument()
-    expect(screen.getByText('Editing as the Desi-Event team')).toBeInTheDocument()
+    expect(screen.getByText('Editing as the team at The Desi Events')).toBeInTheDocument()
     expect(
       screen.getByText(/^Reason: The organiser asked us to fix the description\. Until/),
     ).toBeInTheDocument()
@@ -179,7 +179,7 @@ describe('one event, for the Desi-Event team', () => {
 
     expect(screen.queryByRole('navigation', { name: 'Editor steps' })).not.toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'Edit this event as the Desi-Event team' }),
+      screen.getByRole('heading', { name: 'Edit this event as the team at The Desi Events' }),
     ).toBeInTheDocument()
   })
 
@@ -192,7 +192,7 @@ describe('one event, for the Desi-Event team', () => {
     // set before the event is published.
     expect(
       screen.getByText(
-        'The Desi-Event team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.',
+        'The Desi Events team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByLabelText(/Why are you editing this event/)).not.toBeInTheDocument()
@@ -285,7 +285,7 @@ describe('one event, for the Desi-Event team', () => {
     expect(screen.queryByRole('heading', { name: 'Danger zone' })).not.toBeInTheDocument()
   })
 
-  it('refuses an account that does not edit events as the Desi-Event team, and reads nothing', async () => {
+  it('refuses an account that does not edit events as the team at The Desi Events, and reads nothing', async () => {
     readSession.mockResolvedValue({
       user: { id: 'u2' },
       capabilities: ['moderation:review'],

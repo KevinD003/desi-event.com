@@ -493,8 +493,8 @@ order) refunds nothing; a REMOVE_AFTER_EVENT outcome (it has taken place)
 leaves orders and tickets as they are and refunds nobody.
 
 Who may: organisation administrators and owners (`event:delete` and
-`event:cancel`), or the Desi-Event team (`event:platform_delete`: ADMIN and
-SUPER_ADMIN) for any event. No caller chooses an amount, an order or a
+`event:cancel`), or the team at The Desi Events (`event:platform_delete`: ADMIN
+and SUPER_ADMIN) for any event. No caller chooses an amount, an order or a
 recipient: these refunds are always whole-order.
 
 ### Cancelling one night
@@ -590,10 +590,10 @@ tickets' basis for a lines refund, and 0 for a booking-fee refund.
 | The booking fee refunded by hand                                         | the fee and its tax                                                                                             | none                                 | none                                                                       |
 | No-show                                                                  | nothing                                                                                                         | stay valid, reported after the event | none taken                                                                 |
 
-An amount refund is refused so an organiser can never refund Desi-Event's fee
-without withdrawing tickets, and so no amount is ever promoted to a whole refund
-on such an order. A lines share that rounds to 0 is a zero-value withdrawal in
-the drivers and a 422 through `refunds.request`.
+An amount refund is refused so an organiser can never refund the fee of
+The Desi Events without withdrawing tickets, and so no amount is ever promoted
+to a whole refund on such an order. A lines share that rounds to 0 is a
+zero-value withdrawal in the drivers and a 422 through `refunds.request`.
 
 ### The booking fee refunded by hand (`fee` form)
 

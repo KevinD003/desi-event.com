@@ -266,7 +266,7 @@ export const RECIPIENT_CAP_WINDOW_MS = 24 * 60 * 60 * 1000
 
 /** What a sender is told when the address has had its codes for the day. */
 export const RECIPIENT_DAILY_LIMIT_SENTENCE =
-  'This address has already been sent three codes from Desi-Event today. Try again tomorrow.'
+  'This address has already been sent three codes from The Desi Events today. Try again tomorrow.'
 
 /**
  * The advisory-lock class the recipient cap locks addresses in: `RCAP` in

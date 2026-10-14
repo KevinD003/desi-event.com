@@ -425,7 +425,7 @@ test.describe.serial('visits to an event’s page', () => {
 
     await expect(link).toHaveAttribute('href', `/events/${gammaSeatedEventSlug}/website?count=no`)
     await expect(gamma.locator('#website-link-note')).toContainText(
-      'Visits by the event’s own team and Desi-Event staff are not counted.',
+      'Visits by the event’s own team and staff at The Desi Events are not counted.',
     )
     expect(sent).toEqual([])
 
@@ -486,11 +486,11 @@ test.describe.serial('visits to an event’s page', () => {
     await expect(figure(gamma, 'Event card clicks')).toHaveText(String(week.totals.cardClicks))
     await expect(figure(gamma, 'Ticket and seat clicks')).toHaveText(String(clicks(week.totals)))
 
-    // A navigation inside the site is a visit from Desi-Event's own pages.
+    // A navigation inside the site is a visit from the site's own pages.
     const internal = gamma
       .getByRole('table', { name: 'Where page views came from' })
       .getByRole('row')
-      .filter({ has: gamma.getByRole('rowheader', { name: /^Desi-Event pages/u }) })
+      .filter({ has: gamma.getByRole('rowheader', { name: /^The Desi Events pages/u }) })
       .getByRole('cell')
       .first()
 

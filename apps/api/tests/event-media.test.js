@@ -95,7 +95,7 @@ describe('uploading: refused before the body is read', () => {
   })
 
   // SPEC2-XI X-3 (§8): a posted event takes new pictures, each waiting for the
-  // Desi-Event team; a held, rejected, filed or deleted one still takes none.
+  // team at The Desi Events; a held, rejected, filed or deleted one still takes none.
   it.each([
     ['REVIEW_PENDING', 'reviewPendingEvent'],
     ['APPROVED', 'approvedEvent'],
@@ -961,7 +961,7 @@ describe('describing, reordering and removing', () => {
       expect(response.statusCode).toBe(409)
       expect(response.json().error.code).toBe('NOT_EDITABLE')
       expect(response.json().error.message).toBe(
-        'This event was deleted. Its pictures stay as they were, so a restore by the Desi-Event team brings the event back whole.',
+        'This event was deleted. Its pictures stay as they were, so a restore by the team at The Desi Events brings the event back whole.',
       )
       expect(response.json().error.message).not.toMatch(/review|moderator/iu)
     }

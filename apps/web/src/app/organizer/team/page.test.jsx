@@ -17,7 +17,7 @@
  *     code went out, and a new code is offered only for a grantable role.
  *     What the page says about the code is true in the delivery mode the
  *     session reports, and it says that roles which post events come from the
- *     Desi-Event team.
+ *     team at The Desi Events.
  *   - **A role change offers the API's `roleChoices`**, and removal reaches a
  *     member whose role posts events when the caller's role contains it.
  *   - **Ownership is offered only to an owner of this organisation**, and
@@ -199,7 +199,7 @@ function team(emailVisibility, overrides = {}) {
     invitations: [invitation()],
     // What the API computes for an administrator (`assignableRoles` in
     // apps/api/src/routes/teams.js): the roles that do not create or publish
-    // events, since those are given by the Desi-Event team.
+    // events, since those are given by the team at The Desi Events.
     assignableRoles: NON_POSTING_CHOICES,
     ...overrides,
   }
@@ -473,12 +473,12 @@ describe('what is offered', () => {
     expect(container.textContent).not.toContain(INVITE_DELIVERY_SENTENCES.MANUAL)
   })
 
-  it('says to a holder of team:invite that roles which post events come from the Desi-Event team', async () => {
+  it('says to a holder of team:invite that roles which post events come from the team at The Desi Events', async () => {
     await renderPage({ answer: team('HIDDEN') })
 
     expect(screen.getByText(POSTING_ROLES_SENTENCE)).toBeInTheDocument()
     expect(POSTING_ROLES_SENTENCE).toMatch(
-      /event manager, manager, administrator and owner — are given by the Desi-Event team/u,
+      /event manager, manager, administrator and owner — are given by the team at The Desi Events/u,
     )
   })
 

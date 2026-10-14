@@ -215,7 +215,7 @@ export const AUDIT_ACTIONS = Object.freeze({
   //
   // Each written inside the transaction that made the change. A deletion's
   // metadata carries the status it left, the outcome, whose authority, the
-  // sitting and its reason when it was the Desi-Event team's, the counts and
+  // sitting and its reason when it was the doing of the team at The Desi Events, the counts and
   // whether the web address was released; never a buyer, an amount per order
   // or an address. `event.refunds_driven` is the one written after the
   // provider calls, in its own transaction, with the driver's counts.
@@ -314,7 +314,7 @@ export const AUDIT_ACTIONS = Object.freeze({
   // --- Unpaid tickets cancelled and referral uses given back (SPEC3-XI §4.3) --
   /**
    * Unpaid pay-at-the-venue tickets of one booking were cancelled by an
-   * organiser or the Desi-Event team (`lib/venue-bookings.js`, the only
+   * organiser or the team at The Desi Events (`lib/venue-bookings.js`, the only
    * writer), in the cancelling transaction. Metadata: `cancellationId`,
    * `orderId`, `eventId`, `organizationId`, `ticketIds`, `ticketCount`,
    * `basisCents`, `feeKeptCents`, `currency`, `seatsReturned`,

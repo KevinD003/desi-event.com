@@ -225,7 +225,7 @@ describe('deletionAuthority (X-9 matrix, membership first)', () => {
       permitted: false,
       authority: null,
       missing:
-        'Deleting this event refunds 12 paid orders, which an organisation administrator or owner decides. Ask one of them, or the Desi-Event team.',
+        'Deleting this event refunds 12 paid orders, which an organisation administrator or owner decides. Ask one of them, or the team at The Desi Events.',
     })
     expect(deletionAuthority(memberOf('OWNER'), event, 'CANCEL_AND_REFUND').permitted).toBe(true)
     expect(deletionAuthority(memberOf('ADMIN'), event, 'REMOVE_AFTER_EVENT').permitted).toBe(true)
@@ -625,7 +625,7 @@ describe('POST /v1/events/:id/delete — REMOVE', () => {
     await app.close()
   })
 
-  it('lets the Desi-Event team delete any organisation’s event, recorded as theirs', async () => {
+  it('lets the team at The Desi Events delete any organisation’s event, recorded as theirs', async () => {
     const { app, prisma, ids } = await createTestApp()
 
     const response = await app.inject({

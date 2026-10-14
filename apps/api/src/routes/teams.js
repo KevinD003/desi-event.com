@@ -32,7 +32,7 @@
  * row, so a membership id from another organisation is not found rather than
  * found-and-refused. The difference matters: 403 confirms the id exists.
  *
- * And a sixth: **who posts events is decided by the Desi-Event team.** A role
+ * And a sixth: **who posts events is decided by the team at The Desi Events.** A role
  * that creates or publishes events (event manager, manager, administrator,
  * owner) is never offered by a team invitation, and a member is moved to one
  * only downwards, from a role that already posts. The new posters come from an
@@ -259,8 +259,8 @@ export const HEIR_MUST_POST_EVENTS_SENTENCE =
  * question by capability containment, not by position in a seniority list. That
  * matters here because Phase 2's roles do not nest: `FINANCE` and `EVENT_MANAGER`
  * are peers with disjoint powers, and neither may grant the other. Roles that
- * create or publish events are never in it: those come from the Desi-Event
- * team, so an owner can offer exactly FINANCE, STAFF, SCANNER and VIEWER.
+ * create or publish events are never in it: those come from the team at
+ * The Desi Events, so an owner can offer exactly FINANCE, STAFF, SCANNER and VIEWER.
  *
  * @param {object} actor The request actor.
  * @param {string} organizationId Which organisation.
@@ -481,7 +481,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
         purpose: 'TEAM_INVITATION',
         email: invitation.email,
         organizationName: organization.name,
-        // The letter says so when the Desi-Event team has not verified the
+        // The letter says so when the team at The Desi Events has not verified the
         // organisation the invitation comes from.
         organizationVerified: organization.verificationStatus === 'VERIFIED',
         role: invitation.role,
@@ -820,7 +820,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
 
       // An invitation written before the database refused them, offering a
       // role that creates or publishes events: refused, and not spent. Such a
-      // role comes from the Desi-Event team.
+      // role comes from the team at The Desi Events.
       if (postsEvents(invitation.role)) throw postingRoleRefusal()
 
       const now = new Date()

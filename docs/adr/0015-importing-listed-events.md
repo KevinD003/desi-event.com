@@ -45,14 +45,14 @@ addresses were kept.
    behind the `imports` routes, the screen `/admin/imports`, and the CLI
    `pnpm import:events <file> --as <email> [--apply]`, all held by the new
    capability `event:import` (ADMIN, SUPER_ADMIN). Upload plans the file
-   against what Desi-Event holds (create, update a draft, unchanged, posted and
-   kept, skipped as decided, deleted, reassigned or past, or invalid) and
-   writes only the run; apply (MODERATION step-up) writes each event as a DRAFT
-   and sends it for review; approve (EVENT_PUBLISH step-up, also needing
-   `moderation:review`) approves, publishes and switches the Sulekha link on,
-   event by event. Idempotent by `(source, sourceId)`. A posted event is updated
-   only when the administrator ticks "Update from Sulekha" for it; the CLI never
-   updates one and never approves.
+   against what The Desi Events holds (create, update a draft, unchanged,
+   posted and kept, skipped as decided, deleted, reassigned or past, or
+   invalid) and writes only the run; apply (MODERATION step-up) writes each
+   event as a DRAFT and sends it for review; approve (EVENT_PUBLISH step-up,
+   also needing `moderation:review`) approves, publishes and switches the
+   Sulekha link on, event by event. Idempotent by `(source, sourceId)`. A posted
+   event is updated only when the administrator ticks "Update from Sulekha" for
+   it; the CLI never updates one and never approves.
 3. **A platform-held organisation that nobody can join.** Imported events
    belong to "Sulekha Events", created VERIFIED by a platform operation (not
    `organizations.create`, which stays 403) and marked
@@ -81,13 +81,13 @@ addresses were kept.
    editing session (ADR 0014).
 5. **Prices without ticket types.** Sulekha's listed prices are stored on the
    import record and shown as Sulekha listed them on the collection date
-   (without a sales date or a call to hurry that a price's name carries, such
-   as "(Ends on 10/9)" or "(Final Call)": source notes are never public), with
-   a "Buy tickets on Sulekha" button that goes through the website switch and
-   its counted redirect (ADR 0012), switched on by the approving administrator
-   with a fixed reason. No `TicketType` is created: that would invent
-   quantities and show a Desi-Event sales state for tickets on sale elsewhere.
-   While an event is platform-held, adding tiers or opening sales is 409
+   (without a sales date or a call to hurry that a price's name carries, such as
+   "(Ends on 10/9)" or "(Final Call)": source notes are never public), with a
+   "Buy tickets on Sulekha" button that goes through the website switch and its
+   counted redirect (ADR 0012), switched on by the approving administrator with
+   a fixed reason. No `TicketType` is created: that would invent quantities and
+   show a sales state on The Desi Events for tickets on sale elsewhere. While an
+   event is platform-held, adding tiers or opening sales is 409
    `SOLD_ON_SOURCE`, even for a super administrator, because that organisation
    has no payout account.
 6. **One outbound fetcher.** Pictures are copied at import time by

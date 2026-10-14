@@ -27,12 +27,12 @@
  *   - Anything else is refused. A review-pending event is being read by a
  *     moderator; an approved one is the version the moderator said yes to; a
  *     rejected one is reworked as a draft first; an archived one is filed; a
- *     deleted one is restored by the Desi-Event team first.
+ *     deleted one is restored by the team at The Desi Events first.
  *
  * ## Whose authority
  *
- * The organisation's, through membership, or the Desi-Event team's in an
- * editing sitting (`lib/event-authority.js`). Every write re-checks the sitting
+ * The organisation's, through membership, or that of the team at The Desi Events
+ * in an editing sitting (`lib/event-authority.js`). Every write re-checks the sitting
  * inside its own transaction and is audited with it.
  *
  * ## Optimistic concurrency
@@ -151,9 +151,9 @@ function notEditableMessage(status) {
     return 'A moderator rejected this event. Rework it as a draft to change it and send it for review again.'
   }
 
-  // Not final: the Desi-Event team can restore a deleted event (SPEC2-XI X-12).
+  // Not final: the team at The Desi Events can restore a deleted event (SPEC2-XI X-12).
   if (status === 'DELETED') {
-    return 'This event was deleted. Ask the Desi-Event team to restore it before changing it.'
+    return 'This event was deleted. Ask the team at The Desi Events to restore it before changing it.'
   }
 
   return `This event is ${String(status).toLowerCase().replace(/_/g, ' ')}, which is final, so its content cannot be edited.`
@@ -216,8 +216,8 @@ export function authoringMode(
  * to ask for a permission they already hold.
  *
  * Authority is the organisation's through membership (`event:update` by
- * default), or the Desi-Event team's in an open editing sitting of this
- * browser session (`lib/event-authority.js`). What a live event may take is
+ * default), or that of the team at The Desi Events in an open editing sitting
+ * of this browser session (`lib/event-authority.js`). What a live event may take is
  * decided by the rules each write applies, not by a second permission. The
  * nights and tickets of a finished or cancelled event are closed: a write to
  * them passes `allow` without `content`.
@@ -451,7 +451,7 @@ export function isKnownTimeZone(timezone) {
 export function defaultTierCurrency(event) {
   return (
     (event?.ticketTypes ?? []).find((tier) => tier.currency)?.currency ??
-    // The currency the Desi-Event team set the event's own booking fee in,
+    // The currency the team at The Desi Events set the event's own booking fee in,
     // before its first tier (SPEC3 DF3): its first tier is priced in it.
     (event?.feeSource === 'EVENT' ? event.feeCurrency : null) ??
     event?.organization?.payoutCurrency ??
@@ -460,12 +460,12 @@ export function defaultTierCurrency(event) {
 }
 
 /**
- * Refuse a tier priced in a currency other than the one the Desi-Event team
+ * Refuse a tier priced in a currency other than the one the team at The Desi Events
  * set this event's own booking fee in (SPEC3 DF3). An event sells in one
  * currency, and its own fee is stored in that currency: a tier in another
  * would be priced with the site default instead, so an organiser's edit would
  * move the fee. Asked beside {@link tierCurrencyProblems}, by the organisation
- * and in the Desi-Event team's editing sitting alike. An event on the site
+ * and in the editing sitting of the team at The Desi Events alike. An event on the site
  * default refuses nothing here.
  *
  * @param {object} event The event, with `feeSource` and `feeCurrency`.
@@ -486,7 +486,7 @@ export function assertFeeTermsCurrency(event, currency) {
  * event as it stands once {@link authorChange} holds its row.
  *
  * The first check runs on the event the handler read before its transaction.
- * The Desi-Event team's fee change takes the same row (`FOR NO KEY UPDATE`)
+ * The Desi Events team's fee change takes the same row (`FOR NO KEY UPDATE`)
  * and, by DF7, leaves `revision` alone, so a fee saved between that read and
  * this write passes the revision compare-and-set unseen: without this second
  * look an organiser's tier could land in a currency other than the fee's, and

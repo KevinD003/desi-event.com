@@ -2,7 +2,7 @@
  * Creating an organisation, which nobody can do any more, and reading its
  * profile.
  *
- * Organisations come from organiser invitations sent by the Desi-Event team
+ * Organisations come from organiser invitations sent by the team at The Desi Events
  * (`organizer-invitations.test.js`). `POST /v1/organizations` stays in the
  * contract and answers 403 to everybody, whatever the body says: the old
  * refusals — a forged verification state, an anonymous caller — still hold,
@@ -46,7 +46,7 @@ function written(prisma) {
 }
 
 const SELF_SERVICE_REFUSAL =
-  'Organisations are not created from an account here. Organisers join Desi-Event by invitation from the Desi-Event team; if they have sent you an organiser invitation code, enter it at Your account → Accept an organiser invitation (/account/organizations/new).'
+  'Organisations are not created from an account here. Organisers join The Desi Events by invitation from its team; if they have sent you an organiser invitation code, enter it at Your account → Accept an organiser invitation (/account/organizations/new).'
 
 describe('POST /v1/organizations', () => {
   it.each([

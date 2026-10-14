@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Idempotent development seed for Desi-Event.
+ * Idempotent development seed for The Desi Events.
  *
  * Running this twice must leave the database in exactly the same shape as
  * running it once, so every write is an `upsert` keyed on a natural unique
@@ -418,7 +418,7 @@ export function generateSeedReferralCode(draw = randomInt) {
 }
 
 /**
- * The booking fee Desi-Event keeps for unpaid tickets cancelled from a
+ * The booking fee The Desi Events keeps for unpaid tickets cancelled from a
  * booking, as `keptShareOf` in `apps/api/src/lib/venue-bookings.js` works it
  * out for a booking's first cancellation: the fee charged, apportioned by the
  * door price, floored.
@@ -579,7 +579,7 @@ const USERS = [
   {
     key: 'admin',
     email: 'admin@desi-event.example',
-    displayName: 'Desi-Event Platform Admin',
+    displayName: 'The Desi Events Platform Admin',
     role: 'SUPER_ADMIN',
     locale: 'en-US',
     phone: '+1 201 555 0100',
@@ -591,7 +591,7 @@ const USERS = [
   {
     key: 'platformAdmin',
     email: 'platform-admin@desi-event.example',
-    displayName: 'Desi-Event Platform Administrator',
+    displayName: 'The Desi Events Platform Administrator',
     role: 'ADMIN',
     locale: 'en-US',
     phone: null,
@@ -601,7 +601,7 @@ const USERS = [
   {
     key: 'moderator',
     email: 'moderator@desi-event.example',
-    displayName: 'Desi-Event Moderator',
+    displayName: 'The Desi Events Moderator',
     role: 'MODERATOR',
     locale: 'en-US',
     phone: null,
@@ -2396,7 +2396,7 @@ const EVENTS = [
       'A full-moon showcase of garba circles from three New Jersey dance schools, at Lamplight Expo Hall.',
     description: [
       'Three New Jersey dance schools bring their best circles to the Lamplight Expo Hall floor for one full-moon evening, with an open circle for everyone after the last showcase.',
-      'Listed by Mirrorwork Events and taken down by the Desi-Event team before anybody bought a ticket.',
+      'Listed by Mirrorwork Events and taken down by the team at The Desi Events before anybody bought a ticket.',
     ].join('\n\n'),
     category: 'GARBA_DANDIYA',
     status: 'DELETED',
@@ -2794,7 +2794,7 @@ const ORDERS = [
   },
   // A booking to pay at the door for the warm-up night, which has happened.
   // Only its booking fee was paid online. At the door one ticket was paid for
-  // and let in, one was cancelled unpaid by the Desi-Event team once the doors
+  // and let in, one was cancelled unpaid by the team at The Desi Events once the doors
   // had opened (its place freed, its share of the booking fee kept), and one
   // was never paid: its holder did not come.
   {
@@ -2876,8 +2876,8 @@ const ORDERS = [
 ]
 
 /**
- * Events with their own booking fee, each set by one decision of the
- * Desi-Event team (SPEC3 §15.5): the first demonstration organisation's Garba
+ * Events with their own booking fee, each set by one decision of the team
+ * at The Desi Events (SPEC3 §15.5): the first demonstration organisation's Garba
  * night, at 3.00% plus $1.49 a ticket, set two days before the seed.
  */
 const EVENT_FEE_SETTINGS = [
@@ -2894,8 +2894,8 @@ const EVENT_FEE_SETTINGS = [
 ]
 
 /**
- * Events where tickets can be paid for at the venue, each switched on by the
- * Desi-Event team with a limit and a reason: the Houston dandiya night, still
+ * Events where tickets can be paid for at the venue, each switched on by the team
+ * at The Desi Events with a limit and a reason: the Houston dandiya night, still
  * on sale, and the warm-up night, which has happened.
  */
 const VENUE_PAYMENT_SWITCHES = [
@@ -2983,7 +2983,7 @@ const ORGANIZER_INVITATIONS = [
     organizationDescription:
       'Dayro evenings, Kathiawadi folk songs and garba to live dhol, in central New Jersey.',
     organizationWebsiteUrl: 'https://kathiawar-folk-nights.example/',
-    note: 'As agreed on the phone: this code lets you set up Kathiawar Folk Nights on Desi-Event.',
+    note: 'As agreed on the phone: this code lets you set up Kathiawar Folk Nights on The Desi Events.',
     invitedByKey: 'platformAdmin',
     issuedDays: -1,
     issuedHour: 15,
@@ -3411,7 +3411,7 @@ export function buildSeedData(now = new Date()) {
     }),
   )
 
-  // An event's own booking fee: one decision by the Desi-Event team, in the
+  // An event's own booking fee: one decision by the team at The Desi Events, in the
   // event's one currency, the first in its history (SPEC3 §5.2, DF3).
   const feeSettings = EVENT_FEE_SETTINGS.map((setting) => {
     const event = eventByKey.get(setting.eventKey)
@@ -3439,8 +3439,8 @@ export function buildSeedData(now = new Date()) {
   })
   const feeSettingByEventKey = new Map(feeSettings.map((setting) => [setting.eventKey, setting]))
 
-  // Paying at the venue switched on, with its limit and reason, by the
-  // Desi-Event team (SPEC3 §9.1): never for an online event.
+  // Paying at the venue switched on, with its limit and reason, by the team
+  // at The Desi Events (SPEC3 §9.1): never for an online event.
   const venuePaymentChanges = VENUE_PAYMENT_SWITCHES.map((change) => {
     const event = eventByKey.get(change.eventKey)
     if (!event) {
@@ -5688,7 +5688,7 @@ export async function runSeed(options = {}) {
     const grossCents = paidOrders.reduce((sum, order) => sum + order.totalCents, 0)
     const soldOut = data.ticketTypes.filter((type) => type.status === 'SOLD_OUT').length
 
-    console.log('Desi-Event seed complete.')
+    console.log('The Desi Events seed complete.')
     console.log(`  anchor (midnight UTC)   ${data.anchor.toISOString()}`)
     console.log(`  written this run        ${JSON.stringify(written)}`)
     console.log('')

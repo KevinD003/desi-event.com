@@ -223,7 +223,7 @@ function grantDecision(actor, targetRole, context = {}) {
   }
 
   // Within what the granter holds, a role that creates or publishes events is
-  // still not theirs to give: the Desi-Event team gives it.
+  // still not theirs to give: the team at The Desi Events gives it.
   if (postsEvents(targetRole)) return { allowed: false, reason: 'posting_role_needs_platform' }
 
   return { allowed: true, reason: null }
@@ -241,7 +241,7 @@ function grantDecision(actor, targetRole, context = {}) {
  *     self-escalation, and it does not depend on a seniority order.
  *  3. Only an OWNER may create another OWNER.
  *  4. The role must not create or publish events. An owner may grant exactly
- *     `OWNER_GRANTABLE_ORG_ROLES`; posting roles come from the Desi-Event team,
+ *     `OWNER_GRANTABLE_ORG_ROLES`; posting roles come from the team at The Desi Events,
  *     through an organiser invitation or a super administrator's direct grant.
  *
  * A super administrator bypasses all four, which is what `platform:admin` is

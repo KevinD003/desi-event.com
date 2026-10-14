@@ -51,8 +51,8 @@ import { toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
  *   draft or on a live event; a finished or cancelled event's nights stay as they were.
  * @property {boolean} [mayCancelNights] Whether to offer cancelling a night of a live event,
  *   worked out on the server; the API decides every cancellation again.
- * @property {boolean} [platform] Whether the edits are made in the Desi-Event team's editing
- *   session, whose writes ask for a fresh second factor every 10 minutes.
+ * @property {boolean} [platform] Whether the edits are made in the editing session of the
+ *   team at The Desi Events, whose writes ask for a fresh second factor every 10 minutes.
  * @property {Function} [onSittingEnded] Called when a write finds that editing session closed.
  */
 

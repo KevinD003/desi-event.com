@@ -73,7 +73,7 @@ describe('Pictures waiting for a decision', () => {
     expect(getMediaQueue).toHaveBeenCalledWith({ status: 'PENDING', page: 1, perPage: 50 })
   })
 
-  it('says when the Desi-Event team uploaded a picture, without naming anybody', async () => {
+  it('says when the team at The Desi Events uploaded a picture, without naming anybody', async () => {
     getMediaQueue.mockResolvedValue({
       pictures: [
         item({
@@ -89,7 +89,7 @@ describe('Pictures waiting for a decision', () => {
     render(await PicturesWaitingPage({ searchParams: Promise.resolve({}) }))
 
     expect(
-      screen.getByText(/Uploaded by the Desi-Event team in an editing session/),
+      screen.getByText(/Uploaded by the team at The Desi Events in an editing session/),
     ).toBeInTheDocument()
     expect(screen.queryByText('Replaces the current cover')).not.toBeInTheDocument()
   })

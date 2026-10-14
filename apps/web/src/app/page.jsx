@@ -15,6 +15,12 @@
  * poster. Where a figure cannot be read — the facets failed, the listing is
  * empty — the page leaves it out rather than showing a zero or a guess.
  *
+ * ## Who runs the site
+ *
+ * The page carries the company's `Organization` structured data — its name,
+ * website, email, telephone and social profiles, from `lib/contact.js` — once,
+ * here, through the `JsonLd` component like every other block on the site.
+ *
  * ## Motion
  *
  * The headline's words arrive one after another, the poster fades up, the
@@ -52,11 +58,13 @@ import {
 import { EventGrid } from '../components/listing-card.jsx'
 import { FadeIn, Reveal, Stagger, StaggerItem } from '../components/motion.jsx'
 import { EventArt } from '../components/event-art.jsx'
+import { JsonLd } from '../components/json-ld.jsx'
 import { SampleDataNotice } from '../components/sample-data-notice.jsx'
 import { TrafficScope } from '../components/traffic-scope.jsx'
 import { Input, Select } from '../components/ui.jsx'
 import { loadCatalogueFacets, loadCatalogueOverview } from '../lib/api.js'
 import { describeCategories } from '../lib/catalog.js'
+import { organizationJsonLd } from '../lib/contact.js'
 import { formatEventStart, toDateTimeAttribute } from '../lib/format.js'
 import {
   calendarLeaf,
@@ -400,6 +408,7 @@ export default async function HomePage() {
 
   return (
     <div className="pb-4">
+      <JsonLd data={organizationJsonLd()} />
       <Hero cities={cityNames} listed={listed} lead={lead} counted={!overview.usedFallback} />
 
       {usedFallback ? (
@@ -609,12 +618,12 @@ export default async function HomePage() {
               Running a garba night?
             </h2>
             <p className="mt-4 max-w-xl text-body text-ink-inverse-muted">
-              Organisers join Desi-Event by invitation from the Desi-Event team, and every event is
-              reviewed by the team before it is published. There is no sign-up form for organisers
-              on this site. If the team has sent you an organiser invitation code, enter it from
-              your account; then list your events with their venues, dates and ticket tiers in US
-              dollars, and run them — sales, orders and door check-in — from the organiser
-              workspace.
+              Organisers join The Desi Events by invitation from the team at The Desi Events, and
+              every event is reviewed by the team before it is published. There is no sign-up form
+              for organisers on this site. If the team has sent you an organiser invitation code,
+              enter it from your account; then list your events with their venues, dates and ticket
+              tiers in US dollars, and run them — sales, orders and door check-in — from the
+              organiser workspace.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
               <Link href="/organizer" className={PRIMARY_LINK}>
@@ -682,7 +691,7 @@ export default async function HomePage() {
       </section>
 
       {/* Counts clicks on the event cards above; a signed-in organiser's own
-          events and Desi-Event staff are left out. */}
+          events and staff at The Desi Events are left out. */}
       <TrafficScope />
     </div>
   )

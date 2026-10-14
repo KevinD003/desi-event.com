@@ -3,7 +3,7 @@
  * to posted events (SPEC2-XI X-3).
  *
  * A draft's pictures are approved with the event. Once an event is posted, a
- * new picture waits on its own until somebody on the Desi-Event team other
+ * new picture waits on its own until somebody on the team at The Desi Events other
  * than the person who uploaded it approves it, and a new cover waits beside
  * the current one, which stays on the public page until then. This is that
  * queue, oldest first, each picture beside its event and, for a new cover, the
@@ -45,7 +45,7 @@ const PATH = '/moderation/pictures'
 
 /** What the page says about itself. */
 export const INTRODUCTION =
-  'New pictures and new covers added to events that are already posted. Each appears on the event’s page only once somebody on the Desi-Event team other than the person who uploaded it approves it; a new cover takes the current cover’s place only then.'
+  'New pictures and new covers added to events that are already posted. Each appears on the event’s page only once somebody on the team at The Desi Events other than the person who uploaded it approves it; a new cover takes the current cover’s place only then.'
 
 /** The two lists. */
 export const FILTERS = Object.freeze([
@@ -85,7 +85,7 @@ function QueueItem({ item }) {
       <p className="text-sm text-ink">
         {item.uploadedByOrganiser
           ? 'Uploaded by the organisation'
-          : 'Uploaded by the Desi-Event team in an editing session'}
+          : 'Uploaded by the team at The Desi Events in an editing session'}
         {uploaded ? (
           <>
             {' '}

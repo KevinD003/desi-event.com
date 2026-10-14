@@ -25,9 +25,9 @@ keep.
    an event-card click (home, events list, search) or a "Choose tickets" /
    "Choose seats" press, for a publicly visible event only. A page view carries
    the referring site's host name, never a URL, sorted into five sources:
-   direct, Desi-Event pages, search, social, other. The answer is always 202,
-   counted or not, so it reveals nothing about events that are not public. No
-   session is read.
+   direct, The Desi Events pages, search, social, other. The answer is always
+   202, counted or not, so it reveals nothing about events that are not public.
+   No session is read.
 2. **Nothing about the visitor is stored.** A raw `TrafficEvent` row holds the
    event, the kind, the place, the day and a visitor code — no address, no
    browser string, no account. The code is an HMAC of the connection and
@@ -37,8 +37,8 @@ keep.
    The dedupe key is keyed by the day's secret too, so it cannot be recomputed
    from the row.
 3. **Who is not counted.** Robots and automated tools (an agent pattern with
-   word boundaries), the organisation's own members and Desi-Event staff while
-   signed in (the page decides from its session and sends no beacon), and
+   word boundaries), the organisation's own members and staff at The Desi Events
+   while signed in (the page decides from its session and sends no beacon), and
    browsers sending Global Privacy Control or Do Not Track, which count as page
    views but never as visitors.
 4. **A trust chain for the address.** The web tier computes the visitor's

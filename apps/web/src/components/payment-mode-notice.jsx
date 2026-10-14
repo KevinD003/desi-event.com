@@ -1,11 +1,11 @@
 /**
  * What the buyer is told before they choose a quantity.
  *
- * Desi-Event has no payment integration. Checkout runs against an in-memory
- * provider that authorises, captures and refunds nothing, which is a perfectly
- * honest way to demonstrate a ticketing flow and a dishonest way to present
- * one. So the notice is rendered on the server, above the basket, on every
- * visit — not behind a toggle, not only after a failure, and not only for
+ * The Desi Events has no payment integration. Checkout runs against an
+ * in-memory provider that authorises, captures and refunds nothing, which is a
+ * perfectly honest way to demonstrate a ticketing flow and a dishonest way to
+ * present one. So the notice is rendered on the server, above the basket, on
+ * every visit — not behind a toggle, not only after a failure, and not only for
  * developers.
  *
  * There is no payment-method selector anywhere on this page, because there is

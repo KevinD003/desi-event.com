@@ -1,7 +1,7 @@
 /**
  * No card can be charged from here.
  *
- * Desi-Event has no payment integration, and the claim these tests hold is the
+ * The Desi Events has no payment integration, and the claim these tests hold is the
  * strong form of that: not "we have not configured one", but "there is nothing
  * a deployment, an operator or a buyer can do that reaches a payment service
  * provider". A deployment that believes otherwise is refused at boot rather

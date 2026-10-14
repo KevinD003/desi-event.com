@@ -1052,9 +1052,9 @@ describe('preparing inventory', () => {
   })
 })
 
-describe('writing as the Desi-Event team, whose second factor lapses every 10 minutes', () => {
+describe('writing as the team at The Desi Events, whose second factor lapses every 10 minutes', () => {
   const PLATFORM_SENTENCE =
-    'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.'
+    'Confirm it’s you to keep editing. The Desi Events team confirms every 10 minutes while editing someone else’s event.'
 
   /**
    * Answer the first write with STEP_UP_REQUIRED and every later one with `then`.
@@ -1138,7 +1138,8 @@ describe('writing as the Desi-Event team, whose second factor lapses every 10 mi
       answer(403, {
         error: {
           code: 'PLATFORM_EDIT_NOT_OPEN',
-          message: 'Open this event for editing as the Desi-Event team in this browser first.',
+          message:
+            'Open this event for editing as the team at The Desi Events in this browser first.',
         },
       }),
     )
@@ -1156,7 +1157,7 @@ describe('writing as the Desi-Event team, whose second factor lapses every 10 mi
     await user.click(screen.getByRole('button', { name: 'Yes, remove it' }))
 
     expect(
-      await screen.findByText(/Open this event for editing as the Desi-Event team/),
+      await screen.findByText(/Open this event for editing as the team at The Desi Events/),
     ).toBeInTheDocument()
     expect(onSittingEnded).toHaveBeenCalledTimes(1)
   })

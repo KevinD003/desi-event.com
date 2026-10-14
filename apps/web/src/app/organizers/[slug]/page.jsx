@@ -64,7 +64,8 @@ export async function generateMetadata({ params }) {
   }
 
   const description =
-    organizer.description ?? `Events presented by ${organizer.name}, with tickets on Desi-Event.`
+    organizer.description ??
+    `Events presented by ${organizer.name}, with tickets on The Desi Events.`
 
   return {
     title: organizer.name,
@@ -271,7 +272,7 @@ export default async function OrganizerPage({ params }) {
               id="past-heading"
               title="Previously"
               events={organizer.pastEvents}
-              empty={`Nothing from ${organizer.name} has run on Desi-Event.`}
+              empty={`Nothing from ${organizer.name} has run on The Desi Events.`}
               timezone={organizer.timezone}
             />
           </div>

@@ -1,5 +1,5 @@
 /**
- * Role-based access control for Desi-Event.
+ * Role-based access control for The Desi Events.
  *
  * Pure logic with no dependencies: every export is a frozen table or a function
  * over plain objects, so authorization can be unit tested without a database

@@ -1143,7 +1143,7 @@ describe('a booking to pay at the venue, as its readers read it', () => {
     await app.close()
   })
 
-  it('shows unpaid tickets cancelled by Desi-Event: the kept fee to the buyer, the administrator’s name to the organisation only', async () => {
+  it('shows unpaid tickets cancelled by The Desi Events: the kept fee to the buyer, the administrator’s name to the organisation only', async () => {
     const { app, prisma, ids, order, tickets } = await booking()
     const reason = 'Not paid for at the door by the end of the night.'
 
@@ -1192,7 +1192,7 @@ describe('a booking to pay at the venue, as its readers read it', () => {
 
     expect(organiser.venueCancellations[0].byName).toBe('Anil Administrator')
 
-    // The Desi-Event team's own read names nobody (SPEC3-XI §4.6).
+    // The Desi Events team's own read names nobody (SPEC3-XI §4.6).
     const platform = await readAs(app, order.reference, 'ops@desi-event.example')
 
     expect(platform.venueCancellations[0]).not.toHaveProperty('byName')

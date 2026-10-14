@@ -479,7 +479,7 @@ describe('what a buyer is charged', () => {
   })
 })
 
-describe('writing as the Desi-Event team, whose second factor lapses every 10 minutes', () => {
+describe('writing as the team at The Desi Events, whose second factor lapses every 10 minutes', () => {
   it('asks for the second factor where the ticket type was saved, then sends the same change again', async () => {
     const user = userEvent.setup()
     let writes = 0
@@ -519,7 +519,7 @@ describe('writing as the Desi-Event team, whose second factor lapses every 10 mi
 
     expect(
       await screen.findByText(
-        'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.',
+        'Confirm it’s you to keep editing. The Desi Events team confirms every 10 minutes while editing someone else’s event.',
       ),
     ).toBeInTheDocument()
 

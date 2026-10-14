@@ -14,8 +14,8 @@
  * shown (a prerendered page nobody opens sends nothing), and once per mount
  * even under React's StrictMode double effects.
  *
- * Who is not counted was decided on the server, from the session the page
- * read (`TrafficScope`): Desi-Event staff are not counted anywhere, and an
+ * Who is not counted was decided on the server, from the session the page read
+ * (`TrafficScope`): staff at The Desi Events are not counted anywhere, and an
  * organisation's own team is not counted on its events. Nothing is sent for
  * them. The beacon itself carries no session, cookie or account.
  *
@@ -39,7 +39,7 @@ import {
 /**
  * @typedef {object} TrafficBeaconsProps
  * @property {{eventId: string, organizationId?: string}|null} [view] The event whose page this is; null elsewhere.
- * @property {boolean} [excludeAll] True for Desi-Event staff: nothing is counted.
+ * @property {boolean} [excludeAll] True for staff at The Desi Events: nothing is counted.
  * @property {string[]} [excludedOrganizationIds] The reader's own organisations, whose events are not counted.
  */
 

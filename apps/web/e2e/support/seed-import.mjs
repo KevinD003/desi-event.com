@@ -111,9 +111,9 @@ export const LATE_PICTURE = 'classical-concert-tanpura.png'
 export const SULEKHA_EVENTS = 'https://events.sulekha.com'
 export const SULEKHA_PICTURES = 'https://usimg.sulekha.io'
 
-/** The note the curator leaves on a listing whose category Desi-Event lacks. */
+/** The note the curator leaves on a listing whose category The Desi Events lacks. */
 export const CATEGORY_NOTE =
-  'Sulekha lists this as CLASSICAL; Desi-Event has no such category, so it is listed under MUSIC_CONCERT. If another fits better, change it in an editing session once the event is published.'
+  'Sulekha lists this as CLASSICAL; The Desi Events has no such category, so it is listed under MUSIC_CONCERT. If another fits better, change it in an editing session once the event is published.'
 
 /** The prices the first listing gives: a child's ticket is free. */
 export const GARBA_PRICES = Object.freeze([

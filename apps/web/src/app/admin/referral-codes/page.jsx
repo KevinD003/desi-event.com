@@ -1,5 +1,5 @@
 /**
- * Referral codes, for the Desi-Event team's platform administrators (SPEC3
+ * Referral codes, for the platform administrators at The Desi Events (SPEC3
  * §12.5, SPEC3-XI §12.5).
  *
  * What each administrator's codes came to, then the codes, 50 a page, newest

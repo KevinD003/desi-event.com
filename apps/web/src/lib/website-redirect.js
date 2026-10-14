@@ -15,10 +15,10 @@
 import { websiteHost } from './website.js'
 
 /** The last line of every organiser summary. */
-export const ONLY_THE_TEAM = 'Only the Desi-Event team can turn this link on or off.'
+export const ONLY_THE_TEAM = 'Only the team at The Desi Events can turn this link on or off.'
 
 /** Who decided, when the API gave no name. */
-const SOMEBODY = 'A Desi-Event administrator'
+const SOMEBODY = 'An administrator'
 
 const INSTANT = new Intl.DateTimeFormat('en-US', {
   dateStyle: 'medium',
@@ -38,6 +38,23 @@ export function formatDecisionInstant(value) {
   const date = new Date(value)
 
   return Number.isNaN(date.getTime()) ? '' : `${INSTANT.format(date)} UTC`
+}
+
+/** How a name that already says where the person works ends. */
+const AT_THE_COMPANY = /\bat The Desi Events$/u
+
+/**
+ * Who decided, with where they work, said once.
+ *
+ * A former administrator reaches the web already named "An administrator at
+ * The Desi Events"; that name is used alone, so the company is not named
+ * twice.
+ *
+ * @param {string} name Who decided.
+ * @returns {string} `Anil of the team at The Desi Events`, or the name alone.
+ */
+function decider(name) {
+  return AT_THE_COMPANY.test(name) ? name : `${name} of the team at The Desi Events`
 }
 
 /**
@@ -88,31 +105,32 @@ export function organiserSummary(
 
   if (enabled && !pending) {
     sentences.push(
-      `On since ${when}. ${name} of the Desi-Event team turned it on${noteClause(state.reason)}. Your event page shows “Visit the organiser’s website”, which goes to ${decidedHost}. Visits through it are counted in your event’s analytics, apart from robots and some automated or blocked requests.`,
+      `On since ${when}. ${decider(name)} turned it on${noteClause(state.reason)}. Your event page shows “Visit the organiser’s website”, which goes to ${decidedHost}. Visits through it are counted in your event’s analytics, apart from robots and some automated or blocked requests.`,
     )
   } else if (enabled && current) {
     const newHost = websiteHost(current) ?? current
 
     sentences.push(
-      `On since ${when}, going to ${decidedHost}. Your new address, ${newHost}, is on the Desi-Event team’s list to look at; until an administrator approves it, the link keeps going to ${decidedHost}. If the old address should stop being linked at once, ask the Desi-Event team to turn the link off.`,
+      `On since ${when}, going to ${decidedHost}. Your new address, ${newHost}, is on the list for the team at The Desi Events to look at; until an administrator approves it, the link keeps going to ${decidedHost}. If the old address should stop being linked at once, ask the team at The Desi Events to turn the link off.`,
     )
   } else if (enabled) {
     sentences.push(
-      `On since ${when}, going to ${decidedHost}. You removed your address; the link keeps going to ${decidedHost} until an administrator turns it off. Ask the Desi-Event team if it should stop at once.`,
+      `On since ${when}, going to ${decidedHost}. You removed your address; the link keeps going to ${decidedHost} until an administrator turns it off. Ask the team at The Desi Events if it should stop at once.`,
     )
   } else if (decided) {
     sentences.push(
-      `Off since ${when}. ${name} of the Desi-Event team turned it off${noteClause(state.reason)}. Your address is not shown on the event page.`,
+      `Off since ${when}. ${decider(name)} turned it off${noteClause(state.reason)}. Your address is not shown on the event page.`,
     )
 
-    if (pending) sentences.push('Your new address is on the Desi-Event team’s list to look at.')
+    if (pending)
+      sentences.push('Your new address is on the list for the team at The Desi Events to look at.')
   } else if (pending || current) {
     sentences.push(
-      'Off. Your address is on the Desi-Event team’s list of website links to look at. It is not shown on your event page until an administrator turns the link on.',
+      'Off. Your address is on the list of website links for the team at The Desi Events to look at. It is not shown on your event page until an administrator turns the link on.',
     )
   } else {
     sentences.push(
-      'Off. Add your website’s address above and the Desi-Event team can link to it from your event page.',
+      'Off. Add your website’s address above and the team at The Desi Events can link to it from your event page.',
     )
   }
 

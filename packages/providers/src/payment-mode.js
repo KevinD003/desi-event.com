@@ -1,7 +1,7 @@
 /**
  * The payment-mode gate, and the production kill switch.
  *
- * Desi-Event can run in two modes and neither moves real money: an in-memory
+ * The Desi Events can run in two modes and neither moves real money: an in-memory
  * mock, which is the default, and Stripe's sandbox, which starts only when a
  * coherent set of test credentials is supplied on purpose. This module decides
  * which, and refuses everything else.
@@ -335,7 +335,7 @@ function refuse(refusals, details) {
   throw new ProviderError(
     PROVIDER_ERROR_CODES.PRODUCTION_PAYMENTS_DISABLED,
     `${PRODUCTION_PAYMENTS_DISABLED_MESSAGE} ${refusals.join('; ')}. ` +
-      'Desi-Event runs in one of two modes, mock or stripe_test, and neither moves real ' +
+      'The Desi Events runs in one of two modes, mock or stripe_test, and neither moves real ' +
       'money. Remove these variables, or complete the Phase 2 payment work before setting them.',
     { provider: 'payments', details },
   )

@@ -36,7 +36,7 @@ import {
 export const EMAIL_BOUNCE_ADDRESS = 'bounce@desi-event.test'
 
 /** Default sender used when a message omits `from`. */
-export const DEFAULT_EMAIL_FROM = 'no-reply@desi-event.com'
+export const DEFAULT_EMAIL_FROM = 'no-reply@thedesievents.com'
 
 /** Most recipients accepted on a single message, across `to`, `cc` and `bcc`. */
 const MAX_RECIPIENTS = 50

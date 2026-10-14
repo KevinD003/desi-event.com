@@ -1,6 +1,7 @@
 import { createPrismaClient } from '@desi-event/db'
 
 import { expect, test, world } from './support/detail-fixtures.mjs'
+import { COMPANY_MAILTO, OTHER_MAILTO } from './support/company-contact.js'
 import { CONNECTION, PASSWORD, TOTP_SECRET } from './support/seed-refusals.mjs'
 
 /**
@@ -690,8 +691,8 @@ test.describe('the venue directory', () => {
     // But the directory is not where it is listed. The alpha hall belongs to
     // the alpha organisation, and `venues.list` answers an anonymous caller
     // with shared venues only (`organizationId: null`), so it is absent from
-    // every page — which is the directory's own stated scope: "the halls,
-    // grounds and theatres shared across Desi-Event". Were the web to ask with
+    // every page — which is the directory's own stated scope: "the halls and
+    // pavilions shared across The Desi Events". Were the web to ask with
     // a session, or the API to drop that scope, it would appear here.
     await visitor.goto('/venues')
     await expect(pageHeading(visitor, 'Venues')).toBeVisible()
@@ -773,11 +774,13 @@ test.describe('the organiser directory', () => {
     await expect(visitor.locator('main')).toContainText('Organiser status: Verified organiser')
 
     // No way to write to them is invented: no email, no form, and the page
-    // says so. The organisation's contact address is an account detail.
+    // says so. The organisation's contact address is an account detail. The
+    // footer's one email link is the company's own published address, the
+    // single `mailto:` allowed (`support/company-contact.js`).
     await expect(visitor.getByRole('region', { name: 'Contact', exact: true })).toContainText(
       `This site does not pass messages between buyers and organisers. ${alpha} has not given a website, so this page has no way to reach them.`,
     )
-    await expect(visitor.locator('a[href^="mailto:"]')).toHaveCount(0)
+    await expect(visitor.locator(OTHER_MAILTO)).toHaveCount(0)
 
     const html = await visitor.content()
 
@@ -824,7 +827,7 @@ test.describe('the organiser directory', () => {
 })
 
 test.describe('the small print', () => {
-  test('the footer links to the limitations, offers no email, and the page promises nothing', async ({
+  test('the footer links to the limitations, offers no email but the company’s own, and the page promises nothing', async ({
     visitor,
   }) => {
     // The footer is on every page; checked on each directory, not assumed from one.
@@ -839,7 +842,13 @@ test.describe('the small print', () => {
 
       const footer = visitor.getByRole('contentinfo')
 
-      await expect(footer.locator('a[href^="mailto:"]'), `the footer on ${path}`).toHaveCount(0)
+      // One email link, and it is the company's own published address
+      // (`support/company-contact.js`); no other address is offered.
+      await expect(footer.locator('a[href^="mailto:"]'), `the footer on ${path}`).toHaveCount(1)
+      await expect(
+        footer.locator(`a[href="${COMPANY_MAILTO}"]`),
+        `the footer on ${path}`,
+      ).toHaveCount(1)
       // Payments are simulated, and the footer says so rather than implying a charge.
       await expect(footer).toContainText(FOOTER_PAYMENTS)
     }
@@ -872,8 +881,9 @@ test.describe('the small print', () => {
     const words = await visitor.locator('main').innerText()
 
     expect(words).not.toMatch(/\bcoming soon\b|\bsoon\b|\byet\b/iu)
-    // Nowhere on the page, footer included, is there an address to write to.
-    await expect(visitor.locator('a[href^="mailto:"]')).toHaveCount(0)
+    // Nowhere on the page, footer included, is there an address to write to
+    // other than the company's own published one.
+    await expect(visitor.locator(OTHER_MAILTO)).toHaveCount(0)
   })
 })
 
@@ -894,7 +904,7 @@ test.describe('what crawlers and installers are given', () => {
       [...xml.matchAll(/<loc>([^<]+)<\/loc>/gu)].map(([, loc]) => new URL(loc.trim()).pathname),
     )
 
-    for (const path of ['/categories', '/venues', '/organizers', '/limitations']) {
+    for (const path of ['/categories', '/venues', '/organizers', '/limitations', '/contact']) {
       expect(paths, `the sitemap lists ${path}`).toContain(path)
     }
 
@@ -927,6 +937,7 @@ test.describe('what crawlers and installers are given', () => {
 
     const manifest = await response.json()
 
+    expect(manifest.name).toBe('The Desi Events')
     expect(manifest.start_url).toBe('/')
     expect(manifest.display).toBe('standalone')
     // It says what the site says: nothing here takes money.

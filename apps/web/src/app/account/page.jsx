@@ -135,7 +135,7 @@ export default async function AccountPage() {
             chose.
           </Destination>
           <Destination href="/account/organizations/new" title="Accept an organiser invitation">
-            Enter the organiser invitation code the Desi-Event team sent you.
+            Enter the organiser invitation code the team at The Desi Events sent you.
           </Destination>
           {workspace ? (
             <Destination href={workspace} title="Workspace">

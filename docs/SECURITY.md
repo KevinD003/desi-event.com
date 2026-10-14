@@ -884,7 +884,7 @@ Recorded from SPEC2-XI §10. The decisions are ADRs 0014 and 0015.
   organisation's event.
 - **Stated limit:** a non-member SUPER_ADMIN keeps the lifecycle moves
   (publish, sales, postpone, cancel, reschedule) without a sitting. Each is
-  audited and shown as "by the Desi-Event team".
+  audited and shown as "by the team at The Desi Events".
 - `event:platform_edit`, `event:platform_delete` and `event:import` are
   forbidden literals in browser bundles.
 

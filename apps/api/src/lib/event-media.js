@@ -16,7 +16,7 @@
  * New pixels — an upload, a replaced cover — while the event is editable, where
  * every new picture is reviewed with the event, and once it is posted (live,
  * finished or cancelled), where each new picture is stored waiting and shown
- * only after somebody on the Desi-Event team other than its uploader approves
+ * only after somebody on the team at The Desi Events other than its uploader approves
  * it (SPEC2-XI X-3). A cover uploaded to a posted event waits beside the
  * current one (`replacesMediaId`), which stays public until the new one is
  * approved; approving it removes the old cover in the same transaction, which
@@ -26,7 +26,7 @@
  * for a restore (and so do not count toward the organisation's quota). Every
  * write goes through `authorChange`, so each one takes the event revision as a
  * precondition, bumps it, and is audited in the same transaction; the
- * organisation's members write under their membership, the Desi-Event team in
+ * organisation's members write under their membership, the team at The Desi Events in
  * an editing sitting (`lib/event-authority.js`).
  *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc
@@ -261,7 +261,7 @@ const IN_REVIEW_SENTENCE =
  * as they were so a restore brings the event back whole (SPEC2-XI X-8).
  */
 const DELETED_MEDIA_SENTENCE =
-  'This event was deleted. Its pictures stay as they were, so a restore by the Desi-Event team brings the event back whole.'
+  'This event was deleted. Its pictures stay as they were, so a restore by the team at The Desi Events brings the event back whole.'
 
 /** Why a status refuses each kind of change, in the organiser's words. */
 const STATUS_REFUSALS = Object.freeze({
@@ -271,7 +271,7 @@ const STATUS_REFUSALS = Object.freeze({
       return 'This event is waiting for review, so no picture can be added. Withdraw it from review first.'
     }
     if (status === 'APPROVED') {
-      return 'This event is approved and waiting for you to publish it. New pictures can be added once it is published; each appears once the Desi-Event team approves it.'
+      return 'This event is approved and waiting for you to publish it. New pictures can be added once it is published; each appears once the team at The Desi Events approves it.'
     }
     if (status === 'REJECTED') {
       return 'A moderator rejected this event. Rework it as a draft to add pictures.'
@@ -307,7 +307,7 @@ const STATUS_SETS = Object.freeze({
  *
  * "You may not" is a 403; "not in this state" is a 409 `NOT_EDITABLE`. The
  * organisation's members change pictures under their membership
- * (`event:update`); the Desi-Event team in an open editing sitting of this
+ * (`event:update`); the team at The Desi Events in an open editing sitting of this
  * browser session, on a posted event only (SPEC2-XI X-7).
  *
  * @param {object} db A Prisma client.
@@ -419,7 +419,7 @@ export const MEDIA_QUOTA_SENTENCE =
 
 /** The refusal when deleted events' pictures, kept for a restore, fill what is left. */
 export const MEDIA_HELD_FOR_DELETED_SENTENCE =
-  'Your organisation’s deleted events still hold their pictures, kept so the Desi-Event team can restore them, and together with your other pictures they fill the 2 GB your organisation may store in all. To make room, remove pictures from past events, or ask the Desi-Event team to restore a deleted event and then remove its pictures.'
+  'Your organisation’s deleted events still hold their pictures, kept so the team at The Desi Events can restore them, and together with your other pictures they fill the 2 GB your organisation may store in all. To make room, remove pictures from past events, or ask the team at The Desi Events to restore a deleted event and then remove its pictures.'
 
 /**
  * Refuse an upload that would take the organisation past its storage quota.
@@ -1331,7 +1331,7 @@ export async function decideMedia(prisma, { mediaId, decision, reason = null, ac
 
   // A reviewer who belongs to the event's organisation does not decide its
   // pictures, and nobody approves a picture they uploaded: somebody else on
-  // the Desi-Event team does. Taking a picture down is not approving it.
+  // the team at The Desi Events does. Taking a picture down is not approving it.
   const { exemption } = await assertIndependentReviewer(prisma, {
     actor,
     organizationId: asset.event.organizationId,
@@ -1451,7 +1451,7 @@ export async function decideMedia(prisma, { mediaId, decision, reason = null, ac
 const QUEUE_EVENT_STATUSES = Object.freeze([...PUBLICLY_VISIBLE_STATUSES])
 
 /**
- * The pictures of posted events waiting for the Desi-Event team (or taken
+ * The pictures of posted events waiting for the team at The Desi Events (or taken
  * down), oldest first, each with its event and whether its organisation
  * uploaded it. Never who uploaded it.
  *

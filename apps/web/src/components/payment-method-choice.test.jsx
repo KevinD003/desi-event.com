@@ -34,7 +34,7 @@ describe('PaymentMethodChoice', () => {
 
   it('says the pay-at-the-venue hint exactly, with the tax named as a sentence names it', () => {
     expect(venueHint({ country: 'US', region: 'TX' })).toBe(
-      'Pay the booking fee now (simulated) and the ticket price at the door. No sales tax is added to tickets paid at the venue. Until a ticket is paid for, the organiser or Desi-Event can cancel it, and the booking fee is not refunded if they do. If you pass a ticket on, whoever holds it pays at the door.',
+      'Pay the booking fee now (simulated) and the ticket price at the door. No sales tax is added to tickets paid at the venue. Until a ticket is paid for, the organiser or The Desi Events can cancel it, and the booking fee is not refunded if they do. If you pass a ticket on, whoever holds it pays at the door.',
     )
     expect(venueHint({ country: 'CA', region: 'ON' })).toContain(
       'No HST is added to tickets paid at the venue.',

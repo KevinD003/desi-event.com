@@ -1,6 +1,6 @@
 /**
- * Every event's visits: the platform list, for Desi-Event's platform
- * administrators and super administrators.
+ * Every event's visits: the platform list, for the platform administrators
+ * and super administrators at The Desi Events.
  *
  * Counted the same way organisers see their own events, in whole UTC days,
  * with robots, organisers' teams and staff left out. It shows counts and paid
@@ -58,11 +58,11 @@ const PATH = '/analytics/events'
 
 /** What a session without the platform list's capability is told. */
 export const NOT_FOR_YOU =
-  'Every event’s visits are shown to Desi-Event platform administrators. Your own organisations’ figures are under Analytics. Nothing on this page can grant it.'
+  'Every event’s visits are shown to platform administrators at The Desi Events. Your own organisations’ figures are under Analytics. Nothing on this page can grant it.'
 
 /** What the page says it shows. */
 export const INTRODUCTION =
-  'Visits to every event page on Desi-Event, counted the same way organisers see their own: without cookies, in whole UTC days, with robots, organisers’ teams and staff left out. Sales are shown as paid orders; money is not shown here.'
+  'Visits to every event page on The Desi Events, counted the same way organisers see their own: without cookies, in whole UTC days, with robots, organisers’ teams and staff left out. Sales are shown as paid orders; money is not shown here.'
 
 /** The longest search the API takes. */
 const SEARCH_MAX = 100

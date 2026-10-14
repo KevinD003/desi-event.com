@@ -77,7 +77,7 @@
  *
  * ## The booking fee on its own (`fee`, SPEC3 §7.4)
  *
- * The Desi-Event team can refund what is left of one order's booking fee and
+ * The Desi Events team can refund what is left of one order's booking fee and
  * the tax it carried, by hand ({@link requestRefund} with `feeOnly`). It
  * withdraws no ticket, writes no line, is never promoted to the whole order and
  * never moves the order to REFUNDED. The tax it gave back is not shared out
@@ -259,7 +259,7 @@ export function seatPolicyFor({ eventStartsAt, now, override }) {
  * opinion that disagreed with the constraint would be the more dangerous
  * number.
  *
- * The booking fee Desi-Event kept when unpaid pay-at-the-venue tickets were
+ * The booking fee The Desi Events kept when unpaid pay-at-the-venue tickets were
  * cancelled (`venueFeeKeptCents`, SPEC3-XI XU6) is never refundable: it is
  * taken off here, for every caller, and CHECK `order_venue_kept_within_total`
  * refuses a reservation that would reach into it. A card order keeps nothing.
@@ -315,7 +315,7 @@ const NO_PARTS = Object.freeze({ faceValueCents: 0, feeCents: 0, taxCents: 0 })
 
 /**
  * The refund forms a request can take. `fee` is the booking fee on its own,
- * refunded by the Desi-Event team (SPEC3 §7.4).
+ * refunded by the team at The Desi Events (SPEC3 §7.4).
  */
 export const FORMS = Object.freeze({
   WHOLE: 'whole',
@@ -1616,10 +1616,10 @@ export async function requestRefund(tx, params) {
   const atVenue = isAtVenue(order)
 
   // A pay-at-the-venue order paid online only its booking fee and the tax on
-  // it: a sum asked of it would be Desi-Event's fee given back with no ticket
+  // it: a sum asked of it would be the fee of The Desi Events given back with no ticket
   // withdrawn, and an amount equal to what is left would be promoted to the
   // whole order. Its tickets are refunded by name or all together; its fee on
-  // its own only by the Desi-Event team (SPEC3 §9.7).
+  // its own only by the team at The Desi Events (SPEC3 §9.7).
   if (atVenue && !lines && !whole && !feeOnly) {
     throw paymentTermsRefusal('AMOUNT_REFUND_NOT_FOR_VENUE_ORDERS')
   }
@@ -2553,7 +2553,7 @@ export async function settleRefund(tx, params) {
   // The booking fee refunded on its own never moves the order: a buyer who
   // paid at the door and was let in keeps a PAID order (SPEC3 §10.2).
   //
-  // "In full" counts the booking fee Desi-Event kept when unpaid tickets were
+  // "In full" counts the booking fee The Desi Events kept when unpaid tickets were
   // cancelled (SPEC3-XI §10.2): it is never refunded, so an order whose every
   // other cent went back is refunded as far as it ever will be.
   const refundedInFull = after.refundedCents + (after.venueFeeKeptCents ?? 0) >= after.totalCents

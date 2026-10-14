@@ -1,5 +1,5 @@
 /**
- * The Desi-Event team's "Booking fee and payment" panel (SPEC3 §12.3,
+ * The Desi Events team's "Booking fee and payment" panel (SPEC3 §12.3,
  * SPEC3-XI §12.3): every state says the specification's words, a write sends
  * what the administrator read as its precondition, a refused form puts focus
  * on its summary, and the server's demand for a second factor is answered by

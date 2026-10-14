@@ -9,7 +9,7 @@
  *   - **The roles offered are exactly the API's `roleChoices`** for the
  *     member, Owner never among them even if a payload listed it. A member who
  *     does not post events is told that the roles which do come from the
- *     Desi-Event team, and the API's own refusal is shown when it gives one.
+ *     team at The Desi Events, and the API's own refusal is shown when it gives one.
  *   - **A role change carries the whole scope** for a door role — including
  *     scoped events the picker could not list — and none for any other role.
  *   - **A door role cannot be saved blind** when the events could not be read,
@@ -193,7 +193,7 @@ describe('changing a role', () => {
     }
 
     expect(screen.getByText(POSTING_ROLES_HINT)).toBeVisible()
-    expect(POSTING_ROLES_HINT).toMatch(/given by the Desi-Event team/u)
+    expect(POSTING_ROLES_HINT).toMatch(/given by the team at The Desi Events/u)
   })
 
   it('offers somebody who posts events the roles below theirs, administrator included', async () => {
@@ -230,7 +230,7 @@ describe('changing a role', () => {
   it('shows the API’s sentence when it refuses a move into a role that posts events', async () => {
     const user = userEvent.setup()
     const sentence =
-      'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.'
+      'Roles that create or publish events — event manager, manager, administrator and owner — are given by the team at The Desi Events, not from this page. Ask the team at The Desi Events to add this person to your organisation.'
 
     apiFetch.mockResolvedValue(
       answer(403, { error: { code: 'POSTING_ROLE_NEEDS_PLATFORM', message: sentence } }),
@@ -430,7 +430,7 @@ describe('changing a role', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: /New role/u }), 'VIEWER')
     await user.click(screen.getByRole('button', { name: 'Save the new role' }))
 
-    expect(await screen.findByText(/Nothing reached Desi-Event/u)).toBeInTheDocument()
+    expect(await screen.findByText(/Nothing reached The Desi Events/u)).toBeInTheDocument()
   })
 })
 

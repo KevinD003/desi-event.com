@@ -135,7 +135,7 @@ describe('booking to pay at the venue', () => {
     expect(tickets.reduce((sum, ticket) => sum + ticket.venueDueCents, 0)).toBe(due)
     expect(tickets.every((ticket) => ticket.venuePaymentId === null)).toBe(true)
 
-    // The fee-only batch: Desi-Event's fee against the clearing account, and
+    // The fee-only batch: the fee of The Desi Events against the clearing account, and
     // no organiser share (the door price is not platform money).
     const { batch, byAccount } = await ledgerFor(prisma, order.id)
 

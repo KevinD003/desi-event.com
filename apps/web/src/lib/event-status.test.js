@@ -70,12 +70,12 @@ describe('the editing mode of each status', () => {
     expect(editMode('COMPLETED')).toBe('content')
   })
 
-  it('reads a deleted event as off the site, in the Desi-Event team’s hands', () => {
+  it('reads a deleted event as off the site, in the hands of the team at The Desi Events', () => {
     const reading = statusReading('DELETED')
 
     expect(reading.label).toBe('Deleted')
     expect(reading.tone).toBe('danger')
-    expect(reading.whose).toBe('the Desi-Event team')
+    expect(reading.whose).toBe('the team at The Desi Events')
     expect(reading.next).toMatch(/off the site/)
     expect(reading.next).toMatch(/can restore it/)
   })

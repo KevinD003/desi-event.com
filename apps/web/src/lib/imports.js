@@ -3,7 +3,7 @@
  * (SPEC2-XI I-E).
  *
  * The API sends `importedFrom` on an event only while it is held by the
- * Desi-Event team for that site: `{ sourceName, presentedBy, listedOn,
+ * team at The Desi Events for that site: `{ sourceName, presentedBy, listedOn,
  * prices, priceListed, ticketsOnSource }`. Tickets for such an event are sold
  * on the source site, so nothing here offers to sell one: the card says where
  * the tickets are and what the cheapest paid one cost when it was listed, and

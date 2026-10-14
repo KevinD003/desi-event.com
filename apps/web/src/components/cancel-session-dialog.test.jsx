@@ -121,7 +121,7 @@ describe('CancelSessionDialog', () => {
     ).toBeVisible()
     expect(
       screen.getByText(
-        'Payment taken at the door for 2 of these tickets ($90.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+        'Payment taken at the door for 2 of these tickets ($90.00) is held by the organiser. The Desi Events does not hold it and cannot refund it.',
       ),
     ).toBeVisible()
   })

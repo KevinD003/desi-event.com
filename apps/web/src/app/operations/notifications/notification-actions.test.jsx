@@ -232,6 +232,6 @@ describe('refusals', () => {
     await user.type(screen.getByRole('textbox', { name: /Why/u }), 'provider is back up')
     await user.click(screen.getByRole('button', { name: 'Put it back in the queue' }))
 
-    expect(await screen.findByText(/Nothing reached Desi-Event/u)).toBeInTheDocument()
+    expect(await screen.findByText(/Nothing reached The Desi Events/u)).toBeInTheDocument()
   })
 })

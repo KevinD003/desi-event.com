@@ -706,7 +706,7 @@ describe('SPEC3 refusals (§4.5)', () => {
 
     expect(error).toMatchObject({ statusCode: 409, code: 'FEE_TERMS_CURRENCY' })
     expect(error.message).toBe(
-      "The Desi-Event team set this event's booking fee in USD. Ask them to change it before pricing tickets in another currency.",
+      "The Desi Events team set this event's booking fee in USD. Ask them to change it before pricing tickets in another currency.",
     )
     expect(() => paymentTermsRefusal('FEE_TERMS_CURRENCY')).toThrow(TypeError)
     expect(() => paymentTermsRefusal('MADE_UP')).toThrow(TypeError)

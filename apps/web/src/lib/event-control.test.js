@@ -89,7 +89,7 @@ describe('the sentences a deletion preview reads as', () => {
     const sentences = deletionSentences(preview({ outcome: 'REMOVE' }, { paidOrders: 0 }))
 
     expect(sentences[0]).toBe(
-      'Nobody has bought a ticket to this event. Deleting it takes its page, listing and pictures off the site straight away. It is kept, hidden, so the Desi-Event team can restore it.',
+      'Nobody has bought a ticket to this event. Deleting it takes its page, listing and pictures off the site straight away. It is kept, hidden, so the team at The Desi Events can restore it.',
     )
     expect(sentences).toContain(
       'Its web address stays retired, so an old link never shows a different event.',
@@ -176,7 +176,9 @@ describe('the sentences a deletion preview reads as', () => {
     expect(deletionSentences(choice)).toEqual([])
     expect(deletionSentences(choice, 'REMOVE_AFTER_EVENT')[0]).toMatch(/has taken place/)
     expect(deletionSentences(choice, 'CANCEL_AND_REFUND')[0]).toMatch(/cancels it, refunds/)
-    expect(CHOICE_PROMPT).toBe('Nobody was checked in through Desi-Event, so say what happened:')
+    expect(CHOICE_PROMPT).toBe(
+      'Nobody was checked in through The Desi Events, so say what happened:',
+    )
     expect(Object.values(CHOICE_LABELS)).toEqual([
       'It took place: take its page down and refund nobody',
       'It did not take place: cancel it and refund every order',
@@ -297,10 +299,10 @@ describe('a deleted event’s record', () => {
 
   it('names the person only when the server sent the name', () => {
     expect(deletedByReading({ authority: 'PLATFORM', deletedByName: null })).toBe(
-      'the Desi-Event team',
+      'the team at The Desi Events',
     )
     expect(deletedByReading({ authority: 'PLATFORM', deletedByName: 'Anil Rao' })).toBe(
-      'Anil Rao, of the Desi-Event team',
+      'Anil Rao, of the team at The Desi Events',
     )
     expect(deletedByReading({ authority: 'ORGANIZATION', deletedByName: 'Priya Shah' })).toBe(
       'Priya Shah, of the organisation',
@@ -312,7 +314,7 @@ describe('a deleted event’s record', () => {
 
   it('tells a ticket holder who removed the page', () => {
     expect(deletedForHolder({ by: 'DESI_EVENT' })).toBe(
-      'The Desi-Event team removed this event’s page.',
+      'The Desi Events team removed this event’s page.',
     )
     expect(deletedForHolder(null)).toBe('The organiser removed this event’s page.')
   })
@@ -374,9 +376,9 @@ describe('what a sitting changed, in the editor’s words', () => {
     ).toEqual(['description', 'FAQ', 'public contact', 'added a night', 'added a picture'])
   })
 
-  it('asks the Desi-Event team to confirm every ten minutes', () => {
+  it('asks the team at The Desi Events to confirm every ten minutes', () => {
     expect(PLATFORM_STEP_UP_SENTENCE).toBe(
-      'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.',
+      'Confirm it’s you to keep editing. The Desi Events team confirms every 10 minutes while editing someone else’s event.',
     )
   })
 
@@ -391,12 +393,12 @@ describe('what a sitting changed, in the editor’s words', () => {
     expect(clockTime('2026-10-06T19:40:00.000Z', 'Not/AZone')).toBe('7:40 PM UTC')
   })
 
-  it('tells the organiser the Desi-Event team is editing, until when, in the event’s zone', () => {
+  it('tells the organiser the team at The Desi Events is editing, until when, in the event’s zone', () => {
     expect(teamEditingSentence('2026-10-06T19:40:00.000Z', 'America/Chicago')).toBe(
-      'The Desi-Event team is editing this event until 2:40 PM CDT.',
+      'The Desi Events team is editing this event until 2:40 PM CDT.',
     )
     expect(teamEditingSentence('not a time', 'America/Chicago')).toBe(
-      'The Desi-Event team is editing this event.',
+      'The Desi Events team is editing this event.',
     )
   })
 })
@@ -419,7 +421,7 @@ describe('a change notice', () => {
   })
 
   it('says who made the change', () => {
-    expect(noticeBy({ by: 'DESI_EVENT' })).toBe('by the Desi-Event team')
+    expect(noticeBy({ by: 'DESI_EVENT' })).toBe('by the team at The Desi Events')
     expect(noticeBy({ by: 'ORGANIZER' })).toBe('by the organiser')
   })
 })
@@ -674,7 +676,7 @@ describe('the booking fee and paying at the venue, in words (SPEC3 §12.3, SPEC3
 describe('an event not yet posted (SPEC3 §12.3, O8)', () => {
   it('says the team edits an event’s details only once it is published, and its fee before', () => {
     expect(NOT_POSTED_SENTENCE).toBe(
-      'The Desi-Event team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.',
+      'The Desi Events team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.',
     )
     expect(UNPOSTED_TERMS_SENTENCE).toBe(
       'You can set this event’s booking fee and whether it can be paid for at the venue now, before it is published.',

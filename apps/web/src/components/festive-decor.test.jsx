@@ -97,8 +97,8 @@ describe('Wordmark', () => {
       (element) => element.textContent,
     )
 
-    expect(hidden).toContain('देसी इवेंट')
-    expect(container.querySelector('a')).toHaveAccessibleName('Desi-Event')
+    expect(hidden).toContain('द देसी इवेंट्स')
+    expect(container.querySelector('a')).toHaveAccessibleName('The Desi Events')
   })
 })
 

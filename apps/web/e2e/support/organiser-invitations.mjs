@@ -1,6 +1,6 @@
 /**
- * Inviting an organiser from `/admin/organizer-invitations`, as the Desi-Event
- * team does, and reading the code the page shows once.
+ * Inviting an organiser from `/admin/organizer-invitations`, as the team at
+ * The Desi Events does, and reading the code the page shows once.
  *
  * Organisers join only by such an invitation, so every journey that needs an
  * organisation of somebody's own starts here: the team-and-organisations

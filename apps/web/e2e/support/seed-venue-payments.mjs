@@ -11,7 +11,7 @@
  *   - **Pay Venue <tag>**, a VERIFIED organisation (America/Chicago) with its
  *     owner (`pay-owner-<tag>`, a factor), a FINANCE member (`pay-finance-<tag>`,
  *     a factor) and a SCANNER (`pay-scanner-<tag>`) scoped to every event below.
- *   - The Desi-Event team: an ADMIN (`pay-admin-<tag>`), a SUPER_ADMIN
+ *   - The Desi Events team: an ADMIN (`pay-admin-<tag>`), a SUPER_ADMIN
  *     (`pay-super-<tag>`), a FINANCE_ADMIN (`pay-finadmin-<tag>`) and a
  *     MODERATOR (`pay-mod-<tag>`), each with a factor, none a member of the
  *     organisation.
@@ -374,7 +374,8 @@ export async function seedVenuePayments(tag) {
     }
 
     // Nobody else starts in the organisation, whatever an earlier seed of
-    // this tag left: the Desi-Event team and the buyers are members of none.
+    // this tag left: the team at The Desi Events and the buyers are members of
+    // none.
     await prisma.membership.deleteMany({
       where: {
         userId: {

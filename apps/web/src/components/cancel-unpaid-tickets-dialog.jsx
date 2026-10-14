@@ -4,12 +4,12 @@
  * Cancelling unpaid tickets of one booking made to pay at the venue (SPEC3-XI
  * §12.14, XU1–XU14).
  *
- * The organiser who may refund the organisation's orders, or the Desi-Event
- * team, chooses tickets of one booking that still owe their door price and
- * cancels them: each stops admitting, nobody owes its price any more, its
- * place is freed, and Desi-Event keeps the booking fee paid online for it —
- * what the booking still holds of it (`feeHeldCents`): a fee refunded earlier
- * is not kept again. Nothing is refunded. It cannot be undone.
+ * The organiser who may refund the organisation's orders, or the team at
+ * The Desi Events, chooses tickets of one booking that still owe their door
+ * price and cancels them: each stops admitting, nobody owes its price any more,
+ * its place is freed, and The Desi Events keeps the booking fee paid online for
+ * it — what the booking still holds of it (`feeHeldCents`): a fee refunded
+ * earlier is not kept again. Nothing is refunded. It cannot be undone.
  *
  * ## What it reads, and when it asks for a second factor
  *
@@ -531,7 +531,7 @@ export function CancelUnpaidTicketsDialog({ eventId, orderReference, onClose, on
               </p>
               <p>
                 {heldFee > 0
-                  ? 'Desi-Event keeps the booking fee paid online for them; nothing is refunded.'
+                  ? 'The Desi Events keeps the booking fee paid online for them; nothing is refunded.'
                   : paidFee > 0
                     ? 'Nothing is left of the booking fee paid online for this booking, so nothing is kept or refunded.'
                     : 'Nothing was paid online for them, so nothing is refunded.'}

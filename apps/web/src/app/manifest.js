@@ -1,7 +1,7 @@
 /**
  * The web app manifest, served at `/manifest.webmanifest`.
  *
- * What it does: lets a browser that offers installation add Desi-Event to a
+ * What it does: lets a browser that offers installation add The Desi Events to a
  * home screen, open it without the browser's chrome, and colour that chrome as
  * the page it frames. The colours are the page token and the icon's are the
  * inverse surface and accent; `semantic-classes.test.js` holds every hex here
@@ -30,8 +30,8 @@ const PAGE = '#fff9f0'
  */
 export default function manifest() {
   return {
-    name: 'Desi-Event',
-    short_name: 'Desi-Event',
+    name: 'The Desi Events',
+    short_name: 'The Desi Events',
     description:
       'Garba and dandiya nights across the USA, with every price shown in US dollars with its fee. Payments on this site are simulated.',
     start_url: '/',

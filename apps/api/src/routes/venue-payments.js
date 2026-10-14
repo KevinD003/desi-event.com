@@ -8,7 +8,7 @@
  * known only then: a member whose role holds `finance:view` in the event's
  * organisation, or a platform role holding `finance:view`. Anybody else gets
  * the same 404 as an event that does not exist. The money taken at the door is
- * the organiser's; the report is what Desi-Event recorded of it
+ * the organiser's; the report is what The Desi Events recorded of it
  * (`lib/venue-payments.js`).
  *
  * @module @desi-event/api/routes/venue-payments

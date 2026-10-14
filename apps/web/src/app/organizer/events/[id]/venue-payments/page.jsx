@@ -1,13 +1,13 @@
 /**
  * "Payments at the venue" for one event (SPEC3 §12.9, SPEC3-XI §12.9).
  *
- * The money taken at the door is the organiser's: Desi-Event records the
+ * The money taken at the door is the organiser's: The Desi Events records the
  * amounts to help count them, and none of it is in the ledger, in payouts or
  * in refunds. This page shows what the report (`venuePayments.report`) says —
  * the figures, the payments taken, the bookings still unpaid and the unpaid
  * tickets cancelled — and offers "Cancel unpaid tickets…" on each unpaid
  * booking when the report says this reader may (`canCancelUnpaid`: an
- * organisation owner or administrator, or a Desi-Event administrator). A
+ * organisation owner or administrator, or an administrator at The Desi Events). A
  * finance member sees the same figures and tables and no button.
  *
  * Gated here by `finance:view` in the event's organisation (or platform
@@ -66,11 +66,11 @@ const VIA = Object.freeze({ DOOR_TICKET: 'One ticket', DOOR_GROUP: 'Group pass' 
 
 /** What the note under the unpaid bookings says to a reader who may cancel. */
 export const CANCEL_NOTE =
-  'You can cancel tickets that have not been paid for until their night ends. Their places are freed and sell again while their sales are open; Desi-Event keeps any booking fee paid online for them.'
+  'You can cancel tickets that have not been paid for until their night ends. Their places are freed and sell again while their sales are open; The Desi Events keeps any booking fee paid online for them.'
 
 /** The note on whose money this is (SPEC3 §12.9). */
 export const MONEY_NOTE =
-  'Money taken at the door is yours. Desi-Event records the amounts to help you count them; they are not in your payouts or in the figures from the ledger. The site adds no sales tax to tickets paid at the venue; you may still owe sales tax on those sales.'
+  'Money taken at the door is yours. The Desi Events records the amounts to help you count them; they are not in your payouts or in the figures from the ledger. The site adds no sales tax to tickets paid at the venue; you may still owe sales tax on those sales.'
 
 /**
  * "1 ticket" or "3 tickets".
@@ -85,12 +85,20 @@ function tickets(count) {
 /**
  * Who cancelled, as the organisation reads it (SPEC3-XI §12.9).
  *
+ * A former administrator reaches the page already named "An administrator at
+ * The Desi Events"; that name is shown alone, so the company is not named
+ * twice.
+ *
  * @param {{by: string, byName: string|null}} cancellation A cancellation.
- * @returns {string} "{name}" or "{name} (Desi-Event)".
+ * @returns {string} "{name}" or "{name} (The Desi Events)".
  */
 export function cancelledByWords(cancellation) {
   if (cancellation.by === 'DESI_EVENT') {
-    return cancellation.byName ? `${cancellation.byName} (Desi-Event)` : 'The Desi-Event team'
+    if (!cancellation.byName) return 'The Desi Events team'
+
+    return /\bat The Desi Events$/u.test(cancellation.byName)
+      ? cancellation.byName
+      : `${cancellation.byName} (The Desi Events)`
   }
 
   return cancellation.byName ?? 'The organiser'
@@ -258,7 +266,7 @@ export default async function VenuePaymentsPage({ params, searchParams }) {
             value={`${summary.cancelledUnpaidTickets.toLocaleString('en-US')} (${money(summary.cancelledUnpaidCents)} no longer owed)`}
           />
           <Fact
-            label="Booking fees on them, kept by Desi-Event"
+            label="Booking fees on them, kept by The Desi Events"
             value={money(summary.feeKeptCents)}
           />
         </dl>
@@ -266,8 +274,8 @@ export default async function VenuePaymentsPage({ params, searchParams }) {
         {summary.paidOnRefundedCents > 0 ? (
           <p className="mt-3 max-w-prose rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-sm text-ink">
             Payments taken at the door on bookings later refunded or cancelled:{' '}
-            {money(summary.paidOnRefundedCents)}. If you return them, return them yourself;
-            Desi-Event does not hold this money.
+            {money(summary.paidOnRefundedCents)}. If you return them, return them yourself; The Desi
+            Events does not hold this money.
           </p>
         ) : null}
 

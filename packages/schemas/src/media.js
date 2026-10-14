@@ -103,8 +103,8 @@ export const PUBLIC_MEDIA_MAX_AGE_SECONDS = 86_400
  *
  * No new pixels reach a public page without a review. On a draft every new
  * picture is reviewed with the event. On a posted event each new picture is
- * stored waiting for the Desi-Event team's approval and is not shown until
- * somebody other than its uploader approves it; a new cover waits beside the
+ * stored waiting for approval by the team at The Desi Events and is not shown
+ * until somebody other than its uploader approves it; a new cover waits beside the
  * current one, which stays public until the new one is approved (SPEC2-XI X-3).
  * Not while a moderator holds this version (REVIEW_PENDING, APPROVED), nor
  * once it is rejected, archived or deleted.
@@ -556,7 +556,7 @@ export const eventMediaSchema = publicMediaSchema.extend({
   publiclyVisible: z.boolean(),
   /**
    * For a cover uploaded to a posted event: the current cover it would
-   * replace once the Desi-Event team approves it. The current cover stays
+   * replace once the team at The Desi Events approves it. The current cover stays
    * public until then. Null for every other picture.
    */
   replacesMediaId: cuidSchema.nullable().default(null),
@@ -582,8 +582,8 @@ export const eventMediaResponseSchema = z.object({
 })
 
 /**
- * `GET /v1/moderation/media`: the pictures of posted events waiting for the
- * Desi-Event team (PENDING, the default) or taken down (REJECTED), oldest
+ * `GET /v1/moderation/media`: the pictures of posted events waiting for the team
+ * at The Desi Events (PENDING, the default) or taken down (REJECTED), oldest
  * first.
  */
 export const mediaQueueQuerySchema = paginationQuerySchema.extend({
@@ -592,7 +592,7 @@ export const mediaQueueQuerySchema = paginationQuerySchema.extend({
 
 /**
  * One picture in the queue, with the event it belongs to. Who uploaded it is
- * never named: `uploadedByOrganiser` is false when the Desi-Event team uploaded
+ * never named: `uploadedByOrganiser` is false when the team at The Desi Events uploaded
  * it in an editing sitting (or the uploader has since left the organisation),
  * and nobody approves a picture they uploaded themselves.
  */

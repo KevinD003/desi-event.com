@@ -64,7 +64,7 @@ describe('the visit-counting vocabulary', () => {
     expect(Object.keys(TRAFFIC_SOURCE_LABELS).sort()).toEqual([...TRAFFIC_SOURCES].sort())
     expect(Object.keys(TRAFFIC_SOURCE_DESCRIPTIONS).sort()).toEqual([...TRAFFIC_SOURCES].sort())
     expect(Object.keys(CARD_PLACEMENT_LABELS).sort()).toEqual([...CARD_PLACEMENTS].sort())
-    expect(TRAFFIC_SOURCE_LABELS.INTERNAL).toBe('Desi-Event pages')
+    expect(TRAFFIC_SOURCE_LABELS.INTERNAL).toBe('The Desi Events pages')
 
     for (const text of [
       ...Object.values(TRAFFIC_SOURCE_LABELS),

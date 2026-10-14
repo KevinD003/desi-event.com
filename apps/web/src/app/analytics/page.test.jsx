@@ -377,7 +377,9 @@ describe('the event view', () => {
     expect(screen.getByText(/Alpha Garba · On sale · starts Oct 20, 2026/u)).toBeTruthy()
     expect(screen.getByRole('region', { name: 'Visits to this event’s page' })).toBeTruthy()
     expect(
-      screen.getByText('Website link: Off. Only the Desi-Event team can turn it on or off.'),
+      screen.getByText(
+        'Website link: Off. Only the team at The Desi Events can turn it on or off.',
+      ),
     ).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Your events' })).toBeNull()
     expect(getAnalytics.mock.calls[0][0]).toMatchObject({ organizationId: ORG, eventId: EVENT })

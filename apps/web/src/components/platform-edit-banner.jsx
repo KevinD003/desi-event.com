@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The notice at the top of the editor while the Desi-Event team edits
+ * The notice at the top of the editor while the team at The Desi Events edits
  * somebody else's event: whose authority, the reason given, and until when.
  *
  * The sitting ends by time (an hour at most), by "Stop editing", or when the
@@ -109,7 +109,7 @@ export function PlatformEditBanner({
   if (expired || ended) {
     return (
       <div className="mt-4 space-y-4">
-        <Alert variant="warning" title="Editing as the Desi-Event team">
+        <Alert variant="warning" title="Editing as the team at The Desi Events">
           <p>{SITTING_ENDED_SENTENCE}</p>
         </Alert>
         <OpenPlatformEditForm eventId={eventId} heading="Open it again" />
@@ -119,7 +119,7 @@ export function PlatformEditBanner({
 
   return (
     <div className="mt-4 space-y-3">
-      <Alert variant="info" title="Editing as the Desi-Event team">
+      <Alert variant="info" title="Editing as the team at The Desi Events">
         {sitting.organizationName ? (
           <p className="mb-1">This is {sitting.organizationName}’s event.</p>
         ) : null}

@@ -156,7 +156,7 @@ function terms(venuePayment = {}, sequence = 0) {
 }
 
 /**
- * Render the Desi-Event team's panel.
+ * Render the panel of the team at The Desi Events.
  *
  * @param {object} [view] The terms.
  * @returns {void}

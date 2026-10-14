@@ -4,7 +4,7 @@ import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { addRows, deletedEventFixture, makeWorld } from './helpers/fixtures.js'
 
 /**
- * Restoring a deleted event (SPEC2-XI X-T): the Desi-Event team only, to the
+ * Restoring a deleted event (SPEC2-XI X-T): the team at The Desi Events only, to the
  * status `restoreTarget` gives (an on-sale event comes back paused), with its
  * web address back if nobody took it.
  *
@@ -219,7 +219,7 @@ describe('POST /v1/platform/events/:id/restore', () => {
     await app.close()
   })
 
-  it('is the Desi-Event team’s alone, needs the EVENT_PUBLISH factor, and refuses what is not deleted', async () => {
+  it('is for the team at The Desi Events alone, needs the EVENT_PUBLISH factor, and refuses what is not deleted', async () => {
     const { app, prisma, fixture, ids } = await deletedApp()
 
     for (const email of [

@@ -1,6 +1,6 @@
 /**
  * An event's booking fee (the platform fee) and its pay-at-the-venue switch:
- * the Desi-Event team's decisions about what buyers pay for an event and how
+ * the decisions of the team at The Desi Events about what buyers pay for an event and how
  * they may pay it (SPEC3 §7, §9.1).
  *
  * The only writer of `Event.feeSource`, `feePercentageBps`,
@@ -552,7 +552,7 @@ async function readView(db, eventId, { env }) {
 
 /**
  * Whether a reader gets an event's `paymentTerms` on its detail: its own team
- * and the Desi-Event team (every insider read), and the administrators who set
+ * and the team at The Desi Events (every insider read), and the administrators who set
  * them (SPEC3 §7.2, §11.3). Nobody else, ever.
  *
  * @param {object|null} actor The request actor.

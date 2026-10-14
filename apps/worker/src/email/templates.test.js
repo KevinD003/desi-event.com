@@ -124,7 +124,7 @@ describe('renderEmail', () => {
       },
     })
 
-    expect(rendered.subject).toBe('[DEMO] Your Desi-Event order DE-8F3K2Q')
+    expect(rendered.subject).toBe('[DEMO] Your order DE-8F3K2Q on The Desi Events')
     expect(rendered.text).toContain('Hi Priya Sharma,')
     expect(rendered.text).toContain('order DE-8F3K2Q')
     expect(rendered.text).toContain('Navratri Garba Night')
@@ -161,12 +161,12 @@ describe('renderEmail', () => {
       data: {
         eventTitle: 'Comedy Night',
         quantity: 2,
-        claimUrl: 'https://desi-event.com/e/comedy',
+        claimUrl: 'https://thedesievents.com/e/comedy',
       },
     })
 
     expect(rendered.subject).toBe('Tickets are available for Comedy Night')
-    expect(rendered.text).toContain('https://desi-event.com/e/comedy')
+    expect(rendered.text).toContain('https://thedesievents.com/e/comedy')
   })
 
   it('lets the caller override the subject', () => {
@@ -175,10 +175,21 @@ describe('renderEmail', () => {
     expect(rendered.subject).toBe('Tomorrow!')
   })
 
-  it('signs off once, at the end of the text body', () => {
+  it('signs off once, at the end of the text body, above the contact address', () => {
     const rendered = renderEmail({ template: 'PASSWORD_RESET', data: {} })
 
-    expect(rendered.text.trimEnd().endsWith('— Desi-Event')).toBe(true)
+    expect(
+      rendered.text.trimEnd().endsWith('— The Desi Events\nContact us at info@thedesievents.com.'),
+    ).toBe(true)
+    expect(rendered.text.split('— The Desi Events')).toHaveLength(2)
+  })
+
+  it('gives the public contact address as a mail link at the foot of the HTML body', () => {
+    const rendered = renderEmail({ template: 'PASSWORD_RESET', data: {} })
+
+    expect(rendered.html).toContain(
+      '<a href="mailto:info@thedesievents.com">info@thedesievents.com</a>.</p>\n</div>',
+    )
   })
 
   it('refuses an unknown template instead of sending an empty email', () => {
@@ -187,7 +198,7 @@ describe('renderEmail', () => {
 })
 
 describe('what ticket holders are told about a change to their event', () => {
-  it('names the organiser, or the Desi-Event team when it made the change, never a person', () => {
+  it('names the organiser, or the team at The Desi Events when it made the change, never a person', () => {
     const byOrganiser = renderEmail({ template: 'event.cancelled', data: { eventTitle: 'Garba' } })
     const byTeam = renderEmail({
       template: 'event.cancelled',
@@ -195,14 +206,14 @@ describe('what ticket holders are told about a change to their event', () => {
     })
 
     expect(byOrganiser.text).toContain('Garba has been cancelled by the organiser.')
-    expect(byTeam.text).toContain('Garba has been cancelled by the Desi-Event team.')
+    expect(byTeam.text).toContain('Garba has been cancelled by the team at The Desi Events.')
 
     const changed = renderEmail({
       template: 'event.changed',
       data: { eventTitle: 'Garba', byPlatform: true, changed: ['the start time'] },
     })
 
-    expect(changed.text).toContain('The Desi-Event team has changed something about Garba.')
+    expect(changed.text).toContain('The Desi Events team has changed something about Garba.')
     expect(changed.text).toContain('What changed: the start time.')
   })
 
@@ -239,7 +250,7 @@ describe('what ticket holders are told about a change to their event', () => {
       data: { eventTitle: 'Navratri Nights', keptEveryNight: true, byPlatform: true },
     })
 
-    expect(kept.text).toContain('The Desi-Event team has cancelled one night of Navratri Nights.')
+    expect(kept.text).toContain('The Desi Events team has cancelled one night of Navratri Nights.')
     expect(kept.text).toContain('is valid for every night, so you keep it for the others.')
     expect(kept.text).not.toMatch(/refunded in full/)
 
@@ -308,13 +319,13 @@ describe('unpaid tickets cancelled (SPEC3-XI §9.9)', () => {
       'The organiser cancelled 1 ticket on your order DE-3N01 because it was not paid for at the door. You no longer owe USD 45.00 for it.',
     )
     expect(rendered.text).toContain(
-      'The booking fee you paid online for it, USD 3.64, is kept by Desi-Event and is not refunded.',
+      'The booking fee you paid online for it, USD 3.64, is kept by The Desi Events and is not refunded.',
     )
     expect(rendered.text).toContain('Reason given: Not paid before the doors opened.')
     expect(rendered.text).toContain('Your other tickets on this order are not affected.')
   })
 
-  it('speaks of several tickets, nothing paid online, the Desi-Event team, and no other tickets', () => {
+  it('speaks of several tickets, nothing paid online, the team at The Desi Events, and no other tickets', () => {
     const rendered = renderEmail({
       template: 'venue_booking.cancelled',
       data: {
@@ -328,7 +339,7 @@ describe('unpaid tickets cancelled (SPEC3-XI §9.9)', () => {
     })
 
     expect(rendered.text).toContain(
-      'The Desi-Event team cancelled 2 tickets on your order DE-3N01 because they were not paid for at the door. You no longer owe USD 90.00 for them.',
+      'The Desi Events team cancelled 2 tickets on your order DE-3N01 because they were not paid for at the door. You no longer owe USD 90.00 for them.',
     )
     expect(rendered.text).toContain('Nothing was paid online for them.')
     expect(rendered.text).not.toContain('booking fee you paid online')
@@ -375,7 +386,7 @@ describe('unpaid tickets cancelled (SPEC3-XI §9.9)', () => {
     expect(rendered.text).not.toContain('USD 90.00')
     // The fee was paid for both, so it speaks of both.
     expect(rendered.text).toContain(
-      'The booking fee you paid online for them, USD 7.28, is kept by Desi-Event and is not refunded.',
+      'The booking fee you paid online for them, USD 7.28, is kept by The Desi Events and is not refunded.',
     )
   })
 
@@ -480,7 +491,7 @@ describe('bookings paid at the venue when the event or a night is called off (SP
     // A booking fee kept when unpaid tickets were cancelled was not refunded
     // earlier, and is not refunded now (SPEC3-XI XU6).
     expect(cancelled({ onlineRefund: 'FEE_KEPT' })).toContain(
-      'Your tickets on order DE-4V01 were to be paid at the door. The booking fee paid online for tickets cancelled because they were not paid for was kept by Desi-Event, and nothing else paid online is left to refund.',
+      'Your tickets on order DE-4V01 were to be paid at the door. The booking fee paid online for tickets cancelled because they were not paid for was kept by The Desi Events, and nothing else paid online is left to refund.',
     )
     expect(cancelled({ onlineRefund: 'FEE_KEPT' })).not.toMatch(/refunded earlier|being refunded/)
 
@@ -506,7 +517,7 @@ describe('bookings paid at the venue when the event or a night is called off (SP
     const paid = cancelled({ onlineRefund: 'REQUESTED', paidAtDoorCents: 4000 })
 
     expect(paid).toContain(
-      'The USD 40.00 you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      'The USD 40.00 you paid at the door is with the organiser, not with The Desi Events. Ask the organiser to return it.',
     )
     expect(paid).not.toContain('Nothing further is needed from you.')
   })
@@ -550,7 +561,7 @@ describe('bookings paid at the venue when the event or a night is called off (SP
     expect(holder.subject).toBe('[DEMO] Navratri Nights has been cancelled')
     expect(holder.text).toContain('Navratri Nights was cancelled.')
     expect(holder.text).toContain(
-      'The USD 40.00 you paid at the door for it is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      'The USD 40.00 you paid at the door for it is with the organiser, not with The Desi Events. Ask the organiser to return it.',
     )
     // Not the buyer's order, and nothing about a refund the holder never paid.
     expect(holder.text).not.toContain('DE-4V01')
@@ -605,7 +616,7 @@ describe('bookings paid at the venue when the event or a night is called off (SP
 
     expect(holder).toContain('Night 2 of Navratri Nights was cancelled.')
     expect(holder).toContain(
-      'The USD 40.00 you paid at the door for it is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      'The USD 40.00 you paid at the door for it is with the organiser, not with The Desi Events. Ask the organiser to return it.',
     )
   })
 
@@ -667,7 +678,7 @@ describe('a ticket offered while it still owes at the door (SPEC3-XI XT6)', () =
 
 describe('marking what is not real', () => {
   /**
-   * Desi-Event settles every order with an in-memory mock and issues passes
+   * The Desi Events settles every order with an in-memory mock and issues passes
    * that admit nobody. A confirmation that reads like a receipt, or a ticket
    * email that reads like a ticket, is the point at which a demonstration
    * starts misleading somebody — so the marker goes in the subject line and in

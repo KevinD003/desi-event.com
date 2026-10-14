@@ -19,8 +19,8 @@
  * true in the deployment it is read in: handed over by whoever invited you
  * when codes are not emailed, or emailed to the invited address when they are.
  *
- * This page is for team codes. An organiser invitation from the Desi-Event
- * team has its own page, and the page says so.
+ * This page is for team codes. An organiser invitation from the team at The
+ * Desi Events has its own page, and the page says so.
  *
  * @module app/account/invitations/page
  */
@@ -82,7 +82,7 @@ export default async function JoinOrganisationPage() {
       </p>
 
       <p className="mt-2 max-w-2xl text-sm text-ink-muted">
-        Sent an organiser invitation by the Desi-Event team? Enter that code at{' '}
+        Sent an organiser invitation by the team at The Desi Events? Enter that code at{' '}
         <Link href="/account/organizations/new" className={LINK}>
           Accept an organiser invitation
         </Link>{' '}

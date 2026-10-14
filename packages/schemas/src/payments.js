@@ -1,7 +1,7 @@
 /**
  * What this system can do with money, stated once.
  *
- * Desi-Event can run in exactly two payment modes, and neither of them moves
+ * The Desi Events can run in exactly two payment modes, and neither of them moves
  * real money:
  *
  *   - `MOCK` — the default. An in-memory adapter that authorises, captures and

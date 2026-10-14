@@ -541,7 +541,7 @@ describe('importing listed events (SPEC2-XI I)', () => {
     }
 
     expect(API_TAGS.find((tag) => tag.name === 'imports').description).toBe(
-      'Bringing events listed on another site onto Desi-Event, by the Desi-Event team.',
+      'Bringing events listed on another site onto The Desi Events, by its own team.',
     )
   })
 
@@ -711,7 +711,7 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §11)', ()
 
   it('declares the referral-codes tag and tags none of the routes `platform`', () => {
     expect(API_TAGS.find((tag) => tag.name === 'referral-codes')?.description).toBe(
-      'Codes the Desi-Event team hands out that remove the booking fee from an order. Made, changed and reported by platform administrators.',
+      'Codes the team at The Desi Events hands out that remove the booking fee from an order. Made, changed and reported by platform administrators.',
     )
 
     for (const id of Object.keys(EXPECTED)) {

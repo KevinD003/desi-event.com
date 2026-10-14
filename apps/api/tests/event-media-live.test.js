@@ -6,7 +6,7 @@ import { seedPicture, uploadUrl } from './helpers/media-world.js'
 
 /**
  * Pictures on a posted event (SPEC2-XI X-3, X-P): a new picture or a
- * replacement cover waits for somebody on the Desi-Event team other than its
+ * replacement cover waits for somebody on the team at The Desi Events other than its
  * uploader, and the old cover stays until then.
  *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc namepath.
@@ -102,7 +102,7 @@ describe('a replacement cover on a posted event', () => {
     expect(second.statusCode).toBe(201)
     expect(prisma._store.mediaAsset.some((row) => row.id === first.json().data.id)).toBe(false)
 
-    // Approved by somebody else on the Desi-Event team: the swap.
+    // Approved by somebody else on the team at The Desi Events: the swap.
     const approved = await decide(
       app,
       await as(app, 'maya@desi-event.example'),
@@ -174,7 +174,7 @@ describe('a replacement cover on a posted event', () => {
 })
 
 describe('deciding a picture on a posted event', () => {
-  it('refuses the uploader (SELF_REVIEW), even on the Desi-Event team', async () => {
+  it('refuses the uploader (SELF_REVIEW), even on the team at The Desi Events', async () => {
     const { app, prisma, ids } = await createTestApp()
     const anil = await as(app, 'anil@desi-event.example')
 

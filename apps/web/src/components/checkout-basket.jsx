@@ -50,9 +50,9 @@
  * When the event offers it, the buyer chooses between paying by card now and
  * paying the ticket price at the door with only the booking fee online. The
  * choice is component state, and changing it asks for a new quote. A referral
- * code from the Desi-Event team, in its own box beside the promo code's, asks
- * the quote to remove the booking fee; the quote says only whether it did.
- * Both travel in request bodies and are never stored.
+ * code from the team at The Desi Events, in its own box beside the promo
+ * code's, asks the quote to remove the booking fee; the quote says only whether
+ * it did. Both travel in request bodies and are never stored.
  *
  * Between the quote and Pay, three things can change what Pay would do, and
  * each is told in an urgent alert: the administrators changed the booking fee

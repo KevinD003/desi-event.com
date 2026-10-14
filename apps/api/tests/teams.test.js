@@ -161,7 +161,7 @@ describe('GET /v1/organizations/:id/members', () => {
     expect(data.members.length).toBeGreaterThanOrEqual(6)
     expect(data.members.find((member) => member.role === 'OWNER').self).toBe(true)
     // An owner invites only roles that neither create nor publish events,
-    // most senior first: posting roles come from the Desi-Event team, and
+    // most senior first: posting roles come from the team at The Desi Events, and
     // OWNER transfers separately.
     expect(data.assignableRoles).toEqual(['FINANCE', 'STAFF', 'SCANNER', 'VIEWER'])
 
@@ -235,7 +235,7 @@ describe('GET /v1/organizations/:id/members', () => {
     expect(adminRoles.length).toBeGreaterThan(managerRoles.length)
     expect(managerRoles).not.toContain('ADMIN')
     // A manager offers its non-posting subset: no finance, which it does not
-    // hold, and no posting role, which the Desi-Event team gives.
+    // hold, and no posting role, which the team at The Desi Events gives.
     expect(adminRoles).toEqual(['FINANCE', 'STAFF', 'SCANNER', 'VIEWER'])
     expect(managerRoles).toEqual(['STAFF', 'SCANNER', 'VIEWER'])
 
@@ -315,7 +315,7 @@ describe('escalation through an invitation', () => {
     const { app, ids, prisma } = await createTeamApp()
     const token = await signIn(app, 'owner@rangoli.example')
 
-    // Roles that create or publish events come from the Desi-Event team: an
+    // Roles that create or publish events come from the team at The Desi Events: an
     // owner asking for one is told so, and nothing is written.
     for (const role of ['ADMIN', 'MANAGER', 'EVENT_MANAGER']) {
       const refused = await app.inject({
@@ -329,7 +329,7 @@ describe('escalation through an invitation', () => {
       expect(refused.json().error).toMatchObject({
         code: 'POSTING_ROLE_NEEDS_PLATFORM',
         message:
-          'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.',
+          'Roles that create or publish events — event manager, manager, administrator and owner — are given by the team at The Desi Events, not from this page. Ask the team at The Desi Events to add this person to your organisation.',
       })
     }
 
@@ -376,7 +376,7 @@ describe('escalation through an invitation', () => {
 
     // The attack: invite an accomplice above yourself, then ask them for what
     // you could not grant yourself. An administrator also posts events, so the
-    // refusal names the Desi-Event team.
+    // refusal names the team at The Desi Events.
     expect(response.statusCode).toBe(403)
     expect(response.json().error.code).toBe('POSTING_ROLE_NEEDS_PLATFORM')
     expect(prisma._store.invitation).toHaveLength(0)
@@ -900,7 +900,7 @@ describe('changing a role', () => {
     expect(down.statusCode).toBe(200)
     expect(roleOf(prisma, team.admin.membershipId)).toBe('EVENT_MANAGER')
 
-    // And once an event manager, back up is the Desi-Event team's to decide.
+    // And once an event manager, back up is for the team at The Desi Events to decide.
     const back = await moveAsOwner(app, ids, team.admin.membershipId, 'ADMIN')
 
     expect(back.statusCode).toBe(403)
@@ -2109,7 +2109,7 @@ describe('handing ownership on', () => {
       (row) => row.organizationId === org(ids) && row.role === 'VIEWER',
     )
 
-    // An event manager, as the Desi-Event team would have made them.
+    // An event manager, as the team at The Desi Events would have made them.
     heir.role = 'EVENT_MANAGER'
 
     const response = await transfer(
@@ -2253,7 +2253,7 @@ describe('emailing a team invitation (EMAIL mode)', () => {
     expect(fourth.json().error).toMatchObject({
       code: 'RECIPIENT_DAILY_LIMIT',
       message:
-        'This address has already been sent three codes from Desi-Event today. Try again tomorrow.',
+        'This address has already been sent three codes from The Desi Events today. Try again tomorrow.',
     })
     expect(Number(fourth.headers['retry-after'])).toBeGreaterThan(23 * 60 * 60)
     expect(Number(fourth.headers['retry-after'])).toBeLessThanOrEqual(24 * 60 * 60)

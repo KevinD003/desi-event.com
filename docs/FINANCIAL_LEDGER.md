@@ -21,18 +21,18 @@ up, which is the only property that matters when somebody disputes one.
 Ten accounts. The _kind_ of each is what makes the arithmetic readable —
 `ORGANIZER_PAYABLE` is a liability, so a credit increases what is owed.
 
-| Account                | Kind           | What it is                                               |
-| ---------------------- | -------------- | -------------------------------------------------------- |
-| `processor_clearing`   | Asset          | Money the processor holds for us. Ours, not in our bank  |
-| `organizer_payable`    | Liability      | What we owe organisers. **Not revenue**                  |
-| `platform_fee_revenue` | Revenue        | Desi-Event's fee. The only part of an order that is ours |
-| `tax_payable`          | Liability      | Collected for an authority. **Never revenue**            |
-| `refund_clearing`      | Liability      | A refund decided but not yet settled                     |
-| `dispute_clearing`     | Liability      | Funds held back while a dispute is open                  |
-| `transfer_clearing`    | Asset          | A transfer to a connected account, in flight             |
-| `payout_clearing`      | Asset          | A payout to a bank, in flight                            |
-| `promotional_discount` | Contra-revenue | Discounts given. Reduces what was earned; costs nothing  |
-| `payment_fee_expense`  | Expense        | What the processor charges us                            |
+| Account                | Kind           | What it is                                                   |
+| ---------------------- | -------------- | ------------------------------------------------------------ |
+| `processor_clearing`   | Asset          | Money the processor holds for us. Ours, not in our bank      |
+| `organizer_payable`    | Liability      | What we owe organisers. **Not revenue**                      |
+| `platform_fee_revenue` | Revenue        | The Desi Events' fee. The only part of an order that is ours |
+| `tax_payable`          | Liability      | Collected for an authority. **Never revenue**                |
+| `refund_clearing`      | Liability      | A refund decided but not yet settled                         |
+| `dispute_clearing`     | Liability      | Funds held back while a dispute is open                      |
+| `transfer_clearing`    | Asset          | A transfer to a connected account, in flight                 |
+| `payout_clearing`      | Asset          | A payout to a bank, in flight                                |
+| `promotional_discount` | Contra-revenue | Discounts given. Reduces what was earned; costs nothing      |
+| `payment_fee_expense`  | Expense        | What the processor charges us                                |
 
 The single most consequential mistake a marketplace ledger can make is treating
 the buyer's money as revenue. `organizer_payable` and `tax_payable` are

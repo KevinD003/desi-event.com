@@ -362,7 +362,7 @@ describe('the invariant itself', () => {
  * Referral codes in end-to-end specs (SPEC3 §8.3, §13).
  *
  * A referral code is a bearer value worth one order's booking fee, made by the
- * Desi-Event team and read back on their screens. A spec that reaches one —
+ * team at The Desi Events and read back on their screens. A spec that reaches one —
  * the checkout's field, the administrators' list, their "Copy code" button, the
  * API's `referralCode` — holds a working code, so it is held to the rule above:
  * screenshots, traces and video off at the top of the file. And the code it

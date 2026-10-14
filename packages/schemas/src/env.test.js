@@ -596,8 +596,8 @@ describe('loaders', () => {
   })
 
   it('loadWebEnv reads process.env by default', () => {
-    process.env.NEXT_PUBLIC_API_URL = 'https://api.desi-event.com'
-    expect(loadWebEnv().NEXT_PUBLIC_API_URL).toBe('https://api.desi-event.com')
+    process.env.NEXT_PUBLIC_API_URL = 'https://api.thedesievents.com'
+    expect(loadWebEnv().NEXT_PUBLIC_API_URL).toBe('https://api.thedesievents.com')
   })
 })
 

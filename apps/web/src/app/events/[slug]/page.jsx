@@ -29,7 +29,7 @@
  * A public event's page sends one page view, and "Choose tickets" and each
  * "Choose seats" link carry the attributes a click is counted by
  * (`TrafficScope`). Nothing is counted for sample data, for a page that is not
- * public, for Desi-Event staff, or for the event's own team; for those readers
+ * public, for staff at The Desi Events, or for the event's own team; for those readers
  * the website link carries `?count=no`, which can only stop a visit being
  * counted. The session is read once per request, however many components ask.
  *
@@ -337,7 +337,7 @@ export default async function EventDetailPage({ params }) {
     !usedFallback && PUBLICLY_VISIBLE_STATUSES.has(event.status)
       ? { eventId: event.id, organizationId: event.organizationId }
       : null
-  // The event's own team and Desi-Event staff are not counted: their website
+  // The event's own team and staff at The Desi Events are not counted: their website
   // visits are marked so on the link, as their page views and clicks are left
   // out by the beacons.
   const uncounted = excludesEvent(trafficExclusion(await readSession()), event.organizationId)
@@ -752,12 +752,12 @@ export default async function EventDetailPage({ params }) {
                   {imported ? (
                     /*
                       The organiser the listing names, who has no page here;
-                      then who holds the listing on Desi-Event, and why.
+                      then who holds the listing on The Desi Events, and why.
                     */
                     <>
                       <p className="font-display text-h3 font-bold text-ink">{presenter}</p>
                       <p className="mt-3 text-ink-muted">
-                        {`Copied from this event’s listing on ${imported.sourceName} by the Desi-Event team, and shown under `}
+                        {`Copied from this event’s listing on ${imported.sourceName} by the team at The Desi Events, and shown under `}
                         {event.organization.slug ? (
                           <Link
                             href={`/organizers/${event.organization.slug}`}
@@ -805,7 +805,7 @@ export default async function EventDetailPage({ params }) {
               </Reveal>
             ) : null}
 
-            {/* Only while a Desi-Event administrator has the link on and the
+            {/* Only while an administrator at The Desi Events has the link on and the
                 page is public; the API sends no host otherwise. It goes through
                 this site's redirect, never straight to the address. */}
             {imported?.ticketsOnSource ? null : (

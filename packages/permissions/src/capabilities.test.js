@@ -518,7 +518,7 @@ describe('the platform administrator (ADMIN)', () => {
       expect(PLATFORM_ROLE_CAPABILITIES.ADMIN).toContain(capability)
     }
 
-    // The one money capability it holds is Desi-Event's own: one order's
+    // The one money capability it holds is The Desi Events' own: one order's
     // booking fee, refunded by hand (SPEC3 §7.4, A4).
     expect(PLATFORM_ROLE_CAPABILITIES.ADMIN).toContain('platform_fee:refund')
     // Cancelling unpaid tickets keeps the booking fee and refunds nothing

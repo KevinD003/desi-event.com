@@ -1,8 +1,8 @@
 'use client'
 
 /**
- * The website link's switch on an event's review page, for the Desi-Event
- * team.
+ * The website link's switch on an event's review page, for the team at
+ * The Desi Events.
  *
  * Whether the event's public page shows "Visit the organiser's website", in
  * any state of the event but deleted, at any time. Only platform administrators
@@ -222,8 +222,8 @@ export function WebsiteRedirectPanel({
       <p className="mt-1 text-sm text-ink-muted">
         Whether this event’s public page shows “Visit the organiser’s website”. Only platform
         administrators turn it on or off, in any state of the event but deleted. Visitors go through
-        a Desi-Event address that counts the visit and then sends them to the address the link was
-        turned on for.
+        an address at The Desi Events that counts the visit and then sends them to the address the
+        link was turned on for.
       </p>
 
       <p role="status" aria-live="polite" className="mt-2 text-sm font-medium text-ink">

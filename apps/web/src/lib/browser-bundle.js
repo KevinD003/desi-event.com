@@ -117,9 +117,9 @@ export const FORBIDDEN_CLIENT_LITERALS = Object.freeze({
   'ledger:manage': 'who may adjust the ledger.',
   // SPEC2-XI §0.7: full control of posted events and the import.
   'event:platform_edit':
-    'who on the Desi-Event team may edit any organisation\u2019s posted event (SPEC2-XI \u00a70.7).',
+    'who on the team at The Desi Events may edit any organisation\u2019s posted event (SPEC2-XI \u00a70.7).',
   'event:platform_delete':
-    'who on the Desi-Event team may delete any event, or restore one (SPEC2-XI \u00a70.7).',
+    'who on the team at The Desi Events may delete any event, or restore one (SPEC2-XI \u00a70.7).',
   'event:import': 'who may import listed events and publish them (SPEC2-XI \u00a70.7).',
   'event:delete_unsold':
     'which organisation role may delete an event; the screen is told whether it may, never the name.',
@@ -130,7 +130,7 @@ export const FORBIDDEN_CLIENT_LITERALS = Object.freeze({
     'who may make, change and read the referral codes that waive the booking fee (SPEC3 \u00a70.4).',
   'platform_fee:refund': 'who may refund a booking fee by hand (SPEC3 \u00a70.4).',
   'venue_booking:cancel':
-    'who on the Desi-Event team may cancel unpaid pay-at-the-venue tickets (SPEC3-XI \u00a713); the dialog is told whether it may.',
+    'who on the team at The Desi Events may cancel unpaid pay-at-the-venue tickets (SPEC3-XI \u00a713); the dialog is told whether it may.',
 })
 
 /**

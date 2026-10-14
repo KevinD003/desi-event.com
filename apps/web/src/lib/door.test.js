@@ -309,7 +309,7 @@ describe('money at the door (SPEC3 §12.8, SPEC3-XI §12.8)', () => {
       atVenueSentences({ orders: 2, ticketsPaidAtDoor: 3, paidAtDoorCents: 12000 }, 'USD'),
     ).toEqual([
       'For tickets paid at the venue, only the booking fee paid online is refunded (simulated).',
-      'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+      'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. The Desi Events does not hold it and cannot refund it.',
     ])
     // Where nothing is refunded, only the door money is said.
     expect(
@@ -317,7 +317,7 @@ describe('money at the door (SPEC3 §12.8, SPEC3-XI §12.8)', () => {
         refunds: false,
       }),
     ).toEqual([
-      'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+      'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. The Desi Events does not hold it and cannot refund it.',
     ])
   })
 })

@@ -210,9 +210,9 @@ export const eventSchema = z.object({
 
 /**
  * Where an imported event is listed, and what that listing said, for an event
- * still held by the Desi-Event team's platform-held organisation (SPEC2-XI
- * §5.I-E). Null for every other event, and for an imported event once it has
- * been moved to an organiser's own organisation.
+ * still held by the platform-held organisation of the team at The Desi Events
+ * (SPEC2-XI §5.I-E). Null for every other event, and for an imported event
+ * once it has been moved to an organiser's own organisation.
  *
  * Only what the source listed: the organiser who presents it, the day it was
  * read, and each price's name and amount. Never a source note (availability,
@@ -297,9 +297,10 @@ export const eventSummarySchema = z.object({
    */
   salesOpen: z.boolean().optional(),
   /**
-   * For an event imported from another site and still held by the Desi-Event
-   * team: where it is listed and the prices it listed, so a card says "On
-   * Sulekha from …" instead of a Desi-Event price. Null for every other event.
+   * For an event imported from another site and still held by the team at
+   * The Desi Events: where it is listed and the prices it listed, so a card says
+   * "On Sulekha from …" instead of a price on The Desi Events. Null for every
+   * other event.
    */
   importedFrom: importedFromSchema.nullable().default(null),
 })
@@ -462,7 +463,7 @@ export const orderSchema = z.object({
   /**
    * Its unpaid pay-at-the-venue tickets cancelled, oldest first, for the buyer
    * and organisation readers (SPEC3-XI §11.3). Only organisation readers get a
-   * name; buyers read "The organiser" or "The Desi-Event team".
+   * name; buyers read "The organiser" or "The Desi Events team".
    */
   venueCancellations: z.array(orderVenueCancellationSchema).optional(),
   ...auditColumns,
@@ -642,8 +643,8 @@ export const eventWithRelationsSchema = eventSchema.extend({
   previousStartsAt: timestampSchema.nullish(),
   /**
    * Where "Visit the organiser's website" goes, as a host, never the address:
-   * the link itself is Desi-Event's own `/events/{slug}/website`. Null unless a
-   * Desi-Event administrator has the link on, the address they approved still
+   * the link itself is The Desi Events' own `/events/{slug}/website`. Null unless an
+   * administrator at The Desi Events has the link on, the address they approved still
    * passes the address rules, and the event's page is public.
    */
   websiteLink: publicWebsiteLinkSchema.nullable().default(null),
@@ -661,16 +662,16 @@ export const eventWithRelationsSchema = eventSchema.extend({
    */
   websiteRedirect: websiteRedirectStateSchema.nullish(),
   /**
-   * For an event imported from another site and still held by the Desi-Event
-   * team: who presents it, the prices the listing gave and whether the
+   * For an event imported from another site and still held by the team at
+   * The Desi Events: who presents it, the prices the listing gave and whether the
    * website link goes to the listing (SPEC2-XI §5.I-E). Null for every other
    * event, and once the event is moved to an organiser's own organisation.
    */
   importedFrom: importedFromSchema.nullable().default(null),
   /**
    * The booking fee terms checkout charges this event's buyers with, one entry
-   * per currency its tiers are priced in: the event's own when the Desi-Event
-   * team set them (SPEC3 §7), else the site default. Never where they came
+   * per currency its tiers are priced in: the event's own when the team at
+   * The Desi Events set them (SPEC3 §7), else the site default. Never where they came
    * from.
    *
    * Public because they are the price: a booking fee is part of what a buyer
@@ -708,12 +709,12 @@ export const eventWithRelationsSchema = eventSchema.extend({
   revision: z.int().min(0).default(0),
   /**
    * A deleted event's record, for the people who may still read it: its own
-   * team and the Desi-Event team. Absent from every other payload, and absent
-   * for an event that is not deleted. `restoreTo` is where a restore by the
-   * Desi-Event team would bring it back. `deletedByName` is the person's name
+   * team and the team at The Desi Events. Absent from every other payload, and absent
+   * for an event that is not deleted. `restoreTo` is where a restore by the team
+   * at The Desi Events would bring it back. `deletedByName` is the person's name
    * for a platform reader, or for a member when a member of their own
    * organisation deleted it; null otherwise (an organiser reads a deletion by
-   * the Desi-Event team without the administrator's name).
+   * the team at The Desi Events without the administrator's name).
    */
   deletion: z
     .object({

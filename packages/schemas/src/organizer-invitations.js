@@ -1,7 +1,7 @@
 /**
  * Organiser invitations: the only way anybody comes to post events here.
  *
- * Somebody on the Desi-Event team holding `organizer:invite` (a platform
+ * Somebody on the team at The Desi Events holding `organizer:invite` (a platform
  * administrator or super administrator) invites an address to start a new
  * organisation as its owner. The invitation carries a single-use code bound to
  * that address. Accepting it creates the organisation, verified, with the
@@ -142,7 +142,7 @@ export const organizerInvitationListQuerySchema = paginationQuerySchema.extend({
 })
 
 /**
- * An organiser invitation, as the Desi-Event team's list shows it.
+ * An organiser invitation, as the list of the team at The Desi Events shows it.
  *
  * An allow-list. It carries the recipient's address and the note, because the
  * people issuing invitations need both, and never the code or its digest.

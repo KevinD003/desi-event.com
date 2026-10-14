@@ -67,7 +67,7 @@ export const IMPORT_IMAGE_URL_MAX = 2048
 export const IMPORT_IMAGE_REQUEST_HEADERS = Object.freeze({
   accept: 'image/jpeg, image/png, image/webp',
   'accept-encoding': 'identity',
-  'user-agent': 'Desi-Event importer',
+  'user-agent': 'The Desi Events importer',
 })
 
 /**

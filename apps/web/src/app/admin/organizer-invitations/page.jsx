@@ -1,7 +1,7 @@
 /**
  * Organiser invitations: the only way anybody comes to post events here.
  *
- * Somebody on the Desi-Event team — a platform administrator or super
+ * Somebody on the team at The Desi Events — a platform administrator or super
  * administrator — invites an email address to start an organisation. The
  * invitation carries a code that works once, for that address, for fourteen
  * days. Accepting it creates the organisation, verified, with the invited
@@ -150,11 +150,11 @@ export default async function OrganizerInvitationsPage({ searchParams }) {
       </p>
       <h1 className="mt-2 text-h2 font-semibold text-ink">Organiser invitations</h1>
       <p className="mt-2 max-w-3xl text-ink-muted">
-        Organisers join Desi-Event only through an invitation from the Desi-Event team. Each
-        invitation carries a code that works once, for the email address it names, for{' '}
+        Organisers join The Desi Events only through an invitation from the team at The Desi Events.
+        Each invitation carries a code that works once, for the email address it names, for{' '}
         {LIFETIME_DAYS} days. Accepting it creates the organisation, verified, with that person as
-        its owner. Every event they create is still reviewed by the Desi-Event team before it can be
-        published.
+        its owner. Every event they create is still reviewed by the team at The Desi Events before
+        it can be published.
       </p>
       {mode ? (
         <p className="mt-2 max-w-3xl text-sm text-ink-muted">{DELIVERY_LINES[mode]}</p>

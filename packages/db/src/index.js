@@ -1,5 +1,5 @@
 /**
- * Shared PostgreSQL access for Desi-Event.
+ * Shared PostgreSQL access for The Desi Events.
  *
  * Prisma 7 requires an explicit driver adapter, so the client is always built
  * through {@link createPrismaClient}. A lazily-initialised process singleton is

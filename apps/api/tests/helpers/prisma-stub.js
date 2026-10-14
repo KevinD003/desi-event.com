@@ -42,7 +42,7 @@ const RELATIONS = {
     trafficEvents: { kind: 'many', model: 'trafficEvent', from: 'id', to: 'eventId' },
     trafficDaily: { kind: 'many', model: 'trafficDaily', from: 'id', to: 'eventId' },
     // Full control of posted events (SPEC2-XI X): who deleted it, the
-    // Desi-Event team's sittings on it, and what its ticket holders are told.
+    // sittings of the team at The Desi Events on it, and what its ticket holders are told.
     deletedBy: { kind: 'one', model: 'user', from: 'deletedById', to: 'id' },
     platformEdits: { kind: 'many', model: 'eventPlatformEdit', from: 'id', to: 'eventId' },
     changeNotices: { kind: 'many', model: 'eventChangeNotice', from: 'id', to: 'eventId' },

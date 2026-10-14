@@ -100,7 +100,7 @@ export const EVENT_STATUSES = Object.freeze([
   'CANCELLED',
   'REJECTED',
   'ARCHIVED',
-  // Taken off the site by its organiser or the Desi-Event team, and kept. On
+  // Taken off the site by its organiser or the team at The Desi Events, and kept. On
   // none of the allow-lists (public, bookable, indexable, live, editable), and
   // private by derivation: PRIVATE_EVENT_STATUSES is everything not public.
   'DELETED',
@@ -294,7 +294,7 @@ export const REFUND_REASONS = Object.freeze([
   'ORGANIZER_GOODWILL',
   'FRAUDULENT',
   'OTHER',
-  /** A booking fee refunded by hand by the Desi-Event team (SPEC3 §7.4). */
+  /** A booking fee refunded by hand by the team at The Desi Events (SPEC3 §7.4). */
   'BOOKING_FEE',
 ])
 
@@ -439,7 +439,7 @@ export const ADMISSION_REFUSAL_REASONS = Object.freeze([
   'NOT_ADMISSIBLE',
   'ORDER_NOT_PAID',
   'EVENT_CANCELLED',
-  /** The event was taken off Desi-Event (deleted); nobody is admitted to it. */
+  /** The event was taken off The Desi Events (deleted); nobody is admitted to it. */
   'EVENT_DELETED',
   /** The night the ticket is for, or the night the door named, was cancelled. */
   'SESSION_CANCELLED',
@@ -465,7 +465,7 @@ export const ADMISSION_REFUSAL_REASONS = Object.freeze([
   'GROUP_CHANGED',
   /**
    * The ticket was booked to pay at the venue and cancelled by the organiser
-   * or the Desi-Event team because it was not paid for (SPEC3-XI XU12).
+   * or the team at The Desi Events because it was not paid for (SPEC3-XI XU12).
    */
   'UNPAID_CANCELLED',
 ])

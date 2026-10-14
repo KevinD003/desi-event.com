@@ -1224,7 +1224,7 @@ describe('what every event payload says about the website link', () => {
     await app.close()
   })
 
-  it('names "A Desi-Event administrator" once the deciding account is gone', async () => {
+  it('names "An administrator at The Desi Events" once the deciding account is gone', async () => {
     const { app, prisma, ids } = await createTestApp()
 
     switchedOn(prisma, ids.publishedEvent.id, SITE_A, ids.platformAdministrator.id)
@@ -1239,7 +1239,7 @@ describe('what every event payload says about the website link', () => {
     })
 
     expect(read.json().data.websiteRedirect.changedByName).toBe(FORMER_ADMINISTRATOR_NAME)
-    expect(FORMER_ADMINISTRATOR_NAME).toBe('A Desi-Event administrator')
+    expect(FORMER_ADMINISTRATOR_NAME).toBe('An administrator at The Desi Events')
 
     await app.close()
   })

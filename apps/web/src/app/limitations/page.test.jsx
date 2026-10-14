@@ -172,7 +172,7 @@ describe('LimitationsPage', () => {
     const live = entryFor('Reviewing changes to a published event').textContent
 
     expect(live).toMatch(
-      /New pictures appear only after someone on the Desi-Event team other than the person who uploaded them approves each one; the old cover stays until then\./,
+      /New pictures appear only after someone on the team at The Desi Events other than the person who uploaded them approves each one; the old cover stays until then\./,
     )
   })
 
@@ -208,11 +208,11 @@ describe('LimitationsPage', () => {
     expect(container.textContent).toMatch(/started from one is verified from the start/i)
     expect(container.textContent).toMatch(/can publish only after the platform has verified it/i)
     expect(container.textContent).toMatch(
-      /Every event is reviewed by the Desi-Event team before it can be published/i,
+      /Every event is reviewed by the team at The Desi Events before it can be published/i,
     )
     expect(
       screen
-        .getByRole('link', { name: 'invitation from the Desi-Event team' })
+        .getByRole('link', { name: 'invitation from the team at The Desi Events' })
         .getAttribute('href'),
     ).toBe('/account/organizations/new')
   })
@@ -227,7 +227,7 @@ describe('LimitationsPage', () => {
     render(<LimitationsPage />)
 
     expect(entryFor('Asking to become an organiser').textContent).toContain(
-      'There is no form on this site for asking to become an organiser. The Desi-Event team invites organisers it has agreed to work with, and each invitation carries a code that works once.',
+      'There is no form on this site for asking to become an organiser. The Desi Events team invites organisers it has agreed to work with, and each invitation carries a code that works once.',
     )
   })
 
@@ -237,7 +237,7 @@ describe('LimitationsPage', () => {
     const live = entryFor('Reviewing changes to a published event').textContent
 
     for (const sentence of [
-      'On a published, on-sale, paused, sold-out or postponed event, the organiser — or the Desi-Event team, in an editing session opened with a reason — can change everything without another review, and the change is public when it saves.',
+      'On a published, on-sale, paused, sold-out or postponed event, the organiser — or the team at The Desi Events, in an editing session opened with a reason — can change everything without another review, and the change is public when it saves.',
       'The date, time, time zone, place, joining link, age limit and entry, refund and conduct terms change only with a reason, and every ticket holder is shown the change on their order page; it is not emailed.',
       'Ticket types can be added, edited, re-priced (people who already bought keep what they paid), closed, hidden, or removed if unused.',
       'Nights can be added, moved, given another seating map while nothing at them is sold, removed if unused, or cancelled with their tickets refunded.',
@@ -284,7 +284,7 @@ describe('LimitationsPage', () => {
     // SPEC3 §15.1 and SPEC3-XI §15: the booking-fee, pay-at-the-venue,
     // referral-code and unpaid-ticket reasons are kept the same way.
     expect(kept).toContain(
-      'The reasons people type when deleting, restoring, cancelling a night, editing as the Desi-Event team, changing a booking fee or the pay-at-the-venue setting, refunding a booking fee by hand, switching a referral code off or cancelling unpaid tickets, and referral codes’ labels, are kept as written, and the privacy process does not rewrite them.',
+      'The reasons people type when deleting, restoring, cancelling a night, editing as the team at The Desi Events, changing a booking fee or the pay-at-the-venue setting, refunding a booking fee by hand, switching a referral code off or cancelling unpaid tickets, and referral codes’ labels, are kept as written, and the privacy process does not rewrite them.',
     )
     expect(kept).toMatch(/can stay there for up to a day/)
   })
@@ -308,7 +308,7 @@ describe('LimitationsPage', () => {
     const entry = entryFor('Checking the organiser’s website itself')
 
     expect(entry.textContent).toMatch(
-      /appears only after a Desi-Event administrator turns it on for the address the organiser gave/,
+      /appears only after an administrator at The Desi Events turns it on for the address the organiser gave/,
     )
     expect(entry.textContent).toMatch(
       /the link keeps going to the address the administrator approved until an administrator decides on the new one or turns the link off/,
@@ -399,7 +399,7 @@ describe('LimitationsPage', () => {
     render(<LimitationsPage />)
 
     expect(entryFor('Refunding money paid at the venue').textContent).toBe(
-      'Refunding money paid at the venueStatus: NOT IMPLEMENTEDWhen a ticket is paid for at the door, the organiser keeps that money. Desi-Event records the amount but does not hold it and cannot refund it: if the order is refunded, the event is cancelled or a night is called off, only the booking fee paid online is refunded (simulated; when the event is cancelled, once someone who may approve refunds approves it), and money paid at the door has to be returned by the organiser. A ticket that is not paid for stays booked until the organiser or the Desi-Event team cancels it; its place is then freed and sells again whenever its sales are open, and Desi-Event keeps the booking fee paid online for it. Nothing is cancelled automatically, and a buyer who does not come gets no refund of the booking fee.',
+      'Refunding money paid at the venueStatus: NOT IMPLEMENTEDWhen a ticket is paid for at the door, the organiser keeps that money. The Desi Events records the amount but does not hold it and cannot refund it: if the order is refunded, the event is cancelled or a night is called off, only the booking fee paid online is refunded (simulated; when the event is cancelled, once someone who may approve refunds approves it), and money paid at the door has to be returned by the organiser. A ticket that is not paid for stays booked until the organiser or the team at The Desi Events cancels it; its place is then freed and sells again whenever its sales are open, and The Desi Events keeps the booking fee paid online for it. Nothing is cancelled automatically, and a buyer who does not come gets no refund of the booking fee.',
     )
   })
 
@@ -420,7 +420,7 @@ describe('LimitationsPage', () => {
 
     expect(unpaid).toMatch(/A buyer cannot cancel a booking they have not paid for at the door/)
     expect(unpaid).toMatch(
-      /only the organiser or the Desi-Event team can cancel its unpaid tickets/,
+      /only the organiser or the team at The Desi Events can cancel its unpaid tickets/,
     )
     // The owner's answer to question 1: no limit per buyer, only the event's.
     // An unpaid ticket of a night that is over keeps counting (decision J).
@@ -428,10 +428,10 @@ describe('LimitationsPage', () => {
       /An unpaid ticket whose night is over still counts against that limit and can no longer be cancelled/,
     )
     expect(unpaid).toMatch(
-      /up to the most unpaid tickets the Desi-Event team allows for that event/,
+      /up to the most unpaid tickets the team at The Desi Events allows for that event/,
     )
     expect(unpaid).not.toMatch(/per (account|buyer)|10 unpaid/i)
-    expect(unpaid).toMatch(/is not refunded afterwards, not even by the Desi-Event team/)
+    expect(unpaid).toMatch(/is not refunded afterwards, not even by the team at The Desi Events/)
   })
 
   it('says refunds free reserved seats but not general-admission places, which only cancelling unpaid tickets frees', () => {
@@ -450,7 +450,7 @@ describe('LimitationsPage', () => {
 
     const fee = entryFor('Changing the standard booking fee on a screen').textContent
 
-    expect(fee).toMatch(/Desi-Event’s charge, not the organiser’s/)
+    expect(fee).toMatch(/The Desi Events’ charge, not the organiser’s/)
     expect(fee).toMatch(/5\.90% of the ticket price after any promo discount plus \$0\.99 a ticket/)
     // Only the percentage is a server setting: the $0.99 for US-dollar
     // orders comes from the currency table in code (packages/pricing).
@@ -465,7 +465,7 @@ describe('LimitationsPage', () => {
     render(<LimitationsPage />)
 
     expect(entryFor('Rewards for referral codes').textContent).toContain(
-      'Each referral code records the Desi-Event administrator who made it and every order that used it, but nobody is paid for referrals: there are no payouts to administrators.',
+      'Each referral code records the administrator at The Desi Events who made it and every order that used it, but nobody is paid for referrals: there are no payouts to administrators.',
     )
   })
 
@@ -486,10 +486,10 @@ describe('LimitationsPage', () => {
       'The booking fee paid online for tickets paid at the venue is simulated too.',
     )
     expect(entryFor('Splitting payment for a group').textContent).toContain(
-      'a lower price comes only from a promo code the organiser has made, or from a referral code from the Desi-Event team, which removes the booking fee.',
+      'a lower price comes only from a promo code the organiser has made, or from a referral code from the team at The Desi Events, which removes the booking fee.',
     )
     expect(entryFor('Reviewing changes to a published event').textContent).toContain(
-      'The Desi-Event team can change an event’s booking fee, and whether it can be paid for at the venue, at any time; people who already booked keep what they paid.',
+      'The Desi Events team can change an event’s booking fee, and whether it can be paid for at the venue, at any time; people who already booked keep what they paid.',
     )
   })
 
@@ -497,7 +497,7 @@ describe('LimitationsPage', () => {
     const { container } = render(<LimitationsPage />)
 
     expect(container.textContent).toContain(
-      'A referral code from the Desi-Event team removes the whole booking fee from one order. It does not change the ticket price. When an order is refunded in full or cancelled, its use of the code is given back.',
+      'A referral code from the team at The Desi Events removes the whole booking fee from one order. It does not change the ticket price. When an order is refunded in full or cancelled, its use of the code is given back.',
     )
     expect(container.textContent).toContain(
       'US sales tax is not calculated: checkout shows it as $0.00 for an event in the United States. Tickets paid at the venue carry no sales tax, and neither does the booking fee paid online for them.',

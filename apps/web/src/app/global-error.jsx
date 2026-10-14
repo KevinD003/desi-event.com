@@ -52,7 +52,7 @@ export default function GlobalError({ error, reset }) {
       >
         <main style={{ maxWidth: '34rem', padding: '2rem', textAlign: 'center' }}>
           <h1 style={{ fontSize: '1.875rem', fontWeight: 700, margin: 0 }}>
-            Desi-Event is temporarily unavailable
+            The Desi Events is temporarily unavailable
           </h1>
           <p style={{ marginTop: '1rem', fontSize: '1.05rem', lineHeight: 1.6 }}>
             Something failed while loading the site. Nothing has been ordered and you have not been

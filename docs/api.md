@@ -1,9 +1,9 @@
 # REST API
 
-The Desi-Event HTTP API, as it exists. Every endpoint below is declared in
-`packages/api-contract/src/routes.js`, registered from that same descriptor by
-`apps/api/src/routes/`, and published in the generated OpenAPI document. A route
-that is not in the contract does not exist.
+The HTTP API of The Desi Events, as it exists. Every endpoint below is declared
+in `packages/api-contract/src/routes.js`, registered from that same descriptor
+by `apps/api/src/routes/`, and published in the generated OpenAPI document. A
+route that is not in the contract does not exist.
 
 ## Base URL and versioning
 
@@ -78,9 +78,9 @@ curl -s http://127.0.0.1:4000/v1/auth/me -H "authorization: Bearer $TOKEN"
 
 Notes that matter:
 
-- Registration accepts only `ATTENDEE` (corrected 2026-10-06: it used to
-  accept `ORGANIZER` too). Organisers join by an organiser invitation from the
-  Desi-Event team (`organizerInvitations.accept`, below); the platform roles
+- Registration accepts only `ATTENDEE` (corrected 2026-10-06: it used to accept
+  `ORGANIZER` too). Organisers join by an organiser invitation from the team at
+  The Desi Events (`organizerInvitations.accept`, below); the platform roles
   `SUPER_ADMIN`, `ADMIN` and `MODERATOR` are granted by a super administrator
   (`platform.setUserRole`), never by registering.
 - Token lifetime comes from `JWT_EXPIRES_IN` (default `7d`).
@@ -484,12 +484,13 @@ visits, where page views came from as five categories, a per-day series of at
 most 366 days, and paid orders against visitors. With no `from` the window
 starts on the first day anything was counted, and paid orders are counted from
 that day too, so an order paid before visits were counted is never set against
-visitors. It is read from `TrafficDaily`, never from raw visits. `traffic.updatedAt` says when the background roll-up last
-finished, `traffic.stale` is set when that is over two hours ago, and
+visitors. It is read from `TrafficDaily`, never from raw visits.
+`traffic.updatedAt` says when the background roll-up last finished,
+`traffic.stale` is set when that is over two hours ago, and
 `includesDemonstration` is true when any summed row was written by the
-development seed. Robots, signed-in members of the organisation and Desi-Event
-staff are not counted; a browser sending Global Privacy Control or Do Not Track
-is counted in views, never in visitors.
+development seed. Robots, signed-in members of the organisation and staff at
+The Desi Events are not counted; a browser sending Global Privacy Control or Do
+Not Track is counted in views, never in visitors.
 
 **The export's columns are an allow list**, written out rather than derived from
 the payload's keys: no buyer, no email, no address, no card, no provider
@@ -1033,10 +1034,10 @@ OWNER is privileged, so accepting is a privilege change (NF-10) and
 anybody signed in could create an `UNVERIFIED` organisation; those already made
 keep their state and still need a moderator's verification to publish.
 
-**Posting roles come from the Desi-Event team.** An OWNER, ADMIN or MANAGER may
-invite or move members only to roles that cannot create or publish events
-(FINANCE, STAFF, SCANNER and VIEWER, derived from `capabilities.js`); a member
-who already posts may be moved only downwards. Anything else is 403
+**Posting roles come from the team at The Desi Events.** An OWNER, ADMIN or
+MANAGER may invite or move members only to roles that cannot create or publish
+events (FINANCE, STAFF, SCANNER and VIEWER, derived from `capabilities.js`); a
+member who already posts may be moved only downwards. Anything else is 403
 `POSTING_ROLE_NEEDS_PLATFORM`. A posting role is given by an organiser
 invitation (the new organisation's OWNER) or by a super administrator's
 `platform.grantMembership`. `teams.list` gives, per member, `postsEvents` and
@@ -1099,11 +1100,12 @@ credential, hash or factor.
 event (published, on sale, paused, sold out or postponed) treats a change to the
 date, time zone, venue, age limit, online status or policies as material: it
 needs `confirmMaterialChange: true` and a `changeReason`, and it records a
-notice for every current order, shown on its order page; notices are not
-emailed in any delivery mode. Everything else, the event page content included,
-is housekeeping. A live online event with no joining link is 422. Nothing here
-is reviewed again (ADR 0014); the Desi-Event team edits another organisation's
-posted event only in an editing session (`platformEvents.openEdit`).
+notice for every current order, shown on its order page; notices are not emailed
+in any delivery mode. Everything else, the event page content included, is
+housekeeping. A live online event with no joining link is 422. Nothing here is
+reviewed again (ADR 0014); the team at The Desi Events edits another
+organisation's posted event only in an editing session
+(`platformEvents.openEdit`).
 
 **Tiers change under row locks.** A tier that has sold may be re-priced — every
 order keeps the price it was bought at — but not change currency (409
@@ -1141,12 +1143,12 @@ A move that would have a night's tier close after the night has finished is a
 The body of an upload is the file itself; `kind`, `altText` and `revision`
 travel in the query. The bytes decide the format — JPEG, PNG or WebP only, 415
 for anything else whatever it claims to be — and the picture is rebuilt from an
-allow-list of its format's structures, so camera and location details,
-comments, embedded thumbnails and trailing data do not survive. A picture added
-while the event is a draft or has changes requested is public only after a
-moderator approves the event. A picture added to a posted event, or a
-replacement cover, is stored `PENDING` and is public only after somebody on the
-Desi-Event team other than its uploader approves it (`moderation.mediaQueue`,
+allow-list of its format's structures, so camera and location details, comments,
+embedded thumbnails and trailing data do not survive. A picture added while the
+event is a draft or has changes requested is public only after a moderator
+approves the event. A picture added to a posted event, or a replacement cover,
+is stored `PENDING` and is public only after somebody on the team at
+The Desi Events other than its uploader approves it (`moderation.mediaQueue`,
 then `moderation.decideMedia`; 403 `SELF_REVIEW` for the uploader); the old
 cover stays until then (corrected 2026-10-06, ADR 0014). No storage path,
 uploader or scan detail is ever in a public response. Full reasoning:
@@ -1244,28 +1246,28 @@ totals a background job writes. Full reasoning: ADR 0013.
 
 ### Deleting, restoring and editing posted events — 2026-10-06
 
-| Method | Path                                              | Step-up         | Purpose                                                                    |
-| ------ | ------------------------------------------------- | --------------- | -------------------------------------------------------------------------- |
-| GET    | `/v1/events/:id/deletion`                         | —               | What a deletion would do now, decided on the server from what was sold     |
-| POST   | `/v1/events/:id/delete`                           | `EVENT_CANCEL`  | Delete the event (it becomes DELETED and is kept)                          |
-| POST   | `/v1/events/:id/refunds/finish`                   | `EVENT_CANCEL`  | Send the refunds a deletion or a cancelled night left waiting              |
-| GET    | `/v1/events/:id/sessions/:sessionId/cancellation` | —               | What cancelling one night would do                                         |
-| POST   | `/v1/events/:id/sessions/:sessionId/cancel`       | `EVENT_CANCEL`  | Cancel one night and refund its tickets                                    |
-| GET    | `/v1/events/:id/platform-edits`                   | —               | The Desi-Event team's editing sittings on the event, and what each changed |
-| GET    | `/v1/platform/events`                             | —               | Every event, for the Desi-Event team. `event:platform_edit`                |
-| POST   | `/v1/platform/events/:id/edit`                    | `MODERATION`    | Open an editing sitting on a posted event, with a reason                   |
-| POST   | `/v1/platform/events/:id/edit/close`              | —               | Close it                                                                   |
-| POST   | `/v1/platform/events/:id/restore`                 | `EVENT_PUBLISH` | Bring a deleted event back. `event:platform_delete`                        |
-| GET    | `/v1/moderation/media`                            | —               | Pictures waiting for approval on posted events. `moderation:review`        |
+| Method | Path                                              | Step-up         | Purpose                                                                                 |
+| ------ | ------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------- |
+| GET    | `/v1/events/:id/deletion`                         | —               | What a deletion would do now, decided on the server from what was sold                  |
+| POST   | `/v1/events/:id/delete`                           | `EVENT_CANCEL`  | Delete the event (it becomes DELETED and is kept)                                       |
+| POST   | `/v1/events/:id/refunds/finish`                   | `EVENT_CANCEL`  | Send the refunds a deletion or a cancelled night left waiting                           |
+| GET    | `/v1/events/:id/sessions/:sessionId/cancellation` | —               | What cancelling one night would do                                                      |
+| POST   | `/v1/events/:id/sessions/:sessionId/cancel`       | `EVENT_CANCEL`  | Cancel one night and refund its tickets                                                 |
+| GET    | `/v1/events/:id/platform-edits`                   | —               | The editing sittings of the team at The Desi Events on the event, and what each changed |
+| GET    | `/v1/platform/events`                             | —               | Every event, for the team at The Desi Events. `event:platform_edit`                     |
+| POST   | `/v1/platform/events/:id/edit`                    | `MODERATION`    | Open an editing sitting on a posted event, with a reason                                |
+| POST   | `/v1/platform/events/:id/edit/close`              | —               | Close it                                                                                |
+| POST   | `/v1/platform/events/:id/restore`                 | `EVENT_PUBLISH` | Bring a deleted event back. `event:platform_delete`                                     |
+| GET    | `/v1/moderation/media`                            | —               | Pictures waiting for approval on posted events. `moderation:review`                     |
 
 A deletion's outcome — REMOVE, CANCEL_AND_REFUND or REMOVE_AFTER_EVENT — is
-decided on the server from what was sold and when, and the request must name
-the outcome the preview showed (409 `OUTCOME_CHANGED`), the revision, and the
+decided on the server from what was sold and when, and the request must name the
+outcome the preview showed (409 `OUTCOME_CHANGED`), the revision, and the
 event's web address typed back (422 `CONFIRMATION_MISMATCH`). Refunds run
 through the refund service after the commit, 500 a request with simulated
 payments and 25 with a provider; `events.finishRefunds` sends the rest. Restore
-is platform-only and brings an on-sale event back paused. A Desi-Event
-administrator edits another organisation's posted event only inside a sitting
+is platform-only and brings an on-sale event back paused. An administrator at
+The Desi Events edits another organisation's posted event only inside a sitting
 that answers one browser session, lasts up to an hour, and asks for a second
 factor again every ten minutes of writes. Full reasoning: ADR 0014.
 
@@ -1335,17 +1337,17 @@ is due, paid by the buyer and by others, passed on, cancelled, kept) and
 handed-on rows of a pay-at-the-venue order carry `passedOn` (`OWES` with the
 amount, `PAID`, `CANCELLED`, `RETURNED` or `NOTHING_DUE`). The wallet and ticket
 routes add `venuePayment`, whose `cancelled` says when, by the organiser or the
-Desi-Event team, and the reason given (never a name; added 2026-10-13, so a
-holder a ticket was passed to reads why), and the wallet's `revokedReason` is
-only an organiser's own words, never a marker the server wrote;
-`tickets.startTransfer` refuses nothing for money due; the door routes take
-and answer the payment (`docs/CHECK_IN.md`) and refuse `UNPAID_CANCELLED`;
-`events.get` adds `venuePayment: { available }` (and
-`paymentTerms` for insiders); listings price with each event's own terms;
-`refunds.request` refuses an amount refund of a pay-at-the-venue order;
-`refunds.summary` lines add `cancelledQuantity`; analytics counts and the CSV
-add cancelled places; tier writes refuse a currency other than the event's own
-fee's (409 `FEE_TERMS_CURRENCY`).
+team at The Desi Events, and the reason given (never a name; added 2026-10-13,
+so a holder a ticket was passed to reads why), and the wallet's `revokedReason`
+is only an organiser's own words, never a marker the server wrote;
+`tickets.startTransfer` refuses nothing for money due; the door routes take and
+answer the payment (`docs/CHECK_IN.md`) and refuse `UNPAID_CANCELLED`;
+`events.get` adds `venuePayment: { available }` (and `paymentTerms` for
+insiders); listings price with each event's own terms; `refunds.request` refuses
+an amount refund of a pay-at-the-venue order; `refunds.summary` lines add
+`cancelledQuantity`; analytics counts and the CSV add cancelled places; tier
+writes refuse a currency other than the event's own fee's (409
+`FEE_TERMS_CURRENCY`).
 
 **Busy answers.** A bounded wait that runs out answers 503
 `SERVICE_UNAVAILABLE` with `Retry-After` (the fee, the switch, cancelling unpaid

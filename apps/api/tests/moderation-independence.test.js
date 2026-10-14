@@ -1,7 +1,7 @@
 /**
  * Reviewers are independent of what they review (SPEC2 §6, P-17).
  *
- * An event is public only after somebody on the Desi-Event team other than
+ * An event is public only after somebody on the team at The Desi Events other than
  * the people running it has approved it. Two refusals make that true:
  *
  *   - `CONFLICT_OF_INTEREST`: the reviewer is a member of the organisation —

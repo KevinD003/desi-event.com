@@ -1,5 +1,5 @@
 /**
- * The Desi-Event team's "Bookings waiting to be paid at the door" (SPEC3-XI
+ * The Desi Events team's "Bookings waiting to be paid at the door" (SPEC3-XI
  * §12.13).
  *
  * Pinned: only a session holding `venue_booking:cancel` reaches it; a lapsed
@@ -112,7 +112,7 @@ describe('the list', () => {
     expect(screen.getByText('Navratri Garba Night', { selector: 'p' })).toBeInTheDocument()
     expect(screen.getByText(INTRO)).toBeInTheDocument()
     expect(INTRO).toBe(
-      'Tickets booked to pay at the door and not paid for yet. Cancelling them frees their places; Desi-Event keeps any booking fee paid online for them.',
+      'Tickets booked to pay at the door and not paid for yet. Cancelling them frees their places; The Desi Events keeps any booking fee paid online for them.',
     )
     expect(
       screen.getByText('Booking DE-7Q2K9P · placed Oct 10, 2026 · 1 unpaid ($40.00)'),

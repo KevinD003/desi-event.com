@@ -42,12 +42,12 @@ describe('createInMemoryEmailProvider', () => {
   it('accepts a custom name, sender and bounce address', () => {
     const provider = makeProvider({
       name: 'ses',
-      from: 'Tickets@Desi-Event.com',
+      from: 'Tickets@TheDesiEvents.com',
       bounceAddress: 'fail@desi-event.test',
     })
 
     expect(provider.name).toBe('ses')
-    expect(provider.from).toBe('tickets@desi-event.com')
+    expect(provider.from).toBe('tickets@thedesievents.com')
     expect(() => provider.send({ ...VALID, to: 'fail@desi-event.test' })).toThrowError(
       /Delivery to fail@desi-event.test failed/,
     )

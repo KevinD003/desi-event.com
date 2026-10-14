@@ -337,7 +337,7 @@ export function registerOrganizerRoutes(app, { prisma }) {
       const { decision, reason, note } = request.body
 
       // A reviewer who belongs to the organisation does not decide its
-      // verification: somebody else on the Desi-Event team does.
+      // verification: somebody else on the team at The Desi Events does.
       await assertIndependentReviewer(prisma, {
         actor: request.actor,
         organizationId: request.params.id,

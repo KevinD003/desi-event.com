@@ -97,7 +97,7 @@ describe('registerRequestSchema', () => {
       expect(result.success, role).toBe(false)
       expect(result.error.issues[0].path).toEqual(['role'])
       expect(result.error.issues[0].message).toBe(
-        'Accounts are created as attendees. Organisers join by invitation from the Desi-Event team.',
+        'Accounts are created as attendees. Organisers join by invitation from the team at The Desi Events.',
       )
     }
   })

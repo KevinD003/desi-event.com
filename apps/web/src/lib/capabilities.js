@@ -57,7 +57,7 @@ export function sessionCan(session, capability, organizationId) {
  * neither does a super administrator's `platform:admin`. It answers what the
  * API's `resolveEventAuthority` reads first (`orgCapabilitiesFor`): whether the
  * person acts *as the organisation*. The organiser's event editor and its
- * danger zone ask this, so a Desi-Event administrator who is not a member is
+ * danger zone ask this, so an administrator at The Desi Events who is not a member is
  * sent to the platform's own editor rather than shown an organiser's controls
  * that would act under an authority they do not have (SPEC2-XI O9).
  *

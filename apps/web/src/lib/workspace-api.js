@@ -269,7 +269,7 @@ export async function listReconciliationTasks(options = {}) {
 }
 
 /**
- * The Desi-Event team's organiser invitations, newest first.
+ * The Desi Events team's organiser invitations, newest first.
  *
  * `GET /v1/platform/organizer-invitations`. Platform administrators and super
  * administrators (`organizer:invite`). `q` searches organisation names only:
@@ -298,7 +298,7 @@ export async function getOrganizerInvitations(options = {}) {
 
 // --- Booking fees, referral codes and booking-fee refunds (SPEC3 §11.1) ------
 //
-// The Desi-Event team's reads. A referral code's text comes back in these
+// The Desi Events team's reads. A referral code's text comes back in these
 // bodies only (`referralCode`), and never goes into a request's address: the
 // list is filtered by status, maker and event, never by text.
 

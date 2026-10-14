@@ -2,7 +2,8 @@
 
 /**
  * An event's booking fee (the platform fee) and whether it can be paid for at
- * the venue, as the Desi-Event team sets them (SPEC3 §12.3, SPEC3-XI §12.3).
+ * the venue, as the team at The Desi Events sets them (SPEC3 §12.3, SPEC3-XI
+ * §12.3).
  *
  * Three parts: the booking fee and its form, the pay-at-the-venue switch and
  * its limit, and the changes to both, newest first. Every write sends what the
@@ -58,7 +59,7 @@ import { parseRetryAfter, refusalSentence } from '../lib/refusal.js'
 
 /** What the panel says about the booking fee before anything else. */
 export const FEE_INTRODUCTION =
-  'Buyers pay a booking fee (the platform fee) on every ticket. It is Desi-Event’s money, not the organiser’s.'
+  'Buyers pay a booking fee (the platform fee) on every ticket. It is The Desi Events’ money, not the organiser’s.'
 
 /** What the panel says about paying at the venue. */
 export const VENUE_INTRODUCTION =

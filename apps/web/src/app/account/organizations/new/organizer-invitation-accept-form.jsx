@@ -6,7 +6,7 @@
  * `POST /v1/organizer-invitations/accept` with the code and the two things the
  * organiser chooses: the organisation's time zone and, optionally, its web
  * address on this site. Nothing else is sent. The organisation's name, its
- * public description and its website are the ones the Desi-Event team wrote on
+ * public description and its website are the ones the team at The Desi Events wrote on
  * the invitation, and the platform sets its verification, its currency and its
  * contact address itself; this form has no field for any of them, and the API
  * strips them if they are sent.
@@ -225,8 +225,8 @@ export function OrganizerInvitationAcceptForm() {
         <Alert variant="success" title={`${organization.name ?? 'Your organisation'} is yours`}>
           <p>
             You are its owner, and it is verified. Your other signed-in sessions have ended, so sign
-            in again on any other device. Every event you create is reviewed by the Desi-Event team
-            before it can be published.
+            in again on any other device. Every event you create is reviewed by the team at The Desi
+            Events before it can be published.
           </p>
           {needsFactor ? (
             <p className="mt-2">
@@ -282,7 +282,7 @@ export function OrganizerInvitationAcceptForm() {
         label="Invitation code"
         id={`${id}-code`}
         required
-        description="Type or paste it exactly as the Desi-Event team gave it to you. It is hidden as you type, like a password."
+        description="Type or paste it exactly as the team at The Desi Events gave it to you. It is hidden as you type, like a password."
         error={fieldError}
       >
         <Input
@@ -301,8 +301,8 @@ export function OrganizerInvitationAcceptForm() {
       <fieldset className="mt-6 rounded-card border border-line p-4">
         <legend className="px-1 text-sm font-semibold text-ink">About your organisation</legend>
         <p className="text-sm text-ink-muted">
-          Its name, public description and website are the ones the Desi-Event team wrote on your
-          invitation. You choose these two.
+          Its name, public description and website are the ones the team at The Desi Events wrote on
+          your invitation. You choose these two.
         </p>
 
         <div className="mt-4">
@@ -326,7 +326,7 @@ export function OrganizerInvitationAcceptForm() {
             label="Web address on this site (optional)"
             id={`${id}-slug`}
             error={slugError}
-            description="Its public page is desi-event.com/organizers/ followed by this: lower-case words joined by hyphens, as in bay-lights-garba. Left empty, one is made from its name."
+            description="Its public page is thedesievents.com/organizers/ followed by this: lower-case words joined by hyphens, as in bay-lights-garba. Left empty, one is made from its name."
           >
             <Input
               type="text"

@@ -130,7 +130,7 @@ describe('GET /v1/events/:id/sessions/:sessionId/cancellation', () => {
     await app.close()
   })
 
-  it('tells the Desi-Event team it needs a sitting in this browser', async () => {
+  it('tells the team at The Desi Events it needs a sitting in this browser', async () => {
     const { app, fixture } = await threeNightApp()
 
     const response = await app.inject({
@@ -475,7 +475,7 @@ describe('POST /v1/events/:id/sessions/:sessionId/cancel', () => {
     await app.close()
   })
 
-  it('lets the Desi-Event team cancel a night only in a sitting, recorded as theirs', async () => {
+  it('lets the team at The Desi Events cancel a night only in a sitting, recorded as theirs', async () => {
     const { app, prisma, fixture } = await threeNightApp()
     const headers = await as(app, 'anil@desi-event.example')
     const url = `/v1/events/${fixture.event.id}/sessions/${fixture.nights[1].id}/cancel`

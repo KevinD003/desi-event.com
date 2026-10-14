@@ -6,7 +6,7 @@
  * account global setup signed in would have its saved session rotated out from
  * under the specs after this one.
  *
- *   - **The creator** is invited by the Desi-Event team to start an
+ *   - **The creator** is invited by the team at The Desi Events to start an
  *     organisation, accepts the invitation from the account page and so
  *     becomes its owner. Organisations are never started from an account any
  *     more: an organiser invitation is the only way in. An owner must use

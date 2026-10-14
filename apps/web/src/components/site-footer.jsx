@@ -2,11 +2,12 @@
  * The site footer: the night band every page ends on.
  *
  * The brand and what the site is for, four short columns of ways back into
- * the catalogue, the cities it lists nights in, and the small print. The
- * small print says two things on every page, because both are true on every
- * page: payments here are simulated, and events, organisers and prices are
- * fictional — except events copied from Sulekha.com listings, which name the
- * organiser who presents them and show Sulekha's prices (ADR 0015).
+ * the catalogue, how to reach the team at The Desi Events, the cities it lists
+ * nights in, and the small print. The small print says two things on every
+ * page, because both are true on every page: payments here are simulated, and
+ * events, organisers and prices are fictional — except events copied from
+ * Sulekha.com listings, which name the organiser who presents them and show
+ * Sulekha's prices (ADR 0015).
  *
  * @module components/site-footer
  */
@@ -14,6 +15,7 @@
 import Link from 'next/link'
 
 import { categoryLabel } from '../lib/catalog.js'
+import { CONTACT_CHANNELS } from '../lib/contact.js'
 import { buildEventsHref } from '../lib/search-params.js'
 import { Diamond, MirrorBand, Wordmark } from './festive-decor.jsx'
 import { ShieldIcon } from './icons.jsx'
@@ -138,8 +140,8 @@ export function SiteFooter() {
             <h2 className={COLUMN_HEADING}>For organisers</h2>
             <p className="mt-2 text-sm leading-6 text-ink-inverse-muted">
               Listings, ticket tiers, seat maps and door check-in, from the organiser workspace.
-              Organisers join by invitation from the Desi-Event team, and every event is reviewed by
-              the team before it is published.
+              Organisers join by invitation from the team at The Desi Events, and every event is
+              reviewed by the team before it is published.
             </p>
             <Link href="/account/organizations/new" className={FOOTER_LINK}>
               Accept an organiser invitation
@@ -163,6 +165,34 @@ export function SiteFooter() {
               The full list
             </Link>
           </div>
+        </div>
+
+        {/* A row of its own rather than a sixth column: the email address is
+            wider than a column of the wide grid, and a row wraps at any width. */}
+        <div className="mt-10">
+          <h2 id="footer-contact" className={COLUMN_HEADING}>
+            Contact
+          </h2>
+          <ul aria-labelledby="footer-contact" className="flex flex-wrap gap-x-6 gap-y-0">
+            {CONTACT_CHANNELS.map((channel) => (
+              <li key={channel.id} className="min-w-0">
+                {/* Same tab, as every other footer link: these are the
+                    team's own pages and the visitor's own apps. */}
+                <a
+                  href={channel.href}
+                  aria-label={channel.label}
+                  className={`${FOOTER_LINK} [overflow-wrap:anywhere]`}
+                >
+                  {channel.text}
+                </a>
+              </li>
+            ))}
+            <li>
+              <Link href="/contact" className={FOOTER_LINK}>
+                Contact page
+              </Link>
+            </li>
+          </ul>
         </div>
 
         <nav aria-labelledby="footer-cities" className="mt-10">

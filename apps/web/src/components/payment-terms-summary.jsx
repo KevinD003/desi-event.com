@@ -1,11 +1,11 @@
 /**
  * The organiser's read-only panel "Booking fee and payment" (SPEC3 §12.4).
  *
- * The booking fee and the pay-at-the-venue switch are the Desi-Event team's
- * decisions about an event, so the organiser reads them here and changes
- * nothing: there are no controls, and every sentence says who decides. The
- * figures are the server's (`event.paymentTerms`, sent to the event's own team
- * and to administrators); nothing is computed here but their wording.
+ * The booking fee and the pay-at-the-venue switch are decisions the team at
+ * The Desi Events makes about an event, so the organiser reads them here and
+ * changes nothing: there are no controls, and every sentence says who decides.
+ * The figures are the server's (`event.paymentTerms`, sent to the event's own
+ * team and to administrators); nothing is computed here but their wording.
  *
  * The link to "Payments at the venue" is offered when the page says this
  * reader may read the organisation's finance (`mayReadVenuePayments`, a
@@ -30,7 +30,7 @@ const LINK =
 
 /**
  * A booking fee's terms in words: "3.00% of the ticket price plus $1.49 per
- * ticket", the way the Desi-Event team's panel writes them.
+ * ticket", the way the panel of the team at The Desi Events writes them.
  *
  * @param {{percentageBps: number, flatCentsPerTicket: number}} terms The fee.
  * @param {string} currency The currency the event sells in.
@@ -56,8 +56,8 @@ export function feeSentence(fee) {
   const terms = feeTermsWords(fee, fee.currency ?? 'USD')
 
   return fee.source === 'EVENT'
-    ? `Booking fee on this event: ${terms}. Set by the Desi-Event team.`
-    : `Booking fee on this event: the site’s standard booking fee, ${terms}. Set by the Desi-Event team.`
+    ? `Booking fee on this event: ${terms}. Set by the team at The Desi Events.`
+    : `Booking fee on this event: the site’s standard booking fee, ${terms}. Set by the team at The Desi Events.`
 }
 
 /**
@@ -67,9 +67,10 @@ export function feeSentence(fee) {
  * @returns {string} The sentence, with the state as a word.
  */
 export function venuePaymentSentence(venuePayment) {
-  // The state in the Desi-Event team's own words for it (`venueStatusText`),
-  // so the organiser reads the switch exactly as the team's panel writes it.
-  return `Pay at the venue: ${venueStatusText(venuePayment)}. Only the Desi-Event team can change this.`
+  // The state in the own words of the team at The Desi Events for it
+  // (`venueStatusText`), so the organiser reads the switch exactly as the
+  // team's panel writes it.
+  return `Pay at the venue: ${venueStatusText(venuePayment)}. Only the team at The Desi Events can change this.`
 }
 
 /**
@@ -86,7 +87,7 @@ export function changedSentence(setting, timeZone = 'UTC') {
   if (!setting?.changedAt) return null
 
   const date = formatDateIn(setting.changedAt, timeZone)
-  const who = setting.changedByName ?? 'the Desi-Event team'
+  const who = setting.changedByName ?? 'the team at The Desi Events'
   const when = date ? ` on ${date}` : ''
 
   return setting.reason

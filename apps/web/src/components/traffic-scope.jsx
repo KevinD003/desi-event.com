@@ -3,9 +3,9 @@
  *
  * A beacon carries no session, so the page that knows who is looking decides
  * who is left out and hands the browser only that answer: `excludeAll` for
- * Desi-Event staff (any session holding a platform capability), and the ids of
- * the reader's own organisations, whose events their visits do not count for.
- * The browser receives booleans and ids, never a capability name.
+ * staff at The Desi Events (any session holding a platform capability), and the
+ * ids of the reader's own organisations, whose events their visits do not count
+ * for. The browser receives booleans and ids, never a capability name.
  *
  * Rendered once per instrumented page: the home page, the events list and an
  * event's page. On an event's page `view` names the event, so its page view is

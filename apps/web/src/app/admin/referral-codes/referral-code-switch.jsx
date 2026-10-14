@@ -4,7 +4,7 @@
  * Switching a referral code off, or back on (SPEC3 §12.5).
  *
  * Off takes an optional reason (10 to 500 characters when one is given, for the
- * Desi-Event team's records) and no second factor: it only takes something off
+ * records of the team at The Desi Events) and no second factor: it only takes something off
  * offer. On asks for one (PAYMENT_TERMS) when the server says so, and a code
  * whose expiry has passed is refused (`REFERRAL_CODE_EXPIRED`) with the API's
  * sentence: change its expiry first. Orders already placed keep their waiver

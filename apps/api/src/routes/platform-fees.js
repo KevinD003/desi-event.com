@@ -1,9 +1,9 @@
 /**
- * Refunding one order's booking fee by hand, for the Desi-Event team (SPEC3
+ * Refunding one order's booking fee by hand, for the team at The Desi Events (SPEC3
  * §7.4): `platformFees.preview` and `platformFees.refund`.
  *
- * The booking fee is Desi-Event's money, so refunding it on its own is the
- * Desi-Event team's decision (A4: "an admin can still refund a fee on a past
+ * The booking fee is the money of The Desi Events, so refunding it on its own
+ * is a decision for the team at The Desi Events (A4: "an admin can still refund a fee on a past
  * order by hand"). The session, `platform_fee:refund` (ADMIN, FINANCE_ADMIN,
  * SUPER_ADMIN) and, on the refund, the FINANCE_ACTION step-up come from the
  * contract; the refund carries its own limit of thirty an hour per
@@ -14,7 +14,7 @@
  * What is left of the order's booking fee and the tax that fee carried, and
  * nothing else (`requestRefund` with `feeOnly`): no ticket is withdrawn, no
  * line is touched, the order's status does not change, and it is never
- * promoted to a refund of the whole order. A share of the fee Desi-Event kept
+ * promoted to a refund of the whole order. A share of the fee The Desi Events kept
  * when unpaid tickets were cancelled is not left to refund (SPEC3-XI XU6).
  *
  * ## In one hand, bounded

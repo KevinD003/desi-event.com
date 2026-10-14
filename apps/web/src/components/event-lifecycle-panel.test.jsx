@@ -333,7 +333,7 @@ describe('cancelling an event', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+        'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. The Desi Events does not hold it and cannot refund it.',
       ),
     ).toBeInTheDocument()
   })

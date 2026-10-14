@@ -3,8 +3,8 @@
  * organiser chooses when an organiser invitation starts one.
  *
  * Nobody creates an organisation for themselves here. An organisation comes
- * into being when somebody accepts an organiser invitation from the
- * Desi-Event team (`organizer-invitations.js`), and almost everything about it
+ * into being when somebody accepts an organiser invitation from the team
+ * at The Desi Events (`organizer-invitations.js`), and almost everything about it
  * is decided by the server or by the administrator who sent the invitation:
  *
  *   - its name, public description and website are the ones the administrator

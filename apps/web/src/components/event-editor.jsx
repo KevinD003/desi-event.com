@@ -46,18 +46,18 @@
  *
  * ## Whose authority
  *
- * The organiser edits as the organisation. The Desi-Event team edits a posted
+ * The organiser edits as the organisation. The Desi Events team edits a posted
  * event in an editing session it opened with a reason (`authority.kind ===
  * 'platform'`): a banner says so, the lifecycle panel is not offered (those
  * moves are the organiser's), and every write needs a second factor from the
  * last 10 minutes — the server asks, the autosave stops, asks, and sends the
  * same change again ("Not now" keeps it stopped until the next edit), and the
  * nights, ticket types and pictures ask where their own write was made. A
- * session opened again after this one ended arrives through a refresh, and
- * the fields take input again. Under the organisation's authority, the
- * organiser is told at the top while the Desi-Event team has the event open.
- * Which controls are offered (the danger zone, cancelling a night) comes in
- * as booleans the server page worked out.
+ * session opened again after this one ended arrives through a refresh, and the
+ * fields take input again. Under the organisation's authority, the organiser is
+ * told at the top while the team at The Desi Events has the event open. Which
+ * controls are offered (the danger zone, cancelling a night) comes in as
+ * booleans the server page worked out.
  *
  * ## What it does not decide
  *
@@ -209,8 +209,8 @@ export function toFormValues(event, previous = null) {
  * The website's address as a save sends it, or undefined when it is not sent.
  *
  * Sent only when it differs from the address last saved. An address stored
- * before today's rules (a legacy one with a key in it, carried over and
- * waiting for the Desi-Event team) fails them; sent with every save, it would
+ * before today's rules (a legacy one with a key in it, carried over and waiting
+ * for the team at The Desi Events) fails them; sent with every save, it would
  * be refused every time and stop the title, the questions and everything else
  * from saving until the organiser changed an address they never touched. The
  * status under the box says what is wrong with it.
@@ -263,8 +263,8 @@ export function toPatch(values, baseline = null) {
     ageRestriction: values.ageRestriction === '' ? null : Number(values.ageRestriction),
   }
 
-  // Housekeeping, so a public event autosaves it too. The address waits for
-  // a Desi-Event administrator; saving it never turns the link on or off.
+  // Housekeeping, so a public event autosaves it too. The address waits for an
+  // administrator at The Desi Events; saving it never turns the link on or off.
   const websiteUrl = websitePatch(values, baseline)
 
   if (websiteUrl !== undefined) patch.websiteUrl = websiteUrl
@@ -484,10 +484,10 @@ export function stepOfField(field) {
  * @property {object[]} history The moderation history, newest first.
  * @property {object[]} [media] The event's pictures with their review state, from `GET /v1/events/:id/media`.
  * @property {{status: number, code: string|null, retryAfterSeconds: number|null}|null} [mediaFailure] Why the pictures could not be read, from `mediaReadFailure`; the Media step then shows that instead of an empty list.
- * @property {{kind: 'organization'}|{kind: 'platform', editId: string, reason: string, expiresAt: string, organizationName?: string|null}} [authority] Whose authority the edits are made under: the organisation's, or the Desi-Event team's open editing session (with the name of the organisation whose event it is).
+ * @property {{kind: 'organization'}|{kind: 'platform', editId: string, reason: string, expiresAt: string, organizationName?: string|null}} [authority] Whose authority the edits are made under: the organisation's, or the open editing session of the team at The Desi Events (with the name of the organisation whose event it is).
  * @property {boolean} [mayDelete] Whether to offer the danger zone, worked out on the server.
  * @property {boolean} [mayCancelNights] Whether to offer cancelling a night, worked out on the server.
- * @property {object[]} [platformEdits] The Desi-Event team's editing sessions on this event.
+ * @property {object[]} [platformEdits] The editing sessions of the team at The Desi Events on this event.
  * @property {string} [listHref] The list this editor came from, where a deletion leads back to.
  */
 
@@ -533,15 +533,16 @@ export function EventEditor({
   // steps hold, or `form` for its own boxes ("Change date, place or terms…").
   const [materialOpen, setMaterialOpen] = useState(null)
   const [status, setStatus] = useState(event.status)
-  // The website link's switch, read-only here: only the Desi-Event team moves
-  // it. Taken from every answer that carries it.
+  // The website link's switch, read-only here: only the team at The Desi Events
+  // moves it. Taken from every answer that carries it.
   const [websiteRedirect, setWebsiteRedirect] = useState(event.websiteRedirect ?? null)
   const [step, setStep] = useState('details')
   const [save, setSave] = useState({ kind: 'idle', message: 'No changes made.' })
   const [serverProblems, setServerProblems] = useState([])
   const [conflict, setConflict] = useState(null)
-  // Under the Desi-Event team's authority: a save waiting for a second factor,
-  // and whether the editing session was found closed by a refused write.
+  // Under the authority of the team at The Desi Events: a save waiting for a
+  // second factor, and whether the editing session was found closed by a
+  // refused write.
   const [stepUpPending, setStepUpPending] = useState(false)
   // The second factor was asked for and the person backed out: the autosave
   // stays paused until the next edit or "Save now", rather than asking again
@@ -592,8 +593,8 @@ export function EventEditor({
   )
   const problems = useMemo(() => formProblems(values, baseline), [values, baseline])
   const gaps = useMemo(() => formGaps(values), [values])
-  // The Desi-Event team's editing session open on this event, which the
-  // organiser is told about at the top of the editor (X-7).
+  // The editing session of the team at The Desi Events open on this event,
+  // which the organiser is told about at the top of the editor (X-7).
   const openSitting = platform ? null : ((platformEdits ?? []).find((edit) => edit?.open) ?? null)
   // A step's write found the editing session closed: the banner offers to
   // open it again.
@@ -702,7 +703,7 @@ export function EventEditor({
         }
 
         if (platform && body?.error?.code === 'STEP_UP_REQUIRED') {
-          // The Desi-Event team confirms every 10 minutes of writes. Stop the
+          // The Desi Events team confirms every 10 minutes of writes. Stop the
           // autosave, ask, and send the same change once confirmed.
           setStepUpPending(true)
           setSave({ kind: 'unsaved', message: 'Not saved yet: confirm it’s you to keep editing.' })
@@ -985,20 +986,20 @@ export function EventEditor({
         />
       ) : null}
 
-      {/* The organiser sees, at the top, that the Desi-Event team has this
-          event open for editing, until when and why (X-7); never who. */}
+      {/* The organiser sees, at the top, that the team at The Desi Events has
+          this event open for editing, until when and why (X-7); never who. */}
       {openSitting ? (
         <Alert
           variant="info"
-          title="The Desi-Event team is editing this event"
+          title="The Desi Events team is editing this event"
           className="mt-4"
           data-testid="team-editing-notice"
         >
           <p>{teamEditingSentence(openSitting.expiresAt, baseline.timezone)}</p>
           {openSitting.reason ? <p className="mt-1">Reason: {openSitting.reason}</p> : null}
           <p className="mt-1">
-            Each change it makes is listed under “Changes made by the Desi-Event team” on the Review
-            step.
+            Each change it makes is listed under “Changes made by the team at The Desi Events” on
+            the Review step.
           </p>
         </Alert>
       ) : null}
@@ -1338,8 +1339,8 @@ export function EventEditor({
               savedWebsiteUrl={baseline.websiteUrl.trim() || null}
             />
           ) : null}
-          {/* The lifecycle moves are the organiser's: under the Desi-Event
-              team's editing session the review step offers only what that
+          {/* The lifecycle moves are the organiser's: under the editing session
+              of the team at The Desi Events the review step offers only what that
               session may do. */}
           {step === 'review' && readiness && !platform ? (
             <EventLifecyclePanel

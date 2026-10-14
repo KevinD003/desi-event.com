@@ -360,7 +360,7 @@ export const LIVE_STATUSES = Object.freeze(
 export const CONTENT_ONLY_STATUSES = Object.freeze(new Set(['COMPLETED', 'CANCELLED']))
 
 /**
- * Statuses in which the Desi-Event team may edit an organisation's event, in a
+ * Statuses in which the team at The Desi Events may edit an organisation's event, in a
  * sitting: posted events only. The same frozen set as
  * {@link PUBLICLY_VISIBLE_STATUSES}, by reference, so the two cannot drift.
  *

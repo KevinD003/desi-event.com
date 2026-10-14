@@ -172,8 +172,8 @@ describe('the one-time code panel', () => {
 
 describe('the ready-to-send message', () => {
   const LETTER = Object.freeze({
-    subject: 'Your organiser invitation from Desi-Event',
-    text: `Hello,\n\nYour invitation code is:\n\n    ${CODE}\n\nTo accept it:\n1. Open https://desi-event.example/account/organizations/new\n`,
+    subject: 'Your organiser invitation from The Desi Events',
+    text: `Hello,\n\nYour invitation code is:\n\n    ${CODE}\n\nTo accept it:\n1. Open https://thedesievents.example/account/organizations/new\n`,
   })
 
   it('draws the message read-only under its label, with its subject', () => {

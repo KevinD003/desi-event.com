@@ -10,7 +10,7 @@
  * rest, and checked by `contentProblems` before anything is sent. Everything
  * here is shown to the public, so every box says so where it matters — apart
 from the website's address, which the public page links to only while the
-Desi-Event team has the website link on. The organiser types the address; the
+team at The Desi Events has the website link on. The organiser types the address; the
 switch is read-only here.
  *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc
@@ -178,7 +178,7 @@ export function ProgrammeStep({ values, setField, editable, errors = {} }) {
 
 /** What the website box says about itself. */
 export const WEBSITE_FIELD_DESCRIPTION =
-  'Your own site’s full address, starting https://, such as https://www.yourfestival.com/. It is not shown on your event page unless the Desi-Event team turns the website link on.'
+  'Your own site’s full address, starting https://, such as https://www.yourfestival.com/. It is not shown on your event page unless the team at The Desi Events turns the website link on.'
 
 /**
  * @typedef {object} GuestInfoStepProps
@@ -221,7 +221,8 @@ export function GuestInfoStep({
       </h2>
       <p className="text-sm text-ink-muted">
         Everything on this step is shown on the public event page, apart from your website’s
-        address: the page links to it only while the Desi-Event team has the website link on.
+        address: the page links to it only while the team at The Desi Events has the website link
+        on.
       </p>
 
       <RepeatableList

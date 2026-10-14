@@ -329,9 +329,9 @@ currency table, so a USD order pays $0.99 a ticket whatever that variable says.
 
 ### A future real-payments stage
 
-The online booking fee of a pay-at-the-venue order is Desi-Event's revenue, with
-no organiser share. A stage that switches on real payments must charge it as a
-platform charge — no `on_behalf_of`, no `transfer_data` — and refund it with
-`reverseTransfer: false`, so the fee is never routed to, or clawed back from,
-the organiser's connected account (ADR 0017 §8, ADR 0003). No code here makes
-such a call: production payments stay unreachable, as above.
+The online booking fee of a pay-at-the-venue order is revenue of
+The Desi Events, with no organiser share. A stage that switches on real payments
+must charge it as a platform charge — no `on_behalf_of`, no `transfer_data` —
+and refund it with `reverseTransfer: false`, so the fee is never routed to, or
+clawed back from, the organiser's connected account (ADR 0017 §8, ADR 0003). No
+code here makes such a call: production payments stay unreachable, as above.

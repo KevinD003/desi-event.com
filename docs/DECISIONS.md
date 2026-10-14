@@ -64,8 +64,8 @@ the shell in CI configuration.
 Destination charges with `on_behalf_of` and an application fee. Direct charges
 and separate charges-and-transfers were both considered and both rejected, for
 reasons the ADR states in full. It also states, explicitly, what the decision
-does **not** make Desi-Event: not merchant of record, not an escrow provider,
-not a tax remitter, not the legal seller.
+does **not** make The Desi Events: not merchant of record, not an escrow
+provider, not a tax remitter, not the legal seller.
 
 Follow-through in code: `docs/STRIPE_CONNECT.md`.
 
@@ -124,14 +124,15 @@ engine runs, and the record and the limitations page both say so.
 
 ### 0010 — Invite-only organisers, the platform administrator and the review gate
 
-Nobody makes themselves an organiser: an ADMIN or SUPER_ADMIN invites an
-address to start a new organisation, created VERIFIED, and only the Desi-Event
-team grants roles that create or publish events; inside an organisation a
-poster may only be moved down. A new platform role, `ADMIN`, holds exactly ten
-capabilities by an allow-list checked at load. A database trigger makes every
-public status follow a review decision, approval names the revision seen, and a
-reviewer may not decide their own organisation's event or one they submitted.
-It also records what a published event may change without another review.
+Nobody makes themselves an organiser: an ADMIN or SUPER_ADMIN invites an address
+to start a new organisation, created VERIFIED, and only the team at
+The Desi Events grants roles that create or publish events; inside an
+organisation a poster may only be moved down. A new platform role, `ADMIN`,
+holds exactly ten capabilities by an allow-list checked at load. A database
+trigger makes every public status follow a review decision, approval names the
+revision seen, and a reviewer may not decide their own organisation's event or
+one they submitted. It also records what a published event may change without
+another review.
 
 ### 0011 — SMTP delivery of show-once codes
 
@@ -177,12 +178,12 @@ statement that they own Sulekha.com is recorded there as their statement.
 
 ### 0016 — Per-event booking fee and referral codes
 
-The Desi-Event team sets an event's own booking fee (a percentage and an amount
+The Desi Events team sets an event's own booking fee (a percentage and an amount
 per ticket, in the event's one currency) at any time and in any status but
 deleted, for new orders only, with a reason, a second factor and a history the
 organiser reads; the site default stays a server setting. An administrator can
-refund one order's booking fee by hand. Referral codes, made only by the
-Desi-Event team, remove an order's whole booking fee and any tax on it, are
+refund one order's booking fee by hand. Referral codes, made only by the team at
+The Desi Events, remove an order's whole booking fee and any tax on it, are
 stored in plain text but kept out of every URL, log, audit row and outbox row,
 answer one refusal for every reason under a budget of wrong guesses, and give
 their use back once when their order ends without being used. The platform
@@ -195,9 +196,10 @@ unpaid tickets across all buyers. Such an order pays only its booking fee
 online, carries no tax, and owes each ticket's share at the door, where a
 payment is recorded only in the step that admits the ticket, and never undone.
 Door money never enters the ledger. Unpaid tickets can be cancelled by the
-organiser or the Desi-Event team, freeing their places (the one path that puts
-general-admission stock back) and keeping their booking fee for good; tickets
-owing money can be passed on. It records the lock law every path follows.
+organiser or the team at The Desi Events, freeing their places (the one path
+that puts general-admission stock back) and keeping their booking fee for good;
+tickets owing money can be passed on. It records the lock law every path
+follows.
 
 ## Decisions that live in code, not in an ADR
 
@@ -360,7 +362,7 @@ for you") states them in plain words.
 - An organiser invitation always starts a **new** organisation; adding a poster
   to an existing one is a super administrator's grant.
 - Owners move posting members only to lesser roles; promotions go through the
-  Desi-Event team.
+  team at The Desi Events.
 - Invited organisations start Verified, with the description and website the
   administrator wrote.
 - Reviewers may not decide events of their own organisation or ones they
@@ -368,10 +370,10 @@ for you") states them in plain words.
   approve events too.
 - Team invitations already waiting that offered posting roles were withdrawn by
   the upgrade.
-- Organisers see the administrator's name for the website link, but "a
-  Desi-Event administrator" for edits made in an editing sitting.
-- Analytics adds a fifth source, "Desi-Event pages"; browsers asking not to be
-  tracked count as page views; organiser-page card clicks are not counted.
+- Organisers see the administrator's name for the website link, but "an
+  administrator at The Desi Events" for edits made in an editing sitting.
+- Analytics adds a fifth source, "The Desi Events pages"; browsers asking not to
+  be tracked count as page views; organiser-page card clicks are not counted.
 - New pictures on live events wait for approval by somebody other than the
   uploader.
 - Administrators may delete events with sales, which refunds every order in
@@ -397,8 +399,9 @@ the owner and each can be changed without a migration:
 - **A.** Only unpaid pay-at-the-venue tickets that are cancelled keep their
   booking fee; every other refund gives it back with the tickets.
 - **B.** Unpaid tickets are cancelled by the organisation's owners and
-  administrators and by Desi-Event administrators and super administrators —
-  not finance members, managers, door staff or finance administrators.
+  administrators and by administrators and super administrators at
+  The Desi Events — not finance members, managers, door staff or finance
+  administrators.
 - **C.** A booking fee kept that way is never refunded afterwards, even by an
   administrator's booking-fee refund.
 - **D.** Unpaid tickets can be cancelled until their night ends (the last night

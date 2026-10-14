@@ -58,15 +58,15 @@ export const UNUSABLE_CODE =
 
 /** What an organiser invitation's code typed here is told. */
 export const ORGANIZER_CODE_HERE =
-  'That is an organiser invitation code from the Desi-Event team, not a team invitation. Enter it where organiser codes go instead.'
+  'That is an organiser invitation code from the team at The Desi Events, not a team invitation. Enter it where organiser codes go instead.'
 
 /**
  * What a code for a role that creates or publishes events is told: such roles
- * come from the Desi-Event team now, so an older invitation to one cannot be
+ * come from the team at The Desi Events now, so an older invitation to one cannot be
  * accepted. The code is not spent.
  */
 export const POSTING_ROLE_CODE =
-  'This invitation is for a role that creates or publishes events. Those roles are given by the Desi-Event team, so it cannot be accepted here. Ask whoever invited you to ask the Desi-Event team to add you.'
+  'This invitation is for a role that creates or publishes events. Those roles are given by the team at The Desi Events, so it cannot be accepted here. Ask whoever invited you to ask the team at The Desi Events to add you.'
 
 /** Said after the enrolment refusal: the code was never looked at. */
 export const CODE_STILL_GOOD =

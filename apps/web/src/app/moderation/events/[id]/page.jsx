@@ -15,7 +15,7 @@
  * for.
  *
  * A reviewer who belongs to the event's organisation is told that somebody
- * else on the Desi-Event team decides, in place of the decision controls: the
+ * else on the team at The Desi Events decides, in place of the decision controls: the
  * session says which organisations they are in, and the API refuses them all
  * the same.
  *
@@ -194,7 +194,7 @@ export default async function ReviewEventPage({ params }) {
         </Badge>
       </div>
 
-      {/* The Desi-Event team's own page for this event: editing it once it is
+      {/* The Desi Events team's own page for this event: editing it once it is
           posted, deleting it, restoring it. Offered to platform editors only;
           a moderator reviews here and nowhere else. */}
       {sessionCan(session, 'event:platform_edit') ? (
@@ -204,8 +204,8 @@ export default async function ReviewEventPage({ params }) {
             className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
           >
             {event.status === 'DELETED'
-              ? 'Open its record as the Desi-Event team'
-              : 'Open in the editor as the Desi-Event team'}
+              ? 'Open its record as the team at The Desi Events'
+              : 'Open in the editor as the team at The Desi Events'}
           </Link>
           {event.status !== 'DELETED' ? (
             <Link
@@ -620,7 +620,7 @@ export default async function ReviewEventPage({ params }) {
 
             <p className="mt-3 text-sm text-ink-muted">
               {noEditor
-                ? 'Your reason is kept on the event’s record. Nobody runs this event on Desi-Event, so it goes to nobody.'
+                ? 'Your reason is kept on the event’s record. Nobody runs this event on The Desi Events, so it goes to nobody.'
                 : 'Your reason goes to the organiser. Your name does not: they are negotiating with the platform, not with you.'}
             </p>
           </section>

@@ -193,7 +193,7 @@ describe('where focus goes when the decision panel closes', () => {
 
 describe('somebody else decides', () => {
   const NOTICE =
-    'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.'
+    'You belong to this organisation, so somebody else on the team at The Desi Events has to decide this.'
 
   it('draws the sentence instead of the decisions for a member of the organisation', () => {
     render(

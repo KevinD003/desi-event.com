@@ -257,7 +257,9 @@ describe('the organiser invite form', () => {
     expect(message.value).toContain(`    ${CODE}\n`)
     expect(message.value).toContain(`${window.location.origin}/account/organizations/new`)
     expect(message.value).toContain('"Rangoli Collective"')
-    expect(message.value).toContain('A note from Anil Administrator of the Desi-Event team:')
+    expect(message.value).toContain(
+      'A note from Anil Administrator of the team at The Desi Events:',
+    )
     expect(message.value).toContain('> Welcome aboard — we spoke on Tuesday.')
     // The code is typed on the page, never carried in the address.
     expect(message.value).not.toMatch(new RegExp(`https?://\\S*${CODE}`, 'u'))
@@ -417,7 +419,7 @@ describe('composeLetter', () => {
       inviterName: null,
     })
 
-    expect(letter.subject).toBe('Your organiser invitation from Desi-Event')
+    expect(letter.subject).toBe('Your organiser invitation from The Desi Events')
     expect(letter.text).toContain('"રંગોળી Collective"')
     expect(letter.text).toContain(`1. Open ${window.location.origin}/account/organizations/new\n`)
   })

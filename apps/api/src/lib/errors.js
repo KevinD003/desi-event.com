@@ -255,7 +255,7 @@ export const UNSTORABLE_CHARACTER_MESSAGE =
  * @type {string}
  */
 export const REVIEW_REQUIRED_SENTENCE =
-  'This event has not been approved by the Desi-Event team, so it cannot be made public.'
+  'This event has not been approved by the team at The Desi Events, so it cannot be made public.'
 
 /**
  * What a member is told when they try to give somebody a role that creates or
@@ -264,7 +264,7 @@ export const REVIEW_REQUIRED_SENTENCE =
  * @type {string}
  */
 export const POSTING_ROLE_SENTENCE =
-  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.'
+  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the team at The Desi Events, not from this page. Ask the team at The Desi Events to add this person to your organisation.'
 
 /**
  * What a caller is told when their write lost a deadlock or a write conflict
@@ -304,7 +304,7 @@ export const EVENT_CONTROL_CONFLICT_SENTENCE =
  * @type {string}
  */
 export const PLATFORM_HELD_ORGANIZATION_SENTENCE =
-  "This organisation holds imported events for the Desi-Event team and has no members. Move the event to the organiser's own organisation instead."
+  "This organisation holds imported events for the team at The Desi Events and has no members. Move the event to the organiser's own organisation instead."
 
 // --- Booking fees, referral codes and paying at the venue (SPEC3 §4.5, §5.5) --
 
@@ -474,7 +474,7 @@ export const PAYMENT_TERMS_REFUSALS = Object.freeze({
   FEE_TERMS_CURRENCY: Object.freeze({
     statusCode: 409,
     message:
-      "The Desi-Event team set this event's booking fee in {currency}. Ask them to change it before pricing tickets in another currency.",
+      "The Desi Events team set this event's booking fee in {currency}. Ask them to change it before pricing tickets in another currency.",
   }),
   REFERRAL_NOT_ACCEPTED: Object.freeze({
     statusCode: 409,
@@ -520,7 +520,7 @@ export const PAYMENT_TERMS_REFUSALS = Object.freeze({
   AMOUNT_REFUND_NOT_FOR_VENUE_ORDERS: Object.freeze({
     statusCode: 422,
     message:
-      'Refund tickets by choosing them, or the whole order. A booking fee on its own is refunded by the Desi-Event team.',
+      'Refund tickets by choosing them, or the whole order. A booking fee on its own is refunded by the team at The Desi Events.',
   }),
   // Cancelling unpaid pay-at-the-venue tickets (SPEC3-XI §4.5).
   NOT_A_VENUE_BOOKING: Object.freeze({

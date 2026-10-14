@@ -1,5 +1,5 @@
 /**
- * The organiser directory: who has upcoming events listed on Desi-Event.
+ * The organiser directory: who has upcoming events listed on The Desi Events.
  *
  * There is no list endpoint for organisers, and this page does not pretend
  * there is. It is derived the way the sitemap derives its organiser URLs: from
@@ -42,7 +42,7 @@ export const dynamic = 'force-dynamic'
 export const metadata = {
   title: 'Organisers',
   description:
-    'The collectives and promoters with upcoming garba, dandiya and Navratri events listed on Desi-Event — open one to see everything they have on.',
+    'The collectives and promoters with upcoming garba, dandiya and Navratri events listed on The Desi Events — open one to see everything they have on.',
 }
 
 /**
@@ -84,7 +84,7 @@ export default async function OrganizersPage() {
         headingId="organisers-heading"
         eyebrow="Organisers"
         title="Who is putting on the nights"
-        lead="These are the organisers with upcoming events listed on Desi-Event, and how many each has coming up. Open one to see what they have on and their refund policy."
+        lead="These are the organisers with upcoming events listed on The Desi Events, and how many each has coming up. Open one to see what they have on and their refund policy."
         art={<GarbaRings className="h-[30rem] w-[30rem]" />}
       />
 

@@ -3,7 +3,7 @@
  * (SPEC2-XI §5.I I-A).
  *
  * The user states that they own Sulekha.com and asked for these Texas events
- * and their photos to be imported onto Desi-Event; this file records that as
+ * and their photos to be imported onto The Desi Events; this file records that as
  * their statement. The dataset was curated once from the collected listings by
  * a script kept outside the repository, and these assertions are what makes it
  * trustworthy: the stated totals, the curation (three duplicate listings and
@@ -38,7 +38,7 @@ const SOURCE_CATEGORY_WORDS = {
   FOOD: 'Food',
 }
 
-/** Desi-Event's category in words, as its own category list shows it. */
+/** The Desi Events' category in words, as its own category list shows it. */
 const CATEGORY_WORDS = {
   MUSIC_CONCERT: 'Live Music',
   THEATRE: 'Theatre',
@@ -67,7 +67,7 @@ const CATEGORY_EXCEPTIONS = {
   401997: 'THEATRE',
 }
 
-/** The ten listings whose Sulekha category Desi-Event does not have. */
+/** The ten listings whose Sulekha category The Desi Events does not have. */
 const CATEGORY_NOTED = [
   '400744',
   '401719',
@@ -88,7 +88,7 @@ const CATEGORY_NOTED = [
  * @returns {string} The sentence.
  */
 function categoryNote(event) {
-  return `Sulekha lists this as ${SOURCE_CATEGORY_WORDS[event.sourceCategory]}; Desi-Event has no such category, so it is listed under ${CATEGORY_WORDS[event.category]}. If another fits better, change it in an editing session once the event is published.`
+  return `Sulekha lists this as ${SOURCE_CATEGORY_WORDS[event.sourceCategory]}; The Desi Events has no such category, so it is listed under ${CATEGORY_WORDS[event.category]}. If another fits better, change it in an editing session once the event is published.`
 }
 
 const CST_NOTE =

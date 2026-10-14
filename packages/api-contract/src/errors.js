@@ -36,7 +36,7 @@ export class ApiContractError extends Error {
 }
 
 /**
- * A non-2xx (or unreachable) HTTP response from the Desi-Event API.
+ * A non-2xx (or unreachable) HTTP response from The Desi Events API.
  *
  * `body` is whatever the server sent — normally the `errorResponseSchema`
  * envelope, but it may be plain text or `null` when the response had no body,

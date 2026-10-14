@@ -103,7 +103,7 @@ Chosen: **destination charges with `on_behalf_of` and an application fee.**
 ```
 buyer ──charge on the PLATFORM account──┐
                                         ├─ transfer_data.destination → organiser's connected account
-                                        └─ application_fee_amount    → Desi-Event
+                                        └─ application_fee_amount    → The Desi Events
       on_behalf_of = the connected account (settlement merchant)
 ```
 
@@ -118,8 +118,8 @@ would also become per-organiser, giving the checkout page a failure mode before
 it can render a card field.
 
 **Not separate charges and transfers**, because the money would land in the
-platform balance — which makes Desi-Event a holder of other people's funds, with
-negative-balance exposure, a balance to monitor, and a materially larger
+platform balance — which makes The Desi Events a holder of other people's funds,
+with negative-balance exposure, a balance to monitor, and a materially larger
 regulatory surface. Nothing in Phase 2 needs the flexibility it buys, and taking
 custody of other people's money to get a feature nobody asked for is a bad
 trade.
@@ -140,7 +140,7 @@ organiser's event would attribute money to the wrong account. Recorded as
 
 ---
 
-## What this does NOT make Desi-Event
+## What this does NOT make The Desi Events
 
 Repeated from the ADR because it is the part most likely to be assumed:
 
@@ -151,7 +151,7 @@ Repeated from the ADR because it is the part most likely to be assumed:
   There is no balance to hold them in.
 - **Not a tax remitter or determiner.** Every tax rate shipped here is marked
   `DEMO`, and production fails closed without a real determination.
-- **Not the legal seller.** The organiser sells; Desi-Event provides the
+- **Not the legal seller.** The organiser sells; The Desi Events provides the
   platform.
 
 ---

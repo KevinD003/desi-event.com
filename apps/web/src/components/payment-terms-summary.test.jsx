@@ -60,12 +60,12 @@ function terms(fee = FEE, venuePayment = SWITCH) {
 describe('the fee, in words', () => {
   it('says the event’s own fee, the site default, and no fee at all', () => {
     expect(feeSentence(FEE)).toBe(
-      'Booking fee on this event: 3.00% of the ticket price plus $1.49 per ticket. Set by the Desi-Event team.',
+      'Booking fee on this event: 3.00% of the ticket price plus $1.49 per ticket. Set by the team at The Desi Events.',
     )
     expect(
       feeSentence({ ...FEE, source: 'SITE_DEFAULT', percentageBps: 250, flatCentsPerTicket: 99 }),
     ).toBe(
-      'Booking fee on this event: the site’s standard booking fee, 2.50% of the ticket price plus $0.99 per ticket. Set by the Desi-Event team.',
+      'Booking fee on this event: the site’s standard booking fee, 2.50% of the ticket price plus $0.99 per ticket. Set by the team at The Desi Events.',
     )
     expect(feeSentence({ ...FEE, percentageBps: 0, flatCentsPerTicket: 0 })).toBe(
       'This event has no booking fee.',
@@ -74,14 +74,14 @@ describe('the fee, in words', () => {
 
   it('says the switch as a word, with its limit, and who decides', () => {
     expect(venuePaymentSentence(SWITCH)).toBe(
-      'Pay at the venue: On — up to 1,200 tickets waiting to be paid at the door. Only the Desi-Event team can change this.',
+      'Pay at the venue: On — up to 1,200 tickets waiting to be paid at the door. Only the team at The Desi Events can change this.',
     )
     expect(venuePaymentSentence({ ...SWITCH, enabled: false })).toBe(
-      'Pay at the venue: Off. Only the Desi-Event team can change this.',
+      'Pay at the venue: Off. Only the team at The Desi Events can change this.',
     )
   })
 
-  it('words the switch exactly as the Desi-Event team’s panel does', () => {
+  it('words the switch exactly as the panel of the team at The Desi Events does', () => {
     // One wording for one switch (lib/event-control.js `venueStatusText`):
     // the organiser and the team must never read it differently.
     for (const venuePayment of [
@@ -90,11 +90,11 @@ describe('the fee, in words', () => {
       { ...SWITCH, limit: null },
     ]) {
       expect(venuePaymentSentence(venuePayment)).toBe(
-        `Pay at the venue: ${venueStatusText(venuePayment)}. Only the Desi-Event team can change this.`,
+        `Pay at the venue: ${venueStatusText(venuePayment)}. Only the team at The Desi Events can change this.`,
       )
     }
     expect(venuePaymentSentence({ ...SWITCH, limit: null })).toBe(
-      'Pay at the venue: On. Only the Desi-Event team can change this.',
+      'Pay at the venue: On. Only the team at The Desi Events can change this.',
     )
   })
 
@@ -103,7 +103,7 @@ describe('the fee, in words', () => {
       'Changed by Meera Admin on Oct 9, 2026: “Partner rate agreed for this season.”',
     )
     expect(changedSentence(SWITCH)).toBe(
-      'Changed by the Desi-Event team on Oct 10, 2026: “The organiser takes cash at the door.”',
+      'Changed by the team at The Desi Events on Oct 10, 2026: “The organiser takes cash at the door.”',
     )
     expect(changedSentence({ changedAt: null })).toBeNull()
   })
@@ -115,10 +115,10 @@ describe('the dates, as the event keeps time', () => {
 
   it('dates a change on the day it was in the event’s zone, not in UTC', () => {
     expect(changedSentence(LATE, 'America/Chicago')).toBe(
-      'Changed by the Desi-Event team on Oct 9, 2026: “The organiser takes cash at the door.”',
+      'Changed by the team at The Desi Events on Oct 9, 2026: “The organiser takes cash at the door.”',
     )
     expect(changedSentence(LATE, 'Asia/Kolkata')).toBe(
-      'Changed by the Desi-Event team on Oct 10, 2026: “The organiser takes cash at the door.”',
+      'Changed by the team at The Desi Events on Oct 10, 2026: “The organiser takes cash at the door.”',
     )
   })
 
@@ -132,7 +132,7 @@ describe('the dates, as the event keeps time', () => {
     )
 
     expect(screen.getByRole('region', { name: 'Booking fee and payment' })).toHaveTextContent(
-      'Changed by the Desi-Event team on Oct 9, 2026',
+      'Changed by the team at The Desi Events on Oct 9, 2026',
     )
   })
 })

@@ -33,7 +33,7 @@ describe('what the page says', () => {
 
   it('tells an account without the capability who refunds booking fees', () => {
     expect(NOT_FOR_THIS_ACCOUNT).toBe(
-      'Booking fees are refunded by hand by the Desi-Event team’s platform, finance and super administrators. Nothing on this page can grant it.',
+      'Booking fees are refunded by hand by the platform, finance and super administrators at The Desi Events. Nothing on this page can grant it.',
     )
   })
 

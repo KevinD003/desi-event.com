@@ -138,8 +138,9 @@ built as **Cancel unpaid tickets**:
 
 - **Who** (XU2, open question B): the organisation's owners and administrators
   (the members holding `order:refund`, checked against their own membership,
-  never through `can()`), and Desi-Event administrators and super administrators
-  (new platform capability `venue_booking:cancel`, which moves no money).
+  never through `can()`), and the administrators and super administrators at
+  The Desi Events (new platform capability `venue_booking:cancel`, which moves
+  no money).
   Membership is read first: an administrator whose own membership in the
   organisation lacks `order:refund` is refused `CONFLICT_OF_INTEREST`. Everybody
   else gets 404.
@@ -162,11 +163,11 @@ built as **Cancel unpaid tickets**:
   `desi_venue_booking_cancellation_sum` and from the ticket side). The buyer,
   and every other account holding a cancelled ticket, is told why: the buyer on
   the order page, every holder on the ticket's wallet card and page
-  (`venuePayment.cancelled`: when, by the organiser or the Desi-Event team, and
-  the reason given, never a name). The `venue_booking.cancelled` notice queued
-  for each of them is not emailed in this build. The door
-  then refuses the ticket `UNPAID_CANCELLED` when it is looked up by its
-  printed code; a scan of its old pass finds nothing.
+  (`venuePayment.cancelled`: when, by the organiser or the team at
+  The Desi Events, and the reason given, never a name). The
+  `venue_booking.cancelled` notice queued for each of them is not emailed in
+  this build. The door then refuses the ticket `UNPAID_CANCELLED` when it is
+  looked up by its printed code; a scan of its old pass finds nothing.
 
 ### 6. Places are freed — on this path only (XU5)
 
@@ -235,9 +236,9 @@ platform, and a ledger account holding it would invite someone to pay it out.
 - **Refunds give back only the online part** (§10.2's forms): whole and lines
   refunds return the booking fee's share and withdraw tickets; an amount refund
   is refused (`AMOUNT_REFUND_NOT_FOR_VENUE_ORDERS`); the booking fee alone is
-  refunded by the Desi-Event team (ADR 0016 §2). Money already taken at the door
-  is the organiser's to return, and every screen and notice that refunds such
-  an order says so.
+  refunded by the team at The Desi Events (ADR 0016 §2). Money already taken at
+  the door is the organiser's to return, and every screen and notice that
+  refunds such an order says so.
 - **A future real-payments stage** (DX2) must charge the online booking fee as a
   platform charge — no `on_behalf_of`, no `transfer_data` — and refund it with
   `reverseTransfer: false`, so the fee is never routed to the organiser's
@@ -334,8 +335,8 @@ time answers; the race tests assert none occurs.
   never refunded) and `general-admission-refunds`.
 - **Organisers** get a "Payments at the venue" page (`finance:view`, step-up
   `FINANCE_VIEW`): payments taken, bookings still unpaid, cancellations, and
-  after the event "Not paid by the end of the event". Desi-Event
-  administrators get "Bookings waiting to be paid at the door" for any event,
+  after the event "Not paid by the end of the event". The administrators at
+  The Desi Events get "Bookings waiting to be paid at the door" for any event,
   with no buyer or attendee names.
 - **Reserved seats and general admission differ** on refund (RF9, unchanged)
   but not on cancel-unpaid, which frees both.

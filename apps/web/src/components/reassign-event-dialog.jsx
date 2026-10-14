@@ -4,10 +4,10 @@
  * Moving an imported event to an organiser's own organisation (SPEC2-XI I-F).
  *
  * An event copied from its Sulekha listing is held by "Sulekha Events", which
- * has no members. Once its organiser has an organisation here, the Desi-Event
- * team moves it there: its status, pictures and web address stay as they are;
- * its Sulekha ticket link is switched off; and it stops being presented as a
- * Sulekha listing, so its new owner adds its own tickets.
+ * has no members. Once its organiser has an organisation here, the team at
+ * The Desi Events moves it there: its status, pictures and web address stay as
+ * they are; its Sulekha ticket link is switched off; and it stops being
+ * presented as a Sulekha listing, so its new owner adds its own tickets.
  *
  * The organisation is not asked first: the event appears in its list at once.
  * The dialog says so, in the words the specification gives.

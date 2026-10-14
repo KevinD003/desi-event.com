@@ -1087,12 +1087,12 @@ export function platformHeldImportFixture(
     name: 'Sulekha Events',
     slug: 'sulekha-events',
     description:
-      'Events listed on Sulekha.com and shown on Desi-Event by the Desi-Event team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+      'Events listed on Sulekha.com and shown on The Desi Events by its team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
     contactEmail: 'imports@desi-event.example',
     websiteUrl: null,
     verified: true,
     verificationStatus: 'VERIFIED',
-    verificationNote: 'Held by the Desi-Event team for imported events',
+    verificationNote: 'Held by the team at The Desi Events for imported events',
     verificationUpdatedAt: created,
     refundPolicy: null,
     payoutCurrency: 'USD',
@@ -1140,7 +1140,7 @@ export function platformHeldImportFixture(
     policies: {
       entry: 'Entry is run by the organiser. Check the Sulekha listing for their rules.',
       refund:
-        "Tickets for this event are sold on Sulekha, not on Desi-Event. Refunds follow Sulekha's and the organiser's terms.",
+        "Tickets for this event are sold on Sulekha, not on The Desi Events. Refunds follow Sulekha's and the organiser's terms.",
       conduct: "The organiser's and the venue's rules apply.",
     },
     websiteUrl: FIXTURE_LISTING.sourceUrl,

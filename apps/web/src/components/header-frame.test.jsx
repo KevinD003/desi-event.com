@@ -25,7 +25,7 @@ describe('HeaderFrame', () => {
   it('is the banner, with the mirror-work band along its foot', () => {
     const { container } = render(
       <HeaderFrame>
-        <a href="/">Desi-Event</a>
+        <a href="/">The Desi Events</a>
       </HeaderFrame>,
     )
 

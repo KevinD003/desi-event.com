@@ -30,7 +30,7 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  *
  * One organisation, "Pay Venue <tag>", sells a general-admission night (GA,
  * no nights, $40), a two-night event with an every-night pass, a Toronto
- * night and a night that is already over; the Desi-Event team sets their
+ * night and a night that is already over; the team at The Desi Events sets their
  * booking fees, switches paying at the venue on and off, and makes referral
  * codes. The journeys run in SPEC3-XI's order, V1–V6, V15, V13, V7, V8, V14,
  * V9–V12, each building on the last:
@@ -56,8 +56,8 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  *   - V7  paying at the venue is switched off mid-checkout: the buyer is moved
  *         to card, urgently, before anything is charged;
  *   - V8  the event's limit is reached: the buyer pays by card instead;
- *   - V14 the Desi-Event team cancels an unpaid ticket booked with a referral
- *         code, and the code's use comes back;
+ *   - V14 the team at The Desi Events cancels an unpaid ticket booked with a
+ *         referral code, and the code's use comes back;
  *   - V9  a booking fee is refunded by hand;
  *   - V10 who may not: organisers, moderators and finance administrators are
  *         refused the team's controls;
@@ -1021,7 +1021,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
     const summary = owner.getByTestId('payment-terms-summary')
 
     await expect(summary).toContainText(
-      `Booking fee on this event: ${terms}. Set by the Desi-Event team.`,
+      `Booking fee on this event: ${terms}. Set by the team at The Desi Events.`,
     )
     await expect(summary).toContainText(names().adminName)
     await expect(summary).toContainText(FEE_REASON)
@@ -1042,7 +1042,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
     const draftPanel = await termsPanel(admin, draft.id)
 
     await expect(admin.locator('main')).toContainText(
-      'The Desi-Event team edits an event’s details only once it has been published.',
+      'The Desi Events team edits an event’s details only once it has been published.',
     )
     await expect(draftPanel).toContainText(
       'You can set this event’s booking fee and whether it can be paid for at the venue now, before it is published.',
@@ -1639,7 +1639,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
       /[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2}\s[AP]M C[DS]T/u,
     )
     await expect(figure(owner, 'Unpaid tickets cancelled')).toHaveText('1 ($45.00 no longer owed)')
-    await expect(figure(owner, 'Booking fees on them, kept by Desi-Event')).toHaveText('$3.64')
+    await expect(figure(owner, 'Booking fees on them, kept by The Desi Events')).toHaveText('$3.64')
 
     // Its place is on sale again.
     expect(await soldOf(twoNights.passTierId)).toBe(soldBefore - 1)
@@ -1655,7 +1655,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
       /The organiser cancelled 1 ticket on [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}, \d{4} because it was not paid for\. You no longer owe \$45\.00 for it\./u,
     )
     await expect(main).toContainText(
-      'The booking fee paid for it online, $3.64, is kept by Desi-Event and is not refunded.',
+      'The booking fee paid for it online, $3.64, is kept by The Desi Events and is not refunded.',
     )
     await expect(main).toContainText(`Reason given: “${CANCEL_REASON}”`)
 
@@ -1776,7 +1776,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
     bought.b3Toronto = await payAndBook(buyer3, 'Pay $48.99 (simulated)', 'Booked')
   })
 
-  test('V14: the Desi-Event team cancels an unpaid ticket booked with a referral code, and the code’s use comes back', async ({
+  test('V14: the team at The Desi Events cancels an unpaid ticket booked with a referral code, and the code’s use comes back', async ({
     browser,
   }) => {
     test.setTimeout(240_000)
@@ -1865,7 +1865,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
 
     const order = buyer3.locator('main')
 
-    await expect(order).toContainText(/The Desi-Event team cancelled 1 ticket on /u)
+    await expect(order).toContainText(/The Desi Events team cancelled 1 ticket on /u)
     await expect(order).toContainText('Nothing was paid online for it.')
     await expect(valueOf(order, 'Status')).toContainText('Cancelled — not paid at the door')
 
@@ -1946,7 +1946,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
     await scanner.getByRole('button', { name: 'Cancel', exact: true }).click()
   })
 
-  test('V10: organisers, moderators and finance administrators are refused the Desi-Event team’s controls', async ({
+  test('V10: organisers, moderators and finance administrators are refused the controls of the team at The Desi Events', async ({
     browser,
   }) => {
     test.setTimeout(240_000)
@@ -2005,7 +2005,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
       await mod.goto(address)
       await expect(mod.getByRole('heading', { level: 1, name: 'Not for you' })).toBeVisible()
       await expect(mod.locator('main')).toContainText(
-        'This area is for the Desi-Event team’s platform administrators',
+        'This area is for the platform administrators at The Desi Events',
       )
       await expect(mod.getByRole('link', { name: 'Referral codes', exact: true })).toHaveCount(0)
       await expect(mod.getByRole('link', { name: 'Booking fee refunds', exact: true })).toHaveCount(
@@ -2126,7 +2126,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
 
     // It took place and somebody was let in, so deleting it as it stands
     // refunds nobody (SPEC2-XI X-D): to refund it, its organiser calls it off
-    // first, and the Desi-Event team then deletes it, cancelling and refunding.
+    // first, and the team at The Desi Events then deletes it, cancelling and refunding.
     const owner = await windowFor(browser, 'owner')
 
     await cancelEvent(
@@ -2150,7 +2150,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
     }).toPass({ timeout: 15_000 })
     await expect(dialog.getByText('Reading what deleting would do…')).toHaveCount(0)
     await expect(dialog).toContainText(
-      'Payment taken at the door for 1 of these tickets ($25.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+      'Payment taken at the door for 1 of these tickets ($25.00) is held by the organiser. The Desi Events does not hold it and cannot refund it.',
     )
     await dialog
       .getByLabel(/^Why is this event being deleted\?/u)
@@ -2171,11 +2171,11 @@ test.describe.serial('booking fees, referral codes and paying at the venue', () 
 
     await expect(main).toContainText('The booking fee you paid online was refunded (simulated).')
     await expect(main).toContainText(
-      `The ${dollars(2_500)} you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+      `The ${dollars(2_500)} you paid at the door is with the organiser, not with The Desi Events. Ask the organiser to return it.`,
     )
 
     // What went back is the booking fee paid online and nothing more: the
-    // $25.00 taken at the door is not refunded by Desi-Event.
+    // $25.00 taken at the door is not refunded by The Desi Events.
     const { totalCents } = bought.b2Past
 
     expect(totalCents).toBeGreaterThan(0)

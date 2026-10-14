@@ -32,9 +32,9 @@ import { confirmIfPrompted, waitOutCredentialBudget } from './support/step-up.mj
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 /**
- * How anybody comes to post events on Desi-Event: by an invitation from the
- * Desi-Event team, and never by making themselves an organiser — in a real
- * browser, against the real API.
+ * How anybody comes to post events on The Desi Events: by an invitation from
+ * its team, and never by making themselves an organiser — in a real browser,
+ * against the real API.
  *
  * ## The story
  *
@@ -50,7 +50,7 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  *       the organisation is verified from the start with the description the
  *       administrator wrote.
  *   J4. Its owner can add only roles that do not post events.
- *   J5. An event is public only after the Desi-Event team reviews it: publish
+ *   J5. An event is public only after the team at The Desi Events reviews it: publish
  *       is not offered to a draft, the administrator approves through a fresh
  *       second factor, the owner publishes, and the API refuses to publish a
  *       draft that was never reviewed, or to approve without saying which
@@ -137,7 +137,7 @@ const ADMIN_RAIL = Object.freeze([
   'Website links',
   'Organiser invitations',
   'All events',
-  // SPEC3 §12.10: the Desi-Event team's referral codes and booking fee refunds.
+  // SPEC3 §12.10: referral codes and booking fee refunds, for the team at The Desi Events.
   'Referral codes',
   'Booking fee refunds',
   'Imports',
@@ -149,23 +149,23 @@ const UNUSABLE =
 
 /** What the old self-service route says now, to anybody. */
 const INVITATION_REQUIRED =
-  'Organisations are not created from an account here. Organisers join Desi-Event by invitation from the Desi-Event team; if they have sent you an organiser invitation code, enter it at Your account → Accept an organiser invitation (/account/organizations/new).'
+  'Organisations are not created from an account here. Organisers join The Desi Events by invitation from its team; if they have sent you an organiser invitation code, enter it at Your account → Accept an organiser invitation (/account/organizations/new).'
 
 /** What the API says to a posting role asked for from a team page. */
 const POSTING_REFUSAL =
-  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.'
+  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the team at The Desi Events, not from this page. Ask the team at The Desi Events to add this person to your organisation.'
 
 /** What the team page says beside its invite form. */
 const POSTING_SENTENCE =
-  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. To add somebody who will create events, ask the Desi-Event team to add them to your organisation.'
+  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the team at The Desi Events, not from this page. To add somebody who will create events, ask the team at The Desi Events to add them to your organisation.'
 
 /** What a member of the organisation is told on its event's review page. */
 const CONFLICT_NOTICE =
-  'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.'
+  'You belong to this organisation, so somebody else on the team at The Desi Events has to decide this.'
 
 /** What the platform administration area says to somebody it does not admit. */
 const ADMIN_AREA_REFUSAL =
-  'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.'
+  'This area is for the platform administrators at The Desi Events: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.'
 
 /** What People and roles says to a platform administrator. */
 const PEOPLE_AND_ROLES_REFUSAL =
@@ -382,7 +382,7 @@ test.describe.serial('organisers join by invitation, and events go public after 
     const { ownerEmail, studioName, studioDescription, studioWebsite, studioNote, adminName } =
       names()
 
-    // A platform administrator's rail: the Desi-Event team's pages, and none
+    // A platform administrator's rail: the pages for the team at The Desi Events, and none
     // that needs a membership, money or the power to change roles.
     await admin.goto('/moderation/events')
     await expect(pageHeading(admin, 'Review queue')).toBeVisible()
@@ -636,7 +636,9 @@ test.describe.serial('organisers join by invitation, and events go public after 
 
     await expect(verification.getByText('Verification: Verified')).toBeVisible()
     await expect(
-      verification.getByText('Created from an organiser invitation sent by the Desi-Event team.'),
+      verification.getByText(
+        'Created from an organiser invitation sent by the team at The Desi Events.',
+      ),
     ).toBeVisible()
     await expect(owner.getByRole('form', { name: 'Ask for verification' })).toHaveCount(0)
 
@@ -702,7 +704,9 @@ test.describe.serial('organisers join by invitation, and events go public after 
     await expect(owner.locator('main')).not.toContainText(email)
   })
 
-  test('J5: an event is public only after the Desi-Event team reviews it', async ({ visitor }) => {
+  test('J5: an event is public only after the team at The Desi Events reviews it', async ({
+    visitor,
+  }) => {
     const { firstDraftTitle } = names()
 
     drafts = await draftEventFor(studio.id, ids().tag)

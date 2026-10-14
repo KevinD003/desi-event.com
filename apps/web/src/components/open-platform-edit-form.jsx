@@ -1,8 +1,8 @@
 'use client'
 
 /**
- * Opening an editing session on somebody else's posted event, as the
- * Desi-Event team.
+ * Opening an editing session on somebody else's posted event, as the team at
+ * The Desi Events.
  *
  * A reason and a second factor, then a sitting of at most an hour bound to
  * this browser session (`POST /v1/platform/events/:id/edit`). The organiser
@@ -24,7 +24,7 @@ import { apiFetch } from '../lib/api-fetch.js'
 import { reasonProblem } from '../lib/event-control.js'
 import { refusalSentence } from '../lib/refusal.js'
 
-/** What the Desi-Event team is told before it opens a sitting. */
+/** What the team at The Desi Events is told before it opens a sitting. */
 export const OPEN_EDIT_EXPLANATION =
   'The organiser sees each change you make and the reason you give here. They do not see your name. Every change is recorded with your name and this reason.'
 
@@ -43,7 +43,7 @@ export const OPEN_EDIT_EXPLANATION =
  */
 export function OpenPlatformEditForm({
   eventId,
-  heading = 'Edit this event as the Desi-Event team',
+  heading = 'Edit this event as the team at The Desi Events',
   onOpened,
 }) {
   const router = useRouter()
@@ -155,7 +155,7 @@ export function OpenPlatformEditForm({
 
       {stepUp ? (
         <StepUpPrompt
-          action="edit this event as the Desi-Event team"
+          action="edit this event as the team at The Desi Events"
           onConfirmed={() => {
             setStepUp(false)
             send()

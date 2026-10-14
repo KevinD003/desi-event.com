@@ -1353,7 +1353,7 @@ export const trafficEventSummaryRowSchema = z.object({
   ticketClicks: trafficCountSchema,
   seatClicks: trafficCountSchema,
   websiteRedirects: trafficCountSchema,
-  /** Whether a Desi-Event administrator has the event's website link turned on. */
+  /** Whether an administrator at The Desi Events has the event's website link turned on. */
   websiteLinkOn: z.boolean(),
   /** Orders paid in the window's days, still paid. */
   ordersPaid: trafficCountSchema,
@@ -1418,7 +1418,7 @@ export const analyticsTrafficSchema = z.object({
       deleted: z.boolean(),
       startsAt: timestampSchema,
       websiteLinkOn: z.boolean(),
-      /** The website switch as its own team and the Desi-Event team read it, when known. */
+      /** The website switch as its own team and the team at The Desi Events read it, when known. */
       websiteRedirect: websiteRedirectStateSchema.nullable(),
     })
     .nullable(),
@@ -2208,7 +2208,7 @@ export const venueBookingsResponseSchema = z.object({
 /**
  * `venueBookings.cancel` (SPEC3-XI §11.2): the cancellation written, or found
  * already written for the same tickets (`replayed`). The door price no longer
- * owed (`basisCents`) and the booking fee Desi-Event kept (`feeKeptCents`, the
+ * owed (`basisCents`) and the booking fee The Desi Events kept (`feeKeptCents`, the
  * only thing ever kept); the places freed (`seatsReturned`, `placesReturned`
  * per tier) and whether they are on sale now (`placesOnSale`), and whether the
  * event's sales are paused or sold out (`eventSalesStopped`). `byName` only for

@@ -722,7 +722,7 @@ test.describe.serial('importing the Sulekha events', () => {
     expect(after[concert.sourceId].event.status).toBe('REVIEW_PENDING')
 
     // The public pages: who presents it, Sulekha's prices, and Sulekha's
-    // ticket link through Desi-Event's redirect; never a buy button here.
+    // ticket link through the redirect at The Desi Events; never a buy button here.
     const garbaEvent = after[garba.sourceId].event
 
     await visitor.goto(`/events/${garbaEvent.slug}`)
@@ -732,7 +732,7 @@ test.describe.serial('importing the Sulekha events', () => {
     const tickets = visitor.locator('#tickets')
 
     await expect(tickets).toContainText(
-      'Tickets for this event are sold on Sulekha, not on Desi-Event.',
+      'Tickets for this event are sold on Sulekha, not on The Desi Events.',
     )
     await expect(tickets).toContainText(
       `As listed on Sulekha on ${listedOn(listing('garba').scrapedAt)}: General admission $25.00, VIP $40.00, Child (under 12) Free.`,
@@ -742,12 +742,12 @@ test.describe.serial('importing the Sulekha events', () => {
 
     await expect(buy).toHaveAttribute('href', `/events/${garbaEvent.slug}/website`)
     await expect(tickets).toContainText(
-      'Opens events.sulekha.com, which Desi-Event does not run. Desi-Event counts the visit without recording your address, browser or account.',
+      'Opens events.sulekha.com, which The Desi Events does not run. The Desi Events counts the visit without recording your address, browser or account.',
     )
     await expect(visitor.getByRole('link', { name: /choose tickets/iu })).toHaveCount(0)
     await expect(visitor.getByRole('button', { name: /choose tickets/iu })).toHaveCount(0)
     await expect(visitor.getByText(/not on sale|has not put any tickets/iu)).toHaveCount(0)
-    // Pictures are Desi-Event's own copies: no page names Sulekha's picture host.
+    // Pictures are copies held by The Desi Events: no page names Sulekha's picture host.
     expect(await visitor.content()).not.toContain('usimg.sulekha.io')
 
     const structured = await structuredEvent(visitor)
@@ -850,8 +850,8 @@ test.describe.serial('importing the Sulekha events', () => {
       admin.getByText('The plan was applied. Pictures: 4 copied, 1 not copied, 0 waiting.'),
     ).toBeVisible()
 
-    // In the database: the new time, with one change notice from the
-    // Desi-Event team, and the import's own audit row.
+    // In the database: the new time, with one change notice from the team at
+    // The Desi Events, and the import's own audit row.
     const after = await importedEvents(ids().tag)
     const garbaItem = after[garba.sourceId]
 
@@ -869,7 +869,7 @@ test.describe.serial('importing the Sulekha events', () => {
     expect(notices[0]).toMatchObject({
       kind: 'MATERIAL_CHANGE',
       byPlatform: true,
-      reason: `Updated from its Sulekha listing by the Desi-Event team, run ${runs.second}.`,
+      reason: `Updated from its Sulekha listing by the team at The Desi Events, run ${runs.second}.`,
     })
     expect(notices[0].changed).toContain('the start time')
 
@@ -984,7 +984,7 @@ test.describe.serial('importing the Sulekha events', () => {
     // panel and no listed prices. (The terms the import wrote stay as they
     // were, for the new owner to change: SPEC2-XI I-F moves nothing else.)
     await expect(
-      visitor.getByText('Tickets for this event are sold on Sulekha, not on Desi-Event.', {
+      visitor.getByText('Tickets for this event are sold on Sulekha, not on The Desi Events.', {
         exact: true,
       }),
     ).toHaveCount(0)
@@ -1003,7 +1003,7 @@ test.describe.serial('importing the Sulekha events', () => {
     await openStep(owner, event.id, /^step 1/iu)
 
     const description =
-      'Bollywood hits from four decades with a live band, now run by its organiser on Desi-Event.'
+      'Bollywood hits from four decades with a live band, now run by its organiser on The Desi Events.'
     const saved = owner.waitForResponse(
       (response) =>
         response.request().method() === 'PATCH' &&

@@ -542,7 +542,7 @@ describe('the pinned connection', () => {
     expect(options.headers).toEqual({
       accept: 'image/jpeg, image/png, image/webp',
       'accept-encoding': 'identity',
-      'user-agent': 'Desi-Event importer',
+      'user-agent': 'The Desi Events importer',
     })
     expect(options.agent).toBeInstanceOf(https.Agent)
     expect(options.agent).not.toBe(https.globalAgent)

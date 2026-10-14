@@ -315,7 +315,7 @@ export function buildOperation(route, components) {
  */
 export function buildOpenApiDocument(options = {}) {
   const {
-    title = 'Desi-Event API',
+    title = 'The Desi Events API',
     version = '1.0.0',
     description = 'Ticketing and discovery for South-Asian cultural events.',
     servers = [{ url: 'http://127.0.0.1:4000', description: 'Local development' }],

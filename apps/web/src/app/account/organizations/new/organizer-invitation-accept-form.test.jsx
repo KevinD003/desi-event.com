@@ -106,12 +106,14 @@ describe('the accept-an-organiser-invitation page', () => {
       screen.getByRole('heading', { level: 1, name: 'Accept an organiser invitation' }),
     ).toBeVisible()
     expect(
-      screen.getByText(/Organisers join Desi-Event by invitation from the Desi-Event team/u),
+      screen.getByText(
+        /Organisers join The Desi Events by invitation from the team at The Desi Events/u,
+      ),
     ).toBeVisible()
     expect(screen.getByText(/It\s+is verified from the start/u)).toBeVisible()
     expect(
       screen.getByText(
-        'Every event you create is reviewed by the Desi-Event team before it can be published.',
+        'Every event you create is reviewed by the team at The Desi Events before it can be published.',
       ),
     ).toBeVisible()
     expect(screen.getByText(/Payments on this site are simulated/u)).toBeVisible()
@@ -317,7 +319,7 @@ describe('the accept form', () => {
   it('repeats the API’s sentence for a staff account', async () => {
     const user = userEvent.setup()
     const sentence =
-      'This account holds a Desi-Event staff role, so it cannot accept an organiser invitation. A super administrator can add a staff account to an organisation directly.'
+      'This account holds a staff role at The Desi Events, so it cannot accept an organiser invitation. A super administrator can add a staff account to an organisation directly.'
 
     apiFetch.mockResolvedValue(answer(403, { error: { code: 'STAFF_ACCOUNT', message: sentence } }))
     render(<OrganizerInvitationAcceptForm />)

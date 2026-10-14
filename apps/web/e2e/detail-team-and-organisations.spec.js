@@ -30,7 +30,7 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  *
  *   1. The super administrator invites an attendee to start an organisation —
  *      organisations are never started from an account, only by an invitation
- *      from the Desi-Event team — and the attendee accepts it from their
+ *      from the team at The Desi Events — and the attendee accepts it from their
  *      account page, becomes its owner, and finds it verified from the start.
  *   2. They invite somebody as staff. Codes are not emailed in this build's
  *      delivery mode, so the code is shown once, to them, to hand over —
@@ -237,7 +237,7 @@ test.describe.serial('an organisation, its team and the platform roles above it'
     recording(platform)
 
     // Nobody starts an organisation from their account: the account page
-    // offers accepting an invitation, and the Desi-Event team sends one.
+    // offers accepting an invitation, and the team at The Desi Events sends one.
     await creator.goto('/account')
     await expect(
       creator
@@ -266,7 +266,7 @@ test.describe.serial('an organisation, its team and the platform roles above it'
     // What it does is said before the form, not after it.
     await expect(
       creator.getByText(
-        /It is verified from the start, because the Desi-Event team invited you\./u,
+        /It is verified from the start, because the team at The Desi Events invited you\./u,
       ),
     ).toBeVisible()
 
@@ -296,12 +296,14 @@ test.describe.serial('an organisation, its team and the platform roles above it'
 
     const verification = creator.getByRole('region', { name: 'Verification', exact: true })
 
-    // Verified at once: the Desi-Event team vouched for it by inviting it, and
-    // the history says so. There is nothing to ask for.
+    // Verified at once: the team at The Desi Events vouched for it by inviting
+    // it, and the history says so. There is nothing to ask for.
     await expect(verification.getByText('Verification: Verified')).toBeVisible()
     await expect(verification.getByText('It may publish events and be paid.').first()).toBeVisible()
     await expect(
-      verification.getByText('Created from an organiser invitation sent by the Desi-Event team.'),
+      verification.getByText(
+        'Created from an organiser invitation sent by the team at The Desi Events.',
+      ),
     ).toBeVisible()
     await expect(creator.getByRole('form', { name: 'Ask for verification' })).toHaveCount(0)
     await expect(
@@ -428,13 +430,13 @@ test.describe.serial('an organisation, its team and the platform roles above it'
       invitee.getByRole('row').filter({ hasText: 'Farhan Qureshi (you)' }),
     ).toContainText('Staff')
 
-    // A member of a team is not on the Desi-Event team: the platform's
+    // A member of a team is not on the team at The Desi Events: the platform's
     // administration area is refused as a whole, before any page in it.
     await invitee.goto('/admin/users')
     await expect(pageHeading(invitee, 'Not for you')).toBeVisible()
     await expect(
       invitee.getByText(
-        'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
+        'This area is for the platform administrators at The Desi Events: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
         { exact: true },
       ),
     ).toBeVisible()
@@ -777,7 +779,7 @@ test.describe.serial('an organisation, its team and the platform roles above it'
     )
 
     // And now the workspace opens, on the organisation it made — verified
-    // from the start, because the Desi-Event team invited it.
+    // from the start, because the team at The Desi Events invited it.
     await solo.goto(`/organizer/organization?organizationId=${made.id}`)
     await expect(pageHeading(solo, team.soloOrganizationName)).toBeVisible()
     await expect(solo.getByText('Verification: Verified')).toBeVisible()

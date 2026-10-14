@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Bringing a deleted event back, for the Desi-Event team alone.
+ * Bringing a deleted event back, for the team at The Desi Events alone.
  *
  * Where it comes back to is the server's rule (`restoreTarget`, the same
  * function the database's triggers call): an event on sale comes back paused,

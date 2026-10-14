@@ -13,10 +13,10 @@
  * person was reading refuses the cancellation (`ORDERS_CHANGED`) rather than
  * refunding an order nobody saw. On that refusal it reads the preview again.
  *
- * Bookings made to pay at the venue (the preview's `atVenue`, SPEC3 §9.7):
- * only their booking fee paid online is refunded, simulated, and any payment
- * taken at the door is held by the organiser, which Desi-Event neither holds
- * nor can refund.
+ * Bookings made to pay at the venue (the preview's `atVenue`, SPEC3 §9.7): only
+ * their booking fee paid online is refunded, simulated, and any payment taken
+ * at the door is held by the organiser, which The Desi Events neither holds nor
+ * can refund.
  *
  * A reason, a ticked box and, when the server asks, a second factor
  * (EVENT_CANCEL). An inline region: focus to its heading on opening, back to

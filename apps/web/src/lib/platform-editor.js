@@ -1,5 +1,5 @@
 /**
- * Where the Desi-Event team edits an organisation's event: its own editor at
+ * Where the team at The Desi Events edits an organisation's event: its own editor at
  * `/admin/events/[id]`, never the organiser's at `/organizer/events/[id]`
  * (SPEC2-XI O9).
  *
@@ -44,7 +44,7 @@ export function organizerEventIdFromPath(path) {
 }
 
 /**
- * Whether this session edits events as the Desi-Event team, through its
+ * Whether this session edits events as the team at The Desi Events, through its
  * platform role.
  *
  * @param {object|null} session The session payload.

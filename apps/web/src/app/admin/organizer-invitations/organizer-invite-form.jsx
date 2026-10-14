@@ -9,7 +9,7 @@
  * no role (an organiser invitation always makes its recipient the new
  * organisation's owner), no status and no organisation. The API strips
  * anything else, and decides everything that matters again — that the caller
- * may invite, that the address is nobody on the Desi-Event team, and that no
+ * may invite, that the address is nobody on the team at The Desi Events, and that no
  * invitation to it is already waiting.
  *
  * What goes public under the organisation's Verified badge is what is written

@@ -959,7 +959,7 @@ describe('the surfaces added for feature completion', () => {
     'traffic.events',
     'traffic.websiteVisit',
     // Full control of posted events (SPEC2-XI X): deletion, restore, nights,
-    // the Desi-Event team's sittings and the pictures queue.
+    // the sittings of the team at The Desi Events and the pictures queue.
     'events.cancelSession',
     'events.delete',
     'events.deletionPreview',
@@ -2646,7 +2646,7 @@ describe('full control of posted events (SPEC2-XI X)', () => {
     })
   })
 
-  it('holds the Desi-Event team’s routes by platform-only capabilities, and leaves the organisers’ to the handler', () => {
+  it('holds the routes of the team at The Desi Events by platform-only capabilities, and leaves the organisers’ to the handler', () => {
     for (const id of X_ROUTES) {
       const route = apiRoutes.find((candidate) => candidate.id === id)
 
@@ -2935,7 +2935,7 @@ describe('the records full control and imports keep, each with one writer (SPEC2
     expect(Object.keys(parsed.data)).toEqual(['title'])
   })
 
-  it('opens the Desi-Event team’s sittings in the open route alone, and ends them only in the authority module and the control routes', () => {
+  it('opens the sittings of the team at The Desi Events in the open route alone, and ends them only in the authority module and the control routes', () => {
     const writes = modelWrites('EventPlatformEdit')
 
     expect(filesOf(writes)).toEqual([

@@ -7,9 +7,9 @@
  * the site had no way to make one: the API's `POST /v1/auth/register` was
  * there, and nothing called it, so only seeded accounts could ever buy.
  *
- * Attendee accounts only; the API refuses any other role. What an organiser
- * may do comes from an organisation membership, and organisers join by
- * invitation from the Desi-Event team: somebody invited enters their code from
+ * Attendee accounts only; the API refuses any other role. What an organiser may
+ * do comes from an organisation membership, and organisers join by invitation
+ * from the team at The Desi Events: somebody invited enters their code from
  * their account page once they have signed up, and somebody invited to a team
  * does the same with a team code. So there is no choice to offer here.
  *

@@ -85,7 +85,7 @@ export const DELIVERY_LINES = Object.freeze({
  * §12.11), so this page asks its own question again, as every admin page does.
  */
 export const NOT_FOR_THIS_ACCOUNT =
-  'Organisers are invited by the Desi-Event team’s platform administrators and super administrators. Nothing on this page can grant it.'
+  'Organisers are invited by the platform administrators and super administrators at The Desi Events. Nothing on this page can grant it.'
 
 /**
  * The refusals the organiser invitation routes give, by code, in the API's
@@ -98,7 +98,7 @@ export const ORGANIZER_INVITATION_REFUSALS = Object.freeze({
   SELF_INVITATION:
     'You cannot invite your own address. Another platform administrator has to invite you.',
   STAFF_ACCOUNT:
-    'That address belongs to a Desi-Event staff account. Organiser invitations are for people outside the team; a super administrator can add a staff account to an organisation directly from People and roles.',
+    'That address belongs to a staff account at The Desi Events. Organiser invitations are for people outside the team; a super administrator can add a staff account to an organisation directly from People and roles.',
   INVITATION_OUTSTANDING:
     'An invitation to that address is already waiting. Issue a new code for it, or withdraw it first.',
   NOT_OUTSTANDING:

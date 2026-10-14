@@ -262,7 +262,7 @@ export const ADMISSION_REFUSAL_SENTENCES = Object.freeze({
   NOT_ADMISSIBLE: 'This ticket cannot be admitted.',
   ORDER_NOT_PAID: 'The order for this ticket is not paid.',
   EVENT_CANCELLED: 'This event was cancelled.',
-  EVENT_DELETED: 'This event was taken off Desi-Event.',
+  EVENT_DELETED: 'This event was taken off The Desi Events.',
   SESSION_CANCELLED: 'This night was cancelled.',
   WRONG_EVENT: 'This ticket is for a different event.',
   WRONG_NIGHT: 'This ticket is for a different night.',

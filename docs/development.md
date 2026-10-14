@@ -261,7 +261,7 @@ whose role needs one — the super administrator, the platform administrator, th
 moderator, and the organisations' owners, administrators and managers — is
 asked to set up two-step sign-in the first time it signs in.
 
-**Accounts for the Desi-Event team:**
+**Accounts for the team at The Desi Events:**
 
 | Account                             | Role          | What it is for                                                                                                                                                                            |
 | ----------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -372,7 +372,7 @@ DELIVERY_MODE=EMAIL
 SMTP_HOST=127.0.0.1
 SMTP_PORT=1025
 SMTP_REQUIRE_TLS=false      # a local capture server has no TLS; refused in production
-SMTP_FROM=no-reply@desi-event.example
+SMTP_FROM=no-reply@thedesievents.com
 WEB_ORIGIN=http://127.0.0.1:3000
 ```
 

@@ -126,7 +126,7 @@ describe('GET /events/{slug}/website', () => {
     ['an http address', 'http://rangoli.example/'],
     ['a script', 'javascript:alert(1)'],
     ['a credential in it', 'https://rangoli.example/?token=x'],
-    ['an address on Desi-Event', 'https://desi-event.com/'],
+    ['an address on The Desi Events', 'https://thedesievents.com/'],
     ['no string at all', 42],
   ])('never redirects to %s from the API: the unavailable page instead', async (_name, url) => {
     fetchMock.mockResolvedValue(api({ data: { url } }))
@@ -247,7 +247,7 @@ describe('GET /events/{slug}/website', () => {
     expect(limited.headers.get('retry-after')).toBe('42')
     expect(html).toContain('<h1>Website link unavailable</h1>')
     expect(html).toContain(
-      'Desi-Event could not look up where this link goes just now. Try again from the event page in a minute.',
+      'The Desi Events could not look up where this link goes just now. Try again from the event page in a minute.',
     )
     expect(html).not.toMatch(/too many/iu)
 

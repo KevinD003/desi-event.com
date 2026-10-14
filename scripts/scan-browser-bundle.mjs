@@ -454,7 +454,7 @@ const FORBIDDEN = [
       ['refused IPv6 ranges', 'REFUSED_IPV6_RANGES'],
       ['picture address check', 'checkImportImageUrl'],
       ['imported picture sanitiser', 'sanitiseImportedImage'],
-      ["the fetcher's user agent", 'Desi-Event importer'],
+      ["the fetcher's user agent", 'The Desi Events importer'],
       ['import file reader', 'parseImportDataset'],
       ['import planner', 'planImport'],
       ['plan by status', 'PLAN_ACTION_BY_STATUS'],

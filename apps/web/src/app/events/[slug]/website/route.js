@@ -4,7 +4,7 @@
  * `GET /events/{slug}/website` asks the API where the event's website link
  * goes (`POST /v1/traffic/website-visits`, which only this server may call)
  * and answers a 302 there. The destination never comes from the request: it is
- * the address a Desi-Event administrator approved, answered only while the
+ * the address an administrator at The Desi Events approved, answered only while the
  * link is on and the event's page is public, checked again here before a
  * `Location` is built from it. Every other case is the same 404 page, so the
  * route says nothing about an event that is not public.
@@ -61,15 +61,15 @@ const NO_STORE = Object.freeze({
 export const PAGES = Object.freeze({
   notAvailable: Object.freeze({
     status: 404,
-    title: 'Website link not available · Desi-Event',
+    title: 'Website link not available · The Desi Events',
     heading: 'This website link is not available',
     body: 'The event’s link to the organiser’s website is turned off, or the event’s page is not public. No other site was opened.',
   }),
   unavailable: Object.freeze({
     status: 503,
-    title: 'Website link unavailable · Desi-Event',
+    title: 'Website link unavailable · The Desi Events',
     heading: 'Website link unavailable',
-    body: 'Desi-Event could not look up where this link goes just now. Try again from the event page in a minute.',
+    body: 'The Desi Events could not look up where this link goes just now. Try again from the event page in a minute.',
   }),
 })
 

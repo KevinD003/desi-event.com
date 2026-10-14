@@ -307,7 +307,7 @@ const PLATFORM_EVENT_KEYS = Object.freeze([
 ])
 
 /**
- * Every organisation's events, for the Desi-Event team's platform editors
+ * Every organisation's events, for the platform editors at The Desi Events
  * (`GET /v1/platform/events`).
  *
  * Only the fields the endpoint's query schema names are sent, so a page cannot
@@ -343,9 +343,9 @@ export async function listPlatformEvents(options = {}) {
 }
 
 /**
- * The Desi-Event team's editing sittings on an event, newest first, each with
+ * The Desi Events team's editing sittings on an event, newest first, each with
  * its reason and what it changed. The administrator's name is sent only to the
- * Desi-Event team.
+ * team at The Desi Events.
  *
  * @param {string} id The event id.
  * @returns {Promise<object[]>} The sittings.
@@ -355,7 +355,7 @@ export async function getPlatformEdits(id) {
 }
 
 /**
- * Pictures of posted events waiting for the Desi-Event team, oldest first
+ * Pictures of posted events waiting for the team at The Desi Events, oldest first
  * (`GET /v1/moderation/media`).
  *
  * @param {object} [options] Query options.
@@ -690,8 +690,8 @@ export async function getVenuePayments(id, options = {}) {
 
 /**
  * An event's bookings waiting to be paid at the door, each with its unpaid
- * tickets (`venueBookings.unpaid`, SPEC3-XI §11.1): for the Desi-Event team's
- * "Bookings waiting to be paid at the door". Buyer and attendee names are null
+ * tickets (`venueBookings.unpaid`, SPEC3-XI §11.1): for the "Bookings waiting
+ * to be paid at the door" page of the team at The Desi Events. Buyer and attendee names are null
  * for a platform reader. Asks for a second factor within the FINANCE_VIEW
  * window, as the report does.
  *

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Deleting an event, for its organisers and for the Desi-Event team.
+ * Deleting an event, for its organisers and for the team at The Desi Events.
  *
  * The server decides what a deletion does — take an unsold event down, cancel
  * and refund a sold one, or take down the page of one that has taken place —
@@ -25,10 +25,10 @@
  * page that renders this decides only whether to offer the button, from
  * booleans it worked out on the server.
  *
- * Bookings made to pay at the venue (the preview's `atVenue`, SPEC3 §9.7):
- * when the deletion refunds, only their booking fee paid online is refunded,
- * simulated; and any payment taken at the door is held by the organiser,
- * which Desi-Event neither holds nor can refund.
+ * Bookings made to pay at the venue (the preview's `atVenue`, SPEC3 §9.7): when
+ * the deletion refunds, only their booking fee paid online is refunded,
+ * simulated; and any payment taken at the door is held by the organiser, which
+ * The Desi Events neither holds nor can refund.
  *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc
  * namepath.

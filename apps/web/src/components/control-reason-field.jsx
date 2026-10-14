@@ -2,7 +2,8 @@
 
 /**
  * The reason box every full-control action asks for: deleting, restoring,
- * cancelling a night and opening an editing session as the Desi-Event team.
+ * cancelling a night and opening an editing session as the team at
+ * The Desi Events.
  *
  * One box, so each says the same thing about where the reason goes and who
  * reads it (SPEC2-XI §0.8), counts against the same limits the server checks,

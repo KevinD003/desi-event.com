@@ -2,7 +2,7 @@
  * Making an organisation.
  *
  * There is one way an organisation comes into being through the API: somebody
- * accepts an organiser invitation the Desi-Event team sent them
+ * accepts an organiser invitation the team at The Desi Events sent them
  * (`routes/organizer-invitations.js`). Self-service creation is gone —
  * `organizations.create` answers 403 to everybody — so this module is where
  * the writes it used to do now live, shaped for the invitation:
@@ -38,7 +38,7 @@ export const ORGANIZATION_PAYOUT_CURRENCY = 'USD'
 
 /** The reason recorded on an invited organisation's first verification event. */
 export const INVITED_ORGANIZATION_VERIFICATION_REASON =
-  'Created from an organiser invitation sent by the Desi-Event team.'
+  'Created from an organiser invitation sent by the team at The Desi Events.'
 
 /** What a caller is told when the web address they asked for is somebody else's. */
 export const SLUG_TAKEN_SENTENCE =
@@ -198,14 +198,15 @@ export const PLATFORM_HELD_ORGANIZATIONS = Object.freeze({
     name: 'Sulekha Events',
     slug: 'sulekha-events',
     description:
-      'Events listed on Sulekha.com and shown on Desi-Event by the Desi-Event team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+      'Events listed on Sulekha.com and shown on The Desi Events by its team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
     // The listings imported are Texas events.
     timezone: 'America/Chicago',
   }),
 })
 
 /** The note on a platform-held organisation's verification. */
-export const PLATFORM_HELD_VERIFICATION_NOTE = 'Held by the Desi-Event team for imported events'
+export const PLATFORM_HELD_VERIFICATION_NOTE =
+  'Held by the team at The Desi Events for imported events'
 
 /**
  * Find the platform-held organisation for an import source, creating it the

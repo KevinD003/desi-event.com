@@ -122,7 +122,7 @@ function trafficRows(traffic) {
       section: 'About',
       label: 'Visits counted',
       code: 'UTC',
-      note: `Whole UTC days; robots, the organisation’s own team and Desi-Event staff are not counted; brought up to date at ${
+      note: `Whole UTC days; robots, the organisation’s own team and staff at The Desi Events are not counted; brought up to date at ${
         traffic.updatedAt ? new Date(traffic.updatedAt).toISOString() : 'never'
       }${traffic.includesDemonstration ? '; includes demonstration figures written by the development seed, which are not counted visits' : ''}`,
     },

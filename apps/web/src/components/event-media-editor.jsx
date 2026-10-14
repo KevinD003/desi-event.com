@@ -6,14 +6,14 @@
  * ## What the organiser can do, and when
  *
  * On a draft, a new picture is reviewed with the event, and a new cover
- * replaces the old one at once. On a posted event (live, finished or
- * cancelled) a new picture waits for somebody on the Desi-Event team other
- * than the person who uploaded it, and a new cover waits beside the current
- * one, which stays on the public page until the new one is approved; the panel
- * shows both, the waiting one marked. Nothing new appears on a public page
- * without a review. The panel says which of those applies, and why, rather
- * than leaving buttons greyed out with no explanation. The server enforces
- * every one of these rules again; the buttons here are a courtesy.
+ * replaces the old one at once. On a posted event (live, finished or cancelled)
+ * a new picture waits for somebody on the team at The Desi Events other than
+ * the person who uploaded it, and a new cover waits beside the current one,
+ * which stays on the public page until the new one is approved; the panel shows
+ * both, the waiting one marked. Nothing new appears on a public page without a
+ * review. The panel says which of those applies, and why, rather than leaving
+ * buttons greyed out with no explanation. The server enforces every one of
+ * these rules again; the buttons here are a courtesy.
  *
  * ## Saying what happened
  *
@@ -86,9 +86,9 @@ function ordered(items) {
 /**
  * How a picture's review state reads.
  *
- * A picture waiting on a draft waits for the event's review. On a posted
- * event nothing is reviewed again (SPEC2-XI X-2): a new picture there waits
- * for the Desi-Event team's approval of that picture alone, a replacement
+ * A picture waiting on a draft waits for the event's review. On a posted event
+ * nothing is reviewed again (SPEC2-XI X-2): a new picture there waits for
+ * approval of that picture alone by the team at The Desi Events, a replacement
  * cover or a gallery picture alike, and says so in the same words.
  *
  * @param {object} item A picture.
@@ -151,7 +151,7 @@ async function bodyOf(response) {
  * @property {Function} onRevision Called with the new revision after every write.
  * @property {Function} [onMediaChange] The editor shell's setter for the list, given the new list or a function from the current one to it. With it, the shell owns the list, so it survives this step being closed and opened again; without it, the panel keeps its own copy.
  * @property {{status: number, code: string|null, retryAfterSeconds: number|null}|null} [failure] Why the pictures could not be read, from `mediaReadFailure`. The step then shows the refusal and offers no change at all.
- * @property {boolean} [platform] Whether the edits are made in the Desi-Event team's editing session, whose writes ask for a fresh second factor every 10 minutes.
+ * @property {boolean} [platform] Whether the edits are made in the editing session of the team at The Desi Events, whose writes ask for a fresh second factor every 10 minutes.
  * @property {Function} [onSittingEnded] Called when a write finds that editing session closed.
  */
 
@@ -256,7 +256,7 @@ function MediaPanel({
   const canArrange = MEDIA_ARRANGE_STATUSES.has(status)
   const canRemove = MEDIA_REMOVE_STATUSES.has(status)
   // Posted (live, finished or cancelled): a new picture is not reviewed with
-  // the event but on its own, by the Desi-Event team (SPEC2-XI X-3).
+  // the event but on its own, by the team at The Desi Events (SPEC2-XI X-3).
   const posted = canUpload && !EDITABLE_STATUSES.has(status)
 
   // The cover on the page, and a new one waiting beside it on a posted event:
@@ -361,7 +361,7 @@ function MediaPanel({
       [
         picture.kind === 'EVENT_COVER' ? 'Cover uploaded.' : 'Picture added to the gallery.',
         posted
-          ? 'It appears on the public page once the Desi-Event team approves it.'
+          ? 'It appears on the public page once the team at The Desi Events approves it.'
           : 'It appears on the public page once a moderator approves the event.',
         posted && picture.replacesMediaId ? 'The current cover stays until then.' : null,
         removed.length > 0 ? `Removed before saving: ${removed.join(', ')}.` : null,
@@ -463,7 +463,7 @@ function MediaPanel({
 
   /** Why some controls are absent, in one sentence. */
   const whatApplies = posted
-    ? 'This event is posted, so each new picture waits for the Desi-Event team: it appears on the public page once the Desi-Event team approves it. A new cover waits beside the current one, which stays on the page until then.'
+    ? 'This event is posted, so each new picture waits for the team at The Desi Events: it appears on the public page once the team at The Desi Events approves it. A new cover waits beside the current one, which stays on the page until then.'
     : canUpload
       ? 'New pictures are reviewed with the event: each appears on the public page once a moderator approves it.'
       : canRemove
@@ -833,7 +833,7 @@ function UploadForm({
  * @property {Function} [onMove] Given the picture and -1 or 1.
  * @property {Function} onRemove Given the picture.
  * @property {Function} registerRef Given the item's focus target.
- * @property {boolean} [posted] Whether the event is posted, so a waiting picture waits for the Desi-Event team's approval rather than for a review.
+ * @property {boolean} [posted] Whether the event is posted, so a waiting picture waits for approval by the team at The Desi Events rather than for a review.
  */
 
 /**

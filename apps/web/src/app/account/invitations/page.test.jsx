@@ -71,7 +71,9 @@ describe('the join page', () => {
   it('points an organiser invitation’s code to the page where it works', async () => {
     await renderPage()
 
-    expect(screen.getByText(/Sent an organiser invitation by the Desi-Event team\?/u)).toBeVisible()
+    expect(
+      screen.getByText(/Sent an organiser invitation by the team at The Desi Events\?/u),
+    ).toBeVisible()
     expect(screen.getByRole('link', { name: 'Accept an organiser invitation' })).toHaveAttribute(
       'href',
       '/account/organizations/new',

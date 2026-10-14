@@ -658,8 +658,8 @@ when()('the decision record behind an event’s fee', () => {
 
 /**
  * A draft event with no tiers, or one tier, of an organisation paid out in
- * dollars, and an organiser who owns it: what an organiser's tier edit and the
- * Desi-Event team's fee change race over.
+ * dollars, and an organiser who owns it: what an organiser's tier edit and the fee
+ * change by the team at The Desi Events race over.
  *
  * @param {string} label Distinguishes it.
  * @param {object} [options] Options.
@@ -754,7 +754,7 @@ async function draftWithOrganiser(label, { withTier = false } = {}) {
   return { event, tier, organiser: { user, headers: { authorization: `Bearer ${secret}` } } }
 }
 
-/** The fee the Desi-Event team sets in these races: its currency comes from the event. */
+/** The fee the team at The Desi Events sets in these races: its currency comes from the event. */
 const RACE_FEE = Object.freeze({
   source: 'EVENT',
   percentageBps: 1_000,
@@ -826,7 +826,7 @@ when()('an organiser’s tier racing a fee change (DF3)', () => {
       expect(tierResponse.json().error).toMatchObject({
         code: 'FEE_TERMS_CURRENCY',
         message:
-          "The Desi-Event team set this event's booking fee in USD. Ask them to change it before pricing tickets in another currency.",
+          "The Desi Events team set this event's booking fee in USD. Ask them to change it before pricing tickets in another currency.",
       })
 
       // The event sells in the fee's currency: no tier in another, the

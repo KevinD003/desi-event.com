@@ -189,7 +189,7 @@ describe('the organiser page', () => {
 
     expect(contact.textContent).toMatch(/does not pass messages between buyers and organisers/)
     expect(container.textContent).not.toMatch(
-      /Desi-Event support|confirmation email|reply address/i,
+      /The Desi Events support|confirmation email|reply address/i,
     )
   })
 

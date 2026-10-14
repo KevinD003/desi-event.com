@@ -67,14 +67,14 @@ describe('DeletedEventSummary', () => {
 
     expect(within(section).getByText('Deleted', { selector: 'span *, span' })).toBeVisible()
     expect(
-      within(section).getByText(/Oct 1, 2026 at 10:00\s?AM, by the Desi-Event team\./),
+      within(section).getByText(/Oct 1, 2026 at 10:00\s?AM, by the team at The Desi Events\./),
     ).toBeVisible()
     expect(within(section).getByText('The venue closed for good.')).toBeVisible()
     expect(
       within(section).getByText(/It was cancelled, and what was left of every paid order/),
     ).toBeVisible()
     expect(
-      within(section).getByText(/Only the Desi-Event team can restore a deleted event\./),
+      within(section).getByText(/Only the team at The Desi Events can restore a deleted event\./),
     ).toBeVisible()
     expect(within(section).queryByRole('button', { name: 'Restore…' })).not.toBeInTheDocument()
     expect(
@@ -82,7 +82,7 @@ describe('DeletedEventSummary', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('offers the Desi-Event team a restore, and a member who may the refunds still owed', async () => {
+  it('offers the team at The Desi Events a restore, and a member who may the refunds still owed', async () => {
     apiFetch.mockResolvedValueOnce(
       answer(409, {
         error: { code: 'NOTHING_OWED', message: 'Every refund this event owes has been sent.' },
@@ -98,7 +98,7 @@ describe('DeletedEventSummary', () => {
       />,
     )
 
-    expect(screen.getByText(/by Anil Rao, of the Desi-Event team\./)).toBeVisible()
+    expect(screen.getByText(/by Anil Rao, of the team at The Desi Events\./)).toBeVisible()
     expect(screen.getByRole('button', { name: 'Restore…' })).toBeVisible()
 
     await user.click(screen.getByRole('button', { name: 'Finish refunds' }))
@@ -160,7 +160,7 @@ describe('DeletedEventSummary', () => {
 
     expect(
       screen.getByText(
-        'Only the Desi-Event team can restore a deleted event. Ask them, naming it by its title, “Diwali Mela”: it was never public, and its web address was freed when it was deleted.',
+        'Only the team at The Desi Events can restore a deleted event. Ask them, naming it by its title, “Diwali Mela”: it was never public, and its web address was freed when it was deleted.',
       ),
     ).toBeVisible()
     expect(screen.queryByText('deleted-cevent0000000000000000001')).not.toBeInTheDocument()
@@ -202,9 +202,11 @@ describe('PlatformChangesPanel', () => {
   it('lists each session with its reason and what it changed, naming nobody for an organiser', () => {
     render(<PlatformChangesPanel edits={EDITS} timeZone="America/Chicago" />)
 
-    const panel = screen.getByRole('region', { name: 'Changes made by the Desi-Event team' })
+    const panel = screen.getByRole('region', {
+      name: 'Changes made by the team at The Desi Events',
+    })
 
-    expect(within(panel).getByText('By a Desi-Event administrator.')).toBeVisible()
+    expect(within(panel).getByText('By an administrator at The Desi Events.')).toBeVisible()
     expect(within(panel).getByText('Fixing the directions the organiser sent us.')).toBeVisible()
     expect(within(panel).getByText('parking and directions, FAQ, added a night')).toBeVisible()
     expect(within(panel).getByText('Closed by the administrator')).toBeVisible()
@@ -217,7 +219,7 @@ describe('PlatformChangesPanel', () => {
       />,
     )
 
-    expect(screen.getByText('By Anil Rao, of the Desi-Event team.')).toBeVisible()
+    expect(screen.getByText('By Anil Rao, of the team at The Desi Events.')).toBeVisible()
     expect(screen.getByText(/^Open until/)).toBeVisible()
   })
 
@@ -233,7 +235,7 @@ describe('PlatformChangesPanel', () => {
     expect(screen.getByText('Open until 11:00 AM CDT')).toBeVisible()
   })
 
-  it('renders nothing for an event nobody at Desi-Event has edited', () => {
+  it('renders nothing for an event nobody at The Desi Events has edited', () => {
     const { container } = render(<PlatformChangesPanel edits={[]} />)
 
     expect(container).toBeEmptyDOMElement()
@@ -286,7 +288,7 @@ describe('EventChangesList', () => {
 
     expect(items[0]).toHaveTextContent('A night was cancelled')
     expect(items[0]).toHaveTextContent('The night of Night 2 · Sat, Oct 17 · 7:30 PM.')
-    expect(items[0]).toHaveTextContent('Changed by the Desi-Event team.')
+    expect(items[0]).toHaveTextContent('Changed by the team at The Desi Events.')
     expect(items[0].className).toMatch(/status-danger/)
 
     expect(within(items[1]).getByText('What changed: start time, venue.')).toBeVisible()

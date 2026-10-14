@@ -1,5 +1,5 @@
 /**
- * Importing listed events onto Desi-Event (SPEC2-XI area I): planning a file,
+ * Importing listed events onto The Desi Events (SPEC2-XI area I): planning a file,
  * applying the plan, copying its pictures, approving and publishing what was
  * imported, and moving an imported event to an organiser's own organisation.
  *
@@ -126,7 +126,7 @@ export const IMPORT_REDIRECT_REASON =
 export const IMPORT_POLICIES = Object.freeze({
   entry: 'Entry is run by the organiser. Check the Sulekha listing for their rules.',
   refund:
-    "Tickets for this event are sold on Sulekha, not on Desi-Event. Refunds follow Sulekha's and the organiser's terms.",
+    "Tickets for this event are sold on Sulekha, not on The Desi Events. Refunds follow Sulekha's and the organiser's terms.",
   conduct: "The organiser's and the venue's rules apply.",
 })
 
@@ -461,7 +461,7 @@ export async function importMove(tx, { eventId, to, actor, note, importRunId, vi
     throw httpError(
       409,
       'NOT_PLATFORM_HELD',
-      'This event is not an import held by the Desi-Event team, so the import cannot move it.',
+      'This event is not an import held by the team at The Desi Events, so the import cannot move it.',
     )
   }
 
@@ -1060,8 +1060,8 @@ async function confirmUnchanged(tx, context, listing, row) {
 }
 
 /**
- * Update a posted event from its listing, as a live edit by the Desi-Event
- * team (`authorChange` under the import's authority): the date, the place and
+ * Update a posted event from its listing, as a live edit by the team at The
+ * Desi Events (`authorChange` under the import's authority): the date, the place and
  * the terms change with a change notice for ticket holders; the website
  * address change waits for an administrator as any does. New pictures are
  * added waiting for approval; pictures already public are left.
@@ -1104,7 +1104,7 @@ async function updatePosted(prisma, context, listing, row) {
   const times = listingTimes(listing)
   const content = listingContent(listing)
   const policies = listingPolicies(listing)
-  const reason = `Updated from its Sulekha listing by the Desi-Event team, run ${run.id}.`
+  const reason = `Updated from its Sulekha listing by the team at The Desi Events, run ${run.id}.`
   let material = []
 
   await authorChange(prisma, {
@@ -1423,7 +1423,7 @@ function planChanged() {
   return httpError(
     409,
     'IMPORT_PLAN_CHANGED',
-    'What Desi-Event holds changed after this plan was made, so it was not applied. Upload the file again to plan it as things are now.',
+    'What The Desi Events holds changed after this plan was made, so it was not applied. Upload the file again to plan it as things are now.',
   )
 }
 
@@ -1828,7 +1828,7 @@ async function publishImported(tx, { run, eventId, actor, now, approval }) {
     eventId,
     to: 'PUBLISHED',
     actor,
-    note: importNote(run, 'Published by the Desi-Event team after review'),
+    note: importNote(run, 'Published by the team at The Desi Events after review'),
     importRunId: run.id,
     via: 'web',
   })

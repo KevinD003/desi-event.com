@@ -476,7 +476,7 @@ describe('the SPEC2-XI fixtures', () => {
     expect(session.status).toBe('SCHEDULED')
   })
 
-  it('can say a deleted event was taken down by the Desi-Event team', async () => {
+  it('can say a deleted event was taken down by the team at The Desi Events', async () => {
     const { built } = await world((given) =>
       deletedEventFixture(given, { deletedBy: given.platformAdministrator, authority: 'PLATFORM' }),
     )

@@ -4,9 +4,9 @@
  *
  * One entry per notice the server recorded: when, what kind of change, which
  * details, a moved date shown before → after in the event's own zone, the
- * reason given, and whether the organiser or the Desi-Event team made it. A
- * cancelled night, a cancellation, a postponement or a deletion is set in a
- * box of its own. Nothing here says the holder was emailed: notices are not.
+ * reason given, and whether the organiser or the team at The Desi Events made
+ * it. A cancelled night, a cancellation, a postponement or a deletion is set in
+ * a box of its own. Nothing here says the holder was emailed: notices are not.
  *
  * Renders on the server or the client; it holds no state.
  *

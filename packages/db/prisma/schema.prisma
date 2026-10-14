@@ -1,4 +1,4 @@
-// Desi-Event data model.
+// The Desi Events data model.
 //
 // Conventions:
 //  * Money is always stored as integer cents in the smallest currency unit.
@@ -171,7 +171,7 @@ model Organization {
   /// returned by any route.
   createdById           String?
   /// Set on the one organisation that holds events imported from this source
-  /// for the Desi-Event team ("Sulekha Events"). It has no members and takes
+  /// for the team at The Desi Events ("Sulekha Events"). It has no members and takes
   /// no team invitations (trigger `desi_platform_held_has_no_members`), and one
   /// organisation per source (unique). Only `lib/event-import.js` and
   /// `lib/organization-provisioning.js` write it.
@@ -276,7 +276,7 @@ enum EventStatus {
   CANCELLED
   REJECTED
   ARCHIVED
-  /// Taken off the site by its organiser or the Desi-Event team. The row, its
+  /// Taken off the site by its organiser or the team at The Desi Events. The row, its
   /// orders, refunds, pictures and history stay; nothing public or for sale
   /// reads this status. Left only by a platform restore, to the status
   /// `desi_event_restore_target(statusBeforeDeletion)` names (trigger
@@ -564,7 +564,7 @@ model Event {
   /// with the administrator's name.
   websiteRedirectReason      String?
 
-  // Payment terms, set by the Desi-Event team (SPEC3, ADRs 0016 and 0017).
+  // Payment terms, set by the team at The Desi Events (SPEC3, ADRs 0016 and 0017).
   // Only `apps/api/src/lib/payment-terms.js` writes these (source scan).
   // CHECKs `event_fee_shape` and `event_venue_payment_shape`. A change does not
   // move `revision`.
@@ -612,7 +612,7 @@ model Event {
   trafficDaily              TrafficDaily[]
   /// Who deleted it, while it is deleted.
   deletedBy                 User?                      @relation("EventDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
-  /// The Desi-Event team's editing sittings on it.
+  /// The Desi Events team's editing sittings on it.
   platformEdits             EventPlatformEdit[]
   /// What ticket holders are shown changed about it.
   changeNotices             EventChangeNotice[]
@@ -759,7 +759,7 @@ model EventVenuePaymentChange {
 // and ending with a letter or digit, no '--'; a label of 1-120 characters; a
 // limit of 1-1000000; an expiry after creation; a switched-off code stamped)
 // and `referral_code_use_within_limit` (`useCount` never above `maxUses`).
-/// A code the Desi-Event team hands out that waives an order's whole booking fee.
+/// A code the team at The Desi Events hands out that waives an order's whole booking fee.
 /// Only apps/api/src/lib/referral-codes.js writes it, except useCount
 /// (apps/api/src/lib/referral-uses.js). Plain text, like PromoCode (ADR 0016):
 /// never in a URL, a log line, an audit row or an outbox row.
@@ -869,8 +869,8 @@ model VenuePayment {
 // `desi_ticket_venue_cancellation_sum` and
 // `desi_ticket_venue_cancellation_sum_on_delete` on `Ticket` whenever a ticket
 // joins it or is removed, in any later transaction.
-/// Unpaid pay-at-the-venue tickets of one order cancelled by an organiser or the
-/// Desi-Event team (SPEC3-XI XU). Their places were freed; Desi-Event kept their
+/// Unpaid pay-at-the-venue tickets of one order cancelled by an organiser or the team
+/// at The Desi Events (SPEC3-XI XU). Their places were freed; The Desi Events kept their
 /// booking fee; nothing was refunded or posted to the ledger. Only
 /// apps/api/src/lib/venue-bookings.js writes it. Never edited.
 model VenueBookingCancellation {
@@ -883,7 +883,7 @@ model VenueBookingCancellation {
   ticketCount    Int
   /// The door price no longer owed: the sum of its tickets' `venueDueCents`.
   basisCents     Int
-  /// The booking fee Desi-Event kept for them. Never refunded. Only the fee is
+  /// The booking fee The Desi Events kept for them. Never refunded. Only the fee is
   /// ever kept; tax on it would go back to the buyer (SPEC3-XI XU6).
   feeKeptCents   Int
   currency       String
@@ -1155,7 +1155,7 @@ model Order {
   referralUseReturnCause   ReferralUseReturnCause?
   /// Door price no longer owed: the dues of tickets cancelled unpaid (SPEC3-XI XU).
   venueCancelledBasisCents Int                     @default(0)
-  /// The booking fee kept by Desi-Event for those tickets. Never refunded. Only the
+  /// The booking fee kept by The Desi Events for those tickets. Never refunded. Only the
   /// fee is ever kept; tax on it would go back to the buyer (SPEC3-XI XU6).
   venueFeeKeptCents        Int                     @default(0)
 
@@ -1825,7 +1825,7 @@ enum InvitationDelivery {
 // Hand-written in `20260930100000_organiser_invitations_and_review_gate`: the
 // CHECK `invitation_pending_role_is_owner_grantable`. A waiting team invitation
 // offers only FINANCE, STAFF, SCANNER or VIEWER; roles that create or publish
-// events come from the Desi-Event team (an organiser invitation, or a super
+// events come from the team at The Desi Events (an organiser invitation, or a super
 // administrator's direct grant).
 /// An invitation to join an organisation with a named role.
 ///
@@ -1870,7 +1870,7 @@ model Invitation {
 // `_website_shape`, `_note_length`, `_token_is_digest`,
 // `_expires_after_creation`, `_accepted_shape`, `_revoked_shape` and
 // `_org_only_when_accepted`.
-/// An invitation from the Desi-Event team to start an organisation here, as
+/// An invitation from the team at The Desi Events to start an organisation here, as
 /// its owner.
 ///
 /// Apart from a super administrator's direct grant, the only way anybody comes
@@ -2385,7 +2385,7 @@ model MediaBlob {
 // "closedAt" IS NULL, and the CHECK `event_platform_edit_shape` (a reason of
 // 10-500 characters, at most two hours long, closed exactly when it has an
 // ending). Only `lib/event-authority.js` and `routes/event-control.js` write it.
-/// One sitting in which a Desi-Event administrator edits an organisation's
+/// One sitting in which an administrator at The Desi Events edits an organisation's
 /// posted event: a reason, a step-up, a time box, one browser session. Every
 /// write made under it is audited with its id.
 model EventPlatformEdit {
@@ -2698,7 +2698,7 @@ model TrafficRollupState {
 //
 // Nothing in this section stores a card number, a CVC, a bank account, a
 // national identifier or a document image. Those are collected by the payment
-// provider's own hosted onboarding and never traverse Desi-Event. What is
+// provider's own hosted onboarding and never traverse The Desi Events. What is
 // stored here is the provider's identifier for a thing, its status, and the
 // money we believe moved — so that belief can be reconciled against theirs.
 // ---------------------------------------------------------------------------
@@ -2784,7 +2784,7 @@ enum RefundReason {
   ORGANIZER_GOODWILL
   FRAUDULENT
   OTHER
-  /// A booking fee refunded by hand by the Desi-Event team (`platformFees.refund`).
+  /// A booking fee refunded by hand by the team at The Desi Events (`platformFees.refund`).
   BOOKING_FEE
 }
 
@@ -2971,7 +2971,7 @@ enum PayoutStatus {
 
 /// Money moved from an organiser's connected account to their bank.
 ///
-/// Desi-Event does not hold organiser funds and does not schedule these: the
+/// The Desi Events does not hold organiser funds and does not schedule these: the
 /// provider does. This row mirrors the provider's state so an organiser can see
 /// it without a second login.
 model Payout {

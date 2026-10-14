@@ -1104,7 +1104,7 @@ const EVENT_DEFINITIONS = [
       },
     ],
     // The organiser's website is not a social link. It is linked from an event
-    // page only while a Desi-Event administrator has the link on, and the
+    // page only while an administrator at The Desi Events has the link on, and the
     // fallback catalogue never links out (`websiteLink: null` on every event).
     socialLinks: {},
     sponsors: [],

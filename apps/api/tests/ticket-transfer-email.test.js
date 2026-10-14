@@ -2,7 +2,7 @@
  * A ticket transfer emailed (EMAIL mode).
  *
  * A transfer code goes to whatever address the holder types. With a mail
- * server wired in, that is a way to make Desi-Event email a stranger, so:
+ * server wired in, that is a way to make The Desi Events email a stranger, so:
  *
  *   - one address is sent at most three codes a day, counting team
  *     invitations and ticket transfers together, whoever sent them;
@@ -192,7 +192,7 @@ describe('a ticket transfer in EMAIL mode', () => {
     expect(fourth.json().error).toMatchObject({
       code: 'RECIPIENT_DAILY_LIMIT',
       message:
-        'This address has already been sent three codes from Desi-Event today. Try again tomorrow.',
+        'This address has already been sent three codes from The Desi Events today. Try again tomorrow.',
     })
     expect(Number(fourth.headers['retry-after'])).toBeGreaterThan(23 * 60 * 60)
     expect(prisma._store.ticket.find((row) => row.id === tickets[2].id).status).toBe('VALID')

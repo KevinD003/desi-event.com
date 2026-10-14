@@ -1,7 +1,7 @@
 /**
  * The platform administrator (ADMIN), through the routes.
  *
- * ADMIN is the Desi-Event team's working role: it invites organisers, reviews
+ * ADMIN is the working role of the team at The Desi Events: it invites organisers, reviews
  * events and pictures, reads every organisation's reports and manages venues.
  * It is not a super administrator. These tests pin both halves: what it can do
  * is answered, and every super-administrator power — platform roles, direct

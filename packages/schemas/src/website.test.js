@@ -76,8 +76,8 @@ describe('websiteUrlProblem refuses, each with its own sentence', () => {
     ['https://printer.local/', WEBSITE_PROBLEMS.privateNetwork],
     ['https://x.onion/', WEBSITE_PROBLEMS.privateNetwork],
     ['https://files.corp/', WEBSITE_PROBLEMS.privateNetwork],
-    ['https://desi-event.com/', WEBSITE_PROBLEMS.platform],
-    ['https://www.desi-event.com/e/x', WEBSITE_PROBLEMS.platform],
+    ['https://thedesievents.com/', WEBSITE_PROBLEMS.platform],
+    ['https://www.thedesievents.com/e/x', WEBSITE_PROBLEMS.platform],
     ['https://a.example/?token=1', credentialParameterProblem('token')],
     ['https://a.example/?Access_Token=1', credentialParameterProblem('Access_Token')],
     ['https://a.example/#access_token=1', credentialParameterProblem('access_token')],
@@ -112,7 +112,7 @@ describe('websiteUrlProblem refuses, each with its own sentence', () => {
     expect(CREDENTIAL_PARAMETERS).toContain('token')
     expect(CREDENTIAL_PARAMETERS).toContain('access_token')
     expect(PRIVATE_HOST_SUFFIXES).toContain('localhost')
-    expect(PLATFORM_HOSTS).toEqual(['desi-event.com'])
+    expect(PLATFORM_HOSTS).toEqual(['thedesievents.com'])
     expect(Object.isFrozen(CREDENTIAL_PARAMETERS)).toBe(true)
     expect(Object.isFrozen(WEBSITE_PROBLEMS)).toBe(true)
   })

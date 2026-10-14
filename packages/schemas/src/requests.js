@@ -82,7 +82,7 @@ export const EVENT_SORT_OPTIONS = Object.freeze([
 
 /**
  * Self-service registration (the legacy shape). Attendee accounts only:
- * organisers join by invitation from the Desi-Event team, so any other role is
+ * organisers join by invitation from the team at The Desi Events, so any other role is
  * refused with the same sentence `registerAccountRequestSchema` uses.
  */
 export const registerRequestSchema = z.object({
@@ -106,7 +106,7 @@ export const loginRequestSchema = z.object({
  * @type {string}
  */
 export const WEBSITE_SWITCH_REFUSAL =
-  'Only the Desi-Event team turns the website link on or off, from its own screens. Leave this out.'
+  'Only the team at The Desi Events turns the website link on or off, from its own screens. Leave this out.'
 
 /**
  * Fields an organiser may supply when creating or updating an event.
@@ -166,14 +166,14 @@ const eventWritableFields = {
   /**
    * The organiser's own website. Blank or null clears it; anything else must
    * pass `websiteUrlProblem` and is stored as `new URL(...).href`. Saving it
-   * never moves the website link's switch: a changed address waits for a
-   * Desi-Event administrator, and while the link is on it keeps going to the
+   * never moves the website link's switch: a changed address waits for an
+   * administrator at The Desi Events, and while the link is on it keeps going to the
    * address an administrator approved.
    */
   websiteUrl: websiteUrlSchema.optional(),
   /**
-   * The switch and the address it was decided on are the Desi-Event team's
-   * (`moderation.setWebsiteRedirect`). Refused by name, so an organiser's
+   * The switch and the address it was decided on are for the team at The Desi
+   * Events (`moderation.setWebsiteRedirect`). Refused by name, so an organiser's
    * client is told rather than silently ignored; every other `websiteRedirect*`
    * and `websiteDecided*` key is stripped by this schema and never reaches a
    * column.
@@ -557,7 +557,7 @@ function attendeesFitTheOrder(value, ctx) {
  * `paymentMethod` is CARD unless the buyer chose to pay the ticket price at the
  * door (AT_VENUE, signed in only), when `expectedVenueDueCents` is the amount
  * they were shown for the door, a precondition like `expectedTotalCents`.
- * `referralCode` is a code from the Desi-Event team that removes the booking
+ * `referralCode` is a code from the team at The Desi Events that removes the booking
  * fee (signed in only); it is deliberately loose, so a malformed code gets the
  * same answer as an unknown one (SPEC3 §8.2).
  */

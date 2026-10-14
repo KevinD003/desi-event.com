@@ -836,7 +836,7 @@ describe('the history', () => {
     await app.close()
   })
 
-  it('names a decider whose account is gone “A Desi-Event administrator”', async () => {
+  it('names a decider whose account is gone “An administrator at The Desi Events”', async () => {
     const { app, prisma, ids } = await createTestApp()
     const headers = await as(app, 'anil@desi-event.example')
     const eventId = ids.publishedEvent.id
@@ -852,8 +852,8 @@ describe('the history', () => {
 
     const read = (await terms(app, eventId, headers)).json().data
 
-    expect(read.fee.changedByName).toBe('A Desi-Event administrator')
-    expect(read.history[0].byName).toBe('A Desi-Event administrator')
+    expect(read.fee.changedByName).toBe('An administrator at The Desi Events')
+    expect(read.history[0].byName).toBe('An administrator at The Desi Events')
 
     await app.close()
   })
@@ -1049,7 +1049,7 @@ describe('an event’s own fee holds its tiers to its currency (DF3)', () => {
     expect(added.json().error).toMatchObject({
       code: 'FEE_TERMS_CURRENCY',
       message:
-        "The Desi-Event team set this event's booking fee in INR. Ask them to change it before pricing tickets in another currency.",
+        "The Desi Events team set this event's booking fee in INR. Ask them to change it before pricing tickets in another currency.",
     })
 
     const moved = await app.inject({
@@ -1100,7 +1100,7 @@ describe('an event’s own fee holds its tiers to its currency (DF3)', () => {
     await app.close()
   })
 
-  it('refuses it in the Desi-Event team’s editing sitting too', async () => {
+  it('refuses it in the editing sitting of the team at The Desi Events too', async () => {
     const { app, prisma, ids } = await ownFee()
     const eventId = ids.publishedEvent.id
     const ops = await as(app, 'ops@desi-event.example')

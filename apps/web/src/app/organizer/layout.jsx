@@ -48,7 +48,7 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function OrganizerLayout({ children }) {
   const { session, admitted } = await enterArea('organizer')
 
-  // The Desi-Event team edits an organisation's event in its own editor, in an
+  // The Desi Events team edits an organisation's event in its own editor, in an
   // editing session opened with a reason, never in the organiser's (SPEC2-XI
   // O9). Here, in the area's own layout, so the redirect is a real one: no
   // page under the loading boundary may call `redirect()`. A layout does not

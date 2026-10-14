@@ -32,7 +32,7 @@ describe('SiteHeader', () => {
     readSession.mockResolvedValue(null)
     render(await SiteHeader())
 
-    expect(screen.getByRole('link', { name: 'Desi-Event' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'The Desi Events' })).toHaveAttribute('href', '/')
   })
 
   it('offers the four ways into the catalogue, marking the current one', async () => {
@@ -79,27 +79,35 @@ describe('SiteHeader', () => {
     expect(signIn.parentElement).toBe(signUp.parentElement)
   })
 
-  it('compacts the wordmark on a phone for a visitor, and only for a visitor', async () => {
-    // Below 480px the row holds the wordmark, both links and Menu only if the
-    // wordmark drops its diamond and sets its name smaller. Those classes
-    // reach into `Wordmark`, so the shape they rely on is held here too: a
-    // change to it fails this test rather than quietly wrapping the row.
+  it('compacts the wordmark on a phone for a visitor, and stacks it only for a visitor', async () => {
+    // Below 520px the row holds the wordmark, both links and Menu only if the
+    // wordmark drops its diamond and sets its name smaller, and below 400px
+    // only if the name also stacks, "The" over "Desi Events", without the
+    // Devanagari line. Those classes reach into `Wordmark`, so the shape they
+    // rely on is held here too: a change to it fails this test rather than
+    // quietly wrapping the row.
     readSession.mockResolvedValue(null)
     const { unmount } = render(await SiteHeader())
-    const brand = screen.getByRole('link', { name: 'Desi-Event' })
+    const brand = screen.getByRole('link', { name: 'The Desi Events' })
+    const name = brand.querySelector('.font-display')
 
     expect(brand.querySelector(':scope > svg')).not.toBeNull()
-    expect(brand.querySelector('.font-display')).toHaveTextContent('Desi-Event')
-    expect(brand.className).toContain('max-[480px]:[&>svg]:hidden')
-    expect(brand.className).toContain('max-[480px]:[&_.font-display]:text-base')
+    expect(name).toHaveTextContent('The Desi Events')
+    expect(name.querySelector('.whitespace-nowrap')).toHaveTextContent(/^Desi Events$/)
+    expect(brand.querySelector('[lang="hi"]')).toHaveAttribute('aria-hidden', 'true')
+    expect(brand.className).toContain('max-[520px]:[&>svg]:hidden')
+    expect(brand.className).toContain('max-[520px]:[&_.font-display]:text-base')
+    expect(brand.className).toContain('max-[400px]:[&_.font-display]:w-min')
+    expect(brand.className).toContain('max-[400px]:[&_[lang=hi]]:hidden')
     unmount()
 
-    // Signed in, the brand link is exactly what it was.
+    // Signed in, the brand link only drops its diamond and sets the name a
+    // little smaller below 430px; it never stacks.
     readSession.mockResolvedValue({ user: { displayName: 'Priya' }, capabilities: [] })
     render(await SiteHeader())
 
-    expect(screen.getByRole('link', { name: 'Desi-Event' }).className).toBe(
-      'flex min-h-11 items-center gap-2.5 rounded-control sm:gap-3',
+    expect(screen.getByRole('link', { name: 'The Desi Events' }).className).toBe(
+      'flex min-h-11 items-center gap-2.5 rounded-control max-[430px]:[&_.font-display]:text-lg max-[430px]:[&>svg]:hidden sm:gap-3',
     )
   })
 
@@ -148,7 +156,7 @@ describe('SiteHeader', () => {
 
       const banner = screen.getByRole('banner')
       const sequence = [
-        within(banner).getByRole('link', { name: 'Desi-Event' }),
+        within(banner).getByRole('link', { name: 'The Desi Events' }),
         ...account.map((control) => within(banner).getByRole(control.role, { name: control.name })),
         within(banner).getByRole('button', { name: /menu/i }),
       ]

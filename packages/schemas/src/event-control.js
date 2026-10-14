@@ -1,7 +1,7 @@
 /**
  * Full control of posted events: deleting and restoring an event, cancelling
- * one of its nights, the Desi-Event team's editing sittings, and what ticket
- * holders are shown changed (SPEC2-XI area X).
+ * one of its nights, the editing sittings of the team at The Desi Events, and
+ * what ticket holders are shown changed (SPEC2-XI area X).
  *
  * Browser-safe, at `@desi-event/schemas/event-control`: nothing here imports
  * `entities.js`, so the organiser's dialogs can validate their own forms. The
@@ -303,7 +303,7 @@ export const platformEventsQuerySchema = z.object({
   perPage: z.coerce.number().int().min(1).max(100).default(25),
 })
 
-/** A deleted event's record, as the Desi-Event team's list shows it. */
+/** A deleted event's record, as the list of the team at The Desi Events shows it. */
 export const platformEventDeletionSchema = z.object({
   deletedAt: timestampSchema,
   outcome: z.enum(DELETION_OUTCOMES),

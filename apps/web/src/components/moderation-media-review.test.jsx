@@ -192,7 +192,7 @@ describe('ModerationMediaReview', () => {
 
   it('shows a member of the organisation every picture, says somebody else decides, and offers no decision', () => {
     const notice =
-      'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.'
+      'You belong to this organisation, so somebody else on the team at The Desi Events has to decide this.'
 
     render(
       <ModerationMediaReview
@@ -262,7 +262,7 @@ describe('a picture waiting on a posted event', () => {
         error: {
           code: 'SELF_REVIEW',
           message:
-            'You uploaded this picture, so somebody else on the Desi-Event team approves it.',
+            'You uploaded this picture, so somebody else on the team at The Desi Events approves it.',
         },
       }),
     )
@@ -272,7 +272,7 @@ describe('a picture waiting on a posted event', () => {
     await user.click(screen.getByRole('button', { name: 'Approve this picture' }))
 
     expect(
-      await screen.findByText(/somebody else on the Desi-Event team approves it/),
+      await screen.findByText(/somebody else on the team at The Desi Events approves it/),
     ).toBeVisible()
     expect(refresh).not.toHaveBeenCalled()
   })

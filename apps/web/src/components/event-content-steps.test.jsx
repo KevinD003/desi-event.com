@@ -61,7 +61,7 @@ describe('the guest information step’s website', () => {
     expect(box).not.toHaveAttribute('readonly')
     expect(box).toHaveAccessibleDescription(WEBSITE_FIELD_DESCRIPTION)
     expect(WEBSITE_FIELD_DESCRIPTION).toBe(
-      'Your own site’s full address, starting https://, such as https://www.yourfestival.com/. It is not shown on your event page unless the Desi-Event team turns the website link on.',
+      'Your own site’s full address, starting https://, such as https://www.yourfestival.com/. It is not shown on your event page unless the team at The Desi Events turns the website link on.',
     )
 
     fireEvent.change(box, { target: { value: 'https://rangoli.example/nights' } })
@@ -83,8 +83,12 @@ describe('the guest information step’s website', () => {
     const status = screen.getByRole('group', { name: 'Website link on your event page' })
 
     expect(status).toHaveTextContent('On')
-    expect(status).toHaveTextContent(/Anil Administrator of the Desi-Event team turned it on/u)
-    expect(status).toHaveTextContent('Only the Desi-Event team can turn this link on or off.')
+    expect(status).toHaveTextContent(
+      /Anil Administrator of the team at The Desi Events turned it on/u,
+    )
+    expect(status).toHaveTextContent(
+      'Only the team at The Desi Events can turn this link on or off.',
+    )
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(screen.queryByRole('button', { name: /turn/iu })).toBeNull()
   })
@@ -95,9 +99,11 @@ describe('the guest information step’s website', () => {
     const status = screen.getByRole('group', { name: 'Website link on your event page' })
 
     expect(status).toHaveTextContent(
-      'Off. Add your website’s address above and the Desi-Event team can link to it from your event page.',
+      'Off. Add your website’s address above and the team at The Desi Events can link to it from your event page.',
     )
-    expect(status).toHaveTextContent('Only the Desi-Event team can turn this link on or off.')
+    expect(status).toHaveTextContent(
+      'Only the team at The Desi Events can turn this link on or off.',
+    )
   })
 
   it('has no Website among the networks, and sends the organiser’s site to its own box', () => {

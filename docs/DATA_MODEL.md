@@ -873,7 +873,7 @@ untouched on a re-seed.
 - **`EventChangeNotice`** — what ticket holders are shown on their order page:
   the kind (`EventChangeKind`: MATERIAL_CHANGE, SESSION_CHANGE, RESCHEDULED,
   POSTPONED, CANCELLED, SESSION_CANCELLED, DELETED), the reason and whether the
-  Desi-Event team made it. Only `lib/event-change-notices.js` writes it.
+  team at The Desi Events made it. Only `lib/event-change-notices.js` writes it.
 - **`EventSession.cancelledAt`** and **`cancellationReason`** — a cancelled
   night (CHECK `event_session_cancellation_stamped`); trigger
   `desi_event_session_cancel_is_final` refuses bringing one back.

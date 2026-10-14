@@ -326,8 +326,8 @@ const UPSTREAM_UNAVAILABLE = Object.freeze({
  * the same thing here pass through unchanged: a 429 (wait, then try again) and
  * a 5xx (our side failed). Everything else is our side failing too, and is
  * drawn as such. No response at all — the API down, or the timeout firing —
- * would otherwise read "Nothing reached Desi-Event … Check your connection",
- * when the visitor's request did reach Desi-Event and their connection is
+ * would otherwise read "Nothing reached The Desi Events … Check your connection",
+ * when the visitor's request did reach The Desi Events and their connection is
  * fine. A 401 or 403 would offer a sign-in or say "not for this account" to a
  * visitor on a public page who asked for neither, and a 400 would tell them to
  * check what they entered when the filters were already corrected before

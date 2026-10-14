@@ -32,7 +32,7 @@ import { cuidSchema, emailSchema, nonEmptyStringSchema, timestampSchema } from '
  * with two owners who each think the other is responsible. The only other ways
  * to an `OWNER` membership are creating an organisation, and an audited grant
  * by a platform super administrator (`platform.grantMembership`), which names
- * its reason. Accepting an organiser invitation from the Desi-Event team makes
+ * its reason. Accepting an organiser invitation from the team at The Desi Events makes
  * somebody the owner of a new organisation.
  *
  * The schema still accepts a role that posts events (event manager and up), so
@@ -108,8 +108,8 @@ export const memberSummarySchema = z.object({
   self: z.boolean(),
   /**
    * Whether this member's role creates or publishes events (event manager,
-   * manager, administrator, owner). Those roles are given by the Desi-Event
-   * team, not by the organisation.
+   * manager, administrator, owner). Those roles are given by the team at
+   * The Desi Events, not by the organisation.
    */
   postsEvents: z.boolean(),
   /**

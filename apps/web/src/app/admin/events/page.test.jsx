@@ -184,7 +184,7 @@ describe('All events', () => {
     expect(screen.getByText('Event deleted.')).toHaveAttribute('aria-live', 'polite')
   })
 
-  it('refuses an account that does not edit events as the Desi-Event team, and asks nothing', async () => {
+  it('refuses an account that does not edit events as the team at The Desi Events, and asks nothing', async () => {
     readSession.mockResolvedValue({
       user: { id: 'u2' },
       capabilities: ['moderation:review'],

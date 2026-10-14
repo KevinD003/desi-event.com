@@ -1,7 +1,7 @@
 /**
  * Booking fees, referral codes and paying at the venue (SPEC3, SPEC3-XI): the
- * limits, the vocabulary and every request body of the fifteen routes the
- * Desi-Event team and organisers use, and the two fields checkout gains.
+ * limits, the vocabulary and every request body of the fifteen routes the team
+ * at The Desi Events and organisers use, and the two fields checkout gains.
  *
  * Browser-safe, at `@desi-event/schemas/payment-terms`: it imports only `zod`
  * and `./primitives.js`, so the admin and checkout forms validate with the same
@@ -173,7 +173,7 @@ export const ORGANISER_VISIBLE_REASON_DESCRIPTION =
 
 /** The hint under a referral code's label (SPEC3 §12.5). */
 export const REFERRAL_LABEL_DESCRIPTION =
-  "For the Desi-Event team only, for example the partner organisation or the campaign it is for. Do not include anybody's personal details."
+  "For the team at The Desi Events only, for example the partner organisation or the campaign it is for. Do not include anybody's personal details."
 
 /** What the forms say when a field is out of bounds (SPEC3 §12.3, §12.5). */
 export const PAYMENT_TERMS_MESSAGES = Object.freeze({
@@ -612,7 +612,7 @@ export const quoteReferralSchema = z.object({
  * people they passed tickets to paid (`paidByOthers*`, XT7); the buyer's own
  * standing tickets still unpaid (`unpaid*`) apart from those passed on and
  * still owing (`passedOnUnpaid*`); the tickets cancelled unpaid and the
- * booking fee Desi-Event kept for them.
+ * booking fee The Desi Events kept for them.
  */
 export const orderVenuePaymentSchema = z.object({
   dueCents: centsSchema,
@@ -632,7 +632,7 @@ export const orderVenuePaymentSchema = z.object({
 
 /**
  * One cancellation of unpaid tickets on an order, as the buyer reads it
- * (SPEC3-XI §11.2): when, by the organiser or the Desi-Event team, how many,
+ * (SPEC3-XI §11.2): when, by the organiser or the team at The Desi Events, how many,
  * the door price no longer owed, the booking fee kept, and the reason given.
  * Organisation readers also get `byName` (SPEC2 W6); buyers never do.
  */

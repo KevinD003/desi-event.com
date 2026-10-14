@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Desi-Event language policy enforcement.
+ * The Desi Events language policy enforcement.
  *
  * The repository is JavaScript-only (see `docs/language-policy.md`). Written
  * rules drift; this script is the executable version of them and runs in CI and

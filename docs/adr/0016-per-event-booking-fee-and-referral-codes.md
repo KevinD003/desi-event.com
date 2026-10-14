@@ -115,7 +115,7 @@ the first build stamped every settled refund `true`/`true`).
 
 ### 3. Referral codes (DR1–DR13)
 
-- **Made by the Desi-Event team only** (DR1): ADMIN and SUPER_ADMIN
+- **Made by the team at The Desi Events only** (DR1): ADMIN and SUPER_ADMIN
   (`referral_code:manage`) create, edit, switch on and off, list and report
   them. There is no delete: a code is switched off. Creating, editing and
   switching on need the `PAYMENT_TERMS` step-up; switching off only reduces what

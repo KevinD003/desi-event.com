@@ -20,7 +20,7 @@
  *     from a name or a note can do anything.
  *   - **Words somebody else wrote are quoted.** An administrator's note or a
  *     ticket sender's message appears under a rule, introduced as theirs, with
- *     every line prefixed `> `, so it cannot pass for Desi-Event's own words.
+ *     every line prefixed `> `, so it cannot pass for The Desi Events' own words.
  *   - **Nothing is guessed.** Each letter refuses to be written when a field it
  *     needs is missing (`TypeError`), so a mailer fails closed and sends
  *     nothing rather than a letter with a blank where the expiry should be.
@@ -250,7 +250,7 @@ export function organizerInvitationLetter(fields) {
   const lines = [
     'Hello,',
     '',
-    `The Desi-Event team has invited you to run events on Desi-Event as the owner of "${oneLine(organizationName)}".`,
+    `The Desi Events team has invited you to run events as the owner of "${oneLine(organizationName)}".`,
     '',
     ...codeBlock({
       noun: 'invitation code',
@@ -265,20 +265,23 @@ export function organizerInvitationLetter(fields) {
   if (typeof note === 'string' && note.trim() !== '') {
     const who =
       typeof inviterName === 'string' && inviterName.trim() !== ''
-        ? `${oneLine(inviterName)} of the Desi-Event team`
-        : 'the Desi-Event team'
+        ? `${oneLine(inviterName)} of the team at The Desi Events`
+        : 'the team at The Desi Events'
 
     lines.push('', RULE, `A note from ${who}:`, quote(note), RULE)
   }
 
   lines.push(
     '',
-    'Your organisation starts verified, because the Desi-Event team invited you. Each event you create is reviewed by the team before it can be published.',
+    'Your organisation starts verified, because the team at The Desi Events invited you. Each event you create is reviewed by the team before it can be published.',
     '',
     IGNORE_LINE,
   )
 
-  return { subject: 'Your organiser invitation from Desi-Event', text: `${lines.join('\n')}\n` }
+  return {
+    subject: 'Your organiser invitation from The Desi Events',
+    text: `${lines.join('\n')}\n`,
+  }
 }
 
 /**
@@ -288,7 +291,7 @@ export function organizerInvitationLetter(fields) {
  * @param {string} fields.code The invitation code.
  * @param {string} fields.email The address it was sent to.
  * @param {string} fields.organizationName The organisation.
- * @param {boolean} fields.organizationVerified Whether the Desi-Event team has verified it.
+ * @param {boolean} fields.organizationVerified Whether the team at The Desi Events has verified it.
  * @param {string} fields.role The role offered.
  * @param {Date|string} fields.expiresAt When the code stops working.
  * @param {string} fields.joinUrl The join page, without the code.
@@ -316,11 +319,11 @@ export function teamInvitationLetter(fields) {
   const lines = [
     'Hello,',
     '',
-    `You have been invited to join "${name}" on Desi-Event as ${phrase}.`,
+    `You have been invited to join "${name}" on The Desi Events as ${phrase}.`,
   ]
 
   if (!organizationVerified) {
-    lines.push('This organisation has not been verified by the Desi-Event team.')
+    lines.push('This organisation has not been verified by the team at The Desi Events.')
   }
 
   lines.push(
@@ -338,7 +341,7 @@ export function teamInvitationLetter(fields) {
   )
 
   return {
-    subject: `You are invited to join ${name} on Desi-Event`,
+    subject: `You are invited to join ${name} on The Desi Events`,
     text: `${lines.join('\n')}\n`,
   }
 }
@@ -362,7 +365,7 @@ export function ticketTransferLetter(fields) {
   const lines = [
     'Hello,',
     '',
-    'Somebody has offered you a ticket on Desi-Event.',
+    'Somebody has offered you a ticket on The Desi Events.',
     '',
     ...codeBlock({
       noun: 'transfer code',
@@ -378,7 +381,7 @@ export function ticketTransferLetter(fields) {
     lines.push(
       '',
       RULE,
-      'Message from the sender (written by them, not by Desi-Event):',
+      'Message from the sender (written by them, not by The Desi Events):',
       quote(message),
       RULE,
     )
@@ -387,7 +390,7 @@ export function ticketTransferLetter(fields) {
   lines.push('', IGNORE_LINE)
 
   return {
-    subject: 'A ticket has been offered to you on Desi-Event',
+    subject: 'A ticket has been offered to you on The Desi Events',
     text: `${lines.join('\n')}\n`,
   }
 }

@@ -42,7 +42,7 @@ export const dynamic = 'force-dynamic'
 export const metadata = {
   title: 'Categories',
   description:
-    'Garba and dandiya, workshops, live music, melas and more — every kind of event on Desi-Event, with how many are listed in each.',
+    'Garba and dandiya, workshops, live music, melas and more — every kind of event on The Desi Events, with how many are listed in each.',
 }
 
 /**

@@ -684,7 +684,7 @@ describe('deletion and restore are commands of their own, never a transition (SP
       transitionEvent(prisma, { event, to, actor: superAdministrator(ids) }),
     ).rejects.toMatchObject({
       statusCode: 409,
-      message: expect.stringMatching(/only the Desi-Event team restores one/),
+      message: expect.stringMatching(/only the team at The Desi Events restores one/),
       details: { code: 'ILLEGAL_TRANSITION', from: 'DELETED', to },
     })
 

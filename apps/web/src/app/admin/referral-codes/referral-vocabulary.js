@@ -3,8 +3,8 @@
  * (SPEC3 §12.5, SPEC3-XI §12.5).
  *
  * A referral code removes the whole booking fee (the platform fee) from one
- * order, and any tax charged on that fee, and nothing else. The Desi-Event
- * team's platform administrators make them, change them and switch them off;
+ * order, and any tax charged on that fee, and nothing else. The
+ * platform administrators at The Desi Events make them, change them and switch them off;
  * nobody is paid for referrals.
  *
  * ## Where a code's text is, and where it never is
@@ -85,7 +85,7 @@ export const GIVE_ONLY_TO = 'Give this code only to the people it is for.'
 
 /** What a session without `referral_code:manage` is told. */
 export const NOT_FOR_THIS_ACCOUNT =
-  'Referral codes are made and managed by the Desi-Event team’s platform administrators. Nothing on this page can grant it.'
+  'Referral codes are made and managed by the platform administrators at The Desi Events. Nothing on this page can grant it.'
 
 /** The typed code's hint. */
 export const TYPED_CODE_HINT =
@@ -285,7 +285,7 @@ export function returnedText(use) {
 
 /**
  * The zone a referral code's expiry is typed and shown in: UTC, named
- * wherever it appears, as every Desi-Event administrator screen writes times
+ * wherever it appears, as every administrator screen at The Desi Events writes times
  * (`formatInstant`). Never the browser's: a code works across events in every
  * US zone, and a time typed in whichever zone a laptop happens to be set to
  * would mean a different moment to the next administrator.
@@ -296,7 +296,7 @@ export const REFERRAL_EXPIRY_ZONE = 'UTC'
 
 /** What the expiry field says under its label. */
 export const EXPIRY_HINT =
-  'Date and time in UTC (Coordinated Universal Time), as every Desi-Event administrator screen writes times. UTC is 4 hours ahead of New York in summer and 5 in winter. With no expiry it works until it is switched off or used up.'
+  'Date and time in UTC (Coordinated Universal Time), as every administrator screen at The Desi Events writes times. UTC is 4 hours ahead of New York in summer and 5 in winter. With no expiry it works until it is switched off or used up.'
 
 /**
  * @typedef {object} ReferralFormValues

@@ -711,7 +711,7 @@ describe('granting a role', () => {
     expect(granted).toEqual(['VIEWER', 'SCANNER', 'STAFF', 'FINANCE'])
 
     // Owner, administrator, manager and event manager all create or publish
-    // events: the Desi-Event team gives those, not the organisation.
+    // events: the team at The Desi Events gives those, not the organisation.
     for (const role of ['OWNER', 'ADMIN', 'MANAGER', 'EVENT_MANAGER']) {
       expect(canGrantOrgRole(owner, role, { organizationId: ORG_A }), role).toBe(false)
     }

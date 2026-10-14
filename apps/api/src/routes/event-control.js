@@ -1,7 +1,7 @@
 /**
  * Full control of posted events (SPEC2-XI area X): deleting an event and
- * sending what it owes, cancelling one night, the Desi-Event team's editing
- * sittings and its list of every organisation's events, and restoring a
+ * sending what it owes, cancelling one night, the editing sittings of the team
+ * at The Desi Events and its list of every organisation's events, and restoring a
  * deleted event.
  *
  * Every answer here is `no-store`, previews included: each carries counts of
@@ -134,7 +134,7 @@ const OUTCOME_WIRE = Object.freeze(
 )
 
 /**
- * Whether a reader is on the Desi-Event team.
+ * Whether a reader is on the team at The Desi Events.
  *
  * @param {object|null} actor The request actor.
  * @returns {boolean} True for a moderator or a platform administrator.
@@ -193,7 +193,7 @@ export function registerEventControlRoutes(
   { prisma, providers, env, payments, platformEditLimit },
 ) {
   const paymentMode = payments?.mode ?? 'MOCK'
-  // The event's own booking fee when the Desi-Event team set one, else the
+  // The event's own booking fee when the team at The Desi Events set one, else the
   // site default: the terms checkout charges (SPEC3 §7.2).
   const pricing = env
     ? { feeConfigFor: (currency, event) => eventFeeConfig(env, event, currency) }
@@ -201,7 +201,7 @@ export function registerEventControlRoutes(
   const editBudget = platformEditRateLimit(platformEditLimit ?? {})
 
   /**
-   * The event as its team or the Desi-Event team reads it.
+   * The event as its team or the team at The Desi Events reads it.
    *
    * @param {string} eventId The event.
    * @param {object} actor The reader.
@@ -222,7 +222,7 @@ export function registerEventControlRoutes(
 
   /**
    * Whether this reader may see the event's internals at all: a member of its
-   * organisation who reads drafts, or the Desi-Event team.
+   * organisation who reads drafts, or the team at The Desi Events.
    *
    * @param {object} actor The reader.
    * @param {object} event The event.
@@ -253,7 +253,9 @@ export function registerEventControlRoutes(
     if (!event) throw notFound('No such event.')
     if (mayAskToDelete(request.actor, event)) return event
     if (write && insider(request.actor, event)) {
-      throw forbidden('Deleting this event is for the people who run it, or the Desi-Event team.')
+      throw forbidden(
+        'Deleting this event is for the people who run it, or the team at The Desi Events.',
+      )
     }
 
     throw notFound('No such event.')

@@ -614,7 +614,9 @@ describeWhen('codes emailed through SMTP', () => {
 
     expect(letter.headers.subject).toContain('You are invited to join')
     expect(letter.body).toContain('as a member of its staff.')
-    expect(letter.body).toContain('This organisation has not been verified by the Desi-Event team.')
+    expect(letter.body).toContain(
+      'This organisation has not been verified by the team at The Desi Events.',
+    )
     expect(letter.body).toContain(`1. Open ${WEB_ORIGIN}/account/invitations\n`)
 
     const code = letter.body.match(CODE_LINE)?.[1]
@@ -645,7 +647,7 @@ describeWhen('codes emailed through SMTP', () => {
 
     expect(letter.body).toContain(`1. Open ${WEB_ORIGIN}/tickets/accept\n`)
     expect(letter.body).toContain(
-      'Message from the sender (written by them, not by Desi-Event):\n> Enjoy the show!',
+      'Message from the sender (written by them, not by The Desi Events):\n> Enjoy the show!',
     )
 
     const code = letter.body.match(CODE_LINE)?.[1]

@@ -723,7 +723,7 @@ recording who made them.
   addresses again. Browsers sending Global Privacy Control or Do Not Track get
   no code at all and are counted as page views only.
 - **Who is not counted:** robots and automated tools, the organisation's own
-  members and Desi-Event staff while signed in.
+  members and staff at The Desi Events while signed in.
 - **Deleted on a timer, by the roll-up — not by retention.** The worker's
   traffic roll-up adds raw rows into daily totals (`TrafficDaily`) and deletes
   each raw row two days after its day, and each day's secret once the day is
@@ -734,7 +734,8 @@ recording who made them.
 - **What is kept:** the daily totals, which are counts per event per day and
   identify nobody. They cascade with their event.
 - **Who sees them:** an organisation's members holding `report:view` see their
-  own events' totals; the Desi-Event team's platform list (`analytics:view_all`)
+  own events' totals; the platform list of the team at The Desi Events
+  (`analytics:view_all`)
   shows counts for every event. Nobody sees a visitor code.
 - **Website visits** through an event's switched link are recorded as a
   `TrafficEvent` of kind `WEBSITE_REDIRECT`, with no address, browser string or
@@ -786,9 +787,9 @@ written to one person, so erasing that person drops it (below).
 
 ## Organiser invitations — 2026-10-07
 
-An organiser invitation (`OrganizerInvitation`) holds the address it was sent
-to and the inviting administrator's note to that person, and the Desi-Event
-team's list shows both for every invitation, whatever its status. Once
+An organiser invitation (`OrganizerInvitation`) holds the address it was sent to
+and the inviting administrator's note to that person, and the list of the team
+at The Desi Events shows both for every invitation, whatever its status. Once
 accepted it is linked to the organisation it created.
 
 - **Erased with the person.** Erasing somebody replaces the address on their
@@ -819,10 +820,10 @@ change.
 ## Deleted events and their personal data — 2026-10-06
 
 Deleting an event is not erasure. A deleted event keeps its record, orders,
-tickets, refunds, history and pictures so the Desi-Event team can restore it
-and so money stays accounted for; nothing on the site erases one. Removing a
-person's data from it goes through the privacy process as for any event:
-redaction writes `Event` and order columns other than `status`, which no
+tickets, refunds, history and pictures so the team at The Desi Events can
+restore it and so money stays accounted for; nothing on the site erases one.
+Removing a person's data from it goes through the privacy process as for any
+event: redaction writes `Event` and order columns other than `status`, which no
 deletion trigger blocks. A deleted event's pictures stop being served at once,
 though a copy already in somebody's browser cache can stay there for up to a
 day.
@@ -859,12 +860,12 @@ process, for the reasons above:
 **Referral codes' labels** are notes for administrators (1–120 characters),
 never copied into an audit row, and kept as typed.
 
-**What the boxes say.** The fee and switch reasons: "Shown to the organiser
-with your name. Do not include anybody's personal details. At least 10
-characters." The cancellation reason: "Shown to the buyer and to anybody holding
-these tickets. Do not include anybody's personal details. At least 10
-characters." A referral code's label: "For the Desi-Event team only, for example
-the partner organisation or the campaign it is for. Do not include anybody's
+**What the boxes say.** The fee and switch reasons: "Shown to the organiser with
+your name. Do not include anybody's personal details. At least 10 characters."
+The cancellation reason: "Shown to the buyer and to anybody holding these
+tickets. Do not include anybody's personal details. At least 10 characters." A
+referral code's label: "For the team at The Desi Events only, for example the
+partner organisation or the campaign it is for. Do not include anybody's
 personal details." The other reasons keep "Shown with the event's history. Do
 not include anybody's personal details."
 

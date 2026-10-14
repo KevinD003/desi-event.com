@@ -234,7 +234,7 @@ export function createStripePaymentProvider({ resolution, createClient }) {
         apiVersion: STRIPE_API_VERSION,
         // Named so that a request in Stripe's dashboard logs can be traced back
         // to this application rather than to "unknown Node client".
-        appInfo: { name: 'Desi-Event', version: '0.1.0' },
+        appInfo: { name: 'The Desi Events', version: '0.1.0' },
         // Retries are this system's to decide, not the SDK's: a silent retry of
         // a call whose outcome is unknown is exactly what the reconciliation
         // queue exists to avoid.

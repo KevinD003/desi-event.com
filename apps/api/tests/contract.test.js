@@ -138,7 +138,7 @@ describe('the published document', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual(
-      buildOpenApiDocument({ title: 'Desi-Event API', version: '0.1.0' }),
+      buildOpenApiDocument({ title: 'The Desi Events API', version: '0.1.0' }),
     )
 
     await app.close()

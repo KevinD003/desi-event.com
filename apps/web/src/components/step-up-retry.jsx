@@ -4,20 +4,20 @@
  * A write refused for want of a fresh second factor: ask for it, then send the
  * same write again.
  *
- * The Desi-Event team edits somebody else's posted event in an editing session,
- * and every write in it needs a second factor from the last 10 minutes
+ * The Desi Events team edits somebody else's posted event in an editing
+ * session, and every write in it needs a second factor from the last 10 minutes
  * (SPEC2-XI X-A). The server decides when that has lapsed and answers 403
  * `STEP_UP_REQUIRED`; the nights, ticket types and pictures each send their own
  * writes, so each step asks where the write was made, rather than leaving a
  * refusal sentence and a button somewhere else on the page to find.
  *
- * `refused(body, retry)` takes a refused answer. For `STEP_UP_REQUIRED` it shows
- * the prompt and returns a promise that settles with whatever `retry()` settles
- * with once the second factor is accepted, or with null when the person backs
- * out (after `onDeclined`). For anything else it returns null, and the caller
- * shows the refusal as it always did. A `PLATFORM_EDIT_NOT_OPEN` answer under
- * the Desi-Event team's authority also tells the editor, so its banner offers to
- * open the session again.
+ * `refused(body, retry)` takes a refused answer. For `STEP_UP_REQUIRED` it
+ * shows the prompt and returns a promise that settles with whatever `retry()`
+ * settles with once the second factor is accepted, or with null when the person
+ * backs out (after `onDeclined`). For anything else it returns null, and the
+ * caller shows the refusal as it always did. A `PLATFORM_EDIT_NOT_OPEN` answer
+ * under the authority of the team at The Desi Events also tells the editor, so
+ * its banner offers to open the session again.
  *
  * Nothing here decides when to ask: the server's answer does.
  *
@@ -44,7 +44,7 @@ export const STEP_UP_DECLINED_SENTENCE =
 /**
  * @typedef {object} StepUpRetryOptions
  * @property {string} action What is waiting, in words, for the prompt: "save this change".
- * @property {boolean} [platform] Whether the edits are made in the Desi-Event team's editing session.
+ * @property {boolean} [platform] Whether the edits are made in the editing session of the team at The Desi Events.
  * @property {Function} [onSittingEnded] Called when a write finds that session closed.
  * @property {Function} [onDeclined] Called when the person backs out of the prompt.
  * @property {boolean} [takeFocus] Whether the prompt takes focus when it is drawn.

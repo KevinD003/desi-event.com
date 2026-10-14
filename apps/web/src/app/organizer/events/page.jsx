@@ -19,7 +19,7 @@
  * asked for by id, and the API scopes the answer to it. A platform
  * administrator with no membership is the one reader for whom the whole
  * platform is the list, and the page says that is what it is showing. Each of
- * its rows opens the Desi-Event team's editor, where such a reader edits in a
+ * its rows opens the editor for the team at The Desi Events, where such a reader edits in a
  * session opened with a reason (SPEC2-XI O9), not the organiser's.
  *
  * `@file` rather than `@module`: `events` is fine, but the sibling pages use
@@ -192,7 +192,7 @@ export default async function OrganizerEventsPage({ searchParams } = {}) {
       {showDeleted ? (
         <p className="mt-3 max-w-3xl text-sm text-ink-muted">
           Deleted events are off the site and nothing can be bought for them. Each keeps its record,
-          its orders and its history; only the Desi-Event team can restore one.
+          its orders and its history; only the team at The Desi Events can restore one.
         </p>
       ) : null}
 
@@ -260,7 +260,7 @@ export default async function OrganizerEventsPage({ searchParams } = {}) {
         <ul className="mt-6 space-y-3">
           {events.map((event) => {
             const reading = statusReading(event.status)
-            // The Desi-Event team's own editor for an event this reader is not
+            // The Desi Events team's own editor for an event this reader is not
             // a member for; the organiser's for everybody else.
             const href =
               platformEditorRedirect(session, event) ??
@@ -299,7 +299,7 @@ export default async function OrganizerEventsPage({ searchParams } = {}) {
                     </Badge>
                     <p className="text-sm text-ink-muted">
                       {event.status === 'DELETED'
-                        ? 'Off the site; only the Desi-Event team can restore it'
+                        ? 'Off the site; only the team at The Desi Events can restore it'
                         : reading.whose === 'nobody'
                           ? 'Nothing to do'
                           : `Waiting on ${reading.whose}`}

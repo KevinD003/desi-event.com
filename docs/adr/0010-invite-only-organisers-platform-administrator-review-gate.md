@@ -88,7 +88,7 @@ caller, without reading the body. Registration accepts only `ATTENDEE`
 keep their state; an UNVERIFIED one still needs a moderator's verification to
 publish.
 
-### 4. Posting roles come from the Desi-Event team, and move only down
+### 4. Posting roles come from The Desi Events team, and move only down
 
 The roles that create or publish events — EVENT_MANAGER, MANAGER, ADMIN and
 OWNER — are "posting" roles, derived from `capabilities.js`, not listed by
@@ -132,23 +132,23 @@ Rewritten from the first plan's list (SPEC2 P-19) by the full-control decision
 `live-changes-not-reviewed`, word for word:
 
 > On a published, on-sale, paused, sold-out or postponed event, the organiser —
-> or the Desi-Event team, in an editing session opened with a reason — can
-> change everything without another review, and the change is public when it
+> or the team at The Desi Events, in an editing session opened with a reason —
+> can change everything without another review, and the change is public when it
 > saves. The date, time, time zone, place, joining link, age limit and entry,
-> refund and conduct terms change only with a reason, and every ticket holder
-> is shown the change on their order page; it is not emailed. Ticket types can
-> be added, edited, re-priced (people who already bought keep what they paid),
+> refund and conduct terms change only with a reason, and every ticket holder is
+> shown the change on their order page; it is not emailed. Ticket types can be
+> added, edited, re-priced (people who already bought keep what they paid),
 > closed, hidden, or removed if unused. Nights can be added, moved, given
 > another seating map while nothing at them is sold, removed if unused, or
 > cancelled with their tickets refunded. The venue cannot be changed while a
-> night uses a seating map. New pictures appear only after someone on the
-> Desi-Event team other than the person who uploaded them approves each one;
+> night uses a seating map. New pictures appear only after someone on the team
+> at The Desi Events other than the person who uploaded them approves each one;
 > the old cover stays until then. (Pictures copied by an import are the
 > exception: the administrator who reviews the import approves them with the
 > event.) A finished or cancelled event keeps its words and pictures editable.
 > The organisation's venue records can be edited at any time, and every event
-> there shows the new details without review. An event's website address can
-> be changed at any time; a new address is not linked until an administrator
+> there shows the new details without review. An event's website address can be
+> changed at any time; a new address is not linked until an administrator
 > approves it. Promo codes are never reviewed.
 
 ## Consequences
@@ -166,7 +166,7 @@ Rewritten from the first plan's list (SPEC2 P-19) by the full-control decision
   one person behind two accounts.
 - **Moderators approve too.** The existing MODERATOR role keeps
   `moderation:review`, so "reviewed by an admin or super admin" in practice
-  means "by the Desi-Event team". This can be narrowed.
+  means "by the team at The Desi Events". This can be narrowed.
 - **The optional rule "may not review organisers you invited" is off.**
 - **Review is once.** A published event changes without another review (§6);
   the limitations page says so.

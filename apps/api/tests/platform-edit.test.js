@@ -10,7 +10,7 @@ import {
 import { seedPicture } from './helpers/media-world.js'
 
 /**
- * The Desi-Event team editing an organisation's posted event (SPEC2-XI X-A):
+ * The Desi Events team editing an organisation's posted event (SPEC2-XI X-A):
  * one reasoned, audited sitting at a time, bound to the browser session that
  * opened it, with a second factor within the MODERATION window for every
  * write.
@@ -160,7 +160,7 @@ describe('POST /v1/platform/events/:id/edit', () => {
   })
 })
 
-describe('writing as the Desi-Event team', () => {
+describe('writing as the team at The Desi Events', () => {
   it('needs a sitting, even for a SUPER_ADMIN who is not a member', async () => {
     const { app, prisma, ids } = await createTestApp()
 
@@ -442,7 +442,7 @@ describe('GET /v1/events/:id/platform-edits', () => {
 })
 
 describe('GET /v1/platform/events', () => {
-  it('lists every organisation’s events for the Desi-Event team, and nobody else', async () => {
+  it('lists every organisation’s events for the team at The Desi Events, and nobody else', async () => {
     const { app, ids } = await createTestApp()
 
     const response = await app.inject({

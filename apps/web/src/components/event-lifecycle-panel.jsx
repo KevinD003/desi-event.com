@@ -32,7 +32,7 @@
  * §9.7), from `paymentTerms.venuePayment` on the event detail the editor
  * already holds — there is no cancellation preview to ask: only their booking
  * fee paid online is refunded, simulated, and money taken at the door is held
- * by the organiser, which Desi-Event neither holds nor can refund.
+ * by the organiser, which The Desi Events neither holds nor can refund.
  *
  * ## A second factor, when the server asks for one
  *

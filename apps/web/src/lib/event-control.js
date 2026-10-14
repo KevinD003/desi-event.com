@@ -1,6 +1,6 @@
 /**
  * The words of full control over a posted event: deleting it, restoring it,
- * cancelling one of its nights, the Desi-Event team's editing sittings, and
+ * cancelling one of its nights, the editing sittings of the team at The Desi Events, and
  * what ticket holders are shown changed (SPEC2-XI area X).
  *
  * Pure and browser-safe. Every sentence here is built from what the server
@@ -45,7 +45,7 @@ export const NOTICE_SENTENCE =
   'A notice is recorded against each order and shown on its order page; it is not emailed.'
 
 /** The question a finished event nobody was checked in at asks of the person deleting it. */
-export const CHOICE_PROMPT = 'Nobody was checked in through Desi-Event, so say what happened:'
+export const CHOICE_PROMPT = 'Nobody was checked in through The Desi Events, so say what happened:'
 
 /**
  * The two answers to {@link CHOICE_PROMPT}, by the outcome each one sends.
@@ -57,17 +57,17 @@ export const CHOICE_LABELS = Object.freeze({
   CANCEL_AND_REFUND: 'It did not take place: cancel it and refund every order',
 })
 
-/** What the Desi-Event team is asked before every write of an editing sitting, after ten minutes. */
+/** What the team at The Desi Events is asked before every write of an editing sitting, after ten minutes. */
 export const PLATFORM_STEP_UP_SENTENCE =
-  'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.'
+  'Confirm it’s you to keep editing. The Desi Events team confirms every 10 minutes while editing someone else’s event.'
 
 /** What the editor says when a sitting has ended under it. */
 export const SITTING_ENDED_SENTENCE =
   'This editing session has ended. Open it again to keep editing.'
 
-/** What the Desi-Event team is told about an event that has never been posted. */
+/** What the team at The Desi Events is told about an event that has never been posted. */
 export const NOT_POSTED_SENTENCE =
-  'The Desi-Event team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.'
+  'The Desi Events team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.'
 
 /**
  * A count with its noun, singular or plural.
@@ -131,7 +131,7 @@ export function deletionSentences(preview, outcome = preview?.outcome ?? null) {
 
   if (outcome === 'REMOVE') {
     sentences = [
-      'Nobody has bought a ticket to this event. Deleting it takes its page, listing and pictures off the site straight away. It is kept, hidden, so the Desi-Event team can restore it.',
+      'Nobody has bought a ticket to this event. Deleting it takes its page, listing and pictures off the site straight away. It is kept, hidden, so the team at The Desi Events can restore it.',
       preview.slug?.keptRetired
         ? 'Its web address stays retired, so an old link never shows a different event.'
         : 'Its web address is freed for another event.',
@@ -345,18 +345,18 @@ export function deletionOutcomeReading(outcome) {
 /**
  * Who deleted the event, as its reader may be told.
  *
- * The server sends the name only to the Desi-Event team, and to the
+ * The server sends the name only to the team at The Desi Events, and to the
  * organisation when one of its own members deleted it; an organiser reads a
- * deletion by the Desi-Event team without the administrator's name.
+ * deletion by the team at The Desi Events without the administrator's name.
  *
  * @param {object} deletion The event's `deletion` block.
- * @returns {string} For example `the Desi-Event team` or `Priya Shah, of the organisation`.
+ * @returns {string} For example `the team at The Desi Events` or `Priya Shah, of the organisation`.
  */
 export function deletedByReading(deletion) {
   const name = deletion?.deletedByName ?? null
 
   if (deletion?.authority === 'PLATFORM') {
-    return name ? `${name}, of the Desi-Event team` : 'the Desi-Event team'
+    return name ? `${name}, of the team at The Desi Events` : 'the team at The Desi Events'
   }
 
   return name ? `${name}, of the organisation` : 'a member of the organisation'
@@ -513,19 +513,19 @@ export function clockTime(value, timeZone = 'UTC') {
 }
 
 /**
- * What the organiser's editor says while the Desi-Event team has the event open
+ * What the organiser's editor says while the team at The Desi Events has the event open
  * for editing (X-7).
  *
  * @param {string} expiresAt When the editing session ends.
  * @param {string} [timeZone] The event's zone.
- * @returns {string} For example `The Desi-Event team is editing this event until 7:40 PM EDT.`
+ * @returns {string} For example `The Desi Events team is editing this event until 7:40 PM EDT.`
  */
 export function teamEditingSentence(expiresAt, timeZone) {
   const until = clockTime(expiresAt, timeZone)
 
   return until
-    ? `The Desi-Event team is editing this event until ${until}.`
-    : 'The Desi-Event team is editing this event.'
+    ? `The Desi Events team is editing this event until ${until}.`
+    : 'The Desi Events team is editing this event.'
 }
 
 /**
@@ -613,10 +613,10 @@ export function noticeNightStart(notice, timeZone) {
  * Who made a change, for a ticket holder.
  *
  * @param {object} notice An `eventChangeNoticeSchema` value.
- * @returns {string} `by the organiser` or `by the Desi-Event team`.
+ * @returns {string} `by the organiser` or `by the team at The Desi Events`.
  */
 export function noticeBy(notice) {
-  return notice?.by === 'DESI_EVENT' ? 'by the Desi-Event team' : 'by the organiser'
+  return notice?.by === 'DESI_EVENT' ? 'by the team at The Desi Events' : 'by the organiser'
 }
 
 /**
@@ -627,13 +627,13 @@ export function noticeBy(notice) {
  */
 export function deletedForHolder(notice) {
   return notice?.by === 'DESI_EVENT'
-    ? 'The Desi-Event team removed this event’s page.'
+    ? 'The Desi Events team removed this event’s page.'
     : 'The organiser removed this event’s page.'
 }
 
 // ---------------------------------------------------------------------------
-// The booking fee (the platform fee) and paying at the venue, as the
-// Desi-Event team manages them on an event's page (SPEC3 §7, §9.1, §12.3)
+// The booking fee (the platform fee) and paying at the venue, as the team
+// at The Desi Events manages them on an event's page (SPEC3 §7, §9.1, §12.3)
 // ---------------------------------------------------------------------------
 
 /** What the panel says on an event that was never published. */
@@ -704,7 +704,7 @@ export function currentFeeSentence(fee, siteDefault) {
 }
 
 /**
- * Who made a change, for the Desi-Event team: the administrator's name, or a
+ * Who made a change, for the team at The Desi Events: the administrator's name, or a
  * former administrator once the account is gone.
  *
  * @param {string|null|undefined} name The display name the API sent.
@@ -743,8 +743,8 @@ export function venueLimitWords(limit) {
 
 /**
  * Paying at the venue's state, as text (SPEC3 §12.3, §12.4): never by colour
- * alone. The one wording for the switch, shared by the Desi-Event team's panel
- * and the organiser's read-only summary (`payment-terms-summary.jsx`), so the
+ * alone. The one wording for the switch, shared by the panel of the team at
+ * The Desi Events and the organiser's read-only summary (`payment-terms-summary.jsx`), so the
  * two never describe the same switch differently. A switch that is on without
  * a limit the reader was given says "On" alone rather than inventing one.
  *

@@ -1936,7 +1936,7 @@ when()('cancelling and refunding orders that carry a fee, tax and a promo code',
     expect(notice.payload).toMatchObject({ outcome: 'REFUNDED', refunded: true })
   })
 
-  it('lists the event to the Desi-Event team with its paid orders counted by one grouped count', async () => {
+  it('lists the event to the team at The Desi Events with its paid orders counted by one grouped count', async () => {
     const fees = await feeWorld('listed')
 
     await feeOrder(fees)
@@ -2049,7 +2049,7 @@ when()('cancelling and refunding orders that carry a fee, tax and a promo code',
 })
 
 when()('a deleted event, afterwards', () => {
-  it('is restored by the Desi-Event team through both triggers, an on-sale one paused', async () => {
+  it('is restored by the team at The Desi Events through both triggers, an on-sale one paused', async () => {
     const { event } = await posted('restore')
 
     expect((await deleteEvent(event.id, 'REMOVE')).statusCode).toBe(200)

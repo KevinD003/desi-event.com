@@ -111,7 +111,7 @@ describe('createOrganizerInvitationRequestSchema', () => {
       'https://user:pass@kathiawar.example/',
       'https://kathiawar.example:8443/',
       'javascript:alert(1)',
-      'https://desi-event.com/',
+      'https://thedesievents.com/',
     ]) {
       expect(
         createOrganizerInvitationRequestSchema.safeParse({

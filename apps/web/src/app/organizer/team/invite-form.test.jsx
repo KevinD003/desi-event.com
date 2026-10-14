@@ -6,7 +6,7 @@
  *
  *   - it posts the address and the role, and only roles the caller may grant
  *     are offered — never Owner, and never a role that creates or publishes
- *     events, which the Desi-Event team gives;
+ *     events, which the team at The Desi Events gives;
  *   - a MANUAL answer draws the code once in the one-time panel, which "I have
  *     handed it over" removes, and only then is the page read again;
  *   - the code never reaches browser storage, a link or the address bar;
@@ -129,7 +129,7 @@ describe('the invite form', () => {
   it('shows the API’s sentence when it refuses a role that posts events', async () => {
     const user = userEvent.setup()
     const sentence =
-      'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.'
+      'Roles that create or publish events — event manager, manager, administrator and owner — are given by the team at The Desi Events, not from this page. Ask the team at The Desi Events to add this person to your organisation.'
 
     apiFetch.mockResolvedValue(
       answer(403, { error: { code: 'POSTING_ROLE_NEEDS_PLATFORM', message: sentence } }),
@@ -160,7 +160,7 @@ describe('the invite form', () => {
   it('says an address has had its codes for the day, rather than to wait a little', async () => {
     const user = userEvent.setup()
     const sentence =
-      'This address has already been sent three codes from Desi-Event today. Try again tomorrow.'
+      'This address has already been sent three codes from The Desi Events today. Try again tomorrow.'
 
     apiFetch.mockResolvedValue(
       answer(

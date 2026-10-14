@@ -234,7 +234,7 @@ describe('the home page', () => {
       '/account/organizations/new',
     )
     expect(container.textContent).toMatch(
-      /Organisers join Desi-Event by invitation from the Desi-Event team, and every event is\s+reviewed by the team before it is published\./,
+      /Organisers join The Desi Events by invitation from the team at The Desi Events, and every event is\s+reviewed by the team before it is published\./,
     )
     expect(container.textContent).toMatch(/There is no sign-up form for organisers on this site\./)
     // Organisations are not made from an account here.
@@ -313,5 +313,39 @@ describe('counting clicks on the home page', () => {
     await draw({ usedFallback: true })
 
     expect(document.querySelectorAll('[data-traffic-kind]')).toHaveLength(0)
+  })
+})
+
+describe('who runs the site, for search engines', () => {
+  it('publishes one Organization block with the company’s own channels', async () => {
+    const container = await draw()
+
+    const blocks = [...container.querySelectorAll('script[type="application/ld+json"]')].map(
+      (script) => JSON.parse(script.textContent),
+    )
+    const organizations = blocks.filter((block) => block['@type'] === 'Organization')
+
+    expect(organizations).toEqual([
+      {
+        '@context': 'https://schema.org',
+        '@type': 'Organization',
+        name: 'The Desi Events',
+        url: 'https://thedesievents.com',
+        email: 'info@thedesievents.com',
+        telephone: '+19726949043',
+        sameAs: [
+          'https://www.facebook.com/the.desievents',
+          'https://www.instagram.com/the.desievents',
+        ],
+      },
+    ])
+  })
+
+  it('names no logo it does not have', async () => {
+    const container = await draw()
+
+    for (const script of container.querySelectorAll('script[type="application/ld+json"]')) {
+      expect(JSON.parse(script.textContent)).not.toHaveProperty('logo')
+    }
   })
 })

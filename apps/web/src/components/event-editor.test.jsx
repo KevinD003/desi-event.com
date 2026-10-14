@@ -1038,7 +1038,7 @@ describe('a public event', () => {
   })
 })
 
-describe('editing as the Desi-Event team', () => {
+describe('editing as the team at The Desi Events', () => {
   const live = { ...event, status: 'ON_SALE' }
   const authority = {
     kind: 'platform',
@@ -1070,7 +1070,7 @@ describe('editing as the Desi-Event team', () => {
       />,
     )
 
-    expect(screen.getByText('Editing as the Desi-Event team')).toBeInTheDocument()
+    expect(screen.getByText('Editing as the team at The Desi Events')).toBeInTheDocument()
     expect(
       screen.getByText(/^Reason: The organiser asked us to fix the description\. Until/),
     ).toBeInTheDocument()
@@ -1103,7 +1103,7 @@ describe('editing as the Desi-Event team', () => {
 
     expect(
       await screen.findByText(
-        'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.',
+        'Confirm it’s you to keep editing. The Desi Events team confirms every 10 minutes while editing someone else’s event.',
         { selector: 'p.font-medium' },
       ),
     ).toBeInTheDocument()
@@ -1133,7 +1133,8 @@ describe('editing as the Desi-Event team', () => {
       answer(403, {
         error: {
           code: 'PLATFORM_EDIT_NOT_OPEN',
-          message: 'Open this event for editing as the Desi-Event team in this browser first.',
+          message:
+            'Open this event for editing as the team at The Desi Events in this browser first.',
         },
       }),
     )
@@ -1155,7 +1156,7 @@ describe('editing as the Desi-Event team', () => {
   it('never shows an organiser the second-factor prompt or the banner', () => {
     render(<EventEditor event={live} venues={venues} />)
 
-    expect(screen.queryByText('Editing as the Desi-Event team')).not.toBeInTheDocument()
+    expect(screen.queryByText('Editing as the team at The Desi Events')).not.toBeInTheDocument()
   })
 
   it('takes input again once the page hands it the editing session opened again', async () => {
@@ -1235,7 +1236,8 @@ describe('editing as the Desi-Event team', () => {
       answer(403, {
         error: {
           code: 'PLATFORM_EDIT_NOT_OPEN',
-          message: 'Open this event for editing as the Desi-Event team in this browser first.',
+          message:
+            'Open this event for editing as the team at The Desi Events in this browser first.',
         },
       }),
     )
@@ -1281,7 +1283,8 @@ describe('under the organisation’s own authority', () => {
       answer(403, {
         error: {
           code: 'PLATFORM_EDIT_NOT_OPEN',
-          message: 'Open this event for editing as the Desi-Event team in this browser first.',
+          message:
+            'Open this event for editing as the team at The Desi Events in this browser first.',
         },
       }),
     )
@@ -1293,7 +1296,7 @@ describe('under the organisation’s own authority', () => {
 
     await waitFor(() =>
       expect(screen.getByTestId('save-status')).toHaveTextContent(
-        /Not saved\. Open this event for editing as the Desi-Event team/,
+        /Not saved\. Open this event for editing as the team at The Desi Events/,
       ),
     )
     expect(screen.getByLabelText(/^Title/)).toBeEnabled()
@@ -1301,7 +1304,7 @@ describe('under the organisation’s own authority', () => {
     expect(screen.queryByRole('heading', { name: 'Open it again' })).not.toBeInTheDocument()
   })
 
-  it('tells the organiser, at the top, that the Desi-Event team has the event open and until when', () => {
+  it('tells the organiser, at the top, that the team at The Desi Events has the event open and until when', () => {
     render(
       <EventEditor
         event={{ ...live, timezone: 'America/Chicago' }}
@@ -1325,13 +1328,15 @@ describe('under the organisation’s own authority', () => {
 
     const notice = screen.getByTestId('team-editing-notice')
 
-    expect(notice).toHaveTextContent('The Desi-Event team is editing this event until 2:40 PM CDT.')
+    expect(notice).toHaveTextContent(
+      'The Desi Events team is editing this event until 2:40 PM CDT.',
+    )
     expect(notice).toHaveTextContent('Reason: Fixing the directions.')
     // Never who.
     expect(notice).not.toHaveTextContent(/administrator/i)
   })
 
-  it('says nothing of the kind once the Desi-Event team’s sessions are over', () => {
+  it('says nothing of the kind once the sessions of the team at The Desi Events are over', () => {
     render(
       <EventEditor
         event={live}
@@ -1415,7 +1420,7 @@ describe('the danger zone', () => {
     expect(screen.getByRole('heading', { name: 'Danger zone' })).toBeInTheDocument()
   })
 
-  it('lists the Desi-Event team’s changes on the review step, without naming anybody', async () => {
+  it('lists the changes of the team at The Desi Events on the review step, without naming anybody', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(
@@ -1444,9 +1449,9 @@ describe('the danger zone', () => {
     await user.click(screen.getByRole('button', { name: /step 9/i }))
 
     expect(
-      screen.getByRole('heading', { name: 'Changes made by the Desi-Event team' }),
+      screen.getByRole('heading', { name: 'Changes made by the team at The Desi Events' }),
     ).toBeInTheDocument()
-    expect(screen.getByText('By a Desi-Event administrator.')).toBeInTheDocument()
+    expect(screen.getByText('By an administrator at The Desi Events.')).toBeInTheDocument()
   })
 })
 
@@ -1823,7 +1828,7 @@ describe('the organiser’s website', () => {
     expect(
       screen.getByRole('group', { name: 'Website link on your event page' }),
     ).toHaveTextContent(
-      /Your address is on the Desi-Event team’s list of website links to look at/u,
+      /Your address is on the list of website links for the team at The Desi Events to look at/u,
     )
   })
 

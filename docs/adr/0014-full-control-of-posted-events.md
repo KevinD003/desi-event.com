@@ -32,9 +32,9 @@ Edits to a published, on-sale, paused, sold-out or postponed event are public
 when they save, as the owner chose. Review still decides whether an event may be
 posted at all, once, before its first publication (ADR 0010). Mitigations for
 "approved, then changed into something else": every write is audited with its
-fields; the Desi-Event team's list of every event sorts by "recently changed";
-and administrators can edit or delete any posted event. The full statement is
-`live-changes-not-reviewed`, quoted in ADR 0010 §6.
+fields; the list of every event kept by the team at The Desi Events sorts by
+"recently changed"; and administrators can edit or delete any posted event. The
+full statement is `live-changes-not-reviewed`, quoted in ADR 0010 §6.
 
 What changed, so that "fully flexible" is true within what sold tickets
 require: a sold tier may be re-priced (buyers keep what they paid); nights can
@@ -45,14 +45,14 @@ and pictures editable. The venue cannot change while a night uses a seating map
 
 ### 2. Pictures on posted events wait for somebody else's approval (X-3)
 
-A new gallery picture or a replacement cover on a posted event is stored
-PENDING and is public only after somebody on the Desi-Event team **other than
+A new gallery picture or a replacement cover on a posted event is stored PENDING
+and is public only after somebody on the team at The Desi Events **other than
 its uploader** approves it (403 `SELF_REVIEW` for the uploader). A replacement
 cover leaves the old one on the page until it is approved; approval swaps them
 in one locked transaction. Reviewers find them at `/moderation/pictures`
 (`moderation.mediaQueue`). Pictures are the one kind of content the site already
-reviews item by item, and approving them holds nothing else up. This can be
-made immediate in one line if the owner prefers.
+reviews item by item, and approving them holds nothing else up. This can be made
+immediate in one line if the owner prefers.
 
 ### 3. Administrators edit in a sitting (X-7) and lifecycle moves follow Rule L
 
@@ -68,8 +68,8 @@ made immediate in one line if the owner prefers.
 - **Rule L.** Publishing, sales, postponing, cancelling the whole event and
   rescheduling stay the organiser's (403 `ORGANIZER_ONLY` for an ADMIN). A
   non-member SUPER_ADMIN keeps those moves without a sitting, as before; each is
-  audited `authority: 'PLATFORM'` and shown as "by the Desi-Event team". The
-  imported-event publish is the one platform publish by an ADMIN (ADR 0015).
+  audited `authority: 'PLATFORM'` and shown as "by the team at The Desi Events".
+  The imported-event publish is the one platform publish by an ADMIN (ADR 0015).
 
 ### 4. Deleting is a status, `DELETED` (X-8)
 
@@ -97,7 +97,7 @@ by the request:
   refund (fee and tax included), its tickets are withdrawn, then it is deleted.
   Disputed orders are left to finance.
 - **REMOVE_AFTER_EVENT** — it has taken place: only the page comes down;
-  orders and tickets stay. If nobody was checked in through Desi-Event, the
+  orders and tickets stay. If nobody was checked in through The Desi Events, the
   person deleting confirms it took place.
 
 Who may: an organisation member holding `event:delete_unsold` (EVENT_MANAGER

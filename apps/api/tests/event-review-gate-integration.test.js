@@ -1,7 +1,7 @@
 /**
  * The review gate, against PostgreSQL (SPEC2 §6).
  *
- * An event becomes public only after somebody on the Desi-Event team has
+ * An event becomes public only after somebody on the team at The Desi Events has
  * approved it. The service's transition table says so, and so does the
  * database: the trigger `desi_event_status_requires_review` refuses an
  * `UPDATE` that makes an event APPROVED from anywhere but REVIEW_PENDING, or

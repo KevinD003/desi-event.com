@@ -5,7 +5,7 @@
  * (SPEC3 §12.5).
  *
  * A search box over every organisation's events (`platformEvents.list`, the
- * Desi-Event team's list; deleted events left out, because a code cannot name
+ * list of the team at The Desi Events; deleted events left out, because a code cannot name
  * one) with a "Search events" button, and the results as a list of "Add"
  * buttons. What is chosen is a list of chips, each with a "Remove" button of at
  * least 24 by 24 CSS pixels (WCAG 2.5.8). In single mode — the list page's

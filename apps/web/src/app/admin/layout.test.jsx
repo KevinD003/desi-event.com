@@ -1,6 +1,6 @@
 /**
- * The administration shell admits the Desi-Event team's platform
- * administrators and super administrators, and nobody else.
+ * The administration shell admits the platform administrators and super
+ * administrators at The Desi Events, and nobody else.
  *
  * `organizer:invite` and `platform:admin` are platform capabilities that no
  * organisation role carries, so the shell asks the unscoped question, as the
@@ -115,7 +115,7 @@ describe('who the administration shell admits', () => {
     expect(screen.queryByText('inside')).not.toBeInTheDocument()
     expect(
       screen.getByText(
-        'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
+        'This area is for the platform administrators at The Desi Events: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
       ),
     ).toBeInTheDocument()
   })

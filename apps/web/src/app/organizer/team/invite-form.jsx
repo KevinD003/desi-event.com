@@ -7,7 +7,7 @@
  * roles offered are the ones the API said this caller may grant
  * (`assignableRoles` on the team list): finance, staff, door scanner and
  * viewer at most. Roles that create or publish events are given by the
- * Desi-Event team, so they are never on offer here; the API refuses one with
+ * team at The Desi Events, so they are never on offer here; the API refuses one with
  * `POSTING_ROLE_NEEDS_PLATFORM`, and its sentence is shown as it is.
  *
  * ## The code is shown once, here, and handed over by the inviter

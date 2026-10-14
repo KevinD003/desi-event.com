@@ -30,7 +30,7 @@ const CONTENT = Object.freeze({
   socialLinks: {
     instagram: 'https://www.instagram.com/rangoli',
   },
-  // The website is its own field now, behind the Desi-Event team's switch.
+  // The website is its own field now, behind the switch of the team at The Desi Events.
   websiteUrl: 'https://Rangoli.example',
   dressCode: 'Festive; comfortable shoes for dancing.',
   directions: 'Use the east gate; parking on Level 2.',

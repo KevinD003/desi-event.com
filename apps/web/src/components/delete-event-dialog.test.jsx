@@ -145,7 +145,7 @@ describe('DeleteEventDialog', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+        'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. The Desi Events does not hold it and cannot refund it.',
       ),
     ).toBeInTheDocument()
   })
@@ -163,7 +163,7 @@ describe('DeleteEventDialog', () => {
 
     expect(
       await screen.findByText(
-        'Payment taken at the door for 1 of these tickets ($40.00) is held by the organiser. Desi-Event does not hold it and cannot refund it.',
+        'Payment taken at the door for 1 of these tickets ($40.00) is held by the organiser. The Desi Events does not hold it and cannot refund it.',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/only the booking fee paid online is refunded/u)).toBeNull()
@@ -299,7 +299,7 @@ describe('DeleteEventDialog', () => {
     const user = await openDialog()
 
     const group = await screen.findByRole('group', {
-      name: 'Nobody was checked in through Desi-Event, so say what happened:',
+      name: 'Nobody was checked in through The Desi Events, so say what happened:',
     })
 
     await user.type(screen.getByLabelText(/Why is this event being deleted/), REASON)

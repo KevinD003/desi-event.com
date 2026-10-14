@@ -194,7 +194,9 @@ describe('AreaRefusal', () => {
     render(<AreaRefusal area="admin" />)
 
     expect(screen.getByText('Platform administration').tagName).toBe('P')
-    expect(screen.getByText(/platform administrators: inviting organisers/u)).toBeTruthy()
+    expect(
+      screen.getByText(/platform administrators at The Desi Events: inviting organisers/u),
+    ).toBeTruthy()
     expect(screen.getByText(/Nothing on this page can grant it\./u)).toBeTruthy()
   })
 })

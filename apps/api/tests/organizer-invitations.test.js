@@ -2,7 +2,7 @@
  * Organiser invitations, attacked.
  *
  * The only way anybody comes to post events is an invitation from the
- * Desi-Event team, so every test here is somebody trying to get an
+ * team at The Desi Events, so every test here is somebody trying to get an
  * organisation they were not offered, or a member of the team trying to hand
  * one to themselves:
  *

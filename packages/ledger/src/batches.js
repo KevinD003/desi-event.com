@@ -158,7 +158,7 @@ export function composeBatch({ kind, currency, entries }) {
  * @param {object} input The order's money, in minor units.
  * @param {number} input.capturedCents What the buyer paid.
  * @param {number} input.organizerNetCents What the organiser is owed; 0 for a pay-at-the-venue order, whose online part is the booking fee and its tax, and then no organiser entry is posted.
- * @param {number} input.platformFeeCents Desi-Event's fee.
+ * @param {number} input.platformFeeCents The Desi Events' fee.
  * @param {number} [input.taxCents] Tax collected on behalf of an authority.
  * @param {number} [input.discountCents] Discount given, as contra-revenue.
  * @param {string} input.currency ISO 4217 code.
@@ -201,7 +201,7 @@ export function orderPaidBatch({
     )
   }
 
-  // A pay-at-the-venue order's online part is Desi-Event's booking fee and any
+  // A pay-at-the-venue order's online part is The Desi Events' booking fee and any
   // tax on it, nothing of the organiser's (SPEC3 §10.1): its organiser share is
   // 0 and gets no entry, since an entry is never 0. The batch still has to
   // balance, which `composeBatch` checks below.
@@ -402,7 +402,7 @@ export function disputeOpenedBatch({
 
 /**
  * Where a dispute's money can be held from (SPEC3 §10.1): the organiser's
- * payable, for an order whose ticket price was paid online, or Desi-Event's own
+ * payable, for an order whose ticket price was paid online, or The Desi Events' own
  * fee revenue, for a pay-at-the-venue order whose only online payment was the
  * booking fee — a chargeback of that fee is not the organiser's to fund.
  *

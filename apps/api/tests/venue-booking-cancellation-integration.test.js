@@ -1957,7 +1957,7 @@ when()('the places a cancellation gives back (C9–C13, C15)', () => {
   )
 
   it(
-    'C11. one of two cancelled, then the event deleted: the refund is exactly the other share, refunded and kept make the total, the ledger balances and the fee kept is Desi-Event’s',
+    'C11. one of two cancelled, then the event deleted: the refund is exactly the other share, refunded and kept make the total, the ledger balances and the fee kept belongs to The Desi Events',
     { timeout: 120_000 },
     async () => {
       const world = await venueWorld('c11')
@@ -1988,7 +1988,7 @@ when()('the places a cancellation gives back (C9–C13, C15)', () => {
         (await findImbalances(prisma, { organizationId: world.organization.id })).imbalances,
       ).toEqual([])
 
-      // What Desi-Event's fee revenue holds of this order, net: the fee kept.
+      // What the fee revenue of The Desi Events holds of this order, net: the fee kept.
       const entries = await prisma.ledgerEntry.findMany({
         where: {
           account: { code: 'platform_fee_revenue' },
@@ -2373,7 +2373,7 @@ when()(
         expect(order.totalCents).toBeGreaterThan(0)
         expect(order.feesCents).toBe(order.totalCents)
 
-        // Desi-Event's finance team refunds the whole booking fee by hand.
+        // The finance team at The Desi Events refunds the whole booking fee by hand.
         const finance = await person(`finance${tag('c17')}`, {
           role: 'FINANCE_ADMIN',
           privileged: true,

@@ -32,7 +32,7 @@ export function buildDocument(options = {}) {
   const { version = '1.0.0', servers } = options
 
   return buildOpenApiDocument({
-    title: 'Desi-Event API',
+    title: 'The Desi Events API',
     version,
     ...(servers ? { servers } : {}),
   })

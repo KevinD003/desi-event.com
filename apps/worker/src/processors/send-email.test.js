@@ -62,14 +62,14 @@ describe('createSendEmailProcessor', () => {
         data: {
           eventTitle: 'Navratri Garba Night',
           quantity: 2,
-          claimUrl: 'https://desi-event.com/e/garba',
+          claimUrl: 'https://thedesievents.com/e/garba',
         },
       }),
     )
 
     const [message] = email.sent
     expect(message.subject).toBe('Tickets are available for Navratri Garba Night')
-    expect(message.text).toContain('https://desi-event.com/e/garba')
+    expect(message.text).toContain('https://thedesievents.com/e/garba')
     expect(message.text).toContain('Navratri Garba Night')
   })
 
@@ -88,12 +88,12 @@ describe('createSendEmailProcessor', () => {
 
     await createSendEmailProcessor({
       email,
-      from: 'tickets@desi-event.com',
-      replyTo: 'support@desi-event.com',
+      from: 'tickets@thedesievents.com',
+      replyTo: 'info@thedesievents.com',
     })(job())
 
-    expect(email.sent[0].from).toBe('tickets@desi-event.com')
-    expect(email.sent[0].replyTo).toBe('support@desi-event.com')
+    expect(email.sent[0].from).toBe('tickets@thedesievents.com')
+    expect(email.sent[0].replyTo).toBe('info@thedesievents.com')
   })
 
   it('accepts a whole provider registry and uses its email slot', async () => {

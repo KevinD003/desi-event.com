@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Desi-Event REST API — Fastify on Node.js, validated with Zod, documented with OpenAPI.",
+  "description": "The Desi Events REST API — Fastify on Node.js, validated with Zod, documented with OpenAPI.",
   "main": "./src/server.js",
   "scripts": {
     "dev": "node --watch src/server.js",

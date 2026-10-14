@@ -37,9 +37,9 @@ describe('registerAccountRequestSchema', () => {
     },
   )
 
-  it('says organisers join by invitation from the Desi-Event team', () => {
+  it('says organisers join by invitation from the team at The Desi Events', () => {
     expect(ATTENDEE_ONLY_MESSAGE).toBe(
-      'Accounts are created as attendees. Organisers join by invitation from the Desi-Event team.',
+      'Accounts are created as attendees. Organisers join by invitation from the team at The Desi Events.',
     )
   })
 })

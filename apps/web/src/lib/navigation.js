@@ -221,8 +221,8 @@ export const WORKSPACE_GROUPS = Object.freeze([
       {
         href: '/admin/organizer-invitations',
         label: 'Organiser invitations',
-        // Platform administrators and super administrators: the Desi-Event
-        // team is who invites organisers.
+        // Platform administrators and super administrators: the team at
+        // The Desi Events is who invites organisers.
         offered: (session) => sessionCan(session, 'organizer:invite') && admits(session, 'admin'),
       },
       {

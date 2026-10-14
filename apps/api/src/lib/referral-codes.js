@@ -1,5 +1,5 @@
 /**
- * Referral codes: codes the Desi-Event team hands out that remove the whole
+ * Referral codes: codes the team at The Desi Events hands out that remove the whole
  * booking fee from one order (SPEC3 §8, as SPEC3-XI §8.4 amends the reports).
  *
  * The only writer of `ReferralCode` other than its use count, and of

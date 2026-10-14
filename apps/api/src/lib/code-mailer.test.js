@@ -79,12 +79,12 @@ describe('composeCodeLetter', () => {
     const letter = composeCodeLetter(organizerMessage, WEB_ORIGIN)
 
     expect(letter.to).toBe('priya@example.com')
-    expect(letter.subject).toBe('Your organiser invitation from Desi-Event')
+    expect(letter.subject).toBe('Your organiser invitation from The Desi Events')
     expect(letter.text).toContain(`\n    ${CODE}\n`)
     expect(letter.text).toContain('1. Open https://desi-event.example/account/organizations/new\n')
     expect(letter.text).toContain('"સંગીત સંધ્યા Arts"')
     expect(letter.text).toContain('29 October 2026, 18:00 UTC')
-    expect(letter.text).toContain('A note from Anil of the Desi-Event team:')
+    expect(letter.text).toContain('A note from Anil of the team at The Desi Events:')
     expect(letter.text).toContain('> Welcome aboard.\n> We spoke on the phone.')
   })
 
@@ -92,9 +92,11 @@ describe('composeCodeLetter', () => {
     const letter = composeCodeLetter(teamMessage, WEB_ORIGIN)
 
     expect(letter.to).toBe('ravi@example.com')
-    expect(letter.subject).toBe('You are invited to join Garba Nights on Desi-Event')
+    expect(letter.subject).toBe('You are invited to join Garba Nights on The Desi Events')
     expect(letter.text).toContain('as a member of its finance team.')
-    expect(letter.text).toContain('This organisation has not been verified by the Desi-Event team.')
+    expect(letter.text).toContain(
+      'This organisation has not been verified by the team at The Desi Events.',
+    )
     expect(letter.text).toContain('1. Open https://desi-event.example/account/invitations\n')
     expect(letter.text).toContain(`\n    ${CODE}\n`)
 
@@ -107,10 +109,10 @@ describe('composeCodeLetter', () => {
     const letter = composeCodeLetter(transferMessage, WEB_ORIGIN)
 
     expect(letter.to).toBe('meera@example.com')
-    expect(letter.subject).toBe('A ticket has been offered to you on Desi-Event')
+    expect(letter.subject).toBe('A ticket has been offered to you on The Desi Events')
     expect(letter.text).toContain('1. Open https://desi-event.example/tickets/accept\n')
     expect(letter.text).toContain(
-      'Message from the sender (written by them, not by Desi-Event):\n> Enjoy the show!',
+      'Message from the sender (written by them, not by The Desi Events):\n> Enjoy the show!',
     )
     expect(letter.text).toContain(`\n    ${CODE}\n`)
   })

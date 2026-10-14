@@ -351,7 +351,7 @@ describe('platform editing', () => {
 })
 
 describe('eventChangeNoticeSchema', () => {
-  it('parses a night cancelled by the Desi-Event team', () => {
+  it('parses a night cancelled by the team at The Desi Events', () => {
     expect(
       eventChangeNoticeSchema.parse({
         id: 'cm8noticeaaaaaaaaaaaaaaaa',

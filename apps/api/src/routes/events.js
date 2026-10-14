@@ -77,7 +77,7 @@ const EVENT_INCLUDE = Object.freeze({
 })
 
 /**
- * Whether a reader is on the Desi-Event team, for what a deleted event's
+ * Whether a reader is on the team at The Desi Events, for what a deleted event's
  * record names.
  *
  * @param {object|null} actor The request actor.
@@ -726,7 +726,7 @@ export function tierWindowMoves(event, { startsAt, moves, proposed }) {
  */
 export function registerEventRoutes(app, { prisma, env }) {
   // One ticket of the cheapest tier, priced with checkout's own fee terms —
-  // the event's own booking fee when the Desi-Event team set one, else the
+  // the event's own booking fee when the team at The Desi Events set one, else the
   // site default (SPEC3 §7.2) — so a card's "from" price is the price and not
   // the face value.
   const pricing = env
@@ -736,7 +736,7 @@ export function registerEventRoutes(app, { prisma, env }) {
 
   /**
    * An event's booking fee and pay-at-the-venue switch for a detail, when the
-   * reader is its own team or the Desi-Event team; undefined for everybody
+   * reader is its own team or the team at The Desi Events; undefined for everybody
    * else, so the key stays out (SPEC3 §7.2, §11.3).
    *
    * @param {object} event The event as read.
@@ -824,7 +824,7 @@ export function registerEventRoutes(app, { prisma, env }) {
           tierSeatsAvailable: seats.byTier,
           website: websiteViewFor(request.actor, event),
           paymentTerms: await paymentTermsFor(event, request.actor),
-          // A deleted event reaches only its own team and the Desi-Event team
+          // A deleted event reaches only its own team and the team at The Desi Events
           // (`assertVisibleTo`), who read its record.
           deletion: insider ? { platformReader: platformReader(request.actor) } : null,
           ...pricing,
@@ -859,7 +859,7 @@ export function registerEventRoutes(app, { prisma, env }) {
       const event = await prisma.event.create({
         data: {
           ...data,
-          // An address given at creation waits for a Desi-Event administrator;
+          // An address given at creation waits for an administrator at The Desi Events;
           // the link starts off. Computed here as the database's trigger does.
           ...websiteColumnsFor(null, data.websiteUrl ?? null, new Date()),
           status: 'DRAFT',
@@ -895,8 +895,8 @@ export function registerEventRoutes(app, { prisma, env }) {
       })
       if (!existing) throw notFound('No such event.')
 
-      // The organisation's authority through membership, or the Desi-Event
-      // team's in an open editing sitting of this browser session (SPEC2-XI
+      // The organisation's authority through membership, or that of the team at
+      // The Desi Events in an open editing sitting of this browser session (SPEC2-XI
       // X-A). A finished or cancelled event takes its words and pictures only.
       const { mode, authority } = await assertAuthorable(prisma, existing, request.actor, {
         session: request.session,
@@ -1214,7 +1214,7 @@ export function registerEventRoutes(app, { prisma, env }) {
       // The dates are an edit; the return is a publication. Both authorities,
       // the second asserted by the transition itself. Both are the organiser's
       // (Rule L): a SUPER_ADMIN outside the organisation moves it as the
-      // Desi-Event team, and a platform ADMIN is told it is the organiser's.
+      // team at The Desi Events, and a platform ADMIN is told it is the organiser's.
       assertVisibleTo(event, request.actor)
       const authority = lifecycleAuthority(request.actor, event, CAPABILITIES.EVENT_UPDATE)
 

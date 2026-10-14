@@ -479,11 +479,11 @@ describe('somebody else decides', () => {
   it.each([
     [
       'SELF_REVIEW',
-      'You sent this event for review, so somebody else on the Desi-Event team has to decide it.',
+      'You sent this event for review, so somebody else on the team at The Desi Events has to decide it.',
     ],
     [
       'CONFLICT_OF_INTEREST',
-      'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.',
+      'You belong to this organisation, so somebody else on the team at The Desi Events has to decide this.',
     ],
   ])('shows the API’s sentence for %s', async (code, sentence) => {
     const user = userEvent.setup()
@@ -499,7 +499,7 @@ describe('somebody else decides', () => {
   })
 })
 
-describe('an event nobody runs on Desi-Event (a platform-held import, SPEC2-XI O16)', () => {
+describe('an event nobody runs on The Desi Events (a platform-held import, SPEC2-XI O16)', () => {
   it('does not offer "Request changes", and says why', () => {
     render(<ModerationDecision event={event} noEditor={IMPORTED_EVENT_NO_EDITOR_NOTICE} />)
 

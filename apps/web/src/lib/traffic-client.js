@@ -12,7 +12,7 @@
  * kept in the browser: no cookie, no storage.
  *
  * Who is not counted is decided by the page, which knows who is looking: the
- * server passes `excludeAll` for Desi-Event staff and the organisation ids of
+ * server passes `excludeAll` for staff at The Desi Events and the organisation ids of
  * the viewer's own memberships, and nothing is sent for those.
  *
  * @module lib/traffic-client

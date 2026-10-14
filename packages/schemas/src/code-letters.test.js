@@ -83,15 +83,15 @@ describe('organizerInvitationLetter', () => {
   it('says what the invitation does, and that the organisation starts verified', () => {
     const { subject, text } = organizerInvitationLetter(ORGANIZER)
 
-    expect(subject).toBe('Your organiser invitation from Desi-Event')
+    expect(subject).toBe('Your organiser invitation from The Desi Events')
     expect(text).toContain(
-      'The Desi-Event team has invited you to run events on Desi-Event as the owner of "Kathiawar Folk Nights".',
+      'The Desi Events team has invited you to run events as the owner of "Kathiawar Folk Nights".',
     )
     expect(text).toContain(
       '2. Sign in, or create an account, with this email address: new-organiser@example.com',
     )
     expect(text).toContain(
-      'Your organisation starts verified, because the Desi-Event team invited you. Each event you create is reviewed by the team before it can be published.',
+      'Your organisation starts verified, because the team at The Desi Events invited you. Each event you create is reviewed by the team before it can be published.',
     )
   })
 
@@ -107,7 +107,7 @@ describe('organizerInvitationLetter', () => {
     expect(text).toContain(
       [
         '----------------------------------------',
-        'A note from Anil Administrator of the Desi-Event team:',
+        'A note from Anil Administrator of the team at The Desi Events:',
         '> Welcome aboard.',
         '> Call me with questions.',
       ].join('\n'),
@@ -115,7 +115,7 @@ describe('organizerInvitationLetter', () => {
 
     expect(
       organizerInvitationLetter({ ...ORGANIZER, note: 'Hi', inviterName: null }).text,
-    ).toContain('A note from the Desi-Event team:\n> Hi')
+    ).toContain('A note from the team at The Desi Events:\n> Hi')
   })
 
   it('keeps a Gujarati name and a Devanagari note in their own script', () => {
@@ -163,16 +163,16 @@ describe('teamInvitationLetter', () => {
   it('names the organisation and the role in words', () => {
     const { subject, text } = teamInvitationLetter(TEAM)
 
-    expect(subject).toBe('You are invited to join Rangoli Collective on Desi-Event')
+    expect(subject).toBe('You are invited to join Rangoli Collective on The Desi Events')
     expect(text).toContain(
-      'You have been invited to join "Rangoli Collective" on Desi-Event as a member of its staff.',
+      'You have been invited to join "Rangoli Collective" on The Desi Events as a member of its staff.',
     )
     expect(text).not.toContain('has not been verified')
   })
 
   it('says so when the organisation has not been verified', () => {
     expect(teamInvitationLetter({ ...TEAM, organizationVerified: false }).text).toContain(
-      'This organisation has not been verified by the Desi-Event team.',
+      'This organisation has not been verified by the team at The Desi Events.',
     )
   })
 
@@ -209,12 +209,12 @@ describe('teamInvitationLetter', () => {
 })
 
 describe('ticketTransferLetter', () => {
-  it('quotes the sender as the sender, not as Desi-Event', () => {
+  it('quotes the sender as the sender, not as The Desi Events', () => {
     const { subject, text } = ticketTransferLetter({ ...TRANSFER, message: 'Enjoy the garba!' })
 
-    expect(subject).toBe('A ticket has been offered to you on Desi-Event')
+    expect(subject).toBe('A ticket has been offered to you on The Desi Events')
     expect(text).toContain(
-      'Message from the sender (written by them, not by Desi-Event):\n> Enjoy the garba!',
+      'Message from the sender (written by them, not by The Desi Events):\n> Enjoy the garba!',
     )
     expect(ticketTransferLetter(TRANSFER).text).not.toContain('Message from the sender')
   })

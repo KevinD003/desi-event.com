@@ -20,7 +20,7 @@ re-stated at the final closure cycle, whose evidence is in
 | Migrations                 | 4                                                  |
 | Verification               | every code-owned command exits 0                   |
 
-## What Desi-Event is
+## What The Desi Events is
 
 Event discovery and ticketing for the South Asian community: organisers publish
 events and ticket tiers, buyers hold inventory during checkout and pay for it,

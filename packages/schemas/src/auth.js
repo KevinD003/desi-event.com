@@ -85,7 +85,7 @@ export const opaqueTokenSchema = z
  * @type {string}
  */
 export const ATTENDEE_ONLY_MESSAGE =
-  'Accounts are created as attendees. Organisers join by invitation from the Desi-Event team.'
+  'Accounts are created as attendees. Organisers join by invitation from the team at The Desi Events.'
 
 /** `POST /v1/auth/register`. */
 export const registerAccountRequestSchema = z.object({
@@ -95,7 +95,7 @@ export const registerAccountRequestSchema = z.object({
   phone: phoneSchema.optional(),
   locale: localeSchema.default('en-IN'),
   // Only attendee accounts are self-service. Organisers join by an invitation
-  // from the Desi-Event team, and every other role is granted out of band, so
+  // from the team at The Desi Events, and every other role is granted out of band, so
   // a request naming any other role is refused by schema rather than by a
   // handler remembering to check.
   role: z.literal('ATTENDEE', { error: ATTENDEE_ONLY_MESSAGE }).default('ATTENDEE'),

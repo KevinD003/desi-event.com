@@ -340,7 +340,7 @@ describe('a reviewer who belongs to the event’s organisation', () => {
     expect(notices).toHaveLength(2)
     for (const notice of notices) expect(notice).toBeVisible()
     expect(CONFLICT_OF_INTEREST_NOTICE).toBe(
-      'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.',
+      'You belong to this organisation, so somebody else on the team at The Desi Events has to decide this.',
     )
 
     for (const name of ['Request changes', 'Approve', 'Reject']) {
@@ -396,7 +396,7 @@ describe('an import the platform-held organisation holds (SPEC2-XI O16)', () => 
     expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled()
     expect(screen.queryByText(/your reason goes to the organiser/i)).toBeNull()
     expect(
-      screen.getByText(/nobody runs this event on desi-event, so it goes to nobody/i),
+      screen.getByText(/nobody runs this event on the desi events, so it goes to nobody/i),
     ).toBeVisible()
   })
 
@@ -558,7 +558,7 @@ describe('the website link on the review page', () => {
   })
 })
 
-describe('the Desi-Event team’s own page for the event', () => {
+describe('the page the team at The Desi Events keeps for the event', () => {
   it('is offered to a platform editor, with deleting, and not to a moderator', async () => {
     getEventMedia.mockResolvedValue({ data: [], meta: { revision: 6 } })
     readSession.mockResolvedValue({
@@ -568,7 +568,7 @@ describe('the Desi-Event team’s own page for the event', () => {
     await renderPage()
 
     expect(
-      screen.getByRole('link', { name: 'Open in the editor as the Desi-Event team' }),
+      screen.getByRole('link', { name: 'Open in the editor as the team at The Desi Events' }),
     ).toHaveAttribute('href', `/admin/events/${EVENT.id}`)
     expect(screen.getByRole('link', { name: 'Delete…' })).toHaveAttribute(
       'href',
@@ -580,7 +580,7 @@ describe('the Desi-Event team’s own page for the event', () => {
     await renderPage()
 
     expect(
-      screen.queryByRole('link', { name: 'Open in the editor as the Desi-Event team' }),
+      screen.queryByRole('link', { name: 'Open in the editor as the team at The Desi Events' }),
     ).not.toBeInTheDocument()
   })
 

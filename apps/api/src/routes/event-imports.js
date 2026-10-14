@@ -1,5 +1,5 @@
 /**
- * Importing listed events, by the Desi-Event team (SPEC2-XI area I): the runs,
+ * Importing listed events, by the team at The Desi Events (SPEC2-XI area I): the runs,
  * their plans, applying and approving them, copying pictures again, and moving
  * an imported event to an organiser's own organisation.
  *
@@ -68,7 +68,7 @@ export function registerEventImportRoutes(
   { prisma, env, mediaStorage, fetchImportImage, eventImportLimit },
 ) {
   const budget = eventImportRateLimit(eventImportLimit ?? {})
-  // The event's own booking fee when the Desi-Event team set one, else the
+  // The event's own booking fee when the team at The Desi Events set one, else the
   // site default: the terms checkout charges (SPEC3 §7.2).
   const pricing = env
     ? { feeConfigFor: (currency, event) => eventFeeConfig(env, event, currency) }

@@ -66,7 +66,7 @@ describe('TrafficSources', () => {
     )
 
     const table = screen.getByRole('table', { name: 'Where page views came from' })
-    const internal = within(table).getByRole('row', { name: /Desi-Event pages/u })
+    const internal = within(table).getByRole('row', { name: /The Desi Events pages/u })
 
     expect(within(internal).getByText('100')).toBeTruthy()
     expect(within(internal).getByText('50.0%')).toBeTruthy()
@@ -178,7 +178,7 @@ describe('EventsTraffic', () => {
     render(<EventsTraffic rows={[eventRow()]} organizationId={ORG} keep={{ range: '7' }} />)
 
     const link = screen.getByRole('link', { name: 'Navratri on the Lawn' })
-    const href = new URL(link.getAttribute('href'), 'https://desi-event.test')
+    const href = new URL(link.getAttribute('href'), 'https://thedesievents.test')
 
     expect(href.pathname).toBe('/analytics')
     expect(href.searchParams.get('organizationId')).toBe(ORG)

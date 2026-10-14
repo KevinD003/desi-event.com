@@ -1,10 +1,10 @@
 /**
  * What a deleted event's own page says to the people who ran it, and to the
- * Desi-Event team: when it was deleted, by whom (as far as the reader may be
- * told), why, and what deleting it did.
+ * team at The Desi Events: when it was deleted, by whom (as far as the reader
+ * may be told), why, and what deleting it did.
  *
- * Only the Desi-Event team restores; the organiser is told to ask them. The
- * controls it offers come in as booleans the server page worked out: this
+ * Only the team at The Desi Events restores; the organiser is told to ask them.
+ * The controls it offers come in as booleans the server page worked out: this
  * component names no capability.
  *
  * Renders on the server; the restore and refund controls are client islands.
@@ -33,7 +33,7 @@ import { formatEventDate, formatEventTime } from '../lib/format.js'
 /**
  * @typedef {object} DeletedEventSummaryProps
  * @property {object} event The deleted event, with its `deletion` record.
- * @property {boolean} [mayRestore] Whether this reader may restore it (the Desi-Event team).
+ * @property {boolean} [mayRestore] Whether this reader may restore it (the team at The Desi Events).
  * @property {boolean} [mayFinishRefunds] Whether this reader may send the refunds it still owes.
  * @property {object|null} [refundCounts] For an event whose deletion refunded its orders: the counts of
  *   a deletion preview read now, which say what is still owed back; nothing is said about refunds without them.
@@ -132,12 +132,12 @@ export function DeletedEventSummary({
         // Never public, so its address was freed when it was deleted and the
         // placeholder it holds now is no address anybody has seen.
         <p className="text-sm text-ink">
-          {`Only the Desi-Event team can restore a deleted event. Ask them, naming it by its title, “${event.title}”: it was never public, and its web address was freed when it was deleted.`}
+          {`Only the team at The Desi Events can restore a deleted event. Ask them, naming it by its title, “${event.title}”: it was never public, and its web address was freed when it was deleted.`}
         </p>
       ) : (
         <p className="text-sm text-ink">
-          Only the Desi-Event team can restore a deleted event. Ask them, naming its web address,{' '}
-          <code className="font-mono">{event.slug}</code>.
+          Only the team at The Desi Events can restore a deleted event. Ask them, naming its web
+          address, <code className="font-mono">{event.slug}</code>.
         </p>
       )}
     </section>

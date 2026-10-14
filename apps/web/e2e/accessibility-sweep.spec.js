@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { createPrismaClient } from '@desi-event/db'
 import { expect, test } from '@playwright/test'
 
+import { COMPANY_CHANNELS } from './support/company-contact.js'
 import { signIn as signInWaitingOutTheLimiter } from './support/detail-world.mjs'
 import { cleanupDetailScreens, seedDetailScreens } from './support/seed-detail-screens.mjs'
 import { DOOR_TICKETS, LONG_NAME, cleanupDoor, seedDoor } from './support/seed-door.mjs'
@@ -152,7 +153,7 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  *
  * ## The onboarding screens
  *
- * Organisers join only by an invitation from the Desi-Event team, so the
+ * Organisers join only by an invitation from the team at The Desi Events, so the
  * Phase 4 block also sweeps the screens of that path: the invitations list
  * with an invitation waiting in it (seeded, its code made and dropped), the
  * invite form filled in, the panel a new invitation's code is shown in with
@@ -666,19 +667,21 @@ async function settled(page) {
  * ordered against the finished page rather than each remembering to be.
  *
  * @param {object} page The page to scan.
+ * @param {string} [within] A selector to scan only part of the page; the
+ *   whole page when left out.
  * @returns {Promise<object[]>} Violations, each with its rule id and nodes.
  */
-async function scan(page) {
+async function scan(page, within) {
   await settled(page)
 
   // WCAG 2.2's tags as well as 2.0's and 2.1's: the standard this site is
   // held to is 2.2 AA. In axe 4.13 that adds one rule, `target-size` (2.5.8),
   // to every scan — the hand-written touch-target case below measures the
   // same criterion on the controls a steward's thumb actually hits.
-  const results = await new AxeBuilder({ page })
+  const builder = new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
     .exclude('nextjs-portal')
-    .analyze()
+  const results = await (within ? builder.include(within) : builder).analyze()
 
   return results.violations
 }
@@ -741,12 +744,14 @@ function sidewaysOverflow(page) {
  * in is read where it comes to rest.
  *
  * @param {object} page The page.
+ * @param {string} [scope] The landmark a stop must be inside to be judged:
+ *   `main` unless a case walks another one, such as the footer.
  * @returns {Promise<{done?: true, outside?: true, marked?: boolean, what?: string}>} The stop.
  */
-function focusStop(page) {
-  return page.evaluate(() => {
+function focusStop(page, scope = 'main') {
+  return page.evaluate((scopeSelector) => {
     const element = document.activeElement
-    const main = document.querySelector('main')
+    const main = document.querySelector(scopeSelector)
 
     if (!element || element === document.body) return { done: true }
     if (!main?.contains(element)) return { outside: true }
@@ -859,7 +864,7 @@ function focusStop(page) {
       marked: outlined || ringed,
       what: `${element.outerHTML.slice(0, 100)}${before > 0 ? ` (stop ${before + 1} inside it)` : ''}`,
     }
-  })
+  }, scope)
 }
 
 /**
@@ -1366,6 +1371,28 @@ const PHASE_4_SURFACES = Object.freeze([
           page.locator(`[id="${id}"]`).getByText('EXTERNAL VERIFICATION PENDING', { exact: true }),
         ).toBeVisible()
       }
+    },
+  },
+  {
+    name: 'the contact page',
+    window: 'visitor',
+    path: () => '/contact',
+    heading: () => 'Contact The Desi Events',
+    title: () => 'Contact',
+    async arrived(page) {
+      // Asks nothing of the API: the channels are the company's own, written
+      // once in `lib/contact.js`. Each is a link showing its full address,
+      // which is the longest text this page has to fit into 320 px.
+      const channels = page.getByRole('list', { name: 'Ways to reach the team', exact: true })
+
+      await expect(channels.getByRole('listitem')).toHaveCount(COMPANY_CHANNELS.length)
+      for (const channel of COMPANY_CHANNELS) {
+        await expect(
+          channels.getByRole('link', { name: channel.pageName, exact: true }),
+        ).toHaveAttribute('href', channel.href)
+      }
+      // No form: nothing on the page sends a message.
+      await expect(page.locator('main form')).toHaveCount(0)
     },
   },
   {
@@ -2170,7 +2197,7 @@ const PHASE_4_SURFACES = Object.freeze([
       )
       await expect(
         page.getByRole('group', { name: 'Website link on your event page', exact: true }),
-      ).toContainText(`${feature.linkAdminName} of the Desi-Event team turned it on`)
+      ).toContainText(`${feature.linkAdminName} of the team at The Desi Events turned it on`)
     },
   },
   {
@@ -2184,7 +2211,7 @@ const PHASE_4_SURFACES = Object.freeze([
         page.getByRole('link', { name: 'Visit the organiser’s website', exact: true }),
       ).toHaveAttribute('href', `/events/${feature.gammaSeatedEventSlug}/website`)
       await expect(page.locator('#website-link-note')).toContainText(
-        'Desi-Event counts the visit without recording your address, browser or account.',
+        'The Desi Events counts the visit without recording your address, browser or account.',
       )
     },
   },
@@ -2222,7 +2249,7 @@ const PHASE_4_SURFACES = Object.freeze([
       expect(response.headers().location).toBeUndefined()
       await expect(
         page.getByText(
-          'Desi-Event could not look up where this link goes just now. Try again from the event page in a minute.',
+          'The Desi Events could not look up where this link goes just now. Try again from the event page in a minute.',
           { exact: true },
         ),
       ).toBeVisible()
@@ -3611,7 +3638,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
 
         await surface.arrived(page)
 
-        await expect(page).toHaveTitle(`${surface.title()} · Desi-Event`)
+        await expect(page).toHaveTitle(`${surface.title()} · The Desi Events`)
         // Exactly one, and it is the page's own: a second level-one heading
         // from a shell or a state component would be a second "what is this
         // page" for anybody navigating by headings.
@@ -3663,7 +3690,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
         page.getByRole('link', { name: 'Skip to main content', exact: true }),
       ).toBeFocused()
       await page.keyboard.press('Tab')
-      await expect(banner.getByRole('link', { name: 'Desi-Event', exact: true })).toBeFocused()
+      await expect(banner.getByRole('link', { name: 'The Desi Events', exact: true })).toBeFocused()
       // Then in the order the row is drawn at this width: the account control
       // sits between the wordmark and Menu, so focus reaches it before Menu
       // rather than jumping back up the row after the sheet (WCAG 2.4.3).
@@ -3724,6 +3751,119 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       await expect(menu).toHaveAttribute('aria-expanded', 'false')
       await expect(menu).toBeFocused()
       await expect(sheet).toHaveCount(0)
+    })
+
+    test('the footer’s Contact row, at phone and desktop widths, fits, scans clean, is big enough to hit and is walked by keyboard', async () => {
+      // The footer is on every page; the limitations page asks nothing of the
+      // API, so what is measured is the footer and nothing that might fail.
+      // The Contact row is a row of its own, not a sixth column: the email
+      // address is wider than a column of the wide grid, and a row wraps.
+      const page = visitor
+
+      for (const size of [VIEWPORTS[0], VIEWPORTS[2]]) {
+        const where = `the footer’s Contact row at ${size.width} px`
+
+        await page.setViewportSize({ width: size.width, height: size.height })
+        await page.goto('/limitations')
+        await expect(
+          page.getByRole('heading', { level: 1, name: 'What this site does not do', exact: true }),
+        ).toBeVisible()
+
+        const footer = page.getByRole('contentinfo')
+        const heading = footer.getByRole('heading', { level: 2, name: 'Contact', exact: true })
+        const row = footer.getByRole('list', { name: 'Contact', exact: true })
+        const links = row.getByRole('link')
+
+        await expect(heading).toBeVisible()
+        // Every channel, named for where it goes, and then the contact page.
+        await expect(links).toHaveCount(COMPANY_CHANNELS.length + 1)
+        for (const [index, channel] of COMPANY_CHANNELS.entries()) {
+          await expect(links.nth(index)).toHaveAccessibleName(channel.footerName)
+          await expect(links.nth(index)).toHaveAttribute('href', channel.href)
+        }
+        await expect(links.last()).toHaveAccessibleName('Contact page')
+        await expect(links.last()).toHaveAttribute('href', '/contact')
+
+        await row.scrollIntoViewIfNeeded()
+
+        expect(await sidewaysOverflow(page), `${where} scrolls sideways`).toBeLessThanOrEqual(1)
+
+        // Each link whole inside the window, its text not cut off, at least
+        // 44 px tall as every footer link is, and none drawn over another.
+        const boxes = await links.evaluateAll((elements) =>
+          elements.map((element) => {
+            const rect = element.getBoundingClientRect()
+
+            return {
+              name: element.getAttribute('aria-label') ?? element.textContent.trim(),
+              left: rect.left,
+              right: rect.right,
+              top: rect.top,
+              bottom: rect.bottom,
+              width: rect.width,
+              height: rect.height,
+              cut: element.scrollWidth > element.clientWidth + 1,
+            }
+          }),
+        )
+
+        for (const box of boxes) {
+          expect(box.left, `${box.name} starts off the screen in ${where}`).toBeGreaterThanOrEqual(
+            0,
+          )
+          expect(box.right, `${box.name} runs off the screen in ${where}`).toBeLessThanOrEqual(
+            size.width,
+          )
+          expect(box.cut, `${box.name}’s text is cut off in ${where}`).toBe(false)
+          expect(box.height, `${box.name} is too short to hit in ${where}`).toBeGreaterThanOrEqual(
+            44,
+          )
+          expect(box.width, `${box.name} is too narrow to hit in ${where}`).toBeGreaterThanOrEqual(
+            24,
+          )
+        }
+
+        for (const [index, one] of boxes.entries()) {
+          for (const other of boxes.slice(index + 1)) {
+            const apart =
+              one.right <= other.left ||
+              other.right <= one.left ||
+              one.bottom <= other.top ||
+              other.bottom <= one.top
+
+            expect(apart, `${one.name} and ${other.name} overlap in ${where}`).toBe(true)
+          }
+        }
+
+        // The footer scanned on its own, so a fault in it is named as the
+        // footer's (the whole page is scanned with the contact page above).
+        const violations = await scan(page, 'footer')
+
+        expect(
+          violations,
+          `the footer at ${size.width} px\n  ${describe(violations)}`,
+        ).toHaveLength(0)
+
+        // By keyboard, from the row's heading: each link in turn, in the
+        // order it is drawn, each showing where the focus is.
+        await heading.evaluate((element) => {
+          if (!element.hasAttribute('tabindex')) element.setAttribute('tabindex', '-1')
+          element.focus()
+        })
+
+        for (const [index, box] of boxes.entries()) {
+          await page.keyboard.press('Tab')
+          await expect(links.nth(index)).toBeFocused()
+
+          const stop = await focusStop(page, 'footer')
+
+          expect(stop.marked, `${box.name} shows no focus in ${where}`).toBe(true)
+        }
+
+        await heading.evaluate((element) => element.removeAttribute('tabindex'))
+      }
+
+      await page.setViewportSize({ width: 1280, height: 900 })
     })
 
     test('with motion reduced, nothing on the home page moves for longer than 0.01 ms or stays hidden', async () => {
@@ -4208,7 +4348,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
  * organisations with their events, a deleted one, one in every deletion
  * outcome, paid orders written the way settlement writes them, two change
  * notices on an order, and a new cover and a gallery picture waiting for the
- * Desi-Event team. Nothing here is deleted, cancelled or restored: each
+ * team at The Desi Events. Nothing here is deleted, cancelled or restored: each
  * dialog is opened, read and measured, and closed again. The one write is
  * the sitting the platform administrator opens, to measure the editor's
  * banner; it changes no privilege and is the seed's own event's.
@@ -4432,7 +4572,7 @@ test.describe.serial('full control of posted events, swept', () => {
     const owner = await controlWindow(browser, 'owner')
     const dialog = await deleteDialogOn(owner, control.sweep.finished)
     const group = dialog.getByRole('group', {
-      name: 'Nobody was checked in through Desi-Event, so say what happened:',
+      name: 'Nobody was checked in through The Desi Events, so say what happened:',
     })
     const tookPlace = group.getByRole('radio', {
       name: 'It took place: take its page down and refund nobody',
@@ -4516,7 +4656,7 @@ test.describe.serial('full control of posted events, swept', () => {
     await owner.goto(`/organizer/events/${control.events.deletedRestore.id}`)
     await expect(owner.getByRole('heading', { name: 'This event was deleted' })).toBeVisible()
     await expect(owner.locator('main')).toContainText(
-      'Only the Desi-Event team can restore a deleted event.',
+      'Only the team at The Desi Events can restore a deleted event.',
     )
 
     await measuredEverywhere(owner, 'the deleted event’s record')
@@ -4585,12 +4725,14 @@ test.describe.serial('full control of posted events, swept', () => {
 
     await expect(changes).toContainText('The event changed')
     await expect(changes).toContainText('A night changed')
-    await expect(changes).toContainText('Changed by the Desi-Event team.')
+    await expect(changes).toContainText('Changed by the team at The Desi Events.')
 
     await measuredEverywhere(buyer, 'the order page with change notices')
   })
 
-  test('All events, for the Desi-Event team, reflows and scans clean', async ({ browser }) => {
+  test('All events, for the team at The Desi Events, reflows and scans clean', async ({
+    browser,
+  }) => {
     const admin = await controlWindow(browser, 'admin')
 
     await admin.setViewportSize(DOOR_WIDTHS[0])
@@ -4645,7 +4787,7 @@ test.describe.serial('full control of posted events, swept', () => {
     await admin.goto(`/admin/events/${control.events.otherLive.id}`)
 
     const form = admin.getByRole('region', {
-      name: 'Edit this event as the Desi-Event team',
+      name: 'Edit this event as the team at The Desi Events',
       exact: true,
     })
 
@@ -4665,13 +4807,13 @@ test.describe.serial('full control of posted events, swept', () => {
     await admin.goto(`/admin/events/${event.id}`)
 
     const form = admin.getByRole('region', {
-      name: 'Edit this event as the Desi-Event team',
+      name: 'Edit this event as the team at The Desi Events',
       exact: true,
     })
 
     await form
       .getByLabel(/^Why are you editing this event\?/u)
-      .fill('Measuring the editor the Desi-Event team edits in.')
+      .fill('Measuring the editor the team at The Desi Events edits in.')
 
     const opened = admin.waitForResponse(
       (response) =>
@@ -4693,7 +4835,7 @@ test.describe.serial('full control of posted events, swept', () => {
     if (first === 'prompted') await confirmStepUp(admin)
 
     await opened
-    await expect(admin.getByText('Editing as the Desi-Event team').first()).toBeVisible()
+    await expect(admin.getByText('Editing as the team at The Desi Events').first()).toBeVisible()
     await expect(admin.getByRole('button', { name: 'Stop editing', exact: true })).toBeVisible()
 
     await measuredEverywhere(admin, 'the editor under a sitting')
@@ -5329,7 +5471,7 @@ test.describe.serial('booking fees, referral codes and paying at the venue, swep
     const gaCode = forGa.data.referralCode
     const otherCode = forOther.data.referralCode
 
-    // buyer2 books one ticket with the code, and the Desi-Event team cancels
+    // buyer2 books one ticket with the code, and the team at The Desi Events cancels
     // it unpaid: a cancellation block, a cancelled wallet ticket, a door
     // refusal and a use given back.
     const buyer2 = await venueWindow(browser, 'buyer2')
@@ -5855,13 +5997,13 @@ test.describe.serial('booking fees, referral codes and paying at the venue, swep
       [
         buyer2,
         venue.b2Ga,
-        'The Desi-Event team cancelled 1 ticket on',
+        'The Desi Events team cancelled 1 ticket on',
         'an order with an unpaid ticket cancelled',
       ],
       [
         buyer2,
         venue.b2Past,
-        'The $25.00 you paid at the door is with the organiser, not with Desi-Event.',
+        'The $25.00 you paid at the door is with the organiser, not with The Desi Events.',
         'an order refunded with money paid at the door',
       ],
     ]) {

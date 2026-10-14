@@ -177,7 +177,7 @@ describe('membershipCan', () => {
     expect(membershipCan(session, 'platform:admin', ORG_A)).toBe(false)
   })
 
-  it('never counts a platform event capability, not even for the Desi-Event team', () => {
+  it('never counts a platform event capability, not even for the team at The Desi Events', () => {
     for (const platformRole of ['ADMIN', 'SUPER_ADMIN']) {
       const { session } = person(platformRole, [[ORG_A, 'OWNER']])
 

@@ -1,7 +1,7 @@
 # Phase 4 implementation report
 
-Frontend, UI, UX and product-surface completion for Desi-Event, implemented in
-four direct phases on `claude/phase4-frontend-ui-ux-completion`.
+Frontend, UI, UX and product-surface completion for The Desi Events, implemented
+in four direct phases on `claude/phase4-frontend-ui-ux-completion`.
 
 **This document is written as the work happens rather than after it.** Each
 phase's evidence is recorded when that phase is pushed and its exact-SHA CI run

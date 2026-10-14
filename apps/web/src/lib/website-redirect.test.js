@@ -48,8 +48,8 @@ describe('organiserSummary', () => {
       tone: 'neutral',
       pending: false,
       sentences: [
-        'Off. Add your website’s address above and the Desi-Event team can link to it from your event page.',
-        'Only the Desi-Event team can turn this link on or off.',
+        'Off. Add your website’s address above and the team at The Desi Events can link to it from your event page.',
+        'Only the team at The Desi Events can turn this link on or off.',
       ],
     })
   })
@@ -61,7 +61,7 @@ describe('organiserSummary', () => {
         { websiteUrl: A, formatInstant },
       ).sentences,
     ).toEqual([
-      'Off. Your address is on the Desi-Event team’s list of website links to look at. It is not shown on your event page until an administrator turns the link on.',
+      'Off. Your address is on the list of website links for the team at The Desi Events to look at. It is not shown on your event page until an administrator turns the link on.',
       ONLY_THE_TEAM,
     ])
   })
@@ -72,7 +72,7 @@ describe('organiserSummary', () => {
     expect(summary.label).toBe('On')
     expect(summary.tone).toBe('success')
     expect(summary.sentences).toEqual([
-      `On since [${WHEN}]. Anil Administrator of the Desi-Event team turned it on, with this note: “Checked: their own site.”. Your event page shows “Visit the organiser’s website”, which goes to rangoli.example. Visits through it are counted in your event’s analytics, apart from robots and some automated or blocked requests.`,
+      `On since [${WHEN}]. Anil Administrator of the team at The Desi Events turned it on, with this note: “Checked: their own site.”. Your event page shows “Visit the organiser’s website”, which goes to rangoli.example. Visits through it are counted in your event’s analytics, apart from robots and some automated or blocked requests.`,
       ONLY_THE_TEAM,
     ])
   })
@@ -81,7 +81,7 @@ describe('organiserSummary', () => {
     expect(
       organiserSummary({ ...ON, reason: null }, { websiteUrl: A, formatInstant }).sentences[0],
     ).toMatch(
-      /^On since \[[^\]]+\]\. Anil Administrator of the Desi-Event team turned it on\. Your event page/u,
+      /^On since \[[^\]]+\]\. Anil Administrator of the team at The Desi Events turned it on\. Your event page/u,
     )
   })
 
@@ -92,7 +92,7 @@ describe('organiserSummary', () => {
         { websiteUrl: B, formatInstant },
       ).sentences,
     ).toEqual([
-      `On since [${WHEN}], going to rangoli.example. Your new address, rangoli-nights.example, is on the Desi-Event team’s list to look at; until an administrator approves it, the link keeps going to rangoli.example. If the old address should stop being linked at once, ask the Desi-Event team to turn the link off.`,
+      `On since [${WHEN}], going to rangoli.example. Your new address, rangoli-nights.example, is on the list for the team at The Desi Events to look at; until an administrator approves it, the link keeps going to rangoli.example. If the old address should stop being linked at once, ask the team at The Desi Events to turn the link off.`,
       ONLY_THE_TEAM,
     ])
   })
@@ -104,7 +104,7 @@ describe('organiserSummary', () => {
         { websiteUrl: null, formatInstant },
       ).sentences,
     ).toEqual([
-      `On since [${WHEN}], going to rangoli.example. You removed your address; the link keeps going to rangoli.example until an administrator turns it off. Ask the Desi-Event team if it should stop at once.`,
+      `On since [${WHEN}], going to rangoli.example. You removed your address; the link keeps going to rangoli.example until an administrator turns it off. Ask the team at The Desi Events if it should stop at once.`,
       ONLY_THE_TEAM,
     ])
   })
@@ -113,7 +113,7 @@ describe('organiserSummary', () => {
     const off = { ...ON, enabled: false, reason: 'Not the organiser’s site.' }
 
     expect(organiserSummary(off, { websiteUrl: A, formatInstant }).sentences).toEqual([
-      `Off since [${WHEN}]. Anil Administrator of the Desi-Event team turned it off, with this note: “Not the organiser’s site.”. Your address is not shown on the event page.`,
+      `Off since [${WHEN}]. Anil Administrator of the team at The Desi Events turned it off, with this note: “Not the organiser’s site.”. Your address is not shown on the event page.`,
       ONLY_THE_TEAM,
     ])
     expect(
@@ -122,8 +122,8 @@ describe('organiserSummary', () => {
         { websiteUrl: B, formatInstant },
       ).sentences,
     ).toEqual([
-      `Off since [${WHEN}]. Anil Administrator of the Desi-Event team turned it off, with this note: “Not the organiser’s site.”. Your address is not shown on the event page.`,
-      'Your new address is on the Desi-Event team’s list to look at.',
+      `Off since [${WHEN}]. Anil Administrator of the team at The Desi Events turned it off, with this note: “Not the organiser’s site.”. Your address is not shown on the event page.`,
+      'Your new address is on the list for the team at The Desi Events to look at.',
       ONLY_THE_TEAM,
     ])
   })
@@ -142,11 +142,31 @@ describe('organiserSummary', () => {
     )
   })
 
-  it('names "A Desi-Event administrator" when no name came', () => {
+  it('names "An administrator" when no name came', () => {
     expect(
       organiserSummary({ ...ON, changedByName: null }, { websiteUrl: A, formatInstant })
         .sentences[0],
-    ).toContain('A Desi-Event administrator of the Desi-Event team turned it on')
+    ).toContain('An administrator of the team at The Desi Events turned it on')
+  })
+
+  it('names a former administrator, already "at The Desi Events", without naming the company twice', () => {
+    const former = 'An administrator at The Desi Events'
+    const on = organiserSummary(
+      { ...ON, reason: null, changedByName: former },
+      { websiteUrl: A, formatInstant },
+    ).sentences[0]
+    const off = organiserSummary(
+      { ...ON, enabled: false, reason: null, changedByName: former },
+      { websiteUrl: A, formatInstant },
+    ).sentences[0]
+
+    expect(on).toMatch(
+      /^On since \[[^\]]+\]\. An administrator at The Desi Events turned it on\. /u,
+    )
+    expect(off).toMatch(
+      /^Off since \[[^\]]+\]\. An administrator at The Desi Events turned it off\. /u,
+    )
+    for (const sentence of [on, off]) expect(sentence.match(/The Desi Events/gu)).toHaveLength(1)
   })
 
   it('always ends with who can turn the link on or off, and never says soon, yet or planned', () => {
@@ -164,7 +184,9 @@ describe('organiserSummary', () => {
     for (const [state, websiteUrl] of states) {
       const { sentences } = organiserSummary(state, { websiteUrl })
 
-      expect(sentences.at(-1)).toBe('Only the Desi-Event team can turn this link on or off.')
+      expect(sentences.at(-1)).toBe(
+        'Only the team at The Desi Events can turn this link on or off.',
+      )
       expect(sentences.join(' ')).not.toMatch(/\b(soon|yet|planned)\b/iu)
     }
   })

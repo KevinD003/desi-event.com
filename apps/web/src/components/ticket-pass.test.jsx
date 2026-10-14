@@ -183,7 +183,7 @@ describe('VenuePaymentNote (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
     expect(screen.getByText('Cancelled — not paid')).toHaveAttribute('data-tone', 'neutral')
     expect(
       screen.getByText(
-        'The Desi-Event team cancelled this ticket on Thu, Oct 8, 2026 because it had not been paid for. You no longer owe $40.00 for it.',
+        'The Desi Events team cancelled this ticket on Thu, Oct 8, 2026 because it had not been paid for. You no longer owe $40.00 for it.',
       ),
     ).toBeInTheDocument()
     expect(
@@ -200,7 +200,7 @@ describe('VenuePaymentNote (SPEC3 §12.7, SPEC3-XI §12.7)', () => {
 
     expect(
       screen.getByText(
-        'The $40.00 you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+        'The $40.00 you paid at the door for this ticket is with the organiser, not with The Desi Events. Ask the organiser to return it.',
       ),
     ).toBeInTheDocument()
   })

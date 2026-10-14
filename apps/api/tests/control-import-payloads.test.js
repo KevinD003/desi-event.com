@@ -33,7 +33,7 @@ const ANIL = 'anil@desi-event.example'
 const OWNER = 'owner@rangoli.example'
 const BUYER = 'priya@example.com'
 
-/** Why the Desi-Event team opened the organiser's event: shown to the organiser, never to a stranger. */
+/** Why the team at The Desi Events opened the organiser's event: shown to the organiser, never to a stranger. */
 const SITTING_REASON = 'Correcting the spelling the organiser asked us to fix.'
 
 /** Why an organiser's own event was deleted. */
@@ -218,7 +218,7 @@ async function walkWorld() {
     { status: 'STORED', mediaAssetId: cover.id, lastTriedAt: approvedAt, attempts: 1 },
   )
 
-  // The Desi-Event team opens the organiser's posted event.
+  // The Desi Events team opens the organiser's posted event.
   const opened = await app.inject({
     method: 'POST',
     url: `/v1/platform/events/${ids.publishedEvent.id}/edit`,

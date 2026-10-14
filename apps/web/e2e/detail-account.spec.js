@@ -315,7 +315,7 @@ test.describe('the account rail', () => {
       },
     )
     // Anybody signed in can join a team with a code, or accept an organiser
-    // invitation the Desi-Event team sent them — organisations are never
+    // invitation the team at The Desi Events sent them — organisations are never
     // started from an account — so those two are offered to an attendee too,
     // and still no workspace, which is for members.
     const places = region(holder, 'Where to go').getByRole('link')

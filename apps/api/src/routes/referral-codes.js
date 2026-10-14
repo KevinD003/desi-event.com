@@ -1,5 +1,5 @@
 /**
- * Referral codes, for the Desi-Event team (SPEC3 §8): codes that remove the
+ * Referral codes, for the team at The Desi Events (SPEC3 §8): codes that remove the
  * whole booking fee from an order. `referralCodes.list`, `.byAdministrator`,
  * `.create`, `.get`, `.update`, `.switchOff` and `.switchOn`.
  *

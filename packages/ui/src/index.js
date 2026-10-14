@@ -1,6 +1,6 @@
 /**
- * `@desi-event/ui` — the accessible React primitives shared by the Desi-Event
- * web application.
+ * `@desi-event/ui` — the accessible React primitives shared by the web
+ * application of The Desi Events.
  *
  * Every component here is plain JSX styled with Tailwind utility classes and
  * accepts a `className` that is merged last, so a consumer can restyle a

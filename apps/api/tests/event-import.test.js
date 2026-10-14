@@ -1103,7 +1103,7 @@ describe('the review of a platform-held import (SPEC2-XI O5, O16)', () => {
     expect(fromReview.json().error.code).toBe('IMPORTED_EVENT_NO_EDITOR')
     // The web's sentence word for word, and no promise ("yet") in it.
     expect(fromReview.json().error.message).toBe(
-      'Nobody runs this event on Desi-Event, so nobody could make changes you ask for. Approve it and correct it once it is published, reject it, or delete it.',
+      'Nobody runs this event on The Desi Events, so nobody could make changes you ask for. Approve it and correct it once it is published, reject it, or delete it.',
     )
     expect(fromReview.json().error.message).not.toMatch(/\byet\b|\bsoon\b/iu)
 
@@ -1730,7 +1730,7 @@ describe('the platform-held organisation takes no members', () => {
       statusCode: 409,
       code: 'PLATFORM_HELD_ORGANIZATION',
       message:
-        "This organisation holds imported events for the Desi-Event team and has no members. Move the event to the organiser's own organisation instead.",
+        "This organisation holds imported events for the team at The Desi Events and has no members. Move the event to the organiser's own organisation instead.",
     })
     // Another check violation is still a fault.
     error.meta.driverAdapterError.cause.originalMessage = 'something_else'

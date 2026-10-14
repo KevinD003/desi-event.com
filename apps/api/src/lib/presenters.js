@@ -308,7 +308,7 @@ export const EVENT_SUMMARY_SELECT = Object.freeze({
   importItem: IMPORTED_FROM_SELECT,
   websiteRedirectEnabled: true,
   websiteDecidedUrl: true,
-  // The event's own booking fee, when the Desi-Event team set one: the card's
+  // The event's own booking fee, when the team at The Desi Events set one: the card's
   // "from" price is priced with the terms checkout charges (SPEC3 §7.2).
   feeSource: true,
   feePercentageBps: true,
@@ -375,7 +375,7 @@ export function publicPriceName(name) {
 
 /**
  * Where an imported event is listed, and what the listing said, for an event
- * still held by the Desi-Event team's platform-held organisation (SPEC2-XI
+ * still held by the platform-held organisation of the team at The Desi Events (SPEC2-XI
  * §5.I-E); null for every other event, and once it has been moved to an
  * organiser's own organisation.
  *
@@ -434,8 +434,8 @@ export function importedFromView(event) {
  *
  * With `feeConfigFor`, the summary also carries `minTotalCents`: one ticket of
  * the cheapest tier priced exactly as `orders.create` prices it by card — the
- * same `computeOrderTotals`, the event's own booking fee when the Desi-Event
- * team set one (else the site default), and the tax rule of the venue's
+ * same `computeOrderTotals`, the event's own booking fee when the team at
+ * The Desi Events set one (else the site default), and the tax rule of the venue's
  * jurisdiction at `now`. A seat's `priceCentsOverride` is not consulted; no
  * route writes one, and checkout reads it only at the seat.
  *
@@ -668,10 +668,10 @@ export function joinUrlFor(ticket, order, event) {
  * @param {boolean} [options.includeOnlineUrl] Whether the caller may see the online joining link: the organisation and staff only.
  * @param {Map<string, number>} [options.sessionsAvailability] Seats available now, per seated session id.
  * @param {Map<string, number>} [options.tierSeatsAvailable] Free seats per reserved tier id, for the tiers shown; each carries its own as `availableQuantity`.
- * @param {function(string, object): object} [options.feeConfigFor] The fee terms for a currency and this event, as checkout uses them (`eventFeeConfig`); when given, the detail carries `feeTerms`: the event's own when the Desi-Event team set them, else the site default, never saying which.
+ * @param {function(string, object): object} [options.feeConfigFor] The fee terms for a currency and this event, as checkout uses them (`eventFeeConfig`); when given, the detail carries `feeTerms`: the event's own when the team at The Desi Events set them, else the site default, never saying which.
  * @param {object} [options.paymentTerms] The event's booking fee and pay-at-the-venue switch as its own team and administrators read them (`eventPaymentTerms`); the route passes them only to such a reader, and for everybody else the key is absent.
  * @param {'public'|'insider'|'administrator'} [options.website] The caller's view of the website link, from `websiteViewFor`. Everybody gets `websiteLink` (a host or null); an insider or administrator also gets `websiteUrl` and the switch's state, and for everybody else both keys are absent.
- * @param {{platformReader: boolean}|null} [options.deletion] For a deleted event read by its team or the Desi-Event team: the record of its deletion is added as `deletion`, naming who deleted it only to a platform reader.
+ * @param {{platformReader: boolean}|null} [options.deletion] For a deleted event read by its team or the team at The Desi Events: the record of its deletion is added as `deletion`, naming who deleted it only to a platform reader.
  * @returns {object} A payload satisfying `eventWithRelationsSchema`.
  */
 export function toEventDetail(
@@ -770,7 +770,7 @@ export function toEventDetail(
       .map((session) => toPublicSession(session, sessionsAvailability.get(session.id) ?? null)),
   }
 
-  // A deleted event's record, for its own team and the Desi-Event team only
+  // A deleted event's record, for its own team and the team at The Desi Events only
   // (the route decides who; strangers never reach here, a deleted event being
   // a 404 to them).
   if (deletion && event.status === 'DELETED') {
@@ -808,12 +808,12 @@ const DELETION_OUTCOME_WIRE = Object.freeze(
 /**
  * A deleted event's record, as the people who may still read it see it.
  *
- * Who deleted it is named to the Desi-Event team, and to the organisation when
- * one of its own members deleted it; an organiser reads a deletion by the
- * Desi-Event team without the administrator's name.
+ * Who deleted it is named to the team at The Desi Events, and to the
+ * organisation when one of its own members deleted it; an organiser reads a
+ * deletion by the team at The Desi Events without the administrator's name.
  *
  * @param {object} event A DELETED event row, with `deletedBy` when the name may be shown.
- * @param {{platformReader: boolean}} options Whether the reader is on the Desi-Event team.
+ * @param {{platformReader: boolean}} options Whether the reader is on the team at The Desi Events.
  * @returns {object} The `deletion` block of `eventWithRelationsSchema`.
  */
 export function toEventDeletion(event, { platformReader = false } = {}) {

@@ -128,10 +128,10 @@ the key is refused with a 400 naming the upload route.
   the limitations page lists "Adding pictures to a published event" as NOT
   IMPLEMENTED.
 
-  > **Superseded in part by ADR 0014 (2026-10-06):** a published event takes
-  > new pictures, each approved individually by somebody on the Desi-Event team
-  > other than its uploader; the old cover stays until a replacement is
-  > approved. The limitation was removed.
+  > **Superseded in part by ADR 0014 (2026-10-06):** a published event takes new
+  > pictures, each approved individually by somebody on the team at
+  > The Desi Events other than its uploader; the old cover stays until a
+  > replacement is approved. The limitation was removed.
 
 - **The gallery-cap trigger locks the event row `FOR NO KEY UPDATE`.** That
   serialises two gallery inserts without blocking a checkout's foreign-key

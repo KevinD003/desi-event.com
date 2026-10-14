@@ -33,7 +33,7 @@
  * The team list carries, for each member, the roles this caller may set for
  * them (`roleChoices`), and the select offers exactly those. Roles that create
  * or publish events — event manager, manager, administrator, owner — are given
- * by the Desi-Event team: somebody who already posts events can be moved down
+ * by the team at The Desi Events: somebody who already posts events can be moved down
  * among them, and nobody can be moved up into one from here. A member who does
  * not post events is told so beside the select. When the API refuses all the
  * same (`POSTING_ROLE_NEEDS_PLATFORM`, decided again on the locked row), its
@@ -97,7 +97,7 @@ import {
  * roles that do are not on offer, and why.
  */
 export const POSTING_ROLES_HINT =
-  'Roles that create or publish events — event manager, manager and administrator — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person in one of those roles.'
+  'Roles that create or publish events — event manager, manager and administrator — are given by the team at The Desi Events, not from this page. Ask the team at The Desi Events to add this person in one of those roles.'
 
 /**
  * What withdrawing and reissuing say about the code, per delivery mode.

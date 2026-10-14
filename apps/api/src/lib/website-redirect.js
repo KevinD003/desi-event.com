@@ -1,5 +1,5 @@
 /**
- * The organiser's website link, and the switch only the Desi-Event team turns.
+ * The organiser's website link, and the switch only the team at The Desi Events turns.
  *
  * ## The columns
  *
@@ -73,7 +73,7 @@ export const WEBSITE_REDIRECT_SELECT = Object.freeze({
 })
 
 /** Who decided, once the administrator's account is gone. */
-export const FORMER_ADMINISTRATOR_NAME = 'A Desi-Event administrator'
+export const FORMER_ADMINISTRATOR_NAME = 'An administrator at The Desi Events'
 
 /** `EventStatus.DELETED`, once the status exists (SPEC2-XI). */
 export const DELETED_STATUS = 'DELETED'
@@ -106,7 +106,7 @@ export function deletedStatusExists(statuses = EVENT_STATUSES) {
  *
  * Only while an administrator has the link on, the address they approved still
  * passes today's address rules, and the event's page is public. Never the
- * address itself: the link on the page is Desi-Event's own
+ * address itself: the link on the page is The Desi Events' own
  * `/events/{slug}/website`.
  *
  * @param {object|null|undefined} event An event row with the website columns and `status`.
@@ -137,7 +137,7 @@ export function websiteRedirectTarget(event) {
 }
 
 /**
- * The switch as the event's team and the Desi-Event team read it.
+ * The switch as the event's team and the team at The Desi Events read it.
  *
  * `changedByName` is the deciding administrator's display name, shown to the
  * organiser as well (SPEC2 D6), or {@link FORMER_ADMINISTRATOR_NAME} once the

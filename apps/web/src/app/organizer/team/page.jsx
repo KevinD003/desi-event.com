@@ -35,8 +35,8 @@
  *
  * ## Roles that create or publish events
  *
- * Event manager, manager, administrator and owner are given by the Desi-Event
- * team, not from this page: an organiser invitation makes somebody an owner,
+ * Event manager, manager, administrator and owner are given by the team at
+ * The Desi Events, not from this page: an organiser invitation makes somebody an owner,
  * and a super administrator may put anybody in any role. So the invite form
  * offers only the roles that do not post events (`assignableRoles`), and a
  * member's role can be changed only to one the API lists for that member
@@ -82,7 +82,7 @@ export const metadata = { title: 'Team and roles', robots: { index: false, follo
 
 /** What the page says beside the invite form about roles that post events. */
 export const POSTING_ROLES_SENTENCE =
-  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. To add somebody who will create events, ask the Desi-Event team to add them to your organisation.'
+  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the team at The Desi Events, not from this page. To add somebody who will create events, ask the team at The Desi Events to add them to your organisation.'
 
 /** What the Ownership section says about who can take it. */
 export const HEIR_SENTENCE = 'Ownership can go only to somebody who already creates events here.'

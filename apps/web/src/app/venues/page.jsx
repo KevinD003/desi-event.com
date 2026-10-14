@@ -1,5 +1,5 @@
 /**
- * The venue directory: the shared venues on Desi-Event, and what each one
+ * The venue directory: the shared venues on The Desi Events, and what each one
  * asserts about getting in.
  *
  * ## Whose venues
@@ -70,7 +70,7 @@ export const dynamic = 'force-dynamic'
 export const metadata = {
   title: 'Venues',
   description:
-    'Halls and pavilions on Desi-Event, with the accessibility each venue asserts — step-free entrances, hearing loops, accessible toilets and more.',
+    'Halls and pavilions on The Desi Events, with the accessibility each venue asserts — step-free entrances, hearing loops, accessible toilets and more.',
 }
 
 /** Classes for a pagination link, matching the event listing. */
@@ -284,7 +284,7 @@ function NoVenuesHere({ filters, pagination }) {
   return (
     <Empty
       title="No venues are listed"
-      description="This directory lists the venues shared across Desi-Event, and it has none."
+      description="This directory lists the venues shared across The Desi Events, and it has none."
     />
   )
 }
@@ -310,7 +310,7 @@ export default async function VenuesPage({ searchParams }) {
         headingId="venues-heading"
         eyebrow="Halls & pavilions"
         title="Venues"
-        lead="The halls and pavilions shared across Desi-Event, and what each one asserts about getting in. Open a venue for its address, how to reach it and what is on there."
+        lead="The halls and pavilions shared across The Desi Events, and what each one asserts about getting in. Open a venue for its address, how to reach it and what is on there."
         art={<GarbaRings className="h-[30rem] w-[30rem]" />}
         className="pb-24 sm:pb-28"
       />

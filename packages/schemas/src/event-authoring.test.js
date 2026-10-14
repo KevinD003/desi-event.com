@@ -137,7 +137,7 @@ describe('an online event may be saved before its link is typed', () => {
   })
 })
 
-describe('the website address and the switch only the Desi-Event team turns', () => {
+describe('the website address and the switch only the team at The Desi Events turns', () => {
   it('stores the address normalised, and reads a blank or null as clearing it', () => {
     expect(updateEventRequestSchema.parse({ websiteUrl: 'https://WWW.Example.com' })).toEqual({
       websiteUrl: 'https://www.example.com/',
@@ -151,7 +151,7 @@ describe('the website address and the switch only the Desi-Event team turns', ()
   })
 
   it.each(['websiteRedirectEnabled', 'websiteRedirect', 'websiteDecidedUrl'])(
-    'refuses %s on create and update with the Desi-Event sentence',
+    'refuses %s on create and update with the sentence about the team at The Desi Events',
     (key) => {
       for (const value of [true, false, 'https://a.example/', null, {}]) {
         const update = updateEventRequestSchema.safeParse({ title: 'T', [key]: value })

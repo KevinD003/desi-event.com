@@ -30,7 +30,7 @@ describe('belongsTo', () => {
 
   it('says who decides in the API’s words', () => {
     expect(CONFLICT_OF_INTEREST_NOTICE).toBe(
-      'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.',
+      'You belong to this organisation, so somebody else on the team at The Desi Events has to decide this.',
     )
   })
 })

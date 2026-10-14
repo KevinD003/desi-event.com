@@ -17,9 +17,9 @@
  *
  * A notice holds no personal data: field names, the sentences describing them
  * (frozen when written, so a later relabelling does not rewrite history), the
- * values before and after, the reason the organiser or the Desi-Event team
- * gave, the night when it was one night, and whether the Desi-Event team made
- * it — never who.
+ * values before and after, the reason the organiser or the team at The Desi
+ * Events gave, the night when it was one night, and whether the team at The
+ * Desi Events made it — never who.
  *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc namepath.
  *
@@ -85,7 +85,7 @@ export function withholdNoticeValues(values) {
  * @param {object|null} [options.after] Values after, keyed by field.
  * @param {string|null} [options.reason] The reason given.
  * @param {object|null} [options.session] The night, when the change was to one.
- * @param {boolean} [options.byPlatform] Whether the Desi-Event team made it.
+ * @param {boolean} [options.byPlatform] Whether the team at The Desi Events made it.
  * @param {number|null} [options.revision] The event revision it was written as.
  * @returns {Promise<object>} The notice row.
  */

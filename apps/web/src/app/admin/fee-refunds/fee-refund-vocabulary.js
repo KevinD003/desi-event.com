@@ -15,7 +15,7 @@ export const INTRODUCTION =
 
 /** What a session without `platform_fee:refund` is told. */
 export const NOT_FOR_THIS_ACCOUNT =
-  'Booking fees are refunded by hand by the Desi-Event team’s platform, finance and super administrators. Nothing on this page can grant it.'
+  'Booking fees are refunded by hand by the platform, finance and super administrators at The Desi Events. Nothing on this page can grant it.'
 
 /**
  * What a reference that is not in the form references take is told: the

@@ -147,7 +147,7 @@ const TEMPLATES = Object.freeze({
  * @param {string|null} [options.actorId] Who did it.
  * @param {string|null} [options.requestId] For the audit trail.
  * @param {Date} [options.now] The instant.
- * @param {boolean} [options.byPlatform] Whether the Desi-Event team made the change
+ * @param {boolean} [options.byPlatform] Whether the team at The Desi Events made the change
  *   (a SUPER_ADMIN under Rule L, or a deletion): the notices say so, never who.
  * @param {string|null} [options.via] What made it, when not the command itself
  *   (`event_deletion`), carried on the refunds' audit rows.
@@ -309,7 +309,7 @@ export async function cancellationWork(tx, options) {
  * @param {'CANCELLED'|'POSTPONED'} options.kind Which change this is.
  * @param {string} options.reasonCode The machine-readable reason.
  * @param {string} options.reason The prose an attendee reads.
- * @param {boolean} options.byPlatform Whether the Desi-Event team made the change.
+ * @param {boolean} options.byPlatform Whether the team at The Desi Events made the change.
  * @param {object} [options.extra] More payload, for a pay-at-the-venue booking.
  * @returns {Promise<number>} How many rows were written (0 on a repeat).
  */
@@ -494,7 +494,7 @@ async function refundDecision(tx, options) {
  * @param {string|null} options.onlineRefund What became of the booking fee paid online.
  * @param {string} options.reasonCode The machine-readable reason.
  * @param {string} options.reason The prose an attendee reads.
- * @param {boolean} options.byPlatform Whether the Desi-Event team made the change.
+ * @param {boolean} options.byPlatform Whether the team at The Desi Events made the change.
  * @returns {Promise<number>} How many rows were written.
  */
 async function writeVenueNotices(

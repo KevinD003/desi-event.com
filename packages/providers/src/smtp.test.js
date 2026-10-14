@@ -202,7 +202,7 @@ describe('createSmtpEmailProvider against a local sink', () => {
     const provider = providerFor(sink.port)
     const receipt = await provider.send({
       to: 'Invitee@Example.com',
-      subject: 'Your organiser invitation from Desi-Event',
+      subject: 'Your organiser invitation from The Desi Events',
       text: `Hello,\n\nYour invitation code is:\n\n    ${CODE}\n\nThanks.`,
     })
 
@@ -220,7 +220,7 @@ describe('createSmtpEmailProvider against a local sink', () => {
     })
     expect(headers.from).toBe('no-reply@desi-event.test')
     expect(headers.to).toBe('invitee@example.com')
-    expect(headers.subject).toBe('Your organiser invitation from Desi-Event')
+    expect(headers.subject).toBe('Your organiser invitation from The Desi Events')
     expect(headers['content-type']).toMatch(/text\/plain; charset=utf-8/iu)
     expect(body).toContain(`\n    ${CODE}\n`)
     // An ASCII code on its own line survives the encoding verbatim.
@@ -234,14 +234,14 @@ describe('createSmtpEmailProvider against a local sink', () => {
 
     await provider.send({
       to: 'invitee@example.com',
-      subject: `You are invited to join ${name} on Desi-Event`,
+      subject: `You are invited to join ${name} on The Desi Events`,
       text: `"${name}"\n\n> ${note}\n\n    ${CODE}\n`,
     })
 
     const { headers, body } = parseMessage(sink.messages[0].raw)
 
     expect(headers['content-transfer-encoding']).toBe('quoted-printable')
-    expect(headers.subject).toBe(`You are invited to join ${name} on Desi-Event`)
+    expect(headers.subject).toBe(`You are invited to join ${name} on The Desi Events`)
     expect(body).toContain(`"${name}"`)
     expect(body).toContain(`> ${note}`)
     expect(body).toContain(`    ${CODE}`)

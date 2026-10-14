@@ -27,7 +27,7 @@ describe('ImportedEventPanel', () => {
     )
 
     expect(
-      screen.getByText('Tickets for this event are sold on Sulekha, not on Desi-Event.'),
+      screen.getByText('Tickets for this event are sold on Sulekha, not on The Desi Events.'),
     ).toBeInTheDocument()
     expect(
       screen.getByText('As listed on Sulekha on 30 September 2026: Adult $25.00, Child Free.'),
@@ -37,7 +37,7 @@ describe('ImportedEventPanel', () => {
 
     expect(link).toHaveAttribute('href', '/events/raga-night/website')
     expect(link).toHaveAccessibleDescription(
-      'Opens events.sulekha.com, which Desi-Event does not run. Desi-Event counts the visit without recording your address, browser or account.',
+      'Opens events.sulekha.com, which The Desi Events does not run. The Desi Events counts the visit without recording your address, browser or account.',
     )
   })
 

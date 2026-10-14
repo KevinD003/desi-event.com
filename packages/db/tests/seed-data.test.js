@@ -288,7 +288,7 @@ describe('buildSeedData shape', () => {
     )
 
     expect(administrators.map((user) => user.email)).toEqual(['platform-admin@desi-event.example'])
-    expect(administrators[0].displayName).toBe('Desi-Event Platform Administrator')
+    expect(administrators[0].displayName).toBe('The Desi Events Platform Administrator')
     expect(members.has('platform-admin@desi-event.example')).toBe(false)
   })
 
@@ -1856,7 +1856,7 @@ describe('seeded booking fees, referral codes and paying at the venue (SPEC3 §1
     }
   })
 
-  it('cancels one unpaid ticket of that booking, by the Desi-Event team once the doors had opened, keeping its share of the booking fee (SPEC3-XI XU1, XU6)', () => {
+  it('cancels one unpaid ticket of that booking, by the team at The Desi Events once the doors had opened, keeping its share of the booking fee (SPEC3-XI XU1, XU6)', () => {
     const booking = order('DE-US-200015')
     const warmUp = event('warm-up')
 

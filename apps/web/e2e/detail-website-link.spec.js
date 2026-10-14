@@ -8,11 +8,11 @@ import { rollUpTrafficNow } from './support/traffic.mjs'
  * The organiser's website link and the administrators' switch, in a real
  * browser against the real API (SPEC2 D6, §4.W).
  *
- * An organiser gives an event their website's address; only a Desi-Event
- * platform administrator turns the event page's "Visit the organiser’s
+ * An organiser gives an event their website's address; only a platform
+ * administrator at The Desi Events turns the event page's "Visit the organiser’s
  * website" link on or off, for exactly the address on their screen, with a
- * reason the organiser reads beside the administrator's name. The link is
- * Desi-Event's own `/events/{slug}/website`, which answers a 302 to the
+ * reason the organiser reads beside the administrator's name. The link is the
+ * site's own `/events/{slug}/website`, which answers a 302 to the
  * address the administrator approved — never one taken from the request —
  * and counts the visit without keeping who made it.
  *
@@ -85,7 +85,7 @@ const CHECKED_LABEL = 'I have opened this address and it is the organiser’s ow
 const CANNOT_DECIDE = 'Only a platform administrator can turn the website link on or off.'
 
 /** The last line of every organiser summary. */
-const ONLY_THE_TEAM = 'Only the Desi-Event team can turn this link on or off.'
+const ONLY_THE_TEAM = 'Only the team at The Desi Events can turn this link on or off.'
 
 /** Why link-admin turns the general-admission event's link on. */
 const ON_REASON = 'Checked: gamma’s own site.'
@@ -294,7 +294,7 @@ test.describe.serial('the organiser’s website link', () => {
     // The page a visitor would see says so, and offers a way back.
     await visitor.goto(`/events/${gammaGaEventSlug}/website`)
     await expect(visitor.getByRole('heading', { level: 1, name: NOT_AVAILABLE })).toBeVisible()
-    await expect(visitor).toHaveTitle('Website link not available · Desi-Event')
+    await expect(visitor).toHaveTitle('Website link not available · The Desi Events')
     await expect(visitor.getByRole('link', { name: 'Back to the event' })).toHaveAttribute(
       'href',
       `/events/${gammaGaEventSlug}`,
@@ -311,7 +311,7 @@ test.describe.serial('the organiser’s website link', () => {
 
     await expect(status).toContainText('Off')
     await expect(status).toContainText(
-      'Off. Your address is on the Desi-Event team’s list of website links to look at. It is not shown on your event page until an administrator turns the link on.',
+      'Off. Your address is on the list of website links for the team at The Desi Events to look at. It is not shown on your event page until an administrator turns the link on.',
     )
     await expect(status).toContainText(ONLY_THE_TEAM)
 
@@ -446,7 +446,7 @@ test.describe.serial('the organiser’s website link', () => {
     await expect(visitor.getByText(`(${host})`, { exact: true })).toBeVisible()
     await expect(
       visitor.getByText(
-        `Opens ${host}, which Desi-Event does not run. Desi-Event counts the visit without recording your address, browser or account.`,
+        `Opens ${host}, which The Desi Events does not run. The Desi Events counts the visit without recording your address, browser or account.`,
         { exact: true },
       ),
     ).toBeVisible()
@@ -547,7 +547,7 @@ test.describe.serial('the organiser’s website link', () => {
     await expect(status).toContainText('On')
     await expect(status).toContainText(
       new RegExp(
-        `On since .+ UTC\\. ${LINK_ADMIN_NAME} of the Desi-Event team turned it on, with this note: “${ON_REASON}”\\. Your event page shows “${LINK_LABEL}”, which goes to ${hostOf(
+        `On since .+ UTC\\. ${LINK_ADMIN_NAME} of the team at The Desi Events turned it on, with this note: “${ON_REASON}”\\. Your event page shows “${LINK_LABEL}”, which goes to ${hostOf(
           gammaGaWebsiteUrl,
         ).replaceAll('.', '\\.')}\\.`,
         'u',
@@ -590,7 +590,7 @@ test.describe.serial('the organiser’s website link', () => {
     // waits.
     const status = organiserStatus(gamma)
     const waitingSentence = new RegExp(
-      `On since .+ UTC, going to ${oldHost.replaceAll('.', '\\.')}\\. Your new address, ${newHost.replaceAll('.', '\\.')}, is on the Desi-Event team’s list to look at; until an administrator approves it, the link keeps going to ${oldHost.replaceAll('.', '\\.')}\\.`,
+      `On since .+ UTC, going to ${oldHost.replaceAll('.', '\\.')}\\. Your new address, ${newHost.replaceAll('.', '\\.')}, is on the list for the team at The Desi Events to look at; until an administrator approves it, the link keeps going to ${oldHost.replaceAll('.', '\\.')}\\.`,
       'u',
     )
 
@@ -659,7 +659,7 @@ test.describe.serial('the organiser’s website link', () => {
     await gamma.reload()
     await openGuestStep(gamma, gammaGaEventId)
     await expect(organiserStatus(gamma)).toContainText(
-      `${LINK_ADMIN_NAME} of the Desi-Event team turned it on, with this note: “${NEW_REASON}”.`,
+      `${LINK_ADMIN_NAME} of the team at The Desi Events turned it on, with this note: “${NEW_REASON}”.`,
     )
     await expect(organiserStatus(gamma)).toContainText(`which goes to ${newHost}.`)
   })
@@ -705,7 +705,7 @@ test.describe.serial('the organiser’s website link', () => {
 
     await expect(status).toContainText(
       new RegExp(
-        `Off since .+ UTC\\. ${LINK_ADMIN_NAME} of the Desi-Event team turned it off, with this note: “${OFF_REASON}”\\. Your address is not shown on the event page\\.`,
+        `Off since .+ UTC\\. ${LINK_ADMIN_NAME} of the team at The Desi Events turned it off, with this note: “${OFF_REASON}”\\. Your address is not shown on the event page\\.`,
         'u',
       ),
     )

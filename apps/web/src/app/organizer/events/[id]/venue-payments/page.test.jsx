@@ -146,10 +146,10 @@ describe('the figures', () => {
     expect(value('Tickets booked to pay at the door, not paid')).toBe('3 ($135.00)')
     expect(value('Payments taken at the door')).toBe('$80.00 (2 tickets)')
     expect(value('Unpaid tickets cancelled')).toBe('1 ($45.00 no longer owed)')
-    expect(value('Booking fees on them, kept by Desi-Event')).toBe('$3.64')
+    expect(value('Booking fees on them, kept by The Desi Events')).toBe('$3.64')
     expect(within(figures).queryByText('Not paid by the end of the event')).toBeNull()
     expect(figures).toHaveTextContent(
-      'Money taken at the door is yours. Desi-Event records the amounts to help you count them; they are not in your payouts or in the figures from the ledger. The site adds no sales tax to tickets paid at the venue; you may still owe sales tax on those sales.',
+      'Money taken at the door is yours. The Desi Events records the amounts to help you count them; they are not in your payouts or in the figures from the ledger. The site adds no sales tax to tickets paid at the venue; you may still owe sales tax on those sales.',
     )
   })
 
@@ -174,7 +174,7 @@ describe('the figures', () => {
       within(figures).getByText('Not paid by the end of the event').nextElementSibling,
     ).toHaveTextContent('2 ($90.00)')
     expect(figures).toHaveTextContent(
-      'Payments taken at the door on bookings later refunded or cancelled: $40.00. If you return them, return them yourself; Desi-Event does not hold this money.',
+      'Payments taken at the door on bookings later refunded or cancelled: $40.00. If you return them, return them yourself; The Desi Events does not hold this money.',
     )
   })
 })
@@ -211,12 +211,12 @@ describe('the tables', () => {
     ])
     expect(
       screen.getByText(
-        'You can cancel tickets that have not been paid for until their night ends. Their places are freed and sell again while their sales are open; Desi-Event keeps any booking fee paid online for them.',
+        'You can cancel tickets that have not been paid for until their night ends. Their places are freed and sell again while their sales are open; The Desi Events keeps any booking fee paid online for them.',
       ),
     ).toBeInTheDocument()
   })
 
-  it('lists the cancelled unpaid tickets, naming a Desi-Event administrator as such', async () => {
+  it('lists the cancelled unpaid tickets, naming an administrator at The Desi Events as such', async () => {
     api.getVenuePayments.mockResolvedValue(report())
 
     await renderPage()
@@ -229,7 +229,7 @@ describe('the tables', () => {
         .getAllByRole('columnheader')
         .map((cell) => cell.textContent),
     ).toEqual(['When', 'By', 'Booking', 'Tickets', 'No longer owed', 'Reason'])
-    expect(row).toHaveTextContent('Priya Admin (Desi-Event)')
+    expect(row).toHaveTextContent('Priya Admin (The Desi Events)')
     expect(row).toHaveTextContent('DE-9Z8Y7X')
     expect(row).toHaveTextContent('$45.00')
     expect(row).toHaveTextContent('Not paid before the doors opened')
@@ -265,9 +265,15 @@ describe('the tables', () => {
   it('names who cancelled as the organisation reads it', () => {
     expect(cancelledByWords({ by: 'ORGANISER', byName: 'Meera Owner' })).toBe('Meera Owner')
     expect(cancelledByWords({ by: 'DESI_EVENT', byName: 'Priya Admin' })).toBe(
-      'Priya Admin (Desi-Event)',
+      'Priya Admin (The Desi Events)',
     )
-    expect(cancelledByWords({ by: 'DESI_EVENT', byName: null })).toBe('The Desi-Event team')
+    expect(cancelledByWords({ by: 'DESI_EVENT', byName: null })).toBe('The Desi Events team')
+  })
+
+  it('names a former administrator, already "at The Desi Events", without naming the company twice', () => {
+    expect(
+      cancelledByWords({ by: 'DESI_EVENT', byName: 'An administrator at The Desi Events' }),
+    ).toBe('An administrator at The Desi Events')
   })
 })
 

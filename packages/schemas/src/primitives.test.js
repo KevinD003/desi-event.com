@@ -243,7 +243,7 @@ describe('timezoneSchema remembers the zones Intl accepted', () => {
 
 describe('urlSchema', () => {
   it('accepts http and https', () => {
-    expect(urlSchema.parse('https://desi-event.com/x')).toBe('https://desi-event.com/x')
+    expect(urlSchema.parse('https://thedesievents.com/x')).toBe('https://thedesievents.com/x')
   })
 
   it('rejects other protocols and junk', () => {

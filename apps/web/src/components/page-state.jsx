@@ -105,7 +105,8 @@ export function Breadcrumbs({ trail, tone = 'default' }) {
  *
  * Callers used to pass a fragment ("the API answered 503") that this spliced
  * after a colon. Since Phase 4 they pass the refusal vocabulary's sentences,
- * and splicing those produced "loaded: Nothing reached Desi-Event…again..".
+ * and splicing those produced "loaded: Nothing reached
+ * The Desi Events…again..".
  *
  * @param {string} detail The detail.
  * @returns {string} The sentence.

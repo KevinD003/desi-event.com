@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { COMPANY_CHANNELS, COMPANY_MAILTO, OTHER_MAILTO } from './support/company-contact.js'
+
 test.describe('home → events → event → checkout', () => {
   test('a visitor can get from the home page to a priced basket', async ({ page }) => {
     await page.goto('/')
@@ -117,5 +119,52 @@ test.describe('home → events → event → checkout', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText('not on the bill')
     await expect(page.getByRole('link', { name: 'Browse every event' })).toBeVisible()
     await expect(page.locator('body')).not.toContainText('ECONNREFUSED')
+  })
+})
+
+test.describe('footer → contact', () => {
+  test('a visitor reaches the contact page from the footer, and every channel goes where it says', async ({
+    page,
+  }) => {
+    await page.goto('/')
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+
+    const footer = page.getByRole('contentinfo')
+    const row = footer.getByRole('list', { name: 'Contact', exact: true })
+
+    // The footer's own links first: each channel, named for where it goes.
+    for (const channel of COMPANY_CHANNELS) {
+      await expect(
+        row.getByRole('link', { name: channel.footerName, exact: true }),
+      ).toHaveAttribute('href', channel.href)
+    }
+
+    await row.getByRole('link', { name: 'Contact page', exact: true }).click()
+
+    await expect(page).toHaveURL((url) => url.pathname === '/contact')
+    await expect(page).toHaveTitle('Contact · The Desi Events')
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Contact The Desi Events', exact: true }),
+    ).toBeVisible()
+
+    const channels = page.getByRole('list', { name: 'Ways to reach the team', exact: true })
+
+    await expect(channels.getByRole('listitem')).toHaveCount(COMPANY_CHANNELS.length)
+
+    for (const channel of COMPANY_CHANNELS) {
+      const item = channels.getByRole('listitem').filter({ hasText: channel.kind })
+      const link = item.getByRole('link', { name: channel.pageName, exact: true })
+
+      await expect(link).toHaveAttribute('href', channel.href)
+      // Same tab, as every link on the site: the visitor's own mail app,
+      // phone, WhatsApp or browser opens it.
+      await expect(link).not.toHaveAttribute('target', /./u)
+    }
+
+    // The one email address on the page is the company's own, and there is
+    // no form: nothing here sends a message on anybody's behalf.
+    await expect(page.locator('a[href^="mailto:"]').first()).toHaveAttribute('href', COMPANY_MAILTO)
+    await expect(page.locator(OTHER_MAILTO)).toHaveCount(0)
+    await expect(page.locator('main form')).toHaveCount(0)
   })
 })

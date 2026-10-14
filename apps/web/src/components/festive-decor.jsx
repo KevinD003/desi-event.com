@@ -22,8 +22,8 @@
  */
 
 /**
- * The Desi-Event mark: a rani-pink diamond, a marigold one inside it, and an
- * ivory mirror at the centre.
+ * The mark of The Desi Events: a rani-pink diamond, a marigold one inside it,
+ * and an ivory mirror at the centre.
  *
  * @param {object} props Component props.
  * @param {boolean} [props.inverse] Drawn for a night band, where the centre takes the night's colour.
@@ -62,10 +62,12 @@ export function BrandMark({ inverse = false, className = 'h-9 w-9' }) {
 }
 
 /**
- * The wordmark: the mark, "Desi-Event" in the display face, and the name in
- * Devanagari beneath it. The Devanagari line is hidden from assistive
+ * The wordmark: the mark, "The Desi Events" in the display face, and the name
+ * in Devanagari beneath it. The Devanagari line is hidden from assistive
  * technology, so a link wrapped round the wordmark is named by the brand, said
- * once.
+ * once; it is marked `lang="hi"`, which is also what the header uses to drop it
+ * on the narrowest screens. "Desi Events" never breaks across lines, so where
+ * the header stacks the name it reads "The" over "Desi Events".
  *
  * @param {object} props Component props.
  * @param {boolean} [props.inverse] Drawn for the night band.
@@ -81,13 +83,14 @@ export function Wordmark({ inverse = false }) {
             inverse ? 'text-ink-inverse' : 'text-ink'
           }`}
         >
-          Desi-Event
+          The <span className="whitespace-nowrap">Desi Events</span>
         </span>
         <span
           aria-hidden="true"
+          lang="hi"
           className={`font-sans text-micro ${inverse ? 'text-ink-inverse-muted' : 'text-ink-subtle'}`}
         >
-          देसी इवेंट
+          द देसी इवेंट्स
         </span>
       </span>
     </>

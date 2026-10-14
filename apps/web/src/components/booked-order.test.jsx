@@ -60,7 +60,7 @@ describe('BookedOrder', () => {
     expect(screen.getByText(AT_THE_DOOR_SENTENCE)).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Until you pay at the door, the organiser or Desi-Event can cancel unpaid tickets, and the booking fee is not refunded if they do.',
+        'Until you pay at the door, the organiser or The Desi Events can cancel unpaid tickets, and the booking fee is not refunded if they do.',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Paid — simulated/u)).not.toBeInTheDocument()
@@ -84,7 +84,7 @@ describe('BookedOrder', () => {
     expect(screen.getByText(/Nothing paid online/u)).toBeInTheDocument()
     expect(screen.getByText(unpaidCancellationSentence(true))).toBeInTheDocument()
     expect(unpaidCancellationSentence(true)).toBe(
-      'Until you pay at the door, the organiser or Desi-Event can cancel unpaid tickets, and nothing was paid online for them.',
+      'Until you pay at the door, the organiser or The Desi Events can cancel unpaid tickets, and nothing was paid online for them.',
     )
     expect(screen.queryByText(/no money moved/u)).not.toBeInTheDocument()
   })

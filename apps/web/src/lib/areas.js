@@ -121,7 +121,7 @@ export const AREAS = Object.freeze({
     refusal:
       'This workspace is for people who run events: organisers, their staff and the people on their doors. Your account is not a member of any organisation that puts events on here. If you should be, ask whoever runs the organisation to add you — nothing on this page can grant it.',
     // Organisations are not made from an account here: organisers join by an
-    // invitation from the Desi-Event team. Accepting that invitation, or
+    // invitation from the team at The Desi Events. Accepting that invitation, or
     // joining a team with a code somebody in it gave you, is not a way round
     // anybody's decision: each code was issued by somebody entitled to, works
     // only for the address it names, and is checked by the API.
@@ -188,8 +188,8 @@ export const AREAS = Object.freeze({
     // platform administrator (`organizer:invite`) comes in to invite
     // organisers; a super administrator (`platform:admin`, and every other
     // capability) to that and to changing who can do what. Editing and
-    // deleting any organisation's posted events (`event:platform_edit`) is the
-    // Desi-Event team's too, held by the same two roles, and so is importing
+    // deleting any organisation's posted events (`event:platform_edit`) belongs
+    // to the team at The Desi Events too, held by the same two roles, and so is importing
     // events listed on Sulekha (`event:import`). Each page inside asks its own
     // question again. `href` stays the invitations: the area's index page
     // sends a session to the first tab it is offered, so one holding only the
@@ -209,7 +209,7 @@ export const AREAS = Object.freeze({
       sessionCan(session, 'platform_fee:refund') ||
       sessionCan(session, 'venue_booking:cancel'),
     refusal:
-      'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
+      'This area is for the platform administrators at The Desi Events: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
   },
   retention: {
     key: 'retention',

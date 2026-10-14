@@ -232,7 +232,7 @@ export function venuePaymentNotes(ticket, timeZone = ticket?.event?.timezone || 
   const due = formatAmount(venue.dueCents, venue.currency)
 
   if (venue.cancelled) {
-    const by = venue.cancelled.by === 'DESI_EVENT' ? 'The Desi-Event team' : 'The organiser'
+    const by = venue.cancelled.by === 'DESI_EVENT' ? 'The Desi Events team' : 'The organiser'
     const reason = typeof venue.cancelled.reason === 'string' ? venue.cancelled.reason.trim() : ''
 
     // The reason given, as the buyer's order page words it: whoever holds the
@@ -257,7 +257,7 @@ export function venuePaymentNotes(ticket, timeZone = ticket?.event?.timezone || 
     (ENDED_STATUSES.has(ticket.status) || eventCalledOff(ticket))
   ) {
     return [
-      `The ${due} you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+      `The ${due} you paid at the door for this ticket is with the organiser, not with The Desi Events. Ask the organiser to return it.`,
     ]
   }
 

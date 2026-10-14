@@ -1,3 +1,4 @@
+import { COMPANY_CHANNELS } from './support/company-contact.js'
 import { expect, test, world } from './support/detail-fixtures.mjs'
 import { signIn } from './support/detail-world.mjs'
 
@@ -122,12 +123,22 @@ test.describe('what the screen says before anything has been simulated', () => {
   test('it links nowhere outside this deployment', async ({ owner }) => {
     await owner.goto('/finance/connect')
 
-    const hrefs = await owner
-      .locator('a[href]')
-      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('href')))
+    const links = await owner.locator('a[href]').evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        href: node.getAttribute('href'),
+        inFooter: Boolean(node.closest('footer')),
+      })),
+    )
+    // The one allowance: the site footer's links to the company's own public
+    // WhatsApp, Facebook and Instagram pages (`support/company-contact.js`),
+    // published by The Desi Events itself and on every page. Exactly those
+    // addresses, and only in the footer; anything else outside this
+    // deployment, on the screen or in the footer, is still refused.
+    const company = new Set(COMPANY_CHANNELS.map((channel) => channel.href))
 
-    for (const href of hrefs) {
+    for (const { href, inFooter } of links) {
       expect(href, `the screen linked to ${href}`).not.toMatch(/stripe\.com/i)
+      if (inFooter && company.has(href)) continue
       expect(href, `the screen linked to ${href}`).not.toMatch(/^https?:\/\//i)
     }
   })

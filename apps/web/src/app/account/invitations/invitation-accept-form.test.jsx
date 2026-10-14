@@ -252,7 +252,7 @@ describe('the invitation accept form', () => {
     expect(field).toHaveValue(CODE)
   })
 
-  it('says a code for a role that posts events comes from the Desi-Event team, not that it is dead', async () => {
+  it('says a code for a role that posts events comes from the team at The Desi Events, not that it is dead', async () => {
     const user = userEvent.setup()
 
     apiFetch.mockResolvedValue(
@@ -260,7 +260,7 @@ describe('the invitation accept form', () => {
         error: {
           code: 'POSTING_ROLE_NEEDS_PLATFORM',
           message:
-            'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.',
+            'Roles that create or publish events — event manager, manager, administrator and owner — are given by the team at The Desi Events, not from this page. Ask the team at The Desi Events to add this person to your organisation.',
         },
       }),
     )

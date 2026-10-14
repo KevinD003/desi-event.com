@@ -63,12 +63,12 @@ describe('Failure', () => {
   })
 
   it('keeps a detail that is already a sentence as one, without doubling its full stop', () => {
-    render(<Failure what="The refund" detail="Nothing reached Desi-Event. Try again." />)
+    render(<Failure what="The refund" detail="Nothing reached The Desi Events. Try again." />)
 
     const text = screen.getByRole('status').textContent
 
     expect(text).toContain(
-      'The refund could not be loaded. Nothing reached Desi-Event. Try again. ',
+      'The refund could not be loaded. Nothing reached The Desi Events. Try again. ',
     )
     expect(text).not.toMatch(/\.\.|: Nothing/)
   })

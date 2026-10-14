@@ -14,7 +14,7 @@
 
 /** What a session without `event:import` is told. */
 export const NOT_FOR_THIS_ACCOUNT =
-  'Events listed on other sites are imported by the Desi-Event team’s platform administrators. Nothing on this page can grant it.'
+  'Events listed on other sites are imported by the platform administrators at The Desi Events. Nothing on this page can grant it.'
 
 /** The path of the imports list. */
 export const IMPORTS_PATH = '/admin/imports'

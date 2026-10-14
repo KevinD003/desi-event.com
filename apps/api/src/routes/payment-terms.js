@@ -1,6 +1,6 @@
 /**
  * An event's booking fee (the platform fee) and its pay-at-the-venue switch,
- * for the Desi-Event team (SPEC3 §7, §9.1): `paymentTerms.get`,
+ * for the team at The Desi Events (SPEC3 §7, §9.1): `paymentTerms.get`,
  * `paymentTerms.setFee` and `paymentTerms.setVenuePayment`.
  *
  * The session, `payment_terms:manage` and the PAYMENT_TERMS step-up come from

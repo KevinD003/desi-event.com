@@ -34,8 +34,8 @@ const INPUTS = [
   'https://printer.local/',
   'https://x.onion/',
   'https://router.home/',
-  'https://desi-event.com/',
-  'https://www.desi-event.com/e/x',
+  'https://thedesievents.com/',
+  'https://www.thedesievents.com/e/x',
   'https://a.example/?token=1',
   'https://a.example/?Access_Token=1',
   'https://a.example/#access_token=1',
@@ -79,6 +79,20 @@ describe('the browser’s address rule is the server’s', () => {
       expect(browser.normaliseWebsiteUrl(value)).toBe(server.normaliseWebsiteUrl(value))
       expect(browser.websiteHost(value)).toBe(server.websiteHost(value))
     }
+  })
+
+  it('refuses the platform’s own domain, with or without www., and nothing like it', () => {
+    for (const value of [
+      'https://thedesievents.com/',
+      'https://www.thedesievents.com/e/x',
+      'https://THEDESIEVENTS.com/organizers/x',
+    ]) {
+      expect(browser.websiteUrlProblem(value), value).toBe(browser.WEBSITE_PROBLEMS.platform)
+    }
+    expect(browser.WEBSITE_PROBLEMS.platform).toBe(
+      'That address is on The Desi Events itself. Use your own website’s address.',
+    )
+    expect(browser.websiteUrlProblem('https://notthedesievents.com/')).toBeNull()
   })
 
   it('shows a host without its www.', () => {

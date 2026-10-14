@@ -26,7 +26,7 @@ const { TwoStep, groupSecret } = await import('./two-step.jsx')
 // fixture value the API and e2e suites use under the same name. It protects
 // nothing.
 const TOTP_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
-const URI = `otpauth://totp/Desi-Event:meera?secret=${TOTP_SECRET}&issuer=Desi-Event`
+const URI = `otpauth://totp/The%20Desi%20Events:meera?secret=${TOTP_SECRET}&issuer=The+Desi+Events`
 
 /**
  * A JSON response.

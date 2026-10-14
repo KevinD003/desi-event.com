@@ -6,7 +6,7 @@
  * is classified here and dropped: nothing downstream of {@link classifyReferrer}
  * ever sees it, and only the category is stored.
  *
- * `INTERNAL` ("Desi-Event pages") is a fifth category beside the four asked
+ * `INTERNAL` ("The Desi Events pages") is a fifth category beside the four asked
  * for, because how many people found an event through the platform itself is
  * the figure an organiser on this platform most wants, and folding it into
  * "direct" would hide it. Folding it back is one line here.

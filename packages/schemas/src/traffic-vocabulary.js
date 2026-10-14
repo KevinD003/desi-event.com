@@ -58,7 +58,7 @@ export const EVENT_ID_PATTERN = /^[a-z][a-z0-9]{7,31}$/
 /** Each source in words. */
 export const TRAFFIC_SOURCE_LABELS = Object.freeze({
   DIRECT: 'Straight to the page',
-  INTERNAL: 'Desi-Event pages',
+  INTERNAL: 'The Desi Events pages',
   SEARCH: 'Search engines',
   SOCIAL: 'Social networks',
   OTHER: 'Other websites',

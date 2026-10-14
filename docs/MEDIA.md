@@ -143,9 +143,9 @@ publication._
 | `REJECTED`, `ARCHIVED`                                                                    | no                               | no                      | yes    |
 | `DELETED`                                                                                 | no                               | no                      | no     |
 
-No new pixels reach a public page without a review. On a draft every new
-picture is reviewed with the event. On a posted event each new picture is
-stored `PENDING` and is not shown until somebody on the Desi-Event team other
+No new pixels reach a public page without a review. On a draft every new picture
+is reviewed with the event. On a posted event each new picture is stored
+`PENDING` and is not shown until somebody on the team at The Desi Events other
 than its uploader approves it; a new cover waits beside the current one, which
 stays public until the new one is approved. Removal stays open almost
 everywhere, because an organiser must always be able to take down a picture of
@@ -291,12 +291,12 @@ there are none.
 ## Deleted events — 2026-10-06
 
 A deleted event's pictures stop being served at once (`media.get` answers the
-public the 404 an unknown picture gets; the organisation and the Desi-Event
-team can still open them), though a copy
-already in somebody's browser can stay there for up to a day, the time it was
-served with. The rows and bytes are kept so a restore brings the event back
-whole, and they do not count toward the organisation's storage quota while it
-is deleted. Nothing purges them.
+public the 404 an unknown picture gets; the organisation and the team at
+The Desi Events can still open them), though a copy already in somebody's
+browser can stay there for up to a day, the time it was served with. The rows
+and bytes are kept so a restore brings the event back whole, and they do not
+count toward the organisation's storage quota while it is deleted. Nothing
+purges them.
 
 So that deleting full events and uploading again cannot grow storage without
 end, everything an organisation holds — its live pictures and its deleted
@@ -304,11 +304,11 @@ events' together — has a ceiling of its own: the quota again on top of it
 (`DELETED_EVENT_ALLOWANCE_BYTES`), 2 GiB in all (since 2026-10-07). An upload
 past it is refused with `MEDIA_QUOTA_EXCEEDED` and a sentence saying why, and
 `details.deletedEventBytes`: "Your organisation’s deleted events still hold
-their pictures, kept so the Desi-Event team can restore them, and together
-with your other pictures they fill the 2 GB your organisation may store in
-all. To make room, remove pictures from past events, or ask the Desi-Event
-team to restore a deleted event and then remove its pictures." A restored
-event's pictures can be removed in whatever status it comes back in.
+their pictures, kept so the team at The Desi Events can restore them, and
+together with your other pictures they fill the 2 GB your organisation may store
+in all. To make room, remove pictures from past events, or ask the team at
+The Desi Events to restore a deleted event and then remove its pictures." A
+restored event's pictures can be removed in whatever status it comes back in.
 `apps/api/tests/event-media-integration.test.js` drives the loop through the
 routes. A purge of long-deleted events' pictures would need its own window and
 its own limitation entry, and is not built.

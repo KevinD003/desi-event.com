@@ -220,7 +220,7 @@ async function parseBody(response) {
  * Build a client bound to one API origin.
  *
  * @param {object} options Client configuration.
- * @param {string} options.baseUrl Origin the API is served from, e.g. `https://api.desi-event.com`.
+ * @param {string} options.baseUrl Origin the API is served from, e.g. `https://api.thedesievents.com`.
  * @param {Function} [options.fetch] Fetch implementation; defaults to the global one.
  * @param {string|Function|null} [options.token] Bearer token, or a getter for one.
  * @param {Record<string, string>} [options.headers] Headers added to every request.

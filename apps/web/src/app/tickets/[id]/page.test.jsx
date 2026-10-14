@@ -257,7 +257,7 @@ describe('what changed since the ticket was bought', () => {
 
     expect(
       screen.getByText(
-        'The Desi-Event team removed this event’s page. It is no longer on the site, and this ticket no longer works at the door.',
+        'The Desi Events team removed this event’s page. It is no longer on the site, and this ticket no longer works at the door.',
       ),
     ).toBeInTheDocument()
   })
@@ -377,7 +377,7 @@ describe('a ticket booked to pay at the door (SPEC3-XI §12.7)', () => {
 
     expect(
       within(whereItStands()).getByText(
-        'The $40.00 you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+        'The $40.00 you paid at the door for this ticket is with the organiser, not with The Desi Events. Ask the organiser to return it.',
       ),
     ).toBeInTheDocument()
   })

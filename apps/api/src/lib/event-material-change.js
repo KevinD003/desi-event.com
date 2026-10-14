@@ -265,7 +265,7 @@ export function refuseUnconfirmed(material, status) {
  * @param {'MATERIAL_CHANGE'|'SESSION_CHANGE'|'RESCHEDULED'} [options.kind] What ticket holders are
  *   shown it as; a night's own change by default when `session` is given, the
  *   event's otherwise.
- * @param {boolean} [options.byPlatform] Whether the Desi-Event team made it, in
+ * @param {boolean} [options.byPlatform] Whether the team at The Desi Events made it, in
  *   an editing sitting or as a SUPER_ADMIN under Rule L. Carried in every
  *   notice so the message says who, never which person.
  * @returns {Promise<{orders: number, notifications: number}>} What was created.

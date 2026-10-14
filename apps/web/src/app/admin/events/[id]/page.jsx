@@ -1,5 +1,5 @@
 /**
- * One event, for the Desi-Event team: edit it once it is posted, delete it, or
+ * One event, for the team at The Desi Events: edit it once it is posted, delete it, or
  * restore it once deleted (SPEC2-XI X-7, X-9, X-12).
  *
  * Editing somebody else's event happens in an editing session the
@@ -7,7 +7,7 @@
  * hour, works in this browser only, and every write in it needs a second
  * factor from the last 10 minutes. Until one is open, the page offers to open
  * one; while one is open, it shows the same editor the organiser uses, under
- * the Desi-Event team's authority, without the organiser's lifecycle moves
+ * the authority of the team at The Desi Events, without the organiser's lifecycle moves
  * (publishing, sales and postponement are theirs).
  *
  * Deleting needs no session: the dialog reads what deleting would do, the
@@ -65,7 +65,7 @@ export const metadata = { title: 'Event', robots: { index: false, follow: false 
 
 /** What a session without the capability is told. */
 export const NOT_FOR_THIS_ACCOUNT =
-  'Editing, deleting and restoring an organisation’s event is for the Desi-Event team’s platform administrators. Nothing on this page can grant it.'
+  'Editing, deleting and restoring an organisation’s event is for the platform administrators at The Desi Events. Nothing on this page can grant it.'
 
 /**
  * Published map versions for a venue, flattened across its maps.
@@ -280,8 +280,8 @@ function DangerZone({ event }) {
       </h2>
       <p className="text-sm text-ink">
         Deleting takes the event off the site straight away. What else it does depends on its sales,
-        and is shown before anything is deleted. The organiser sees that the Desi-Event team deleted
-        it, and the reason you give.
+        and is shown before anything is deleted. The organiser sees that the team at The Desi Events
+        deleted it, and the reason you give.
       </p>
       <DeleteEventDialog
         event={{ id: event.id, title: event.title, slug: event.slug }}

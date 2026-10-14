@@ -155,7 +155,7 @@ when()('SPEC3 foundation on PostgreSQL', () => {
     expect(tickets.map((ticket) => ticket.venueDueCents)).toEqual([5_000, 5_000, 2_000])
     expect(order.items.map((item) => item.venueDueCents).sort()).toEqual([10_000, 2_000].sort())
 
-    // The online part is Desi-Event's fee alone: no organiser share, balanced.
+    // The online part is the fee of The Desi Events alone: no organiser share, balanced.
     const entries = await prisma.ledgerEntry.findMany({
       where: { batch: { orderId: order.id } },
       include: { account: true },

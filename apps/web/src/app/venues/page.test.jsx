@@ -216,7 +216,9 @@ describe('the venue directory', () => {
 
     expect(screen.getByText(/The venue directory could not be loaded/)).toBeInTheDocument()
     expect(screen.getByText(/The service could not finish this/)).toBeInTheDocument()
-    expect(container.textContent).not.toMatch(/Check your connection|Nothing reached Desi-Event/)
+    expect(container.textContent).not.toMatch(
+      /Check your connection|Nothing reached The Desi Events/,
+    )
     expect(container.textContent).not.toMatch(/No venues are listed|venues? on this page/)
     expect(screen.queryByRole('list', { name: 'Venues' })).toBeNull()
     expect(container.textContent).not.toContain('/v1/')

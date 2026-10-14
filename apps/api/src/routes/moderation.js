@@ -94,7 +94,7 @@ function assertReviewedRevision(event, reviewed) {
  * @returns {void} Nothing.
  */
 export function registerModerationRoutes(app, { prisma, env, mediaStorage }) {
-  // The event's own booking fee when the Desi-Event team set one, else the
+  // The event's own booking fee when the team at The Desi Events set one, else the
   // site default: the terms checkout charges (SPEC3 §7.2).
   const pricing = env
     ? { feeConfigFor: (currency, event) => eventFeeConfig(env, event, currency) }

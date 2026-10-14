@@ -253,7 +253,7 @@ describe('offering a ticket', () => {
   it('shows the API’s sentence when the address has had its codes for the day', async () => {
     const user = userEvent.setup()
     const sentence =
-      'This address has already been sent three codes from Desi-Event today. Try again tomorrow.'
+      'This address has already been sent three codes from The Desi Events today. Try again tomorrow.'
 
     apiFetch.mockResolvedValue({
       ok: false,

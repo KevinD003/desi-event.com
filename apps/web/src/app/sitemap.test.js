@@ -9,7 +9,7 @@ const { getApiClient } = await import('../lib/api-client.js')
 const { default: sitemap } = await import('./sitemap.js')
 
 /** The routes listed whatever the catalogue holds, in the order they are listed. */
-const STATIC = ['/', '/events', '/categories', '/venues', '/organizers', '/limitations']
+const STATIC = ['/', '/events', '/categories', '/venues', '/organizers', '/limitations', '/contact']
 
 /**
  * A client whose listing endpoint answers with the given pages in order.
@@ -46,6 +46,22 @@ describe('the sitemap', () => {
     const entries = await sitemap()
 
     expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(STATIC)
+  })
+
+  it('lists the contact page, even when the API cannot be reached', async () => {
+    getApiClient.mockReturnValue({
+      events: {
+        list: vi.fn(async () => {
+          throw new Error('down')
+        }),
+      },
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const contact = (await sitemap()).find((entry) => new URL(entry.url).pathname === '/contact')
+
+    expect(contact).toMatchObject({ changeFrequency: 'monthly', priority: 0.3 })
+    warn.mockRestore()
   })
 
   it('asks for no more a page than the listing accepts', async () => {

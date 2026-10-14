@@ -248,7 +248,7 @@ export async function availableBalance(prisma, { organizationId, currency }) {
       _sum: { amountCents: true },
     }),
     // What is held back for refunds is the organiser's share of them. A
-    // pay-at-the-venue order paid online only Desi-Event's booking fee, so
+    // pay-at-the-venue order paid online only the booking fee of The Desi Events, so
     // its refunds never come out of the organiser's balance; neither does a
     // card order's booking fee refunded on its own (SPEC3 §9.8).
     prisma.order.aggregate({
@@ -271,8 +271,8 @@ export async function availableBalance(prisma, { organizationId, currency }) {
         // Three hops — dispute to payment to order to event — walked as a
         // relation filter rather than summed in application code, so the
         // database does the work and the set never has to fit in memory. A
-        // dispute of a pay-at-the-venue booking fee is held from Desi-Event's
-        // fee revenue, never from the organiser (SPEC3 §10.1).
+        // dispute of a pay-at-the-venue booking fee is held from the fee
+        // revenue of The Desi Events, never from the organiser (SPEC3 §10.1).
         payment: { order: { paymentMethod: 'CARD', event: { organizationId } } },
       },
       _sum: { amountCents: true },
@@ -866,7 +866,7 @@ export async function reverseTransfer(tx, params) {
 
 /**
  * Where a dispute's money is held from (SPEC3 §10.1): a pay-at-the-venue
- * order's payment was its booking fee alone, Desi-Event's revenue, so a
+ * order's payment was its booking fee alone, revenue of The Desi Events, so a
  * chargeback of it is taken from `platform_fee_revenue`, never from an
  * organiser who never received it; every other payment's from the
  * organiser's payable, as always.

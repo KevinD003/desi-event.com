@@ -43,7 +43,7 @@ describe('which path names an organiser’s editor', () => {
   })
 })
 
-describe('who is sent to the Desi-Event team’s editor', () => {
+describe('who is sent to the editor for the team at The Desi Events', () => {
   it('sends a platform administrator and a super administrator who are not members', () => {
     for (const role of ['ADMIN', 'SUPER_ADMIN']) {
       expect(platformEditorRedirect(platform(role), EVENT), role).toBe(`/admin/events/${EVENT.id}`)

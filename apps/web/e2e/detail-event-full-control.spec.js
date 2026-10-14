@@ -17,9 +17,10 @@ import { confirmStepUp, stepUpPrompt } from './support/step-up.mjs'
 /**
  * Full control of a posted event (SPEC2-XI area X), in a real browser against
  * the real API: its organisers edit it in place, re-price it, add pictures
- * that wait for the Desi-Event team, cancel one night and delete it; the
- * Desi-Event team edits somebody else's event in a reasoned sitting, cancels a
- * night of it and deletes it, and restores one that was deleted.
+ * that wait for the team at The Desi Events, cancel one night and delete it;
+ * the team at The Desi Events edits somebody else's event in a reasoned
+ * sitting, cancels a night of it and deletes it, and restores one that was
+ * deleted.
  *
  * ## The story
  *
@@ -29,7 +30,7 @@ import { confirmStepUp, stepUpPrompt } from './support/step-up.mjs'
  *   2. The owner re-prices a tier that has sold: the next buyer pays the new
  *      price, the buyer's order keeps what it paid.
  *   3. A new gallery picture and a new cover on a posted event wait for the
- *      Desi-Event team; the old cover stays on the page until an administrator
+ *      team at The Desi Events; the old cover stays on the page until an administrator
  *      approves both, and is then gone.
  *   4. The owner cancels one night of three: its order is refunded, the
  *      every-night pass is told and kept, the public page marks the night, and
@@ -45,7 +46,7 @@ import { confirmStepUp, stepUpPrompt } from './support/step-up.mjs'
  *      approves; the organiser sees what changed and why, never by whom.
  *   8. The administrator deletes that event, refunding it, and restores a
  *      deleted one, which comes back paused until its organiser opens sales.
- *   9. What the Desi-Event team is refused: a draft, a write without a
+ *   9. What the team at The Desi Events is refused: a draft, a write without a
  *      sitting or from another browser, an ended sitting, and the
  *      organiser's own lifecycle moves.
  *  10. A super administrator edits, cancels a night of and deletes another
@@ -318,8 +319,8 @@ async function openStep(page, eventId, step, base = '/organizer/events') {
  * Make a change in the editor and wait for it to save.
  *
  * The editor's status may already read "Saved at …" from an earlier change,
- * so the wait is for the save request itself. Under the Desi-Event team's
- * authority a save can stop for a second factor (every 10 minutes): the
+ * so the wait is for the save request itself. Under the authority of the team
+ * at The Desi Events a save can stop for a second factor (every 10 minutes): the
  * prompt is answered, and the editor sends the same change again.
  *
  * @param {object} page The editor's page.
@@ -468,7 +469,11 @@ async function deleteThrough(page, dialog, event, { reason, button, typed = even
  * @param {string} [heading] The form's heading: "Open it again" once a sitting has ended.
  * @returns {Promise<void>} Resolves once the editor is under the sitting.
  */
-async function openSitting(page, reason, heading = 'Edit this event as the Desi-Event team') {
+async function openSitting(
+  page,
+  reason,
+  heading = 'Edit this event as the team at The Desi Events',
+) {
   const form = page.getByRole('region', { name: heading, exact: true })
 
   await form.getByLabel(/^Why are you editing this event\?/u).fill(reason)
@@ -479,7 +484,7 @@ async function openSitting(page, reason, heading = 'Edit this event as the Desi-
       response.request().method() === 'POST' &&
       /^\/api\/v1\/platform\/events\/[^/]+\/edit$/u.test(new URL(response.url()).pathname),
   )
-  await expect(page.getByText('Editing as the Desi-Event team').first()).toBeVisible()
+  await expect(page.getByText('Editing as the team at The Desi Events').first()).toBeVisible()
   await expect(
     page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
   ).toBeAttached()
@@ -713,7 +718,7 @@ test.describe.serial('full control of posted events', () => {
     expect(line.unitPriceCents).toBe(3_500)
   })
 
-  test('journey 3: pictures on a posted event wait for the Desi-Event team, and the old cover stays until then', async ({
+  test('journey 3: pictures on a posted event wait for the team at The Desi Events, and the old cover stays until then', async ({
     browser,
     visitor,
   }) => {
@@ -725,7 +730,7 @@ test.describe.serial('full control of posted events', () => {
 
     await openStep(owner, event.id, /^step 6\s*media$/iu)
     await expect(
-      owner.getByText(/each new picture waits for the Desi-Event team/u).first(),
+      owner.getByText(/each new picture waits for the team at The Desi Events/u).first(),
     ).toBeVisible()
 
     const coverId = await uploadPicture(
@@ -933,7 +938,7 @@ test.describe.serial('full control of posted events', () => {
     const dialog = await openDeleteDialog(manager, event.title)
 
     await expect(dialog).toContainText(
-      'Nobody has bought a ticket to this event. Deleting it takes its page, listing and pictures off the site straight away. It is kept, hidden, so the Desi-Event team can restore it.',
+      'Nobody has bought a ticket to this event. Deleting it takes its page, listing and pictures off the site straight away. It is kept, hidden, so the team at The Desi Events can restore it.',
     )
     await expect(dialog).toContainText(
       'Its web address stays retired, so an old link never shows a different event.',
@@ -965,7 +970,7 @@ test.describe.serial('full control of posted events', () => {
     await manager.getByRole('link', { name: event.title }).first().click()
     await expect(manager.getByRole('heading', { name: 'This event was deleted' })).toBeVisible()
     await expect(manager.locator('main')).toContainText(
-      `Only the Desi-Event team can restore a deleted event. Ask them, naming its web address, ${event.slug}.`,
+      `Only the team at The Desi Events can restore a deleted event. Ask them, naming its web address, ${event.slug}.`,
     )
     await expect(manager.getByRole('button', { name: 'Restore…' })).toHaveCount(0)
 
@@ -976,7 +981,7 @@ test.describe.serial('full control of posted events', () => {
 
     await expect(sold.getByText('Somebody else decides this')).toBeVisible()
     await expect(sold).toContainText(
-      'Deleting this event refunds 3 paid orders, which an organisation administrator or owner decides. Ask one of them, or the Desi-Event team.',
+      'Deleting this event refunds 3 paid orders, which an organisation administrator or owner decides. Ask one of them, or the team at The Desi Events.',
     )
     await expect(sold.getByRole('button', { name: 'Cancel, refund and delete' })).toHaveCount(0)
   })
@@ -1145,7 +1150,7 @@ test.describe.serial('full control of posted events', () => {
       .toContain('In the school car park across the road, free after six.')
     expect(JSON.stringify((await eventRow(event.id)).faq)).toContain('Where do we park?')
 
-    // A night cancelled by the Desi-Event team, with its refund.
+    // A night cancelled by the team at The Desi Events, with its refund.
     await toStep(admin, /^step 3/iu)
 
     const cancelled = await cancelNight(
@@ -1209,7 +1214,7 @@ test.describe.serial('full control of posted events', () => {
       .last()
 
     await expect(moderator.locator('main ol > li').filter({ has: theirs })).toContainText(
-      'Uploaded by the Desi-Event team in an editing session',
+      'Uploaded by the team at The Desi Events in an editing session',
     )
     await pressThroughStepUp(
       moderator,
@@ -1223,14 +1228,16 @@ test.describe.serial('full control of posted events', () => {
 
     await otherOwner.goto(`/organizer/events/${event.id}`)
     await expect(otherOwner.getByTestId('team-editing-notice')).toContainText(
-      plain(`The Desi-Event team is editing this event until ${timeInChicago(open.expiresAt)}`),
+      plain(`The Desi Events team is editing this event until ${timeInChicago(open.expiresAt)}`),
     )
     await expect(otherOwner.getByTestId('team-editing-notice')).toContainText(`Reason: ${reason}`)
     await openStep(otherOwner, event.id, /review/iu)
 
-    const panel = otherOwner.getByRole('region', { name: 'Changes made by the Desi-Event team' })
+    const panel = otherOwner.getByRole('region', {
+      name: 'Changes made by the team at The Desi Events',
+    })
 
-    await expect(panel).toContainText('By a Desi-Event administrator.')
+    await expect(panel).toContainText('By an administrator at The Desi Events.')
     await expect(panel).toContainText(`Reason: ${reason}`)
     await expect(panel).toContainText(/Changed: .*description, FAQ/u)
     await expect(panel).toContainText('cancelled a night')
@@ -1281,12 +1288,12 @@ test.describe.serial('full control of posted events', () => {
     expect(deleted.metadata.outcome).toBe('CANCEL_AND_REFUND')
     expect((await eventRow(event.id)).deletionAuthority).toBe('PLATFORM')
 
-    // The organiser reads who deleted it as the Desi-Event team, unnamed.
+    // The organiser reads who deleted it as the team at The Desi Events, unnamed.
     const otherOwner = await windowFor(browser, 'otherOwner')
 
     await otherOwner.goto(`/organizer/events/${event.id}`)
     await expect(otherOwner.getByRole('heading', { name: 'This event was deleted' })).toBeVisible()
-    await expect(otherOwner.locator('main')).toContainText(', by the Desi-Event team.')
+    await expect(otherOwner.locator('main')).toContainText(', by the team at The Desi Events.')
     expect(await otherOwner.content()).not.toContain(names().adminName)
 
     // A deleted event comes back paused, never on sale.
@@ -1338,7 +1345,7 @@ test.describe.serial('full control of posted events', () => {
     await expect(visitor.getByRole('link', { name: /choose tickets/iu }).first()).toBeVisible()
   })
 
-  test('journey 9: what the Desi-Event team is refused', async ({ browser }) => {
+  test('journey 9: what the team at The Desi Events is refused', async ({ browser }) => {
     test.setTimeout(240_000)
 
     const admin = await windowFor(browser, 'admin')
@@ -1349,7 +1356,7 @@ test.describe.serial('full control of posted events', () => {
     await admin.goto(`/admin/events/${draft.id}`)
     await expect(
       admin.getByText(
-        'The Desi-Event team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.',
+        'The Desi Events team edits an event’s details only once it has been published. Before that they are the organiser’s draft; ask for changes through review.',
       ),
     ).toBeVisible()
     await expect(admin.getByRole('button', { name: 'Open for editing' })).toHaveCount(0)
@@ -1415,7 +1422,8 @@ test.describe.serial('full control of posted events', () => {
     test.setTimeout(240_000)
 
     const event = seeded.events.otherSuper
-    const description = 'Dandiya on two nights, edited by the Desi-Event team for the organiser.'
+    const description =
+      'Dandiya on two nights, edited by the team at The Desi Events for the organiser.'
 
     await platform.goto(`/admin/events?q=${encodeURIComponent(event.title)}`)
     await rowAction(platform, 'Open in the editor', event.title).click()

@@ -2,9 +2,10 @@
 
 - **Date:** 2026-10-13
 - **Branch:** `claude/phase4-frontend-ui-ux-completion`
-- **Your requests:** 8 October 2026 — a platform fee set per event, coupon
-  codes from the Desi-Event team that waive it, and paying for tickets at the
-  venue. Your answers to the nine questions that came back are dated 9 October 2026.
+- **Your requests:** 8 October 2026 — a platform fee set per event, coupon codes
+  from the team at The Desi Events that waive it, and paying for tickets at the
+  venue. Your answers to the nine questions that came back are dated 9
+  October 2026.
 - **Payment mode:** `PAYMENT_MODE=MOCK` throughout. No real payment, card
   capture, refund or payout happens anywhere in this work. Every booking fee
   "paid online" and every refund it mentions is simulated.
@@ -30,7 +31,7 @@ promo code.
 
 ### A booking fee on every paid ticket, set per event
 
-- Buyers pay it; it is Desi-Event's money, not the organiser's. An
+- Buyers pay it; it is the money of The Desi Events, not the organiser's. An
   administrator or super administrator sets each event's own fee — a
   percentage of the ticket price, an amount per ticket, or both — or leaves the
   site's standard fee, which is 5.90% of the ticket price after any promo
@@ -83,9 +84,9 @@ promo code.
   codes were used on and how much booking fee they waived; each code's page
   shows the uses placed, the uses given back and the uses that count now.
 - **A use comes back** when the order that used it is refunded in full or
-  cancelled — by the organiser, by Desi-Event, because its payment failed or its
-  unpaid tickets were cancelled, or because its event or night was called off.
-  It comes back once, and never below zero. A partial refund keeps the use.
+  cancelled — by the organiser, by The Desi Events, because its payment failed
+  or its unpaid tickets were cancelled, or because its event or night was called
+  off. It comes back once, and never below zero. A partial refund keeps the use.
 - An administrator cannot use their own code. Nobody is paid for referrals:
   paying administrators needs real payments, which this build does not have.
 - Guessing: every code that does not apply gets the same answer, whatever the
@@ -126,23 +127,23 @@ promo code.
   accepting. A ticket already let in cannot be passed on.
 - **The organiser's "Payments at the venue" page** (from their event page, for
   the organisation's owners, administrators and finance members) lists every
-  payment taken at the door, every booking still unpaid, and every unpaid
-  ticket cancelled. It is the organiser's own count: Desi-Event does not hold
-  that money. **A cancelled or deleted event owes nothing at the door**: its
-  bookings are not counted as unpaid there or in the analytics, and the
-  buyer's order reads "Cancelled — nothing to pay".
+  payment taken at the door, every booking still unpaid, and every unpaid ticket
+  cancelled. It is the organiser's own count: The Desi Events does not hold that
+  money. **A cancelled or deleted event owes nothing at the door**: its bookings
+  are not counted as unpaid there or in the analytics, and the buyer's order
+  reads "Cancelled — nothing to pay".
 - **Unpaid tickets** can be cancelled by the organiser (an owner or
-  administrator of their team) or a Desi-Event administrator, at any time while
-  the event is live and until the ticket's night is over (for an event with no
-  nights listed, until the event ends). On the "Payments at the venue" page,
-  "Cancel unpaid tickets…" opens a list of that booking's unpaid tickets, all
-  ticked, with a reason to give; administrators find the same list from the
-  event's "Bookings waiting to be paid at the door" link. Each cancelled
-  ticket's place — reserved seat or general admission — is freed and sells
-  again whenever sales for it are open; the screen says plainly when sales are
-  closed or paused. Nobody owes its price any more. **Desi-Event keeps the
-  booking fee paid online for it**, as you asked. The rest would be the tax on
-  that fee, which is nothing, because the online booking fee of a
+  administrator of their team) or an administrator at The Desi Events, at any
+  time while the event is live and until the ticket's night is over (for an
+  event with no nights listed, until the event ends). On the "Payments at the
+  venue" page, "Cancel unpaid tickets…" opens a list of that booking's unpaid
+  tickets, all ticked, with a reason to give; administrators find the same list
+  from the event's "Bookings waiting to be paid at the door" link. Each
+  cancelled ticket's place — reserved seat or general admission — is freed and
+  sells again whenever sales for it are open; the screen says plainly when sales
+  are closed or paused. Nobody owes its price any more. **The Desi Events keeps
+  the booking fee paid online for it**, as you asked. The rest would be the tax
+  on that fee, which is nothing, because the online booking fee of a
   pay-at-the-venue booking carries no tax (your answer to question 9) — so
   nothing is refunded. The buyer, and anybody a cancelled ticket was passed to,
   is told why, with the reason given: the buyer on their order page, whoever
@@ -155,34 +156,33 @@ promo code.
   the buyer pays the tax on the tickets and the booking fee; at the venue they
   pay none.
 
-### What Desi-Event's books record
+### What the books of The Desi Events record
 
 - The booking fee paid online is recorded in the platform's ledger as platform
   revenue, as card orders' fees always were. A waived fee is not recorded as
   money at all.
 - Money taken at the door is never in the ledger, in payouts or in refunds: it
-  never passes through Desi-Event. Keeping it out stops anyone mistaking it for
-  money the platform holds and paying it out.
+  never passes through The Desi Events. Keeping it out stops anyone mistaking it
+  for money the platform holds and paying it out.
 
 ## What this build cannot do honestly
 
-- Desi-Event does not hold money paid at the door and cannot refund it. When
-  such an order is refunded, its night is called off or its event deleted, the
-  booking fee is refunded (simulated); when its event is cancelled, a refund of
-  the booking fee is asked for, and it is sent (simulated) once someone who may
-  approve refunds approves it. Either way the organiser must return the money
-  taken at the door. When a passed-on ticket was paid at the door by its new
-  holder, that money is the organiser's to return as well; if the event or
+- The Desi Events does not hold money paid at the door and cannot refund it.
+  When such an order is refunded, its night is called off or its event deleted,
+  the booking fee is refunded (simulated); when its event is cancelled, a refund
+  of the booking fee is asked for, and it is sent (simulated) once someone who
+  may approve refunds approves it. Either way the organiser must return the
+  money taken at the door. When a passed-on ticket was paid at the door by its
+  new holder, that money is the organiser's to return as well; if the event or
   night is called off, both the buyer and that holder are told so.
 - The site adds no tax to tickets paid at the venue; the organiser may still owe
   sales tax on those sales.
 - Payments are simulated (no Stripe); referral rewards are not paid to anyone.
 - A booking to pay at the venue holds its places until its night ends or until
-  the organiser or Desi-Event cancels its unpaid tickets; nothing releases it
-  automatically. Anyone, with a single account, can book up to the event's
-  limit without paying the ticket price, and with a referral code without
-  paying anything online; the event's limit, and cancelling, are what bound
-  that.
+  the organiser or The Desi Events cancels its unpaid tickets; nothing releases
+  it automatically. Anyone, with a single account, can book up to the event's
+  limit without paying the ticket price, and with a referral code without paying
+  anything online; the event's limit, and cancelling, are what bound that.
 - An unpaid ticket whose night is over still counts against the event's limit
   and can no longer be cancelled, so on an event with several nights the
   no-shows of earlier nights reduce what later nights can book until an
@@ -264,11 +264,11 @@ which a test holds to the page.
   event or a night is called off — gives the booking fee back with the
   tickets, as today.
 - **B. Who may cancel unpaid tickets:** the organiser's owners and
-  administrators (the people who may refund the organisation's orders) and
-  Desi-Event administrators and super administrators. Not the organiser's
-  finance members (they can ask for refunds but not decide them alone), not
-  their managers, event managers or door staff, and not Desi-Event finance
-  administrators.
+  administrators (the people who may refund the organisation's orders) and the
+  administrators and super administrators at The Desi Events. Not the
+  organiser's finance members (they can ask for refunds but not decide them
+  alone), not their managers, event managers or door staff, and not the finance
+  administrators at The Desi Events.
 - **C. A booking fee kept this way cannot be refunded afterwards**, by any
   refund or by an administrator's booking-fee refund by hand. Say if an
   administrator should be able to give it back as a goodwill gesture.
@@ -414,17 +414,17 @@ now each wait a bounded time behind another change — the door at most a few
 seconds — and say plainly that nothing was done and to try again.
 
 The final review of the codes, authority, privacy and copy found two things a
-buyer or an organiser was told wrongly about money; both are fixed. When a
-Desi-Event administrator had already refunded a booking's fee by hand,
+buyer or an organiser was told wrongly about money; both are fixed. When an
+administrator at The Desi Events had already refunded a booking's fee by hand,
 cancelling its unpaid tickets, or its night, told the buyer "Nothing was paid
-online", and the cancel dialog said Desi-Event keeps the fee. The buyer is now
-told the fee was refunded earlier (or that none of it is kept for those
+online", and the cancel dialog said The Desi Events keeps the fee. The buyer is
+now told the fee was refunded earlier (or that none of it is kept for those
 tickets), "Nothing was paid online" is said only when nothing was, and the
 dialog reads what of the fee the booking still holds. And when some of the
-cancelled tickets had been passed on to other people, the buyer was told they
-no longer owe those tickets' price too; the buyer is now told only what they
-no longer owe for their own tickets, and the ones they passed on are named
-apart (their holders are told separately, as before).
+cancelled tickets had been passed on to other people, the buyer was told they no
+longer owe those tickets' price too; the buyer is now told only what they no
+longer owe for their own tickets, and the ones they passed on are named apart
+(their holders are told separately, as before).
 
 ### The final gate and CI
 

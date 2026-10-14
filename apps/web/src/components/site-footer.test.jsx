@@ -70,7 +70,7 @@ describe('SiteFooter', () => {
 
     expect(container.textContent).not.toMatch(/coming soon|\bsoon\b|\byet\b/i)
     expect(container.textContent).toMatch(
-      /Organisers join by invitation from the Desi-Event team, and every event is reviewed by the team before it is published\./,
+      /Organisers join by invitation from the team at The Desi Events, and every event is reviewed by the team before it is published\./,
     )
     expect(screen.getByRole('link', { name: 'Accept an organiser invitation' })).toHaveAttribute(
       'href',
@@ -100,6 +100,65 @@ describe('SiteFooter', () => {
     // A deployment with a mail server emails invitation and transfer codes,
     // so a blanket "Send email" in this list would be false there.
     expect(items.some((item) => /^send email$|no email/i.test(item))).toBe(false)
+  })
+
+  it('lists every way to reach the team, each a link named for where it goes', () => {
+    render(<SiteFooter />)
+
+    const contact = screen.getByRole('list', { name: 'Contact' })
+    const expected = [
+      ['Email info@thedesievents.com', 'mailto:info@thedesievents.com'],
+      ['Call +1 972 694 9043', 'tel:+19726949043'],
+      ['WhatsApp +1 972 694 9043', 'https://wa.me/19726949043'],
+      ['The Desi Events on Facebook', 'https://www.facebook.com/the.desievents'],
+      ['The Desi Events on Instagram', 'https://www.instagram.com/the.desievents'],
+      ['Contact page', '/contact'],
+    ]
+
+    expect(
+      within(contact)
+        .getAllByRole('link')
+        .map((link) => [
+          link.getAttribute('aria-label') ?? link.textContent,
+          link.getAttribute('href'),
+        ]),
+    ).toEqual(expected)
+
+    for (const [name, href] of expected) {
+      expect(within(contact).getByRole('link', { name })).toHaveAttribute('href', href)
+    }
+  })
+
+  it('keeps each contact link’s visible words inside its name, and opens it in the same tab', () => {
+    render(<SiteFooter />)
+
+    for (const link of within(screen.getByRole('list', { name: 'Contact' })).getAllByRole('link')) {
+      const name = link.getAttribute('aria-label') ?? link.textContent
+
+      expect(name).toContain(link.textContent)
+      expect(link).not.toHaveAttribute('target')
+    }
+  })
+
+  it('lets the contact row wrap rather than overflow on a narrow screen', () => {
+    render(<SiteFooter />)
+
+    const contact = screen.getByRole('list', { name: 'Contact' })
+
+    expect(contact.className).toContain('flex-wrap')
+    for (const link of within(contact).getAllByRole('link')) {
+      expect(link.className).not.toMatch(/whitespace-nowrap|\btruncate\b/u)
+    }
+    expect(
+      within(contact).getByRole('link', { name: 'Email info@thedesievents.com' }).className,
+    ).toContain('[overflow-wrap:anywhere]')
+  })
+
+  it('promises no reply time and offers no contact form', () => {
+    const { container } = render(<SiteFooter />)
+
+    expect(container.textContent).not.toMatch(/within \d|\bhours?\b|reply|respond|24\/7/i)
+    expect(container.querySelector('form')).toBeNull()
   })
 
   it('makes every link a 44px target', () => {

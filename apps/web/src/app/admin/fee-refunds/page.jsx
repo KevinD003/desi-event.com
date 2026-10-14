@@ -2,7 +2,7 @@
  * Booking fee refunds: refunding one order's booking fee by hand (SPEC3 §7.4,
  * §12.6, SPEC3-XI §12.6).
  *
- * For the Desi-Event team's platform administrators, finance administrators
+ * For the platform administrators at The Desi Events, finance administrators
  * and super administrators (`platform_fee:refund`). The administration layout
  * admits a finance administrator for this page alone; every other admin page
  * asks its own question and refuses them. The form is `fee-refund-form.jsx`;

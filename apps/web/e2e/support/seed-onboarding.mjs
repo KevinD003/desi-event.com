@@ -1,8 +1,8 @@
 /**
  * The accounts and rows the organiser-onboarding journeys need.
  *
- * Organisers join Desi-Event only by an invitation from the Desi-Event team,
- * and every event they create is reviewed before it can be public. The
+ * Organisers join The Desi Events only by an invitation from its team, and
+ * every event they create is reviewed before it can be public. The
  * journeys in `detail-organiser-onboarding.spec.js` walk that path end to
  * end, and nearly every step of it changes somebody's privileges: an invited
  * owner gains an organisation, a super administrator gives somebody a posting

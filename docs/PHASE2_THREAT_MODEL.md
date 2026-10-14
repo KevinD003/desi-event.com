@@ -292,7 +292,7 @@ posted events (ADR 0014) and the import (ADR 0015):
 approve that organisation's events from the first account (alias accounts);
 whoever reads the invited inbox first can accept an organiser invitation; a
 non-member SUPER_ADMIN keeps lifecycle moves without a sitting, audited as "by
-the Desi-Event team".
+the team at The Desi Events".
 
 ---
 

@@ -256,7 +256,7 @@ export async function findOpenProcess(
     return OPEN_PROCESS_CODES.NOTIFICATION_UNDELIVERED
   }
 
-  // An invitation from the Desi-Event team to start an organisation, still
+  // An invitation from the team at The Desi Events to start an organisation, still
   // waiting, sent to the subject's address. Accepting it compares the signed-in
   // account's address with the invitation's (`routes/organizer-invitations.js`),
   // so once the account's address is replaced nobody can accept it — the

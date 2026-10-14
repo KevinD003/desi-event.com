@@ -1,6 +1,6 @@
 /**
- * The platform administration area admits the Desi-Event team's platform
- * administrators and super administrators, and finance administrators for
+ * The platform administration area admits the platform administrators and
+ * super administrators at The Desi Events, and finance administrators for
  * the booking-fee refund page alone (SPEC3 §12.11), and nobody else.
  *
  * Sessions are built from the real role tables, the same ones the API
@@ -127,7 +127,7 @@ describe('the admin area', () => {
   it('begins at organiser invitations, says who it is for, and says nothing can grant it', () => {
     expect(AREAS.admin.href).toBe('/admin/organizer-invitations')
     expect(AREAS.admin.refusal).toBe(
-      'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
+      'This area is for the platform administrators at The Desi Events: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
     )
   })
 
@@ -145,7 +145,7 @@ describe('the admin area', () => {
 
   it('names the organiser alternatives as invitations, never as making an organisation', () => {
     // Organisations are not made from an account: organisers join by an
-    // invitation from the Desi-Event team.
+    // invitation from the team at The Desi Events.
     expect(AREAS.organizer.alternatives.map((alternative) => alternative.label)).toEqual([
       'Accept an organiser invitation',
       'Join a team with an invitation code',

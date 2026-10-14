@@ -679,7 +679,7 @@ export async function countContactAddresses(tx, { organizationId, subjectEmail }
 /**
  * The organiser invitations a redaction reaches.
  *
- * An invitation from the Desi-Event team to start an organisation carries the
+ * An invitation from the team at The Desi Events to start an organisation carries the
  * address it was sent to (`OrganizerInvitation.email`) and the inviting
  * administrator's note to that person, and administrators list every one. Once
  * accepted it is linked to the organisation it created, whose own contact
@@ -734,7 +734,7 @@ export async function subjectOrganizerInvitations(
  * Replace the address on the subject's organiser invitations, and drop the note.
  *
  * Status, dates, the organisation's name, description and website, and every
- * link stay: they are the Desi-Event team's record of who was invited to start
+ * link stay: they are the record kept by the team at The Desi Events of who was invited to start
  * what, and the organisation's details are the organisation's, not the
  * person's. The note goes rather than being given a placeholder — it is free
  * text written to the person, and nothing reads it once the invitation is

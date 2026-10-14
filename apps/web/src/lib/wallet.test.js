@@ -528,14 +528,14 @@ describe('a ticket booked to pay at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', 
         owing({ cancelled: { at: '2026-10-08T15:00:00.000Z', by: 'DESI_EVENT', reason } }),
         'UTC',
       )[0],
-    ).toMatch(/^The Desi-Event team cancelled this ticket/u)
+    ).toMatch(/^The Desi Events team cancelled this ticket/u)
   })
 
   it('says money paid at the door by this holder is the organiser’s to return once the ticket ended', () => {
     expect(
       venuePaymentNotes(owing({ paid: true, paidAtDoorByYou: true }, { status: 'REFUNDED' })),
     ).toEqual([
-      'The $40.00 you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+      'The $40.00 you paid at the door for this ticket is with the organiser, not with The Desi Events. Ask the organiser to return it.',
     ])
     // Withdrawn by the organiser, and withdrawn because its night was
     // cancelled or its event deleted (the API writes CANCELLED there, and
@@ -543,7 +543,7 @@ describe('a ticket booked to pay at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', 
     // leaves nothing to refund online): the money is still the organiser's.
     for (const status of ['REVOKED', 'CANCELLED']) {
       expect(venuePaymentNotes(owing({ paid: true, paidAtDoorByYou: true }, { status }))).toEqual([
-        'The $40.00 you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+        'The $40.00 you paid at the door for this ticket is with the organiser, not with The Desi Events. Ask the organiser to return it.',
       ])
     }
     // Somebody else paid for it: this holder is not told to ask for it back.
@@ -571,7 +571,7 @@ describe('a ticket booked to pay at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', 
           owing({ paid: true, paidAtDoorByYou: true }, { event: { ...ticket().event, status } }),
         ),
       ).toEqual([
-        'The $40.00 you paid at the door for this ticket is with the organiser, not with Desi-Event. Ask the organiser to return it.',
+        'The $40.00 you paid at the door for this ticket is with the organiser, not with The Desi Events. Ask the organiser to return it.',
       ])
     }
   })

@@ -38,7 +38,7 @@ beforeEach(() => {
 })
 
 describe('the organiser area’s layout', () => {
-  it('sends a platform administrator who is not a member to the Desi-Event team’s editor', async () => {
+  it('sends a platform administrator who is not a member to the editor for the team at The Desi Events', async () => {
     enterArea.mockResolvedValue({ session: ADMIN, admitted: false })
     requestPath.mockResolvedValue('/organizer/events/cevent1')
     getOrganizerEvent.mockResolvedValue({ id: 'cevent1', organizationId: 'org_1' })

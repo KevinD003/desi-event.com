@@ -25,7 +25,7 @@
  *
  * ## The booking fee and how the ticket price is paid (SPEC3 §6)
  *
- * The fee is the event's own when the Desi-Event team set one in the order's
+ * The fee is the event's own when the team at The Desi Events set one in the order's
  * currency, else the site default ({@link eventFeeConfig}). A referral code
  * removes the whole fee, and on a card order the tax it would have carried; it
  * is not looked up at all when there is no fee to remove. Paying at the venue
@@ -89,7 +89,7 @@ export function feeConfigFor(env, currency) {
 
 /**
  * The booking fee terms an order of this event, in this currency, is priced
- * with (SPEC3 §6.1, DF3): the event's own when the Desi-Event team set them in
+ * with (SPEC3 §6.1, DF3): the event's own when the team at The Desi Events set them in
  * that currency, else the site default for the currency. The answer says which
  * (`source`) and the decision it came from (`settingId`), which the order
  * records; a buyer is never told the source.

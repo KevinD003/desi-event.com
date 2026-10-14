@@ -965,7 +965,7 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
           uri: totpUri({
             secret,
             account: request.currentUser.email,
-            issuer: 'Desi-Event',
+            issuer: 'The Desi Events',
           }),
           digits: TOTP_PARAMETERS.digits,
           periodSeconds: TOTP_PARAMETERS.stepSeconds,

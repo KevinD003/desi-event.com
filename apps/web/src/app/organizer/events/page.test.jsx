@@ -126,7 +126,7 @@ describe('OrganizerEventsPage', () => {
     expect(screen.getByText(/every organisation’s events, not a list of its own/)).toBeTruthy()
   })
 
-  it('opens each of the platform’s events in the Desi-Event team’s editor for a super administrator who is no member', async () => {
+  it('opens each of the platform’s events in the editor for the team at The Desi Events for a super administrator who is no member', async () => {
     // The organiser's editor acts through membership; the platform's editor
     // opens an editing session with a reason (SPEC2-XI O9). A link here is a
     // move inside the area, which the area's layout does not see.
@@ -143,7 +143,7 @@ describe('OrganizerEventsPage', () => {
     )
   })
 
-  it('keeps a member who also edits as the Desi-Event team in the organiser’s own editor', async () => {
+  it('keeps a member who also edits as the team at The Desi Events in the organiser’s own editor', async () => {
     readSession.mockResolvedValue(session([RANGOLI], ['event:platform_edit']))
     listOrganizerEvents.mockResolvedValue({
       events: [{ ...event('e1', 'Rangoli'), organizationId: 'org_rangoli' }],
@@ -266,7 +266,7 @@ describe('eventCounts', () => {
     expect(screen.getByRole('link', { name: 'Deleted' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByText('Deleted', { selector: 'span *, span' })).toBeInTheDocument()
     expect(
-      screen.getByText('Off the site; only the Desi-Event team can restore it'),
+      screen.getByText('Off the site; only the team at The Desi Events can restore it'),
     ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Event e9' }).closest('li')).not.toHaveTextContent(
       /Waiting on/,

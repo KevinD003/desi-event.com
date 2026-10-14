@@ -289,7 +289,7 @@ describe('Rule L: the organiser’s lifecycle moves', () => {
     await app.close()
   })
 
-  it('lets a SUPER_ADMIN who is not a member make the move, audited as the Desi-Event team', async () => {
+  it('lets a SUPER_ADMIN who is not a member make the move, audited as the team at The Desi Events', async () => {
     const { app, prisma, ids } = await createTestApp()
 
     prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status = 'ON_SALE'

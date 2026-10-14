@@ -700,17 +700,17 @@ offered only for a code nobody has used.
 The decisions are ADRs 0010–0015; this section lists the surfaces and the copy
 rules they follow.
 
-| Surface                                         | Route                                          |
-| ----------------------------------------------- | ---------------------------------------------- |
-| Organiser invitations: issue, reissue, withdraw | `/admin/organizer-invitations`                 |
-| Accept an organiser invitation (type the code)  | `/account/organizations/new`                   |
-| Every event, for the Desi-Event team            | `/admin/events`, `/admin/events/[id]`          |
-| Importing listed events                         | `/admin/imports`, `/admin/imports/[runId]`     |
-| Website links waiting, on and off               | `/moderation/websites`                         |
-| Pictures waiting on posted events               | `/moderation/pictures`                         |
-| An organisation's visits, money and attendance  | `/analytics` (organisation and event views)    |
-| Every event's visits, for the Desi-Event team   | `/analytics/events`                            |
-| The counted way out to an organiser's website   | `/events/[slug]/website` (a 302, never a page) |
+| Surface                                               | Route                                          |
+| ----------------------------------------------------- | ---------------------------------------------- |
+| Organiser invitations: issue, reissue, withdraw       | `/admin/organizer-invitations`                 |
+| Accept an organiser invitation (type the code)        | `/account/organizations/new`                   |
+| Every event, for the team at The Desi Events          | `/admin/events`, `/admin/events/[id]`          |
+| Importing listed events                               | `/admin/imports`, `/admin/imports/[runId]`     |
+| Website links waiting, on and off                     | `/moderation/websites`                         |
+| Pictures waiting on posted events                     | `/moderation/pictures`                         |
+| An organisation's visits, money and attendance        | `/analytics` (organisation and event views)    |
+| Every event's visits, for the team at The Desi Events | `/analytics/events`                            |
+| The counted way out to an organiser's website         | `/events/[slug]/website` (a 302, never a page) |
 
 **The code panel carries a letter only for organiser invitations.** In
 `MANUAL` delivery the organiser-invitation code is shown once with a
@@ -722,18 +722,18 @@ says the site "sends no email".
 
 **Nobody is offered what the API refuses.** The team page offers each member
 exactly the roles in `roleChoices`; posting roles are explained, not offered
-("Roles that create or publish events … are given by the Desi-Event team").
-The organiser area offers "Accept an organiser invitation" and "Join a team
-with an invitation code" to an account without an organisation.
+("Roles that create or publish events … are given by the team at
+The Desi Events"). The organiser area offers "Accept an organiser invitation"
+and "Join a team with an invitation code" to an account without an organisation.
 
 **The website link says who decided.** The editor's website field shows the
 switch's state under it in the organiser's words (`organiserSummary`), ending
-"Only the Desi-Event team can turn this link on or off." The administrators'
-panel shows the current and the decided address, both opening in a new tab
-with "(opens in a new tab)", and asks for "I have opened this address and it is
-the organiser's own site" before turning it on. The public link says "Opens
-{host}, which Desi-Event does not run. Desi-Event counts the visit without
-recording your address, browser or account."
+"Only the team at The Desi Events can turn this link on or off." The
+administrators' panel shows the current and the decided address, both opening in
+a new tab with "(opens in a new tab)", and asks for "I have opened this address
+and it is the organiser's own site" before turning it on. The public link says
+"Opens {host}, which The Desi Events does not run. The Desi Events counts the
+visit without recording your address, browser or account."
 
 **Analytics say what they are.** "Demonstration figures" when any summed row
 came from the development seed; "These figures run to {time} UTC on {day}" when
@@ -748,7 +748,7 @@ or only taken down — from the counts, never guessed. It asks for the event's w
 address typed back (paste allowed; the address is shown in a `<code>`
 element), a reason, and a second factor. For a finished event nobody was
 checked in at, it asks, as a radio group, whether it took place. Restore (the
-Desi-Event team only) says "It comes back paused: the organiser reopens
+team at The Desi Events only) says "It comes back paused: the organiser reopens
 sales." for an event that was on sale. Cancelling one night has its own dialog
 with the count of orders it touches.
 
@@ -756,12 +756,12 @@ with the count of orders it touches.
 history. Do not include anybody's personal details."
 
 **Editing somebody else's event looks different.** A banner headed "Editing as
-the Desi-Event team" names the organisation ("This is {organisation}'s
+the team at The Desi Events" names the organisation ("This is {organisation}'s
 event."), the reason and when the sitting ends, with "Confirm it's you" and
 "Stop editing"; when a write needs the second factor again, the editor pauses
-autosave and asks "Confirm it's you to keep editing. The Desi-Event team
+autosave and asks "Confirm it's you to keep editing. The Desi Events team
 confirms every 10 minutes while editing someone else's event." The organiser
-sees the team's changes as "by the Desi-Event team", with the reason.
+sees the team's changes as "by the team at The Desi Events", with the reason.
 
 **Imported events say where they come from.** The ticket box says the tickets
 are sold on Sulekha, shows the prices as Sulekha listed them on the date they
@@ -797,10 +797,10 @@ ADRs 0016 and 0017. What each screen says, and the rules behind it.
   quote and the order brings the fee back and asks the buyer to check the new
   total before paying.
 - **The summary** names the booking fee as "Booking fee", adds "Booking fee
-  waived (referral code)" when a code removed it, and keeps the tax line
-  honest: $0.00 for an event in the United States, and no tax at all on tickets
-  paid at the venue. The venue choice's hint says "No {tax} is added to tickets
-  paid at the venue.", that the organiser or Desi-Event can cancel a ticket not
+  waived (referral code)" when a code removed it, and keeps the tax line honest:
+  $0.00 for an event in the United States, and no tax at all on tickets paid at
+  the venue. The venue choice's hint says "No {tax} is added to tickets paid at
+  the venue.", that the organiser or The Desi Events can cancel a ticket not
   paid for, keeping its booking fee, and that whoever holds a passed-on ticket
   pays at the door.
 
@@ -876,8 +876,8 @@ venue.
 
 - **The event's "Booking fee and payment" section** on `/admin/events/[id]`
   opens with "Buyers pay a booking fee (the platform fee) on every ticket. It is
-  Desi-Event's money, not the organiser's." Setting the fee or the switch takes
-  a reason and a second factor; "This event has no booking fee." when both
+  The Desi Events' money, not the organiser's." Setting the fee or the switch
+  takes a reason and a second factor; "This event has no booking fee." when both
   numbers are 0.
 - **Referral codes** (`/admin/referral-codes`): "Make referral code" with a typed
   code or "Generate a code for me", each code shown once after making it with

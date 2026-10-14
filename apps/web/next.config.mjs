@@ -1,5 +1,5 @@
 /**
- * Next.js configuration for the Desi-Event web application.
+ * Next.js configuration for The Desi Events web application.
  *
  * The workspace packages ship untranspiled `.js`/`.jsx` sources rather than a
  * build output — there is no compiler in this repository — so Next has to run

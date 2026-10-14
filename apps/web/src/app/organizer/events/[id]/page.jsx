@@ -16,15 +16,15 @@
  *
  * Everything this editor offers is the organisation's to do, so it asks the
  * session's membership (`membershipCan`), never a platform role: deleting,
- * cancelling a night. A Desi-Event administrator who is not a member is sent
+ * cancelling a night. An administrator at The Desi Events who is not a member is sent
  * to `/admin/events/[id]` by the area's layout on a full load (SPEC2-XI O9).
  * A layout does not run again when somebody moves between its pages in the
  * browser, so this page asks the same question and, for such a reader, shows
- * a link to the Desi-Event team's editor instead of an editor whose every save
+ * a link to the editor for the team at The Desi Events instead of an editor whose every save
  * would be refused. A deleted event shows its record instead of the editor.
  *
  * Above the editor, the read-only "Booking fee and payment" panel (SPEC3
- * §12.4): the Desi-Event team's decisions about the event, read from
+ * §12.4): the decisions of the team at The Desi Events about the event, read from
  * `event.paymentTerms`, with a link to "Payments at the venue" for a reader
  * who may read the organisation's finance.
  *
@@ -158,7 +158,7 @@ export default async function EditEventPage({ params }) {
     </nav>
   )
 
-  // The Desi-Event team edits an organisation's event in its own editor, in a
+  // The Desi Events team edits an organisation's event in its own editor, in a
   // session opened with a reason (O9). Reached here by a link inside the area,
   // where the layout's redirect does not run again: say where to go, with the
   // link, rather than render an editor acting under an authority this reader
@@ -176,10 +176,10 @@ export default async function EditEventPage({ params }) {
           className="mt-6 max-w-2xl space-y-2 rounded-card border border-status-info/25 bg-status-info-soft p-4 text-ink"
         >
           <h2 id="platform-editor-heading" className="text-lg font-semibold text-ink">
-            Edited by the Desi-Event team elsewhere
+            Edited by The Desi Events team elsewhere
           </h2>
           <p className="text-sm">
-            This account is not a member of the organisation that runs this event. The Desi-Event
+            This account is not a member of the organisation that runs this event. The Desi Events
             team edits, deletes and restores an organisation&rsquo;s event in its own editor, in an
             editing session opened with a reason.
           </p>
@@ -188,7 +188,7 @@ export default async function EditEventPage({ params }) {
               href={elsewhere}
               className="inline-flex min-h-11 items-center rounded-sm font-semibold underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
-              Open it in the Desi-Event team&rsquo;s editor
+              Open it in the editor for the team at The Desi Events
             </Link>
           </p>
         </section>
@@ -265,7 +265,7 @@ export default async function EditEventPage({ params }) {
     // would otherwise say there is no cover and offer an upload that
     // replaces the one it could not show.
     getEventMedia(id).catch((error) => ({ data: null, failure: mediaReadFailure(error) })),
-    // The Desi-Event team's editing sessions on this event, for the review
+    // The Desi Events team's editing sessions on this event, for the review
     // step; none shown when they cannot be read.
     getPlatformEdits(id).catch(() => []),
   ])
@@ -283,8 +283,8 @@ export default async function EditEventPage({ params }) {
       ? mayBookTeamTiers(session, event)
       : false
   // The event's own visits and sales, offered to somebody who may read the
-  // organisation's reports: its members from a viewer up, and the Desi-Event
-  // team's platform administrators, as the API agrees.
+  // organisation's reports: its members from a viewer up, and the platform
+  // administrators at The Desi Events, as the API agrees.
   const reports = sessionCan(session, 'report:view', orgId)
   // The organisation's own decisions, asked of the membership alone. Who may
   // delete with which outcome is the server's answer in the dialog's preview;

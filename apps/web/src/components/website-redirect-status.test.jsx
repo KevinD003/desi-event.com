@@ -28,11 +28,11 @@ describe('the organiser’s view of the website link', () => {
     expect(screen.getByText(/Website link:/u)).toHaveClass('sr-only')
     expect(
       screen.getByText(
-        /^On since Sep 30, 2026, 10:00 AM UTC\. Anil Administrator of the Desi-Event team turned it on, with this note: “Checked: their own site\.”\./u,
+        /^On since Sep 30, 2026, 10:00 AM UTC\. Anil Administrator of the team at The Desi Events turned it on, with this note: “Checked: their own site\.”\./u,
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Only the Desi-Event team can turn this link on or off.'),
+      screen.getByText('Only the team at The Desi Events can turn this link on or off.'),
     ).toBeInTheDocument()
     expect(screen.queryByRole('button')).toBeNull()
     expect(screen.queryByRole('checkbox')).toBeNull()
@@ -50,7 +50,7 @@ describe('the organiser’s view of the website link', () => {
     expect(screen.getByText('Waiting for a decision')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Off. Your address is on the Desi-Event team’s list of website links to look at. It is not shown on your event page until an administrator turns the link on.',
+        'Off. Your address is on the list of website links for the team at The Desi Events to look at. It is not shown on your event page until an administrator turns the link on.',
       ),
     ).toBeInTheDocument()
   })
@@ -60,7 +60,7 @@ describe('the organiser’s view of the website link', () => {
 
     expect(
       screen.getByText(
-        'Off. Add your website’s address above and the Desi-Event team can link to it from your event page.',
+        'Off. Add your website’s address above and the team at The Desi Events can link to it from your event page.',
       ),
     ).toBeInTheDocument()
   })

@@ -2,8 +2,8 @@
  * Organisations: the profile their members read, and the route that no longer
  * creates one.
  *
- * Organisations are not created from an account. Organisers join Desi-Event by
- * invitation from the Desi-Event team: an organiser invitation starts a new
+ * Organisations are not created from an account. Organisers join The Desi
+ * Events by invitation from its team: an organiser invitation starts a new
  * organisation, verified, when its recipient accepts it
  * (`routes/organizer-invitations.js`, with the writes in
  * `lib/organization-provisioning.js`).
@@ -31,7 +31,7 @@ export { toOrganizationProfile }
 
 /** What a caller who tries to create an organisation is told. */
 export const ORGANIZER_INVITATION_REQUIRED_SENTENCE =
-  'Organisations are not created from an account here. Organisers join Desi-Event by invitation from the Desi-Event team; if they have sent you an organiser invitation code, enter it at Your account → Accept an organiser invitation (/account/organizations/new).'
+  'Organisations are not created from an account here. Organisers join The Desi Events by invitation from its team; if they have sent you an organiser invitation code, enter it at Your account → Accept an organiser invitation (/account/organizations/new).'
 
 /**
  * Register `POST /v1/organizations` and `GET /v1/organizations/:id`.

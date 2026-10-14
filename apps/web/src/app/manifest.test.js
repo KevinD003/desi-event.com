@@ -19,7 +19,8 @@ describe('manifest', () => {
   const value = manifest()
 
   it('names the site and opens at the front page, inside the site', () => {
-    expect(value.name).toBe('Desi-Event')
+    expect(value.name).toBe('The Desi Events')
+    expect(value.short_name).toBe('The Desi Events')
     expect(value.start_url).toBe('/')
     expect(value.scope).toBe('/')
     expect(value.display).toBe('standalone')

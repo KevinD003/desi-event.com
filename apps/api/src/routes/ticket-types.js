@@ -109,10 +109,10 @@ export function registerTicketTypeRoutes(app, { prisma }) {
       const { eventId } = request.params
 
       // The authoring routes' path (SPEC2-XI X-A): the same per-status rules,
-      // the same authority — the organisation's through membership, or the
-      // Desi-Event team's in an open editing sitting — the same revision
-      // compare-and-set and the same audit. The body is the legacy one, so the
-      // revision is whatever the event has once its row is locked.
+      // the same authority — the organisation's through membership, or that of
+      // the team at The Desi Events in an open editing sitting — the same
+      // revision compare-and-set and the same audit. The body is the legacy
+      // one, so the revision is whatever the event has once its row is locked.
       const event = await loadForAuthoring(prisma, eventId)
       const { mode, authority } = await assertAuthorable(prisma, event, request.actor, {
         session: request.session,

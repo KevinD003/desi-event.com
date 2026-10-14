@@ -52,7 +52,7 @@ export const DESCRIPTION_LIMIT = 20_000
 /**
  * The social networks, in the order the page lists them. The organiser's own
  * website is not one: it has its own field, `websiteUrl` (`lib/website.js`),
- * behind a switch only the Desi-Event team turns.
+ * behind a switch only the team at The Desi Events turns.
  */
 export const SOCIAL_NETWORKS = Object.freeze(['instagram', 'facebook', 'youtube', 'x', 'whatsapp'])
 

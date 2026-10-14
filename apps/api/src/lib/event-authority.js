@@ -7,7 +7,7 @@
  *     carries the capability the change needs. A platform role's capabilities
  *     never count as membership, so a SUPER_ADMIN who is not a member is not
  *     the organisation.
- *   - **PLATFORM** — the Desi-Event team (ADMIN, SUPER_ADMIN) acting on an
+ *   - **PLATFORM** — the team at The Desi Events (ADMIN, SUPER_ADMIN) acting on an
  *     organisation's **posted** event. For an edit that is an open *sitting*:
  *     opened with a reason and a second factor (`platformEvents.openEdit`),
  *     at most sixty minutes long, answering only the browser session that
@@ -48,19 +48,19 @@ export const AUTHORITY_KINDS = Object.freeze({
 
 /** What a platform holder is told without an open sitting in this session. */
 export const PLATFORM_EDIT_NOT_OPEN_SENTENCE =
-  'Open this event for editing as the Desi-Event team in this browser first: give a reason and confirm with your second factor.'
+  'Open this event for editing as the team at The Desi Events in this browser first: give a reason and confirm with your second factor.'
 
-/** What the Desi-Event team is told about an event that is not posted. */
+/** What the team at The Desi Events is told about an event that is not posted. */
 export const NOT_POSTED_SENTENCE =
-  'The Desi-Event team edits an event only once it has been published. Before that it is the organiser’s draft; ask for changes through review.'
+  'The Desi Events team edits an event only once it has been published. Before that it is the organiser’s draft; ask for changes through review.'
 
 /** What a platform ADMIN is told about the organiser's lifecycle moves (Rule L). */
 export const ORGANIZER_ONLY_SENTENCE =
-  'Publishing, sales and postponement are the organiser’s decisions. The Desi-Event team can change an event’s details in an editing session.'
+  'Publishing, sales and postponement are the organiser’s decisions. The Desi Events team can change an event’s details in an editing session.'
 
 /** What a platform holder is told when their MODERATION-window factor has lapsed mid-sitting. */
 export const SITTING_STEP_UP_SENTENCE =
-  "Confirm it's you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else's event."
+  "Confirm it's you to keep editing. The Desi Events team confirms every 10 minutes while editing someone else's event."
 
 /**
  * Whether the actor's platform role carries a capability. Never membership.
@@ -221,7 +221,7 @@ export async function assertSittingStillOpen(tx, authority, { sessionId, now = n
 /**
  * The audit metadata a write records about its authority: nothing for the
  * organisation (so existing audit rows are unchanged), and the sitting and its
- * reason for the Desi-Event team.
+ * reason for the team at The Desi Events.
  *
  * @param {object|null} authority From {@link resolveEventAuthority} or {@link lifecycleAuthority}.
  * @returns {object} Metadata to merge.
@@ -238,7 +238,7 @@ export function authorityAuditMetadata(authority) {
 }
 
 /**
- * Whether a change under this authority was made by the Desi-Event team, as
+ * Whether a change under this authority was made by the team at The Desi Events, as
  * ticket holders are told it.
  *
  * @param {object|null} authority The authority.
@@ -254,8 +254,8 @@ export function byPlatform(authority) {
  *
  *   - A member whose membership carries the capability: ORGANIZATION.
  *   - A SUPER_ADMIN (`platform:admin`) who is not such a member keeps the move,
- *     as before, through the platform role; it is recorded as the Desi-Event
- *     team's (`via: 'LIFECYCLE'`).
+ *     as before, through the platform role; it is recorded as the doing of the
+ *     team at The Desi Events (`via: 'LIFECYCLE'`).
  *   - A platform ADMIN holds none of these capabilities: 403 `ORGANIZER_ONLY`.
  *   - Anybody else: the ordinary capability refusal.
  *
@@ -289,7 +289,7 @@ export function lifecycleAuthority(actor, event, capability) {
 
 /**
  * End every sitting still open on an event that is being deleted: the
- * Desi-Event team's editing of it ends with it. A sitting already run out is
+ * editing of it by the team at The Desi Events ends with it. A sitting already run out is
  * recorded as EXPIRED, the rest as EVENT_DELETED. In the deletion's
  * transaction.
  *

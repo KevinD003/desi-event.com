@@ -1,4 +1,4 @@
-# Desi-Event Status Reading Guide
+# The Desi Events Status Reading Guide
 
 Written 2026-09-17, against merged `main` at `510d75a`.
 

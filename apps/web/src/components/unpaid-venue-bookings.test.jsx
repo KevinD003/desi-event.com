@@ -1,10 +1,10 @@
 /**
  * The list of bookings waiting to be paid at the door, shared by the
- * organiser's "Payments at the venue" page and the Desi-Event team's page
+ * organiser's "Payments at the venue" page and the page of the team at The Desi Events
  * (SPEC3-XI §12.9, §12.13).
  *
  * Pinned: a button per booking only when the reader may cancel, each named
- * after its booking with its visible words first; the Desi-Event team's list
+ * after its booking with its visible words first; the list of the team at The Desi Events
  * names nobody; the dialog opens on its booking and gives focus back to the
  * button when closed; and a cancellation closes it, is said once in the
  * section's polite region, takes focus to the heading and reads the page
@@ -168,7 +168,7 @@ describe('the dates, as the event keeps time', () => {
   })
 })
 
-describe('the Desi-Event team’s list', () => {
+describe('the list of the team at The Desi Events', () => {
   it('names no buyer, and says when each booking was placed and what it owes', () => {
     render(
       <UnpaidVenueBookings

@@ -32,7 +32,7 @@ import { LIMITATIONS, meaningParts } from '../../lib/limitations.js'
 export const metadata = {
   title: 'What this site does not do',
   description:
-    'The capabilities this build of Desi-Event does not have, with the status of each and what it means for you.',
+    'The capabilities this build of The Desi Events does not have, with the status of each and what it means for you.',
 }
 
 /** Classes for an in-text link. */
@@ -49,11 +49,11 @@ const ALSO = Object.freeze([
       <>
         Organisers join by an{' '}
         <Link href="/account/organizations/new" className={LINK}>
-          invitation from the Desi-Event team
+          invitation from the team at The Desi Events
         </Link>
         , and an organisation started from one is verified from the start. An organisation made
         before invitations began can publish only after the platform has verified it. Every event is
-        reviewed by the Desi-Event team before it can be published.{' '}
+        reviewed by the team at The Desi Events before it can be published.{' '}
         <a href="#live-changes-not-reviewed" className={LINK}>
           What can change after publication without another review
         </a>{' '}
@@ -67,7 +67,7 @@ const ALSO = Object.freeze([
   },
   {
     key: 'referral',
-    text: 'A referral code from the Desi-Event team removes the whole booking fee from one order. It does not change the ticket price. When an order is refunded in full or cancelled, its use of the code is given back.',
+    text: 'A referral code from the team at The Desi Events removes the whole booking fee from one order. It does not change the ticket price. When an order is refunded in full or cancelled, its use of the code is given back.',
   },
   {
     key: 'tax',
@@ -104,7 +104,7 @@ export default function LimitationsPage() {
         headingId="limitations-heading"
         eyebrow="Plainly"
         title="What this site does not do"
-        lead="Desi-Event is a demonstration build. These are the things somebody might expect of a ticketing site that this one does not do, what each one’s status is, and what happens instead."
+        lead="The Desi Events is a demonstration build. These are the things somebody might expect of a ticketing site that this one does not do, what each one’s status is, and what happens instead."
       />
 
       <div className="mx-auto max-w-3xl px-4 pt-12 sm:px-6">

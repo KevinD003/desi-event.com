@@ -1,10 +1,11 @@
 /**
- * What the Desi-Event team changed on an event, sitting by sitting.
+ * What the team at The Desi Events changed on an event, sitting by sitting.
  *
  * Each sitting carries its date, the reason the administrator gave and what it
  * changed, in the editor's own words ("description, FAQ, added a night"). The
  * administrator's name is shown only when the server sent it, which it does to
- * the Desi-Event team alone; an organiser reads "a Desi-Event administrator".
+ * the team at The Desi Events alone; an organiser reads "an administrator at
+ * The Desi Events".
  *
  * Renders on the server or the client; it holds no state.
  *
@@ -30,7 +31,8 @@ const ENDINGS = Object.freeze({
  */
 
 /**
- * The panel, or nothing when the Desi-Event team has never edited the event.
+ * The panel, or nothing when the team at The Desi Events has never edited the
+ * event.
  *
  * @param {PlatformChangesPanelProps} props Component props.
  * @returns {JSX.Element|null} The section.
@@ -48,10 +50,10 @@ export function PlatformChangesPanel({ edits = [], timeZone }) {
       className="mt-6 space-y-3 rounded-card border border-line bg-surface-raised p-4"
     >
       <h2 id="platform-changes-heading" className="text-lg font-semibold text-ink">
-        Changes made by the Desi-Event team
+        Changes made by the team at The Desi Events
       </h2>
       <p className="text-sm text-ink-muted">
-        The Desi-Event team edits a published event only in a session opened with a reason. Each
+        The Desi Events team edits a published event only in a session opened with a reason. Each
         session is listed with what it changed.
       </p>
       <ul className="space-y-3">
@@ -73,8 +75,8 @@ export function PlatformChangesPanel({ edits = [], timeZone }) {
               <p className="mt-1 text-ink">
                 By{' '}
                 {edit.administratorName
-                  ? `${edit.administratorName}, of the Desi-Event team`
-                  : 'a Desi-Event administrator'}
+                  ? `${edit.administratorName}, of the team at The Desi Events`
+                  : 'an administrator at The Desi Events'}
                 .
               </p>
               <p className="mt-1 text-ink">

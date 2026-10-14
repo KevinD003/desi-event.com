@@ -57,8 +57,8 @@ live in the API.
    the visitor is stored (ADR 0013).
 7. **Organisers see who decided.** The organiser's panel shows the
    administrator's name, when the switch last changed and the reason. (Edits
-   made by the Desi-Event team under ADR 0014 show "a Desi-Event
-   administrator" instead; the two can be made to match.)
+   made by the team at The Desi Events under ADR 0014 show "an
+   administrator at The Desi Events" instead; the two can be made to match.)
 
 ## Consequences
 

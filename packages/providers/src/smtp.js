@@ -51,7 +51,7 @@ export const SMTP_SOCKET_TIMEOUT_MS = 20_000
  * @property {boolean} [secure] TLS from the first byte (usually port 465).
  * @property {boolean} [requireTLS] Refuse to send unless STARTTLS succeeds. Ignored when `secure` is true.
  * @property {{user: string, pass: string}} [auth] Credentials, when the server asks for them.
- * @property {string} [from] The sender address; `no-reply@desi-event.com` by default.
+ * @property {string} [from] The sender address; `no-reply@thedesievents.com` by default.
  * @property {string} [name] Adapter name, recorded on receipts and errors.
  * @property {number} [connectionTimeoutMs] Override for {@link SMTP_CONNECTION_TIMEOUT_MS}.
  * @property {number} [greetingTimeoutMs] Override for {@link SMTP_GREETING_TIMEOUT_MS}.

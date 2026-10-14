@@ -1,5 +1,5 @@
 /**
- * An event's website address, and the switch only the Desi-Event team turns.
+ * An event's website address, and the switch only the team at The Desi Events turns.
  *
  * One rule for what may be an event's website, {@link websiteUrlProblem}, used
  * by the API when an organiser saves an address and again when an administrator
@@ -30,8 +30,8 @@ export const WEBSITE_LIMITS = Object.freeze({
   search: 100,
 })
 
-/** Desi-Event itself. A "visit the organiser's website" link here is a loop or an impersonation. */
-export const PLATFORM_HOSTS = Object.freeze(['desi-event.com'])
+/** The Desi Events itself. A "visit the organiser's website" link here is a loop or an impersonation. */
+export const PLATFORM_HOSTS = Object.freeze(['thedesievents.com'])
 
 /** Names that resolve only on somebody's own network, or nowhere. */
 export const PRIVATE_HOST_SUFFIXES = Object.freeze([
@@ -86,7 +86,7 @@ export const WEBSITE_PROBLEMS = Object.freeze({
   numeric: 'Use the site’s name, such as www.example.com, rather than a numeric address.',
   name: 'Use the site’s full name, such as www.example.com.',
   privateNetwork: 'That name only works on a private network. Use your website’s public address.',
-  platform: 'That address is on Desi-Event itself. Use your own website’s address.',
+  platform: 'That address is on The Desi Events itself. Use your own website’s address.',
 })
 
 /**
@@ -128,7 +128,7 @@ function parameterNames(text) {
  *
  * The checks run in a fixed order and the first that fails is reported: blank,
  * too long, whitespace, does not parse, not https, a sign-in, a port, a numeric
- * address, not a dotted public name, a private network's name, Desi-Event's own
+ * address, not a dotted public name, a private network's name, The Desi Events' own
  * domain, and a parameter named like a credential. Blank is a problem here;
  * clearing the field is the caller's business (see {@link websiteUrlSchema}).
  *
@@ -292,8 +292,8 @@ export const websiteRedirectDecisionSchema = z
   .strict()
 
 /**
- * The switch as an insider reads it: the event's own team and the Desi-Event
- * team. Never part of a public payload.
+ * The switch as an insider reads it: the event's own team and the team at
+ * The Desi Events. Never part of a public payload.
  */
 export const websiteRedirectStateSchema = z
   .object({
@@ -307,7 +307,7 @@ export const websiteRedirectStateSchema = z
     /** When an administrator last decided. */
     changedAt: timestampSchema.nullable(),
     reason: z.string().max(WEBSITE_LIMITS.reason).nullable(),
-    /** The administrator's display name, or "A Desi-Event administrator" once the account is gone. */
+    /** The administrator's display name, or "An administrator at The Desi Events" once the account is gone. */
     changedByName: z.string().max(200).nullable(),
     /** Set when the stored address no longer passes {@link websiteUrlProblem} (a legacy row). */
     websiteProblem: z.string().max(300).nullable(),

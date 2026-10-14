@@ -44,7 +44,7 @@ describe('the account overview', () => {
 
     expect(accept).toHaveAttribute('href', '/account/organizations/new')
     expect(accept).toHaveTextContent(
-      'Enter the organiser invitation code the Desi-Event team sent you.',
+      'Enter the organiser invitation code the team at The Desi Events sent you.',
     )
     expect(
       within(places).getByRole('link', { name: /^Join an organisation’s team/u }),

@@ -1,6 +1,6 @@
 /**
- * Importing events listed on another site (Sulekha) onto Desi-Event, by the
- * Desi-Event team (SPEC2-XI area I): the dataset file's shape, and the bodies
+ * Importing events listed on another site (Sulekha) onto The Desi Events, by the team
+ * at The Desi Events (SPEC2-XI area I): the dataset file's shape, and the bodies
  * of the import routes.
  *
  * At `@desi-event/schemas/imports`. Server-only in use — the upload form reads

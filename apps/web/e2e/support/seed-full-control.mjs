@@ -3,8 +3,8 @@
  *
  * Every journey in `detail-event-full-control.spec.js` changes a posted event
  * in a way nothing can take back: a night is cancelled and refunded, an event
- * is deleted, a deleted one is restored, the Desi-Event team edits somebody
- * else's event in a sitting. None of that may happen to a row another spec
+ * is deleted, a deleted one is restored, the team at The Desi Events edits
+ * somebody else's event in a sitting. None of that may happen to a row another spec
  * counts, so everything here is new and carries the tag:
  *
  *   - **Control Gamma <tag>**, a VERIFIED organisation (America/Chicago) with
@@ -19,7 +19,7 @@
  *       - `unsold-live`, published and never sold;
  *       - `with-cover`, on sale, with an approved cover;
  *       - `deleted-restore`, deleted from on sale by its owner, nobody owed;
- *       - `draft`, a draft, which the Desi-Event team does not edit.
+ *       - `draft`, a draft, which the team at The Desi Events does not edit.
  *   - **Control Other <tag>**, a second VERIFIED organisation with its own
  *     owner (`control-other-owner-<tag>`, a factor), holding `other-live` (two
  *     nights, on sale), `other-super` (two nights, on sale) and `other-unsold`
@@ -679,8 +679,8 @@ async function seedSweepStates(prisma, { tag, names, gamma, buyer, owner, seeded
   }
 
   // Two notices on the live event, after its orders: its start moved an hour
-  // by the organiser, and its night two days later moved again by the
-  // Desi-Event team, so the order page shows both kinds of line.
+  // by the organiser, and its night two days later moved again by the team
+  // at The Desi Events, so the order page shows both kinds of line.
   const noticed = await prisma.eventChangeNotice.count({ where: { eventId: seeded.liveSold.id } })
 
   if (noticed === 0) {
@@ -751,7 +751,7 @@ async function seedSweepStates(prisma, { tag, names, gamma, buyer, owner, seeded
 }
 
 /**
- * A picture waiting for the Desi-Event team, written the way the upload
+ * A picture waiting for the team at The Desi Events, written the way the upload
  * pipeline writes one: its bytes, their SHA-256, the asset and then the blob.
  *
  * @param {object} prisma The client.

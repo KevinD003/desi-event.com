@@ -961,7 +961,7 @@ describe('the event detail page and the organiser’s website', () => {
     expect(link).toHaveAttribute('href', '/events/qawwali-under-the-banyan/website')
     expect(link).toHaveAttribute('rel', 'nofollow')
     expect(link).toHaveAccessibleDescription(
-      'Opens swar-sadhana.example, which Desi-Event does not run. Desi-Event counts the visit without recording your address, browser or account.',
+      'Opens swar-sadhana.example, which The Desi Events does not run. The Desi Events counts the visit without recording your address, browser or account.',
     )
     expect(screen.getByText('(swar-sadhana.example)')).toBeInTheDocument()
   })
@@ -1065,7 +1065,7 @@ describe('counting visits to the event page', () => {
         memberships: [{ organizationId: 'corgswar000000000000001', role: 'SCANNER' }],
       },
     ],
-    ['Desi-Event staff', { capabilities: ['moderation:review'], memberships: [] }],
+    ['staff at The Desi Events', { capabilities: ['moderation:review'], memberships: [] }],
   ])('marks the website link uncounted for %s', async (_name, session) => {
     readSession.mockResolvedValue(session)
     await renderEvent(countable)
@@ -1074,7 +1074,7 @@ describe('counting visits to the event page', () => {
 
     expect(link).toHaveAttribute('href', '/events/qawwali-under-the-banyan/website?count=no')
     expect(link).toHaveAccessibleDescription(
-      'Opens swar-sadhana.example, which Desi-Event does not run. Visits by the event’s own team and Desi-Event staff are not counted.',
+      'Opens swar-sadhana.example, which The Desi Events does not run. Visits by the event’s own team and staff at The Desi Events are not counted.',
     )
   })
 
@@ -1105,7 +1105,7 @@ describe('an event copied from its Sulekha listing', () => {
       slug: 'sulekha-events',
       verified: true,
       description:
-        'Events listed on Sulekha.com and shown on Desi-Event by the Desi-Event team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+        'Events listed on Sulekha.com and shown on The Desi Events by the team at The Desi Events. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
     },
     ticketTypes: [],
     sessions: [
@@ -1157,7 +1157,9 @@ describe('an event copied from its Sulekha listing', () => {
     const tickets = screen.getByRole('complementary', { name: 'Tickets' })
 
     expect(
-      within(tickets).getByText('Tickets for this event are sold on Sulekha, not on Desi-Event.'),
+      within(tickets).getByText(
+        'Tickets for this event are sold on Sulekha, not on The Desi Events.',
+      ),
     ).toBeInTheDocument()
     expect(
       within(tickets).getByText(

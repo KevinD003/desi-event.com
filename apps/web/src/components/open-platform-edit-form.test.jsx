@@ -54,7 +54,7 @@ describe('OpenPlatformEditForm', () => {
     render(<OpenPlatformEditForm eventId={EVENT_ID} />)
 
     expect(
-      screen.getByRole('heading', { name: 'Edit this event as the Desi-Event team' }),
+      screen.getByRole('heading', { name: 'Edit this event as the team at The Desi Events' }),
     ).toBeVisible()
     expect(screen.getByText(OPEN_EDIT_EXPLANATION)).toBeVisible()
     expect(OPEN_EDIT_EXPLANATION).toMatch(/They do not see your name\./)
@@ -89,7 +89,7 @@ describe('OpenPlatformEditForm', () => {
       answer(409, {
         error: {
           code: 'NOT_POSTED',
-          message: 'The Desi-Event team edits an event only once it has been published.',
+          message: 'The Desi Events team edits an event only once it has been published.',
         },
       }),
     )
@@ -118,14 +118,14 @@ describe('PlatformEditBanner', () => {
       />,
     )
 
-    expect(screen.getByText('Editing as the Desi-Event team')).toBeVisible()
+    expect(screen.getByText('Editing as the team at The Desi Events')).toBeVisible()
     // In the event's zone, named, so the server's text and the browser's agree.
     expect(
       screen.getByText('Reason: The organiser asked us to fix the directions. Until 2:40 PM CDT.'),
     ).toBeVisible()
     expect(
       screen.getByText(
-        'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.',
+        'Confirm it’s you to keep editing. The Desi Events team confirms every 10 minutes while editing someone else’s event.',
       ),
     ).toBeVisible()
   })

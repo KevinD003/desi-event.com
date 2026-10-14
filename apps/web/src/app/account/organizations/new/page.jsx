@@ -1,8 +1,8 @@
 /**
  * Accepting an organiser invitation.
  *
- * Organisations are not made from an account here. Organisers join Desi-Event
- * by invitation from the Desi-Event team, and this is where the invitation's
+ * Organisations are not made from an account here. Organisers join The Desi Events
+ * by invitation from the team at The Desi Events, and this is where the invitation's
  * code is typed. The API answers every other way of creating an organisation
  * with a refusal.
  *
@@ -50,19 +50,20 @@ export default function AcceptOrganizerInvitationPage() {
       </p>
       <h1 className="mt-2 text-h2 font-semibold text-ink">Accept an organiser invitation</h1>
       <p className="mt-2 max-w-2xl text-ink-muted">
-        Organisers join Desi-Event by invitation from the Desi-Event team. If the team has sent you
-        an organiser invitation code, type it here while signed in with the email address it was
-        sent to. The code is typed, not followed from a link, so it never sits in your browser
-        history.
+        Organisers join The Desi Events by invitation from the team at The Desi Events. If the team
+        has sent you an organiser invitation code, type it here while signed in with the email
+        address it was sent to. The code is typed, not followed from a link, so it never sits in
+        your browser history.
       </p>
 
       <ul className="mt-4 max-w-2xl list-disc space-y-1 pl-5 text-sm text-ink-muted">
         <li>
           Accepting it starts the organisation your invitation names, and you become its owner. It
-          is verified from the start, because the Desi-Event team invited you.
+          is verified from the start, because the team at The Desi Events invited you.
         </li>
         <li>
-          Every event you create is reviewed by the Desi-Event team before it can be published.
+          Every event you create is reviewed by the team at The Desi Events before it can be
+          published.
         </li>
         <li>
           Payments on this site are simulated: no real card is charged and nobody is paid out.{' '}

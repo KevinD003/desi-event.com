@@ -218,10 +218,10 @@ describe('websiteLinkLine', () => {
 
   it('says on or off from the summary row when the switch state is not known', () => {
     expect(websiteLinkLine({ websiteLinkOn: true, websiteRedirect: null })).toBe(
-      'Website link: On. Only the Desi-Event team can turn it on or off.',
+      'Website link: On. Only the team at The Desi Events can turn it on or off.',
     )
     expect(websiteLinkLine({ websiteLinkOn: false, websiteRedirect: null })).toBe(
-      'Website link: Off. Only the Desi-Event team can turn it on or off.',
+      'Website link: Off. Only the team at The Desi Events can turn it on or off.',
     )
   })
 
@@ -240,10 +240,10 @@ describe('websiteLinkLine', () => {
     )
 
     expect(line).toMatch(
-      /^Website link: On since Oct 1, 2026, 9:00 AM UTC\. Anil Administrator of the Desi-Event team turned it on\./u,
+      /^Website link: On since Oct 1, 2026, 9:00 AM UTC\. Anil Administrator of the team at The Desi Events turned it on\./u,
     )
     expect(line).toMatch(/goes to mirrorwork\.example/u)
-    expect(line).toMatch(/Only the Desi-Event team can turn this link on or off\.$/u)
+    expect(line).toMatch(/Only the team at The Desi Events can turn this link on or off\.$/u)
   })
 
   it('does not guess whether a waiting change while on was a new address or a cleared one', () => {
@@ -272,10 +272,12 @@ describe('websiteLinkLine', () => {
     })
 
     expect(never).toBe(
-      'Website link: Off. This event has no website address for the Desi-Event team to link to; one can be added in the event’s editor. Only the Desi-Event team can turn this link on or off.',
+      'Website link: Off. This event has no website address for the team at The Desi Events to link to; one can be added in the event’s editor. Only the team at The Desi Events can turn this link on or off.',
     )
     expect(`${never} ${problem}`).not.toMatch(/above/u)
-    expect(problem).toMatch(/^Website link: Off\. Your address is on the Desi-Event team’s list/u)
+    expect(problem).toMatch(
+      /^Website link: Off\. Your address is on the list of website links for the team at The Desi Events/u,
+    )
   })
 
   it('keeps the waiting sentence when a decided-off link has a new address', () => {
@@ -294,10 +296,12 @@ describe('websiteLinkLine', () => {
     )
 
     expect(line).toMatch(
-      /Off since Oct 1, 2026, 9:00 AM UTC\. Anil Administrator of the Desi-Event team turned it off, with this note: “Not the organiser’s site\.”/u,
+      /Off since Oct 1, 2026, 9:00 AM UTC\. Anil Administrator of the team at The Desi Events turned it off, with this note: “Not the organiser’s site\.”/u,
     )
-    expect(line).toMatch(/Your new address is on the Desi-Event team’s list to look at\./u)
-    expect(line.match(/Only the Desi-Event team/gu)).toHaveLength(1)
+    expect(line).toMatch(
+      /Your new address is on the list for the team at The Desi Events to look at\./u,
+    )
+    expect(line.match(/Only the team at The Desi Events/gu)).toHaveLength(1)
   })
 
   it('tells a platform administrator from outside the organisation in the administrators’ words', () => {
@@ -326,10 +330,10 @@ describe('websiteLinkLine', () => {
     )
 
     expect(lines[0]).toBe(
-      'Website link: On since Oct 1, 2026, 9:00 AM UTC, going to mirrorwork.example. Turned on by Anil Administrator. Reason: Checked with the organiser. Only the Desi-Event team can turn this link on or off.',
+      'Website link: On since Oct 1, 2026, 9:00 AM UTC, going to mirrorwork.example. Turned on by Anil Administrator. Reason: Checked with the organiser. Only the team at The Desi Events can turn this link on or off.',
     )
     expect(lines[1]).toBe(
-      'Website link: Off since Oct 1, 2026, 9:00 AM UTC. Turned off by Anil Administrator. Waiting since Oct 1, 2026, 9:00 AM UTC. Only the Desi-Event team can turn this link on or off.',
+      'Website link: Off since Oct 1, 2026, 9:00 AM UTC. Turned off by Anil Administrator. Waiting since Oct 1, 2026, 9:00 AM UTC. Only the team at The Desi Events can turn this link on or off.',
     )
     for (const line of lines) expect(line).not.toMatch(/\b[Yy]our?\b/u)
     // The organiser still reads their own sentence.

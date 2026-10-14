@@ -70,7 +70,7 @@
  * buyer's own tickets to pay or paid, the tickets passed on to people who pay
  * with their own, what those people paid at the door, and the tickets cancelled
  * because nobody paid for them — each cancellation in a block of its own, with
- * who cancelled, what is no longer owed, the booking fee Desi-Event kept, and
+ * who cancelled, what is no longer owed, the booking fee The Desi Events kept, and
  * the reason given. Money paid at the door is the organiser's: when the order
  * is refunded or cancelled the page says it is with the organiser, never that
  * it came back.
@@ -249,7 +249,7 @@ export function venueEndingSentences(order) {
 
   if ((venue?.paidCents ?? 0) > 0) {
     sentences.push(
-      `The ${money(venue.paidCents)} you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+      `The ${money(venue.paidCents)} you paid at the door is with the organiser, not with The Desi Events. Ask the organiser to return it.`,
     )
   }
 
@@ -283,7 +283,7 @@ export function venueEndedSentences(order) {
 
   if ((venue?.paidCents ?? 0) > 0) {
     sentences.push(
-      `The ${money(venue.paidCents)} you paid at the door is with the organiser, not with Desi-Event. Ask the organiser to return it.`,
+      `The ${money(venue.paidCents)} you paid at the door is with the organiser, not with The Desi Events. Ask the organiser to return it.`,
     )
   }
 
@@ -319,7 +319,7 @@ export function venueCancellationSentences(
   timeZone,
   { paidOnlineCents = 0 } = {},
 ) {
-  const by = cancellation.by === 'DESI_EVENT' ? 'The Desi-Event team' : 'The organiser'
+  const by = cancellation.by === 'DESI_EVENT' ? 'The Desi Events team' : 'The organiser'
   const money = (cents) => formatAmount(cents, currency)
   const on = formatEventDate(cancellation.at, timeZone)
   const passedOn = Math.max(0, cancellation.passedOnTickets ?? 0)
@@ -347,7 +347,7 @@ export function venueCancellationSentences(
 
   if (cancellation.feeKeptCents > 0) {
     sentences.push(
-      `The booking fee paid for ${them} online, ${money(cancellation.feeKeptCents)}, is kept by Desi-Event and is not refunded.`,
+      `The booking fee paid for ${them} online, ${money(cancellation.feeKeptCents)}, is kept by The Desi Events and is not refunded.`,
     )
   } else if ((paidOnlineCents ?? 0) > 0) {
     sentences.push(`None of the booking fee you paid online is kept for ${them}.`)
@@ -888,8 +888,8 @@ export default async function OrderPage({ params }) {
         {atVenue && order.status === 'PAID' && venue?.state === 'TO_PAY' ? (
           <p className="mt-2 max-w-prose text-sm text-ink">
             {(order.feesCents ?? 0) > 0
-              ? 'Until a ticket is paid for at the door, the organiser or Desi-Event can cancel it; the booking fee is not refunded if they do.'
-              : 'Until a ticket is paid for at the door, the organiser or Desi-Event can cancel it.'}
+              ? 'Until a ticket is paid for at the door, the organiser or The Desi Events can cancel it; the booking fee is not refunded if they do.'
+              : 'Until a ticket is paid for at the door, the organiser or The Desi Events can cancel it.'}
           </p>
         ) : null}
 

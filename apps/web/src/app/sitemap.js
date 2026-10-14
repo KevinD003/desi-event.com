@@ -76,6 +76,7 @@ function staticRoutes() {
     { url: `${siteUrl}/venues`, changeFrequency: 'weekly', priority: 0.6 },
     { url: `${siteUrl}/organizers`, changeFrequency: 'daily', priority: 0.6 },
     { url: `${siteUrl}/limitations`, changeFrequency: 'monthly', priority: 0.3 },
+    { url: `${siteUrl}/contact`, changeFrequency: 'monthly', priority: 0.3 },
   ]
 }
 

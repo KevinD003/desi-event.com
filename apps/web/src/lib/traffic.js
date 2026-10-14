@@ -51,7 +51,7 @@ export const REFUNDED_ORDERS_NOTE = 'An order refunded later is not counted as p
 /** What the visit figures count, and what they do not. */
 export const VISIT_COUNTING_NOTES = Object.freeze([
   'Robots and automated tools are not counted.',
-  'Visits by you and everybody else in your organisation while signed in, and by Desi-Event staff, are not counted.',
+  'Visits by you and everybody else in your organisation while signed in, and by staff at The Desi Events, are not counted.',
   'People whose browser asks not to be tracked (Global Privacy Control or Do Not Track) are counted as page views, never as visitors.',
   'No cookie is set and no address, browser description or account is kept. A visitor is recognised for one day and one event only, by a code made from their connection and browser with a secret that is deleted from the live database when the day ends. Backups taken during the day keep that secret for as long as the backups are kept.',
   'The record of each visit is deleted two days after the day it happened, by the job that adds visits up, once it has been added up. Only the daily totals are kept.',
@@ -80,7 +80,7 @@ const TIME_FORMAT = new Intl.DateTimeFormat('en-GB', {
 /**
  * Who a page should not count while they look at it.
  *
- * Desi-Event staff hold platform capabilities and are never counted; an
+ * staff at The Desi Events hold platform capabilities and are never counted; an
  * organisation's members are not counted on its own events. Decided here from
  * the session the page already read, because a beacon carries no session.
  *
@@ -274,17 +274,17 @@ export function websiteLinkLine(
   const state = event?.websiteRedirect ?? null
 
   if (!state) {
-    return `Website link: ${event?.websiteLinkOn ? 'On' : 'Off'}. Only the Desi-Event team can turn it on or off.`
+    return `Website link: ${event?.websiteLinkOn ? 'On' : 'Off'}. Only the team at The Desi Events can turn it on or off.`
   }
 
   if (state.enabled && state.pending) {
     const decidedHost = websiteHost(state.decidedUrl) ?? 'the approved address'
 
-    return `Website link: On since ${formatInstant(state.changedAt)}, going to ${decidedHost}. A change to the event’s website address is on the Desi-Event team’s list to look at; until an administrator decides on it, the link keeps going to ${decidedHost}. ${ONLY_THE_TEAM}`
+    return `Website link: On since ${formatInstant(state.changedAt)}, going to ${decidedHost}. A change to the event’s website address is on the list for the team at The Desi Events to look at; until an administrator decides on it, the link keeps going to ${decidedHost}. ${ONLY_THE_TEAM}`
   }
 
   if (!state.enabled && !state.pending && !state.changedAt) {
-    return `Website link: Off. This event has no website address for the Desi-Event team to link to; one can be added in the event’s editor. ${ONLY_THE_TEAM}`
+    return `Website link: Off. This event has no website address for the team at The Desi Events to link to; one can be added in the event’s editor. ${ONLY_THE_TEAM}`
   }
 
   // The cases left never reach the administrators' sentence about a changed

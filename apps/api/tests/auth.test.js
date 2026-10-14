@@ -205,7 +205,7 @@ describe('POST /v1/auth/register', () => {
         expect.objectContaining({
           path: 'role',
           message:
-            'Accounts are created as attendees. Organisers join by invitation from the Desi-Event team.',
+            'Accounts are created as attendees. Organisers join by invitation from the team at The Desi Events.',
         }),
       ])
     }

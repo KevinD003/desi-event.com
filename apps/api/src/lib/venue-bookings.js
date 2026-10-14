@@ -4,13 +4,13 @@
  *
  * The owner's answer to open question 2: "The admin keeps the platform fee and
  * rest is paid to the buyer." An organiser who may refund the organisation's
- * orders (OWNER, ADMIN) or a Desi-Event administrator (ADMIN, SUPER_ADMIN)
+ * orders (OWNER, ADMIN) or an administrator at The Desi Events (ADMIN, SUPER_ADMIN)
  * cancels chosen unpaid tickets of one booking. Each one stops admitting
  * (REVOKED, `venue-unpaid:<cancellationId>`, its pass dead, an open offer to
  * pass it on withdrawn); its place is freed — a reserved seat becomes
  * AVAILABLE, a general-admission place goes back to its tier's stock — and
  * sells again whenever its sales are open; nobody owes its door price any
- * more; and Desi-Event keeps the share of the booking fee paid online for it,
+ * more; and The Desi Events keeps the share of the booking fee paid online for it,
  * for good. The rest would be the tax on that share, which is 0 on every
  * pay-at-the-venue booking of this build (open question 9), so nothing is
  * refunded and nothing is posted to the ledger; a booking that does carry tax
@@ -142,7 +142,7 @@ export function venueCancellationAuthority(actor, event) {
 }
 
 /**
- * The share of a booking fee Desi-Event keeps when unpaid tickets of basis
+ * The share of a booking fee The Desi Events keeps when unpaid tickets of basis
  * `lineBasisCents` are cancelled (SPEC3-XI §10.2, XU6). Pure.
  *
  * Apportioned by basis exactly as a refund of named tickets apportions the
@@ -394,7 +394,7 @@ async function eventCurrency(db, eventId) {
  * administrators' list and the cancel dialog (SPEC3-XI §11.2). The caller
  * has decided the reader may ({@link venueCancellationAuthority}).
  *
- * A Desi-Event administrator reads no name: `buyerName` and every
+ * An administrator at The Desi Events reads no name: `buyerName` and every
  * `attendeeName` are null for a `PLATFORM_ROLE` reader. An organisation
  * reader gets them without any address in them.
  *

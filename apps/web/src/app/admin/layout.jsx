@@ -1,7 +1,7 @@
 /**
  * Platform administration.
  *
- * Signed in, and on the Desi-Event team as a platform administrator
+ * Signed in, and on the team at The Desi Events as a platform administrator
  * (`organizer:invite`: inviting organisers) or a super administrator
  * (`platform:admin` as well: changing who can do what across the platform).
  * The shell refuses everybody else before a page is drawn; each page asks its

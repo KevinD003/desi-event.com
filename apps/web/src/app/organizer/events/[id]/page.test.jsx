@@ -284,7 +284,7 @@ describe('the controls the organisation’s membership allows', () => {
     await user.click(screen.getByRole('button', { name: /step 9/i }))
   }
 
-  it('offers a member who may delete the danger zone, and lists the Desi-Event team’s changes', async () => {
+  it('offers a member who may delete the danger zone, and lists the changes by the team at The Desi Events', async () => {
     api.getPlatformEdits.mockResolvedValue([
       {
         id: 'cedit00000000000000000001',
@@ -313,12 +313,12 @@ describe('the controls the organisation’s membership allows', () => {
 
     expect(screen.getByRole('heading', { name: 'Danger zone' })).toBeInTheDocument()
     expect(
-      screen.getByRole('heading', { name: 'Changes made by the Desi-Event team' }),
+      screen.getByRole('heading', { name: 'Changes made by the team at The Desi Events' }),
     ).toBeInTheDocument()
     expect(api.getPlatformEdits).toHaveBeenCalledWith(EVENT.id)
   })
 
-  it('asks the membership, not the platform role: a super administrator who is not a member is offered no editor and no danger zone here, only the way to the Desi-Event team’s editor', async () => {
+  it('asks the membership, not the platform role: a super administrator who is not a member is offered no editor and no danger zone here, only the way to the editor for the team at The Desi Events', async () => {
     // Reached by a link inside the organiser area, where the layout's redirect
     // does not run again (SPEC2-XI O9): the page itself sends them on.
     api.getOrganizerEvent.mockResolvedValue({ ...EVENT, status: 'ON_SALE' })
@@ -337,17 +337,17 @@ describe('the controls the organisation’s membership allows', () => {
     render(await EditEventPage({ params: Promise.resolve({ id: EVENT.id }) }))
 
     expect(
-      screen.getByRole('heading', { name: 'Edited by the Desi-Event team elsewhere' }),
+      screen.getByRole('heading', { name: 'Edited by The Desi Events team elsewhere' }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: 'Open it in the Desi-Event team’s editor' }),
+      screen.getByRole('link', { name: 'Open it in the editor for the team at The Desi Events' }),
     ).toHaveAttribute('href', `/admin/events/${EVENT.id}`)
     expect(screen.queryByRole('navigation', { name: 'Editor steps' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Danger zone' })).not.toBeInTheDocument()
     expect(api.getEventSessions).not.toHaveBeenCalled()
   })
 
-  it('asks the membership, not the platform role: platform capabilities that do not edit as the Desi-Event team offer no danger zone in the editor', async () => {
+  it('asks the membership, not the platform role: platform capabilities that do not edit as the team at The Desi Events offer no danger zone in the editor', async () => {
     await reviewFor({
       user: { id: 'u4' },
       capabilities: ['event:delete_unsold', 'event:cancel', 'event:view_draft'],
@@ -358,7 +358,7 @@ describe('the controls the organisation’s membership allows', () => {
     expect(screen.queryByRole('heading', { name: 'Danger zone' })).not.toBeInTheDocument()
   })
 
-  it('leaves a member who also edits as the Desi-Event team in the organiser’s editor', async () => {
+  it('leaves a member who also edits as the team at The Desi Events in the organiser’s editor', async () => {
     await reviewFor({
       user: { id: 'u5' },
       capabilities: ['event:platform_edit'],
@@ -391,7 +391,7 @@ describe('the controls the organisation’s membership allows', () => {
 })
 
 describe('a deleted event', () => {
-  it('shows its record instead of the editor, and sends nobody to restore it but the Desi-Event team', async () => {
+  it('shows its record instead of the editor, and sends nobody to restore it but the team at The Desi Events', async () => {
     api.getOrganizerEvent.mockResolvedValue({
       ...EVENT,
       status: 'DELETED',
@@ -561,7 +561,7 @@ describe('the read-only "Booking fee and payment" panel (SPEC3 §12.4)', () => {
     render(await EditEventPage({ params: Promise.resolve({ id: event.id }) }))
   }
 
-  it('shows the Desi-Event team’s decisions, with no controls, and links finance to the payments at the venue', async () => {
+  it('shows the decisions of the team at The Desi Events, with no controls, and links finance to the payments at the venue', async () => {
     await renderFor(
       {
         user: { id: 'u1' },
@@ -579,10 +579,10 @@ describe('the read-only "Booking fee and payment" panel (SPEC3 §12.4)', () => {
     const panel = screen.getByRole('region', { name: 'Booking fee and payment' })
 
     expect(panel).toHaveTextContent(
-      'Booking fee on this event: 3.00% of the ticket price plus $1.49 per ticket. Set by the Desi-Event team.',
+      'Booking fee on this event: 3.00% of the ticket price plus $1.49 per ticket. Set by the team at The Desi Events.',
     )
     expect(panel).toHaveTextContent(
-      'Pay at the venue: Off. Only the Desi-Event team can change this.',
+      'Pay at the venue: Off. Only the team at The Desi Events can change this.',
     )
     expect(panel.querySelectorAll('input, button, select, textarea')).toHaveLength(0)
     // Off now, but bookings made while it was on remain: the page stays reachable.

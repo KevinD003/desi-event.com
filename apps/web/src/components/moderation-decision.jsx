@@ -82,9 +82,9 @@ const DECISIONS = Object.freeze({
 })
 
 /**
- * The wording for an event nobody runs on Desi-Event (a platform-held import,
- * SPEC2-XI O16): the reason is sent to nobody, and the import's run page
- * publishes it once approved.
+ * The wording for an event nobody runs on The Desi Events (a platform-held
+ * import, SPEC2-XI O16): the reason is sent to nobody, and the import's run
+ * page publishes it once approved.
  */
 const NO_EDITOR_WORDING = Object.freeze({
   approve:
@@ -92,7 +92,7 @@ const NO_EDITOR_WORDING = Object.freeze({
   reject:
     'Rejecting ends this submission. A later import of its listing leaves it alone until the event is deleted.',
   reason:
-    'Kept on the event’s record. Nobody runs this event on Desi-Event, so it is sent to nobody.',
+    'Kept on the event’s record. Nobody runs this event on The Desi Events, so it is sent to nobody.',
   note: 'Optional. Kept on the event’s record.',
 })
 

@@ -87,7 +87,7 @@ export const CAPABILITIES = deepFreeze({
   EVENT_DELETE_UNSOLD: 'event:delete_unsold',
   EVENT_VIEW_DRAFT: 'event:view_draft',
   /**
-   * Edit any organisation's published event as the Desi-Event team, in a
+   * Edit any organisation's published event as the team at The Desi Events, in a
    * sitting opened with a reason and a second factor, every write audited with
    * both. Platform-only. Never a draft or a version under review.
    */
@@ -100,7 +100,7 @@ export const CAPABILITIES = deepFreeze({
    */
   EVENT_PLATFORM_DELETE: 'event:platform_delete',
   /**
-   * Bring events listed on another site (Sulekha) onto Desi-Event: upload a
+   * Bring events listed on another site (Sulekha) onto The Desi Events: upload a
    * file, read its plan, import it, retry its pictures, approve and publish the
    * imported events (with `moderation:review`) and move one to an organiser's
    * own organisation. Platform-only.
@@ -282,8 +282,8 @@ export const CAPABILITIES = deepFreeze({
    * default, and switch paying at the venue on or off with its limit on unpaid
    * places, in any status but DELETED (SPEC3 §3.1, §3.3).
    *
-   * Platform-only: the fee is Desi-Event's revenue, and how a buyer may pay is
-   * the Desi-Event team's decision, never an organiser's. Held by ADMIN, and by
+   * Platform-only: the fee is The Desi Events' revenue, and how a buyer may pay is
+   * for the team at The Desi Events to decide, never an organiser. Held by ADMIN, and by
    * SUPER_ADMIN through ALL_CAPABILITIES (ADR 0016).
    */
   PAYMENT_TERMS_MANAGE: 'payment_terms:manage',
@@ -291,7 +291,7 @@ export const CAPABILITIES = deepFreeze({
    * Make, change, switch on or off, list and report the referral codes that
    * waive an order's whole booking fee (SPEC3 §3.2).
    *
-   * Platform-only: a code removes Desi-Event's own fee, and its text is shown
+   * Platform-only: a code removes The Desi Events' own fee, and its text is shown
    * only to platform administrators. Held by ADMIN, and by SUPER_ADMIN through
    * ALL_CAPABILITIES (ADR 0016).
    */
@@ -302,7 +302,7 @@ export const CAPABILITIES = deepFreeze({
    * the order (SPEC3 §7.4, the owner's A4). It reads that one order's
    * booking-fee figures by reference to do so.
    *
-   * Platform-only: the fee is Desi-Event's money, not an organiser's. Held by
+   * Platform-only: the fee is The Desi Events' money, not an organiser's. Held by
    * ADMIN and FINANCE_ADMIN, and by SUPER_ADMIN through ALL_CAPABILITIES.
    */
   PLATFORM_FEE_REFUND: 'platform_fee:refund',
@@ -314,7 +314,7 @@ export const CAPABILITIES = deepFreeze({
    * Platform-only, and not `order:refund`: the organisation side of the same
    * decision is a membership granting `order:refund` (OWNER, ADMIN), checked
    * on the membership alone. ADMIN cannot hold `order:refund` (its allow-list
-   * is an equality), so the Desi-Event team needs its own name for it. Held by
+   * is an equality), so the team at The Desi Events needs its own name for it. Held by
    * ADMIN, and by SUPER_ADMIN through ALL_CAPABILITIES; not by FINANCE_ADMIN,
    * MODERATOR or SUPPORT.
    */
@@ -837,7 +837,7 @@ export function canAssignOrgRole(assignerRole, targetRole) {
 /**
  * The capabilities that create or publish events.
  *
- * Holding one of them is what "posts events" means. The Desi-Event team
+ * Holding one of them is what "posts events" means. The Desi Events team
  * decides who does: an organiser invitation makes somebody the owner of a new
  * organisation, and a super administrator may grant any role directly. An
  * organisation cannot hand one of these to somebody new on its own.
@@ -961,7 +961,7 @@ assertPostingPolicy(ORG_ROLE_CAPABILITIES)
  * invitation?
  *
  * {@link canAssignOrgRole}, and the role must not post events: those are given
- * by the Desi-Event team.
+ * by the team at The Desi Events.
  *
  * @param {string} assignerRole The granting member's role.
  * @param {string} targetRole The role offered.
@@ -978,8 +978,8 @@ export function canIssueOrgRole(assignerRole, targetRole) {
  * assigner could grant ({@link canAssignOrgRole}), and a move to a role that
  * posts events only downwards: the member must already post events, and the new
  * role's capabilities must be a subset of the old one's. An upward move to a
- * posting role, or any move that makes a non-poster a poster, is the Desi-Event
- * team's to make.
+ * posting role, or any move that makes a non-poster a poster, is for the team
+ * at The Desi Events to make.
  *
  * @param {string} assignerRole The acting member's role.
  * @param {string} fromRole The member's current role.

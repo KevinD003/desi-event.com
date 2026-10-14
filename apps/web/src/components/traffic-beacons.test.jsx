@@ -1,6 +1,6 @@
 /**
  * The page's visit counting in the browser: one page view per mount even under
- * StrictMode, a beacon for a marked click, nothing at all for Desi-Event staff
+ * StrictMode, a beacon for a marked click, nothing at all for staff at The Desi Events
  * or for an organisation's own team on its events, and nothing from a
  * prerendered page until it is shown.
  *
@@ -106,7 +106,7 @@ describe('TrafficBeacons', () => {
     ])
   })
 
-  it('sends nothing for Desi-Event staff, neither the view nor a click', () => {
+  it('sends nothing for staff at The Desi Events, neither the view nor a click', () => {
     render(
       <StrictMode>
         <TrafficBeacons view={{ eventId: EVENT, organizationId: ORG }} excludeAll />

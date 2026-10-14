@@ -4,7 +4,7 @@
  * Deletion is a soft delete: the event becomes DELETED, which is outside every
  * allow-list of statuses the public surfaces, the door, checkout and the
  * pictures read, and keeps its orders, tickets, refunds, history and pictures,
- * so the Desi-Event team can restore it.
+ * so the team at The Desi Events can restore it.
  *
  * What deleting does depends on what was sold ({@link classifyDeletion}):
  *
@@ -111,7 +111,7 @@ export const OUTCOME_CHANGED_SENTENCE =
 
 /** What the deleter is told when a finished event nobody was checked in at needs a word. */
 export const TOOK_PLACE_UNCONFIRMED_SENTENCE =
-  'Nobody was checked in at this event through Desi-Event. Confirm that it took place, or choose to cancel it and refund every order.'
+  'Nobody was checked in at this event through The Desi Events. Confirm that it took place, or choose to cancel it and refund every order.'
 
 /**
  * What a deleter is told when the deletion ran out of time: behind another
@@ -123,7 +123,7 @@ export const DELETION_OUT_OF_TIME_SENTENCE =
   'Another change to this event was being saved at the same moment, and deleting it could not wait for it, so nothing was changed: the event is as it was. Try again in a moment.'
 
 /**
- * What the Desi-Event team is told when a restore ran out of time. Rolled
+ * What the team at The Desi Events is told when a restore ran out of time. Rolled
  * back whole: the event is still deleted.
  */
 export const RESTORE_OUT_OF_TIME_SENTENCE =
@@ -399,7 +399,7 @@ const ORGANIZATION_NEEDS = Object.freeze({
 
 /**
  * Whether this actor may ask to delete this event at all: an organisation
- * member holding `event:delete_unsold`, or the Desi-Event team. Everybody else
+ * member holding `event:delete_unsold`, or the team at The Desi Events. Everybody else
  * is answered as if the event did not exist.
  *
  * @param {object|null} actor The request actor.
@@ -440,7 +440,7 @@ export function deletionAuthority(actor, event, outcome, facts = null) {
 
     return {
       permitted: false,
-      missing: `Deleting this event ${counted}, which an organisation administrator or owner decides. Ask one of them, or the Desi-Event team.`,
+      missing: `Deleting this event ${counted}, which an organisation administrator or owner decides. Ask one of them, or the team at The Desi Events.`,
       authority: null,
     }
   }
@@ -449,14 +449,14 @@ export function deletionAuthority(actor, event, outcome, facts = null) {
     return {
       permitted: false,
       missing:
-        'Deleting an event that has taken place is decided by an organisation administrator or owner. Ask one of them, or the Desi-Event team.',
+        'Deleting an event that has taken place is decided by an organisation administrator or owner. Ask one of them, or the team at The Desi Events.',
       authority: null,
     }
   }
 
   return {
     permitted: false,
-    missing: 'Only the people who run this event, or the Desi-Event team, can delete it.',
+    missing: 'Only the people who run this event, or the team at The Desi Events, can delete it.',
     authority: null,
   }
 }

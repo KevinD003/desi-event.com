@@ -118,8 +118,8 @@ const READINGS = Object.freeze({
   DELETED: {
     label: 'Deleted',
     tone: 'danger',
-    whose: 'the Desi-Event team',
-    next: 'Its page is off the site and nothing can be bought. The Desi-Event team can restore it.',
+    whose: 'the team at The Desi Events',
+    next: 'Its page is off the site and nothing can be bought. The Desi Events team can restore it.',
   },
 })
 

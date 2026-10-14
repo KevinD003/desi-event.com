@@ -293,9 +293,9 @@ describe('what may be edited, and when', () => {
     await app.close()
   })
 
-  // SPEC2-XI X-8 and X-12: a deleted event is not final, because the Desi-Event
-  // team can restore it; the refusal says what to do instead.
-  it('refuses authoring on a deleted event and says the Desi-Event team restores it, not that it is final', async () => {
+  // SPEC2-XI X-8 and X-12: a deleted event is not final, because the team at
+  // The Desi Events can restore it; the refusal says what to do instead.
+  it('refuses authoring on a deleted event and says the team at The Desi Events restores it, not that it is final', async () => {
     const { app, prisma, ids } = await createTestApp()
     const token = await signIn(app, 'arun@rangoli.example')
 
@@ -321,7 +321,7 @@ describe('what may be edited, and when', () => {
     expect(response.statusCode).toBe(409)
     expect(response.json().error.code).toBe('NOT_EDITABLE')
     expect(response.json().error.message).toBe(
-      'This event was deleted. Ask the Desi-Event team to restore it before changing it.',
+      'This event was deleted. Ask the team at The Desi Events to restore it before changing it.',
     )
 
     await app.close()

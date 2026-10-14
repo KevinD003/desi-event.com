@@ -4,7 +4,7 @@
  *
  * ## Not platform money
  *
- * A payment taken at the door never passes through Desi-Event: the organiser
+ * A payment taken at the door never passes through The Desi Events: the organiser
  * holds it. So nothing here posts to the ledger, counts it as owed to an
  * organiser or refunds it. It is recorded in its own table (`VenuePayment`) so
  * the organiser can count their takings against it, and every report says

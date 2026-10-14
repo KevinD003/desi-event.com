@@ -269,8 +269,8 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
   /**
    * Load an event and assert the caller may change its nights and tickets.
    *
-   * The organisation's authority through membership, or the Desi-Event team's
-   * in an open editing sitting of this browser session (SPEC2-XI X-A). A
+   * The organisation's authority through membership, or that of the team at
+   * The Desi Events in an open editing sitting of this browser session (SPEC2-XI X-A). A
    * finished or cancelled event's nights and tickets are closed.
    *
    * @param {object} request The Fastify request.
@@ -905,7 +905,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
     handler: async (request) => {
       const event = await loadForAuthoring(prisma, request.params.id)
 
-      // `inventory:manage` in the organisation, or the Desi-Event team in an
+      // `inventory:manage` in the organisation, or the team at The Desi Events in an
       // open editing sitting (SPEC2-XI X-A).
       const authority = await resolveEventAuthority(prisma, {
         event,
@@ -960,7 +960,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
     handler: async (request) => {
       const event = await readable(request)
       // What checkout would charge: the same fee terms — the event's own when
-      // the Desi-Event team set them, else the site default — and the venue's
+      // the team at The Desi Events set them, else the site default — and the venue's
       // tax.
       const { rateBps } = resolveTaxPolicy({
         country: event.venue?.country ?? null,

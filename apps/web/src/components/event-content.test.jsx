@@ -130,7 +130,7 @@ describe('contact and links', () => {
     const links = screen.getAllByRole('link')
 
     // A stored `website` key is never a link here: the website has its own
-    // switched link, through Desi-Event's redirect.
+    // switched link, through The Desi Events' redirect.
     expect(links.map((link) => link.textContent)).toEqual(['Instagram'])
     expect(screen.queryByText('Website')).toBeNull()
     expect(screen.queryByText('(garba.example)')).toBeNull()

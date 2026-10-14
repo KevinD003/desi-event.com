@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { OTHER_MAILTO } from './support/company-contact.js'
 import { firstSpokenText } from './support/link-text.js'
 
 /**
@@ -80,8 +81,10 @@ test.describe('event → organiser', () => {
     await page.goto('/organizers/peachtree-raas-club')
 
     // The whole page, footer included: the footer once carried an invented
-    // address for organisers, and no address on this site reaches anybody.
-    await expect(page.locator('a[href^="mailto:"]')).toHaveCount(0)
+    // address for organisers, and no address on this site reaches an
+    // organiser. The footer's one email link is the company's own published
+    // address, the single `mailto:` allowed (`support/company-contact.js`).
+    await expect(page.locator(OTHER_MAILTO)).toHaveCount(0)
     await expect(page.getByText(/@peachtreeraas\.example/)).toHaveCount(0)
   })
 })

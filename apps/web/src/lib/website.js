@@ -26,8 +26,8 @@ export const WEBSITE_LIMITS = Object.freeze({
   search: 100,
 })
 
-/** Desi-Event itself. A "visit the organiser's website" link here is a loop or an impersonation. */
-export const PLATFORM_HOSTS = Object.freeze(['desi-event.com'])
+/** The Desi Events itself. A "visit the organiser's website" link here is a loop or an impersonation. */
+export const PLATFORM_HOSTS = Object.freeze(['thedesievents.com'])
 
 /** Names that resolve only on somebody's own network, or nowhere. */
 export const PRIVATE_HOST_SUFFIXES = Object.freeze([
@@ -82,7 +82,7 @@ export const WEBSITE_PROBLEMS = Object.freeze({
   numeric: 'Use the site’s name, such as www.example.com, rather than a numeric address.',
   name: 'Use the site’s full name, such as www.example.com.',
   privateNetwork: 'That name only works on a private network. Use your website’s public address.',
-  platform: 'That address is on Desi-Event itself. Use your own website’s address.',
+  platform: 'That address is on The Desi Events itself. Use your own website’s address.',
 })
 
 /**
@@ -124,7 +124,7 @@ function parameterNames(text) {
  *
  * The same checks in the same order as the server's: blank, too long,
  * whitespace, does not parse, not https, a sign-in, a port, a numeric address,
- * not a dotted public name, a private network's name, Desi-Event's own domain,
+ * not a dotted public name, a private network's name, the domain of The Desi Events itself,
  * and a parameter named like a credential.
  *
  * @param {unknown} value The address as typed, already trimmed by the caller.

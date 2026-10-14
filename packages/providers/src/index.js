@@ -1,5 +1,5 @@
 /**
- * `@desi-event/providers` — the seam between Desi-Event and the outside world.
+ * `@desi-event/providers` — the seam between The Desi Events and the outside world.
  *
  * Four capabilities the platform cannot implement itself: taking money, sending
  * email, sending SMS, and storing files. Each is described here as an interface

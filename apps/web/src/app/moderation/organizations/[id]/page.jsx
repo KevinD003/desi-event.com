@@ -8,7 +8,7 @@
  * transition table and asks for a recent second factor.
  *
  * A reviewer who belongs to this organisation is told that somebody else on
- * the Desi-Event team decides, in place of the decision: the session says
+ * the team at The Desi Events decides, in place of the decision: the session says
  * which organisations they are in, and the API refuses them all the same.
  *
  * @file app/moderation/organizations/id/page.jsx

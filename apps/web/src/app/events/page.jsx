@@ -32,7 +32,7 @@ export const dynamic = 'force-dynamic'
 export const metadata = {
   title: 'All events',
   description:
-    'Every garba and dandiya night, beginner garba class and Navratri mela on Desi-Event — filter by category, city or search.',
+    'Every garba and dandiya night, beginner garba class and Navratri mela on The Desi Events — filter by category, city or search.',
 }
 
 /**
@@ -222,7 +222,7 @@ export default async function EventsPage({ searchParams }) {
       </div>
 
       {/* Counts clicks on the cards above; a signed-in organiser's own events
-          and Desi-Event staff are left out. */}
+          and staff at The Desi Events are left out. */}
       <TrafficScope />
     </div>
   )

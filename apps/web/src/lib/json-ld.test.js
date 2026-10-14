@@ -135,10 +135,11 @@ describe('every script element the web app writes', () => {
     expect(openers).toEqual([path.join('components', 'json-ld.jsx')])
   })
 
-  it('publishes the event and venue structured data through it', () => {
+  it('publishes the event, venue and organisation structured data through it', () => {
     for (const page of [
       path.join('app', 'events', '[slug]', 'page.jsx'),
       path.join('app', 'venues', '[slug]', 'page.jsx'),
+      path.join('app', 'page.jsx'),
     ]) {
       const { text } = files.find(({ file }) => file === page)
 

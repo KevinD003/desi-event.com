@@ -3,8 +3,8 @@
 /**
  * Making a referral code, or changing one (SPEC3 §12.5).
  *
- * A new code is generated (the default) or typed; a label for the Desi-Event
- * team only; all events or chosen ones (up to 50); an expiry, typed in UTC and
+ * A new code is generated (the default) or typed; a label for the team at
+ * The Desi Events only; all events or chosen ones (up to 50); an expiry, typed in UTC and
  * labelled with it; and a total limit. A
  * change sends only what differs from the code as read, with
  * `expectedUpdatedAt`, so somebody else's change in between is refused
@@ -25,7 +25,7 @@
  * ## The time zone
  *
  * UTC, named in the field's label ({@link REFERRAL_EXPIRY_ZONE}): the zone every
- * Desi-Event administrator screen writes times in. Never the browser's, which
+ * administrator screen at The Desi Events writes times in. Never the browser's, which
  * nobody chose for this: a code works across events in every US zone, and an
  * expiry read in whichever zone a laptop happens to be set to would mean a
  * different moment to the next administrator. The same zone on the server and

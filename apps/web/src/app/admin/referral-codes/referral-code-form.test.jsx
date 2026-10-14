@@ -96,7 +96,7 @@ describe('making a referral code', () => {
     expect(screen.getByRole('radio', { name: 'Generate a code for me' })).toBeChecked()
     expect(screen.getByRole('radio', { name: 'All events' })).toBeChecked()
     expect(screen.getByLabelText('Label (optional)')).toHaveAccessibleDescription(
-      "For the Desi-Event team only, for example the partner organisation or the campaign it is for. Do not include anybody's personal details.",
+      "For the team at The Desi Events only, for example the partner organisation or the campaign it is for. Do not include anybody's personal details.",
     )
     expect(screen.getByLabelText('Limit (optional)')).toHaveAccessibleDescription(
       'How many orders can use it in all.',
@@ -425,7 +425,7 @@ describe('the expiry’s time zone', () => {
     const expires = screen.getByLabelText('Expires (optional, UTC)')
 
     expect(expires).toHaveAccessibleDescription(
-      'Date and time in UTC (Coordinated Universal Time), as every Desi-Event administrator screen writes times. UTC is 4 hours ahead of New York in summer and 5 in winter. With no expiry it works until it is switched off or used up.',
+      'Date and time in UTC (Coordinated Universal Time), as every administrator screen at The Desi Events writes times. UTC is 4 hours ahead of New York in summer and 5 in winter. With no expiry it works until it is switched off or used up.',
     )
 
     await user.type(expires, '2026-12-01T04:59')

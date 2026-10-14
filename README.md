@@ -1,26 +1,45 @@
-# Desi-Event
+# The Desi Events
+
+> The product is **The Desi Events**, at
+> [thedesievents.com](https://thedesievents.com). It was called Desi-Event
+> during development, and code identifiers such as the `@desi-event/*` package
+> scope, the repository name and the database names keep that name.
 
 Event discovery and ticketing for the South Asian community. Garba nights,
 Bollywood concerts, classical dance recitals, comedy tours, film screenings,
 food and wedding expos: the kind of event that today lives on a WhatsApp
-forward and a Google Form. Desi-Event gives organisers a real ticketing system
-and gives attendees one place to find what is on near them.
+forward and a Google Form. The Desi Events gives organisers a real ticketing
+system and gives attendees one place to find what is on near them.
 
 The platform is three deployable applications — a Fastify REST API, a Next.js
 storefront and a BullMQ worker — sitting on thirteen shared packages,
 PostgreSQL and Redis, in one pnpm workspace.
 
-The booking fee buyers pay is Desi-Event's charge, which the Desi-Event team can
-set for each event at any time, for new orders only, and the team hands out
-referral codes that remove it from one order. Where the team switches
-it on for an event, buyers can pay the ticket price at the door instead: the
-booking fee is paid online (simulated), no sales tax is added, and the steward
-records the payment in the same step that lets the ticket in. Money taken at
-the door stays with the organiser and never enters the platform's ledger; unpaid
-tickets can be cancelled by the organiser or the team, freeing their places
+The booking fee buyers pay is the charge of The Desi Events. The team at
+The Desi Events can set it for each event at any time, for new orders only, and
+the team hands out referral codes that remove it from one order. Where the team
+switches it on for an event, buyers can pay the ticket price at the door
+instead: the booking fee is paid online (simulated), no sales tax is added, and
+the steward records the payment in the same step that lets the ticket in. Money
+taken at the door stays with the organiser and never enters the platform's
+ledger; unpaid tickets can be cancelled by the organiser or the team, freeing
+their places
 ([ADR 0016](docs/adr/0016-per-event-booking-fee-and-referral-codes.md),
 [ADR 0017](docs/adr/0017-paying-at-the-venue-outside-the-ledger.md),
 [the owner's report](docs/PHASE4_FEES_AND_VENUE_PAYMENTS_REPORT.md)).
+
+## Contact
+
+The Desi Events can be reached on these public channels, as published on
+[thedesievents.com](https://thedesievents.com):
+
+| Channel   | Address                                                                  |
+| --------- | ------------------------------------------------------------------------ |
+| Email     | [info@thedesievents.com](mailto:info@thedesievents.com)                  |
+| Phone     | [+1 972 694 9043](tel:+19726949043)                                      |
+| WhatsApp  | [+1 972 694 9043](https://wa.me/19726949043)                             |
+| Facebook  | [facebook.com/the.desievents](https://www.facebook.com/the.desievents)   |
+| Instagram | [instagram.com/the.desievents](https://www.instagram.com/the.desievents) |
 
 ## Payments are in mock mode, and production payments are unreachable
 

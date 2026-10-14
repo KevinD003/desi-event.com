@@ -99,7 +99,7 @@ describe('buildOpenApiDocument', () => {
   })
 
   it('carries info, servers and tags', () => {
-    expect(document.info).toMatchObject({ title: 'Desi-Event API', version: '1.0.0' })
+    expect(document.info).toMatchObject({ title: 'The Desi Events API', version: '1.0.0' })
     expect(document.info.description).toEqual(expect.any(String))
     expect(document.servers.length).toBeGreaterThan(0)
     expect(document.tags.map((tag) => tag.name)).toContain('events')
@@ -109,12 +109,12 @@ describe('buildOpenApiDocument', () => {
     const custom = buildOpenApiDocument({
       title: 'Staging',
       version: '9.9.9',
-      servers: [{ url: 'https://staging.desi-event.com' }],
+      servers: [{ url: 'https://staging.thedesievents.com' }],
     })
 
     expect(custom.info.title).toBe('Staging')
     expect(custom.info.version).toBe('9.9.9')
-    expect(custom.servers).toEqual([{ url: 'https://staging.desi-event.com' }])
+    expect(custom.servers).toEqual([{ url: 'https://staging.thedesievents.com' }])
   })
 
   it('defines a bearer JWT security scheme', () => {

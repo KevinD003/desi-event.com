@@ -478,7 +478,7 @@ describe('edit modes', () => {
     expect([...CONTENT_ONLY_STATUSES].sort()).toEqual(['CANCELLED', 'COMPLETED'])
   })
 
-  it('lets the Desi-Event team edit posted events only, through the very set of publicly visible statuses', () => {
+  it('lets the team at The Desi Events edit posted events only, through the very set of publicly visible statuses', () => {
     expect(PLATFORM_EDITABLE_STATUSES).toBe(PUBLICLY_VISIBLE_STATUSES)
     for (const status of ['DRAFT', 'REVIEW_PENDING', 'APPROVED', 'REJECTED', 'DELETED']) {
       expect(PLATFORM_EDITABLE_STATUSES.has(status), status).toBe(false)

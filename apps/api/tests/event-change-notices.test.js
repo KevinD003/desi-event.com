@@ -132,7 +132,7 @@ describe('a change to one night', () => {
 })
 
 describe('a change to the event', () => {
-  it('is shown to every order placed before it, said to be the Desi-Event team’s when it was', async () => {
+  it('is shown to every order placed before it, said to be by the team at The Desi Events when it was', async () => {
     const { app, prisma, fixture } = await noticeApp()
 
     // An order placed after the change does not list it.

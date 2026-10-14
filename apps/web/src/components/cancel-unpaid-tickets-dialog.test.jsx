@@ -266,7 +266,7 @@ describe('what it reads, and what is ticked to start with', () => {
       'These tickets were booked to pay at the door and have not been paid for. Cancelling them frees their places, and nobody owes their price any more.',
     )
     expect(dialog).toHaveTextContent(
-      'Desi-Event keeps the booking fee paid online for them; nothing is refunded.',
+      'The Desi Events keeps the booking fee paid online for them; nothing is refunded.',
     )
     expect(dialog).toHaveTextContent("This can't be undone.")
   })
