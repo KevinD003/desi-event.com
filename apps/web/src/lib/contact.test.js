@@ -78,15 +78,25 @@ describe('the company’s channels', () => {
 })
 
 describe('organizationJsonLd', () => {
-  it('says the same as the links, and nothing they do not', () => {
-    expect(organizationJsonLd()).toEqual({
+  it('says the same as the links, and nothing they do not, beside the logo', () => {
+    expect(organizationJsonLd('https://example.test')).toEqual({
       '@context': 'https://schema.org',
       '@type': 'Organization',
       name: 'The Desi Events',
       url: 'https://thedesievents.com',
+      logo: 'https://example.test/brand/logo-square-512.png',
       email: CONTACT_EMAIL,
       telephone: CONTACT_PHONE_E164,
       sameAs: [FACEBOOK_URL, INSTAGRAM_URL],
     })
+  })
+
+  it('names the logo at the deployment’s own origin, absolutely, whatever path it is given', () => {
+    expect(organizationJsonLd('http://127.0.0.1:3000').logo).toBe(
+      'http://127.0.0.1:3000/brand/logo-square-512.png',
+    )
+    expect(organizationJsonLd(new URL('https://www.example.test/some/page')).logo).toBe(
+      'https://www.example.test/brand/logo-square-512.png',
+    )
   })
 })

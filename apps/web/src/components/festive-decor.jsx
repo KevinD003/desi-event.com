@@ -1,7 +1,8 @@
 /**
- * The festival's ornaments: the brand mark, the toran across a night band, the
- * rings of a garba circle, the scalloped hem where a band meets the page, and
- * the mirror-work divider between sections.
+ * The festival's ornaments: the toran across a night band, the rings of a garba
+ * circle, the scalloped hem where a band meets the page, and the mirror-work
+ * divider between sections. The brand itself is not drawn here: it is the
+ * owner's logo, a picture, in `brand-logo.jsx`.
  *
  * All of it is decoration. Every piece is `aria-hidden`, holds no text and no
  * control, and is drawn in the theme's tokens through `fill-*` and `stroke-*`
@@ -20,82 +21,6 @@
  *
  * @module components/festive-decor
  */
-
-/**
- * The mark of The Desi Events: a rani-pink diamond, a marigold one inside it,
- * and an ivory mirror at the centre.
- *
- * @param {object} props Component props.
- * @param {boolean} [props.inverse] Drawn for a night band, where the centre takes the night's colour.
- * @param {string} [props.className] Size. Defaults to 2.25rem.
- * @returns {JSX.Element} The mark.
- */
-export function BrandMark({ inverse = false, className = 'h-9 w-9' }) {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      viewBox="0 0 36 36"
-      className={`shrink-0 ${className}`}
-    >
-      <rect
-        x="6"
-        y="6"
-        width="24"
-        height="24"
-        rx="4"
-        transform="rotate(45 18 18)"
-        className={inverse ? 'fill-accent' : 'fill-action-primary'}
-      />
-      <rect
-        x="11"
-        y="11"
-        width="14"
-        height="14"
-        rx="2"
-        transform="rotate(45 18 18)"
-        className="fill-highlight"
-      />
-      <circle cx="18" cy="18" r="3.5" className={inverse ? 'fill-surface-inverse' : 'fill-page'} />
-    </svg>
-  )
-}
-
-/**
- * The wordmark: the mark, "The Desi Events" in the display face, and the name
- * in Devanagari beneath it. The Devanagari line is hidden from assistive
- * technology, so a link wrapped round the wordmark is named by the brand, said
- * once; it is marked `lang="hi"`, which is also what the header uses to drop it
- * on the narrowest screens. "Desi Events" never breaks across lines, so where
- * the header stacks the name it reads "The" over "Desi Events".
- *
- * @param {object} props Component props.
- * @param {boolean} [props.inverse] Drawn for the night band.
- * @returns {JSX.Element} The wordmark's content.
- */
-export function Wordmark({ inverse = false }) {
-  return (
-    <>
-      <BrandMark inverse={inverse} className="h-8 w-8 sm:h-9 sm:w-9" />
-      <span className="flex flex-col">
-        <span
-          className={`font-display text-xl leading-6 font-bold tracking-tight sm:text-2xl sm:leading-6.5 ${
-            inverse ? 'text-ink-inverse' : 'text-ink'
-          }`}
-        >
-          The <span className="whitespace-nowrap">Desi Events</span>
-        </span>
-        <span
-          aria-hidden="true"
-          lang="hi"
-          className={`font-sans text-micro ${inverse ? 'text-ink-inverse-muted' : 'text-ink-subtle'}`}
-        >
-          द देसी इवेंट्स
-        </span>
-      </span>
-    </>
-  )
-}
 
 /** How wide one swag of the toran is, in the drawing's units. */
 const SWAG = 120

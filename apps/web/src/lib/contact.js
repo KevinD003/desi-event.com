@@ -15,6 +15,8 @@
  * @module lib/contact
  */
 
+import { SQUARE_LOGO_PATH } from './brand.js'
+
 /** The company's name, as it is written everywhere: capital T, singular verb. */
 export const BRAND_NAME = 'The Desi Events'
 
@@ -117,17 +119,21 @@ export function pageLabel(channel) {
  * The company as schema.org structured data, for the home page.
  *
  * Only what is published on the company's own site: its name, address on the
- * web, email, telephone and social profiles. No logo is named, because none
- * is published here to point at.
+ * web, email, telephone and social profiles — and its logo, the brand kit's
+ * square logo at 512 × 512, which this deployment serves. The logo's address
+ * is absolute, as schema.org asks, and is resolved against the deployment's
+ * own origin rather than `BRAND_URL`, so it names a file that is really there.
  *
+ * @param {string|URL} siteUrl Where this deployment is served from.
  * @returns {object} An `Organization` for a JSON-LD block.
  */
-export function organizationJsonLd() {
+export function organizationJsonLd(siteUrl) {
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
     name: BRAND_NAME,
     url: BRAND_URL,
+    logo: new URL(SQUARE_LOGO_PATH, siteUrl).href,
     email: CONTACT_EMAIL,
     telephone: CONTACT_PHONE_E164,
     sameAs: [FACEBOOK_URL, INSTAGRAM_URL],

@@ -10,7 +10,8 @@
  * @module components/auth-frame
  */
 
-import { BrandMark, GarbaRings, Toran } from './festive-decor.jsx'
+import { BrandLogo } from './brand-logo.jsx'
+import { GarbaRings, Toran } from './festive-decor.jsx'
 import { CheckIcon } from './icons.jsx'
 import { FadeIn } from './motion.jsx'
 
@@ -43,7 +44,9 @@ export function AuthFrame({ headingId, title, lead, children }) {
           aria-labelledby={headingId}
           className="rounded-card bg-surface-raised p-6 shadow-dialog sm:p-8"
         >
-          <BrandMark className="h-10 w-10" />
+          {/* The D alone, and decorative: the header above already names the
+              brand, and the card's heading is what this page is. */}
+          <BrandLogo variant="icon" decorative className="h-10 w-auto" />
           <h1 id={headingId} className="mt-5 text-h1 font-semibold text-ink">
             {title}
           </h1>

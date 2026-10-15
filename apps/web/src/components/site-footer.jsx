@@ -17,7 +17,8 @@ import Link from 'next/link'
 import { categoryLabel } from '../lib/catalog.js'
 import { CONTACT_CHANNELS } from '../lib/contact.js'
 import { buildEventsHref } from '../lib/search-params.js'
-import { Diamond, MirrorBand, Wordmark } from './festive-decor.jsx'
+import { BrandLogo } from './brand-logo.jsx'
+import { Diamond, MirrorBand } from './festive-decor.jsx'
 import { ShieldIcon } from './icons.jsx'
 
 /**
@@ -124,8 +125,10 @@ export function SiteFooter() {
       <div className="mx-auto max-w-content px-4 pt-14 pb-10 sm:px-6">
         <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(0,1fr))_minmax(0,1.3fr)] lg:gap-8">
           <div className="sm:col-span-2 lg:col-span-1">
-            <Link href="/" className="inline-flex min-h-11 items-center gap-3 rounded-control">
-              <Wordmark inverse />
+            {/* The logo drawn for a dark ground: the light one's crimson
+                "Desi" would sink into the night band. */}
+            <Link href="/" className="inline-flex min-h-11 items-center rounded-control">
+              <BrandLogo variant="dark" className="h-14 w-auto" />
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-6 text-ink-inverse-muted">
               Tickets for garba, dandiya and Navratri nights across the USA, with every price shown

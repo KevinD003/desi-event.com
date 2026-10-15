@@ -8,6 +8,7 @@ import './globals.css'
 
 import { SiteFooter } from '../components/site-footer.jsx'
 import { SiteHeader } from '../components/site-header.jsx'
+import { SHARE_IMAGE } from '../lib/brand.js'
 import { registerFor } from '../lib/register.js'
 import { requestPathname } from '../lib/request-path.js'
 
@@ -17,6 +18,12 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://127.0.0.1:3000'
 /**
  * Site-wide metadata. Individual pages extend rather than replace this: the
  * title template means an event page only has to supply its own title.
+ *
+ * `metadataBase` makes the link-preview picture's address absolute, as Open
+ * Graph requires. The browser and home-screen icons are not listed here: they
+ * are this folder's `favicon.ico`, `icon.png` and `apple-icon.png`, which Next
+ * links by its file conventions. All three are the brand kit's files, as
+ * delivered (`docs/BRAND.md`).
  */
 export const metadata = {
   metadataBase: new URL(siteUrl),
@@ -43,11 +50,13 @@ export const metadata = {
     title: 'The Desi Events — garba and dandiya nights across the USA',
     description:
       'Nine nights of garba in Edison, dandiya to a live dhol in Houston, a glow night in Santa Clara and a mela in Queens. All in one place, priced in dollars.',
+    images: [SHARE_IMAGE],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'The Desi Events',
     description: 'Garba and dandiya nights across the USA, ticketed properly.',
+    images: [SHARE_IMAGE],
   },
   robots: { index: true, follow: true },
 }

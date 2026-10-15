@@ -1,20 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
 
+import * as decor from './festive-decor.jsx'
 import {
-  BrandMark,
   Diamond,
   GarbaRings,
   MirrorBand,
   MirrorDivider,
   ScallopHem,
   Toran,
-  Wordmark,
 } from './festive-decor.jsx'
 
 /** Every ornament, rendered alone. */
 const ORNAMENTS = [
-  ['BrandMark', <BrandMark key="mark" />],
   ['Toran', <Toran key="toran" />],
   ['GarbaRings', <GarbaRings key="rings" />],
   ['ScallopHem', <ScallopHem key="hem" />],
@@ -85,20 +83,14 @@ describe('Toran', () => {
   })
 })
 
-describe('Wordmark', () => {
-  it('reads as the brand said once: the Devanagari line is hidden', () => {
-    const { container } = render(
-      <a href="/">
-        <Wordmark />
-      </a>,
-    )
-
-    const hidden = [...container.querySelectorAll('[aria-hidden="true"]')].map(
-      (element) => element.textContent,
-    )
-
-    expect(hidden).toContain('द देसी इवेंट्स')
-    expect(container.querySelector('a')).toHaveAccessibleName('The Desi Events')
+describe('the brand', () => {
+  it('is not an ornament: the logo is a named picture in brand-logo.jsx, not hidden decoration', () => {
+    // The text wordmark and its diamond were replaced by the owner's logo. A
+    // brand drawn here would be `aria-hidden` like everything else in this
+    // file, which is the wrong thing for the link home; brand-logo.test.jsx
+    // holds that link to being named "The Desi Events", once.
+    expect(decor).not.toHaveProperty('Wordmark')
+    expect(decor).not.toHaveProperty('BrandMark')
   })
 })
 

@@ -15,6 +15,24 @@ import manifest from './manifest.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
+/** The web app's `public` folder, which the site serves at its root. */
+const PUBLIC = path.join(HERE, '../../public')
+
+/**
+ * A PNG's width and height, read from its header.
+ *
+ * @param {Buffer} bytes The file.
+ * @returns {Array<number>} Width and height in pixels.
+ */
+function pngSize(bytes) {
+  expect(bytes.subarray(0, 8)).toEqual(
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+  )
+  expect(bytes.toString('latin1', 12, 16)).toBe('IHDR')
+
+  return [bytes.readUInt32BE(16), bytes.readUInt32BE(20)]
+}
+
 describe('manifest', () => {
   const value = manifest()
 
@@ -38,14 +56,22 @@ describe('manifest', () => {
     expect(value.background_color).toBe(themeColor)
   })
 
-  it('points at an icon that exists', () => {
+  it('points at icons that exist, each a PNG of the size it declares', () => {
     expect(value.icons.length).toBeGreaterThan(0)
 
     for (const icon of value.icons) {
-      const file = path.join(HERE, icon.src.replace(/^\//u, ''))
+      const file = path.join(PUBLIC, icon.src.replace(/^\//u, ''))
 
-      expect(readFileSync(file, 'utf8')).toMatch(/<svg\b/u)
+      expect(icon.type).toBe('image/png')
+      expect(icon.sizes).toBe(`${pngSize(readFileSync(file)).join('x')}`)
     }
+  })
+
+  it('offers the 192 and 512 pixel icons an installer asks for, for any purpose', () => {
+    expect(value.icons.map((icon) => [icon.sizes, icon.purpose])).toEqual([
+      ['192x192', 'any'],
+      ['512x512', 'any'],
+    ])
   })
 
   it('says payments are simulated, as the site does', () => {

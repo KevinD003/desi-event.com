@@ -30,8 +30,9 @@
  * - Hex in the few places a stylesheet cannot reach: `global-error.jsx`,
  *   which renders when the root layout itself has failed, the browser's own
  *   chrome colour (`themeColor`) and the web app manifest, which are metadata
- *   rather than CSS, and the app icon, which is an image. Every such value
- *   must equal a token's colour exactly; a test below checks it.
+ *   rather than CSS. Every such value must equal a token's colour exactly; a
+ *   test below checks it. (The app icons are the owner's raster brand files,
+ *   not source, so there is no colour in them to check.)
  * - The poster illustrations' palette, in `lib/poster-art.js`. Every event
  *   draws its own poster — dancers, a garbo, lanterns — in jewel colours that
  *   are artwork, not interface: they are never text, never a ground for text
@@ -126,9 +127,9 @@ const ALLOWED = Object.freeze({
   'apps/web/src/app/global-error.jsx': { hex: 'tokens-only' },
   'apps/web/src/app/layout.jsx': { hex: 'tokens-only' },
   'apps/web/src/app/manifest.js': { hex: 'tokens-only' },
-  // Not a component, so not in the list the other checks walk; named here so
-  // the icon's two colours are held to the tokens as the manifest's are.
-  'apps/web/src/app/icon.svg': { hex: 'tokens-only' },
+  // The site's icons used to include a hand-drawn `app/icon.svg`, held here to
+  // the tokens. They are now the owner's brand-kit files (PNG and ICO, as
+  // delivered — `docs/BRAND.md`), which carry no source colour to check.
   'apps/web/src/lib/poster-art.js': { hex: 'palettes-only' },
 })
 

@@ -4,6 +4,26 @@ import { render, screen, within } from '@testing-library/react'
 import { SiteFooter } from './site-footer.jsx'
 
 describe('SiteFooter', () => {
+  it('leads home from the logo drawn for the night band, named once as the brand', () => {
+    render(<SiteFooter />)
+
+    const brand = screen.getByRole('link', { name: 'The Desi Events' })
+    const images = within(brand).getAllByRole('img')
+
+    expect(brand).toHaveAttribute('href', '/')
+    expect(images).toHaveLength(1)
+    expect(images[0]).toHaveAccessibleName('The Desi Events')
+    expect(brand.textContent).toBe('')
+    // The dark-surface variant: the light one's crimson would sink into the night.
+    expect(images[0]).toHaveAttribute('data-logo', 'dark')
+    expect(images[0]).toHaveAttribute('src', '/brand/logo-dark-1x.webp')
+    expect(images[0]).toHaveAttribute('width', '186')
+    expect(images[0]).toHaveAttribute('height', '56')
+    // Below the fold on every page: it waits its turn.
+    expect(images[0]).toHaveAttribute('loading', 'lazy')
+    expect(images[0]).not.toHaveAttribute('fetchpriority')
+  })
+
   it('says on every page that payments are simulated and the catalogue is fictional, apart from Sulekha listings', () => {
     const { container } = render(<SiteFooter />)
 

@@ -28,11 +28,34 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('SiteHeader', () => {
-  it('leads home from the wordmark, named once as the brand', async () => {
+  it('leads home from the logo, named once as the brand', async () => {
     readSession.mockResolvedValue(null)
     render(await SiteHeader())
 
-    expect(screen.getByRole('link', { name: 'The Desi Events' })).toHaveAttribute('href', '/')
+    const brand = screen.getByRole('link', { name: 'The Desi Events' })
+    const images = within(brand).getAllByRole('img')
+
+    expect(brand).toHaveAttribute('href', '/')
+    // One picture, whose alternative text is the link's whole name: no text
+    // beside it, nothing hidden that a screen reader would say twice.
+    expect(images).toHaveLength(1)
+    expect(images[0]).toHaveAccessibleName('The Desi Events')
+    expect(brand.textContent).toBe('')
+  })
+
+  it('draws the logo made for a light surface, sized before it loads and fetched first', async () => {
+    readSession.mockResolvedValue(null)
+    render(await SiteHeader())
+
+    const image = within(screen.getByRole('link', { name: 'The Desi Events' })).getByRole('img')
+
+    // The header is always white: there is no dark scheme in which it turns.
+    expect(image).toHaveAttribute('data-logo', 'light')
+    expect(image).toHaveAttribute('src', '/brand/logo-light-1x.webp')
+    expect(image).toHaveAttribute('width', '162')
+    expect(image).toHaveAttribute('height', '40')
+    expect(image).toHaveAttribute('fetchpriority', 'high')
+    expect(image).toHaveAttribute('loading', 'eager')
   })
 
   it('offers the four ways into the catalogue, marking the current one', async () => {
@@ -79,35 +102,33 @@ describe('SiteHeader', () => {
     expect(signIn.parentElement).toBe(signUp.parentElement)
   })
 
-  it('compacts the wordmark on a phone for a visitor, and stacks it only for a visitor', async () => {
-    // Below 520px the row holds the wordmark, both links and Menu only if the
-    // wordmark drops its diamond and sets its name smaller, and below 400px
-    // only if the name also stacks, "The" over "Desi Events", without the
-    // Devanagari line. Those classes reach into `Wordmark`, so the shape they
-    // rely on is held here too: a change to it fails this test rather than
-    // quietly wrapping the row.
+  it('shrinks the logo on a phone, furthest for a visitor', async () => {
+    // Below 520px the row holds the logo, both links and Menu on one 64px
+    // line only if the logo is drawn smaller: 28px tall from 380px and 23px
+    // below, measured in Chromium (see the header's module comment). Signed
+    // in, one button leaves more room, so the logo is 32px below 440px. The
+    // brand link is the logo alone, so its classes are only its target.
     readSession.mockResolvedValue(null)
     const { unmount } = render(await SiteHeader())
     const brand = screen.getByRole('link', { name: 'The Desi Events' })
-    const name = brand.querySelector('.font-display')
 
-    expect(brand.querySelector(':scope > svg')).not.toBeNull()
-    expect(name).toHaveTextContent('The Desi Events')
-    expect(name.querySelector('.whitespace-nowrap')).toHaveTextContent(/^Desi Events$/)
-    expect(brand.querySelector('[lang="hi"]')).toHaveAttribute('aria-hidden', 'true')
-    expect(brand.className).toContain('max-[520px]:[&>svg]:hidden')
-    expect(brand.className).toContain('max-[520px]:[&_.font-display]:text-base')
-    expect(brand.className).toContain('max-[400px]:[&_.font-display]:w-min')
-    expect(brand.className).toContain('max-[400px]:[&_[lang=hi]]:hidden')
+    expect(brand.className).toBe('flex min-h-11 shrink-0 items-center rounded-control')
+    expect(within(brand).getByRole('img').className).toBe(
+      'block max-w-none shrink-0 h-5.75 w-auto min-[380px]:h-7 min-[520px]:h-9 sm:h-10',
+    )
+    // The text wordmark and its Devanagari line are gone with it.
+    expect(brand.querySelector('[lang="hi"]')).toBeNull()
+    expect(brand.querySelector('svg')).toBeNull()
     unmount()
 
-    // Signed in, the brand link only drops its diamond and sets the name a
-    // little smaller below 430px; it never stacks.
     readSession.mockResolvedValue({ user: { displayName: 'Priya' }, capabilities: [] })
     render(await SiteHeader())
 
-    expect(screen.getByRole('link', { name: 'The Desi Events' }).className).toBe(
-      'flex min-h-11 items-center gap-2.5 rounded-control max-[430px]:[&_.font-display]:text-lg max-[430px]:[&>svg]:hidden sm:gap-3',
+    const signedIn = screen.getByRole('link', { name: 'The Desi Events' })
+
+    expect(signedIn.className).toBe('flex min-h-11 shrink-0 items-center rounded-control')
+    expect(within(signedIn).getByRole('img').className).toBe(
+      'block max-w-none shrink-0 h-8 w-auto min-[440px]:h-9 sm:h-10',
     )
   })
 

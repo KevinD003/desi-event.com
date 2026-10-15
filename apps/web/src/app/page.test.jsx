@@ -12,6 +12,10 @@
  * @module app/page.test
  */
 
+import { existsSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 
@@ -27,6 +31,8 @@ vi.mock('../components/traffic-scope.jsx', () => ({
     <span data-testid="traffic-scope" data-view={JSON.stringify(view)} />
   ),
 }))
+
+const HERE = path.dirname(fileURLToPath(import.meta.url))
 
 const { loadCatalogueFacets, loadCatalogueOverview } = await import('../lib/api.js')
 const { sampleEventSummaries } = await import('../lib/sample-data.js')
@@ -337,15 +343,28 @@ describe('who runs the site, for search engines', () => {
           'https://www.facebook.com/the.desievents',
           'https://www.instagram.com/the.desievents',
         ],
+        logo: new URL(
+          '/brand/logo-square-512.png',
+          process.env.NEXT_PUBLIC_SITE_URL ?? 'http://127.0.0.1:3000',
+        ).href,
       },
     ])
   })
 
-  it('names no logo it does not have', async () => {
+  it('names only a logo it has: an absolute address of the square logo this site serves', async () => {
     const container = await draw()
+    const logos = [...container.querySelectorAll('script[type="application/ld+json"]')]
+      .map((script) => JSON.parse(script.textContent))
+      .filter((block) => 'logo' in block)
+      .map((block) => block.logo)
 
-    for (const script of container.querySelectorAll('script[type="application/ld+json"]')) {
-      expect(JSON.parse(script.textContent)).not.toHaveProperty('logo')
-    }
+    expect(logos).toHaveLength(1)
+
+    const address = new URL(logos[0])
+
+    // Absolute, as schema.org asks: it parses without a base.
+    expect(address.protocol).toMatch(/^https?:$/u)
+    expect(address.pathname).toBe('/brand/logo-square-512.png')
+    expect(existsSync(path.join(HERE, '../../public', address.pathname))).toBe(true)
   })
 })
