@@ -286,7 +286,7 @@ function isDeadlock(outcome) {
       ? `${outcome.reason?.code ?? ''} ${outcome.reason?.message ?? ''}`
       : String(outcome?.body ?? '')
 
-  return /40P01|deadlock|P2034/iu.test(text)
+  return /40P01|P2034|[Dd]eadlock/u.test(text)
 }
 
 when()('a referral code’s last use', () => {

@@ -399,7 +399,7 @@ function safeJson(text) {
 function expectNoDeadlock(results) {
   const text = JSON.stringify(results)
 
-  expect(text).not.toMatch(/40P01|deadlock/iu)
+  expect(text).not.toMatch(/40P01|[Dd]eadlock/u)
 
   for (const result of results) {
     // The application answers a deadlock or a write conflict it lost as 409

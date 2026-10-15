@@ -579,7 +579,9 @@ async function outcome(call) {
 function expectNoDeadlock(results) {
   const text = JSON.stringify(results)
 
-  expect(text).not.toMatch(/40P01|deadlock|P2034/iu)
+  // Case-sensitive on purpose: the text carries lowercase cuids, and one
+  // such as "cmv8yz40p01…" matched a case-insensitive 40P01 in CI.
+  expect(text).not.toMatch(/40P01|P2034|[Dd]eadlock/u)
 
   for (const result of results) {
     expect(result.code, JSON.stringify(result)).not.toBe('TRY_AGAIN')

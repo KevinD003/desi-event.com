@@ -854,7 +854,7 @@ when()('group admission against refunds', () => {
         const reason = result.status === 'rejected' ? result.reason : null
         const text = `${reason?.code ?? ''} ${reason?.message ?? ''}`
 
-        expect(text, `iteration ${iteration}`).not.toMatch(/40P01|P2034|deadlock/iu)
+        expect(text, `iteration ${iteration}`).not.toMatch(/40P01|P2034|[Dd]eadlock/u)
         expect(result.status, `iteration ${iteration}: ${text}`).toBe('fulfilled')
       }
 
