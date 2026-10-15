@@ -3690,12 +3690,16 @@ test.describe.serial('the Phase 2 screens, swept', () => {
         page.getByRole('link', { name: 'Skip to main content', exact: true }),
       ).toBeFocused()
       await page.keyboard.press('Tab')
-      await expect(banner.getByRole('link', { name: 'The Desi Events', exact: true })).toBeFocused()
+      // The brand link is the logo, named by its alternative text alone.
+      const brand = banner.getByRole('link', { name: 'The Desi Events', exact: true })
+
+      await expect(brand).toBeFocused()
+      await expect(brand.getByRole('img', { name: 'The Desi Events', exact: true })).toHaveCount(1)
       // Then in the order the row is drawn at this width: the account control
-      // sits between the wordmark and Menu, so focus reaches it before Menu
+      // sits between the logo and Menu, so focus reaches it before Menu
       // rather than jumping back up the row after the sheet (WCAG 2.4.3).
       // Signed out it is two links, "Sign in" and then "Sign up", both on
-      // the wordmark's line at this width.
+      // the logo's line at this width.
       await page.keyboard.press('Tab')
       await expect(banner.getByRole('link', { name: 'Sign in', exact: true })).toBeFocused()
       await page.keyboard.press('Tab')

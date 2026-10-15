@@ -37,4 +37,24 @@ describe('AuthFrame', () => {
       'Payments on this site are simulated — no card, no money moves.',
     )
   })
+
+  it('draws the D on the card as decoration, so the brand is not said again', () => {
+    const { container } = render(
+      <AuthFrame headingId="sign-in-heading" title="Sign in" lead="Your tickets live here.">
+        <p>form</p>
+      </AuthFrame>,
+    )
+
+    const card = screen.getByRole('heading', { level: 1, name: 'Sign in' }).closest('section')
+    const image = card.querySelector('img')
+
+    // The header's logo link already names The Desi Events on this page.
+    expect(image).toHaveAttribute('data-logo', 'icon')
+    expect(image).toHaveAttribute('alt', '')
+    expect(image).toHaveAttribute('src', '/brand/d-icon-1x.webp')
+    expect(image).toHaveAttribute('width', '42')
+    expect(image).toHaveAttribute('height', '40')
+    expect(screen.queryAllByRole('img')).toHaveLength(0)
+    expect(container.querySelectorAll('img')).toHaveLength(1)
+  })
 })

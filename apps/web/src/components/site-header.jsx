@@ -18,9 +18,9 @@
  *
  * ## Layout
  *
- * One row, 72px tall on a wide screen: the wordmark, the four ways into the
+ * One row, 72px tall on a wide screen: the logo, the four ways into the
  * catalogue, and the account control — signed out, "Sign in" and then "Sign
- * up". On a narrow one the row keeps the wordmark, the account control and a
+ * up". On a narrow one the row keeps the logo, the account control and a
  * Menu button, and the sheet the button opens wraps onto a row of its own
  * underneath. The account control is handed to `PrimaryNav`, which renders it
  * between the wide row and the Menu button, so the DOM — and with it the tab
@@ -28,33 +28,39 @@
  * `order` instead left keyboard focus jumping back up the row after the sheet.
  * A band of mirror-work runs along the foot.
  *
+ * ### The logo
+ *
+ * The brand is the owner's logo (`BrandLogo`, the variant drawn for a light
+ * surface — this header is always white), a picture whose alternative text,
+ * "The Desi Events", is the link's whole name. It is fetched first, as the
+ * one picture on every page above the fold. The file is 162 × 40 at 1x with
+ * a 2x copy, and it is drawn at 40px tall (162px wide) from 640px, inside the
+ * 44px target of the link, in a 72px row.
+ *
  * ### Two links on a phone
  *
- * Signed out, the account control is two links, and on a phone the row does
- * not hold the full wordmark, both of them and Menu: measured at 320px, the
- * wordmark "The Desi Events" is 193px, the links 130px at their compact size
- * and Menu 44px, against 288px inside the gutters. Left alone the row wrapped,
- * leaving Menu by itself on a second line. So below 520px, signed out only,
- * the row compacts instead: the wordmark keeps its name and drops the diamond
- * beside it, the name is set at 16px (121px), the links at 13px with less
- * padding below 480px, and the gaps close up. Below 400px even that is too
- * wide, so the name stacks, "The" over "Desi Events" (88px), and the
- * Devanagari line under it, decoration hidden from assistive technology, is
- * dropped so the two lines fit the 44px target. Everything stays on one 64px
- * line from 320px, every target is still 44px tall, and "Sign up" is never
- * hidden. From 520px the full sizes return.
+ * Signed out, the account control is two links, and on a phone the row must
+ * hold the logo, both of them and Menu on one 64px line: measured at 320px,
+ * the links are 130px at their compact size and Menu 44px (86px from 359px,
+ * where "Menu" is drawn beside its icon), against 288px inside the gutters.
+ * So below 520px, signed out only, the row compacts: the links are set at
+ * 13px with less padding below 480px, the gaps close up, and the logo is
+ * drawn smaller — 36px tall (145px) from 520px, 28px (113px) from 380px, and
+ * 23px (93px) below that. At 24px (97px) the row wrapped at 359-360px, where
+ * Menu gains its word, by a pixel; at 28px it holds one line from 377px, so
+ * the step sits three pixels above that. Everything stays on one 64px line from
+ * 320px, every target is still 44px tall, and "Sign up" is never hidden.
  *
- * Signed in, the account control is one button, but the full wordmark (193px)
- * still pushed Menu onto a second line below 430px. So below 430px the
- * diamond goes there too and the name is set at 18px (136px): with a short
- * display name the row stays on one line from 320px, but for a few pixels
- * either side of 360px, where "Menu" starts being drawn beside its icon; a
- * long display name wraps Menu below 480px, as it did before the rename.
+ * Signed in, the account control is one button: the logo is 32px tall (129px)
+ * below 440px and 36px from there to 640px. With a short display name the
+ * row stays on one line from 320px; a display name long enough to fill the
+ * button's 9rem wraps Menu below 416px.
  *
- * Between 768px and about 950px the four discovery links leave no room for
- * the account control (signed in, up to about 875px); it wraps onto a second
- * line, held to the right, under the navigation. These widths were measured
- * in Chromium with the site's own faces, at the rename to The Desi Events.
+ * Between 768px and 895px the four discovery links leave no room for the
+ * account control (signed in, up to 809px; with a long name, 905px); it wraps
+ * onto a second line, held to the right, under the navigation. These widths
+ * were measured in Chromium with the site's own faces, at every pixel from
+ * 320px to 1280px, when the logo replaced the text wordmark.
  *
  * @module components/site-header
  */
@@ -64,36 +70,34 @@ import Link from 'next/link'
 import { accountItems, navigationGroups, workspaceHome } from '../lib/navigation.js'
 import { readSession } from '../lib/session.js'
 import { AccountMenu, SignInLink, SignUpLink } from './account-menu.jsx'
-import { Wordmark } from './festive-decor.jsx'
+import { BrandLogo } from './brand-logo.jsx'
 import { HeaderFrame } from './header-frame.jsx'
 import { PrimaryNav } from './primary-nav.jsx'
 
 /**
- * The header's row, the brand link and the account control, signed in: the
- * brand link drops its diamond and sets the name at 18px below 430px (see
- * "Two links on a phone" above).
+ * The header's row, the brand link, the logo and the account control, signed
+ * in: the logo is 32px tall below 440px, 36px to 640px and 40px from there
+ * (see "Two links on a phone" above).
  */
 const SIGNED_IN = Object.freeze({
   row: 'mx-auto flex min-h-16 max-w-content flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5 sm:min-h-18 sm:px-6 lg:gap-x-8',
-  brand:
-    'flex min-h-11 items-center gap-2.5 rounded-control max-[430px]:[&_.font-display]:text-lg max-[430px]:[&>svg]:hidden sm:gap-3',
+  brand: 'flex min-h-11 shrink-0 items-center rounded-control',
+  logo: 'h-8 w-auto min-[440px]:h-9 sm:h-10',
   account: 'ml-auto flex items-center gap-2 md:ml-0',
 })
 
 /**
- * Signed out: the same, compacted below 520px, and the name stacked below
- * 400px, so the two links and Menu share the wordmark's line (see "Two links
- * on a phone" above). The brand link reaches into `Wordmark` for its diamond
- * (the `svg`), its name (the `.font-display` line) and its Devanagari line
- * (`[lang=hi]`); `site-header.test.jsx` holds all three in place. The
- * account control stays pushed to the right up to `lg`, so when it wraps onto
- * a second line between 768px and about 950px it sits under the navigation
- * rather than under the wordmark.
+ * Signed out: the same, with the logo smaller still below 520px — 28px tall
+ * from 380px and 23px below — so the two links and Menu share its line (see
+ * "Two links on a phone" above); `site-header.test.jsx` holds these heights
+ * in place. The account control stays pushed to the right up to `lg`, so when
+ * it wraps onto a second line between 768px and 895px it sits under the
+ * navigation rather than under the logo.
  */
 const SIGNED_OUT = Object.freeze({
   row: 'mx-auto flex min-h-16 max-w-content flex-wrap items-center justify-between gap-x-2 gap-y-2 px-4 py-2.5 min-[480px]:gap-x-3 sm:min-h-18 sm:px-6 lg:gap-x-8',
-  brand:
-    'flex min-h-11 items-center gap-2.5 rounded-control max-[520px]:[&_.font-display]:text-base max-[520px]:[&>svg]:hidden max-[400px]:[&_.font-display]:w-min max-[400px]:[&_.font-display]:leading-5 max-[400px]:[&_[lang=hi]]:hidden sm:gap-3',
+  brand: 'flex min-h-11 shrink-0 items-center rounded-control',
+  logo: 'h-5.75 w-auto min-[380px]:h-7 min-[520px]:h-9 sm:h-10',
   account: 'ml-auto flex items-center gap-1 min-[480px]:gap-2 lg:ml-0',
 })
 
@@ -118,7 +122,7 @@ export async function SiteHeader() {
     <HeaderFrame>
       <div className={layout.row}>
         <Link href="/" className={layout.brand}>
-          <Wordmark />
+          <BrandLogo variant="light" priority className={layout.logo} />
         </Link>
 
         <PrimaryNav

@@ -3,9 +3,11 @@
  *
  * What it does: lets a browser that offers installation add The Desi Events to a
  * home screen, open it without the browser's chrome, and colour that chrome as
- * the page it frames. The colours are the page token and the icon's are the
- * inverse surface and accent; `semantic-classes.test.js` holds every hex here
- * to a semantic token, as it does the root layout's.
+ * the page it frames. The colours are the page token; `semantic-classes.test.js`
+ * holds every hex here to a semantic token, as it does the root layout's. The
+ * icons are the brand kit's own 192 and 512 pixel app icons, copied as
+ * delivered into `public/icons/` (`docs/BRAND.md`); `manifest.test.js` reads
+ * each file and holds it to the size declared for it.
  *
  * What it deliberately does not come with: a service worker. A worker that
  * cached pages would cache a ticket's pass and the pages around it, and a pass
@@ -39,6 +41,9 @@ export default function manifest() {
     display: 'standalone',
     background_color: PAGE,
     theme_color: PAGE,
-    icons: [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
+    icons: [
+      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+    ],
   }
 }

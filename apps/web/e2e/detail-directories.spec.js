@@ -919,7 +919,7 @@ test.describe('what crawlers and installers are given', () => {
     expect(paths).not.toContain(`/organizers/beta-${tag}`)
   })
 
-  test('the manifest is linked, served as JSON, and its icon answers as SVG', async ({
+  test('the manifest is linked, served as JSON, and its icons answer as PNGs of their declared size', async ({
     visitor,
   }) => {
     await visitor.goto('/')
@@ -943,15 +943,21 @@ test.describe('what crawlers and installers are given', () => {
     // It says what the site says: nothing here takes money.
     expect(manifest.description).toContain('Payments on this site are simulated.')
 
-    const icon = manifest.icons.find((entry) => entry.type === 'image/svg+xml')
+    // The brand kit's 192 and 512 pixel app icons.
+    expect(manifest.icons.map((entry) => entry.sizes)).toEqual(['192x192', '512x512'])
 
-    expect(icon, 'the manifest names an SVG icon').toBeTruthy()
+    for (const icon of manifest.icons) {
+      const image = await visitor.request.get(icon.src)
 
-    const image = await visitor.request.get(icon.src)
+      expect(image.status(), icon.src).toBe(200)
+      expect(image.headers()['content-type']).toMatch(/^image\/png/u)
 
-    expect(image.status()).toBe(200)
-    expect(image.headers()['content-type']).toMatch(/^image\/svg\+xml/u)
-    expect(await image.text()).toContain('<svg')
+      // A PNG's width and height sit in its IHDR chunk, at bytes 16 and 20.
+      const bytes = await image.body()
+
+      expect(icon.type).toBe('image/png')
+      expect(`${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`).toBe(icon.sizes)
+    }
   })
 })
 

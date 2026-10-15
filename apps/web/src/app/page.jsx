@@ -18,7 +18,7 @@
  * ## Who runs the site
  *
  * The page carries the company's `Organization` structured data — its name,
- * website, email, telephone and social profiles, from `lib/contact.js` — once,
+ * website, logo, email, telephone and social profiles, from `lib/contact.js` — once,
  * here, through the `JsonLd` component like every other block on the site.
  *
  * ## Motion
@@ -76,6 +76,9 @@ import { buildEventsHref } from '../lib/search-params.js'
 import { trafficAttributes } from '../lib/traffic-client.js'
 
 export const dynamic = 'force-dynamic'
+
+/** Where this deployment is served from, for the logo's absolute address. Mirrors the root layout. */
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://127.0.0.1:3000'
 
 /** How many events the "coming up" row shows: one row of four on a wide screen. */
 const FEATURED_COUNT = 4
@@ -408,7 +411,7 @@ export default async function HomePage() {
 
   return (
     <div className="pb-4">
-      <JsonLd data={organizationJsonLd()} />
+      <JsonLd data={organizationJsonLd(siteUrl)} />
       <Hero cities={cityNames} listed={listed} lead={lead} counted={!overview.usedFallback} />
 
       {usedFallback ? (
