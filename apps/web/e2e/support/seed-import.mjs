@@ -2,11 +2,12 @@
  * The accounts, the organisation and the listing file the import journeys
  * need (SPEC2-XI area I, §9 row 12).
  *
- * `detail-event-import.spec.js` uploads a Sulekha listing file in the browser,
- * applies it, approves and publishes what it wrote, imports it again, moves one
- * event to an organiser's own organisation and copies a late picture. Every
- * one of those writes something nothing can take back from the page, so
- * everything here is new and carries the tag:
+ * `detail-event-import.spec.js` uploads a listing file in the browser,
+ * applies it, approves and publishes what it wrote with its tickets on sale,
+ * buys a ticket to one through the checkout, imports the file again, moves one
+ * event to an organiser's own organisation, and takes the sold one off the
+ * site with its order refunded. Every one of those writes something nothing
+ * can take back from the page, so everything here is new and carries the tag:
  *
  *   - **The platform administrator** (`import-admin-<tag>@platform.test`,
  *     ADMIN, a confirmed second factor as the role requires), who imports,
@@ -14,6 +15,11 @@
  *     approving also needs `moderation:review`; an ADMIN holds both.
  *   - **The moderator** (`import-moderator-<tag>@platform.test`, MODERATOR, a
  *     factor), who reviews events but imports nothing.
+ *   - **The buyer** (`import-buyer-<digest>@attendee.test`, ATTENDEE, no
+ *     factor), who buys one ticket to an imported event through the checkout,
+ *     paid by the simulated provider. Its address carries a digest of the tag,
+ *     not the tag, as `seed-full-control.mjs` explains: the detail world's
+ *     teardown clears every order whose buyer's address holds the tag.
  *   - **Import Gamma <tag>**, a VERIFIED organisation (America/Chicago) with
  *     its owner (`import-owner-<tag>@organiser.test`, a factor), which an
  *     imported event is moved to. It holds one ordinary event waiting for
@@ -25,22 +31,14 @@
  * Built at run time, never committed ({@link buildImportDataset}): three
  * listings dated 10, 11 and 12 days after the run, so none is ever skipped as
  * past, each `sourceId` the run's own number ({@link importRunNumber}) and a
- * digit, so no two runs collide, and every address on Sulekha's hosts
- * (`events.sulekha.com` for the listing and its tickets, `usimg.sulekha.io`
- * for pictures), because the API checks every host again when a file is
- * uploaded. The spec uploads it with `setInputFiles({ name, mimeType, buffer })`.
+ * digit, so no two runs collide. Like every import file since 2026-10-15 it
+ * carries **no web address at all** — no listing link, no ticket link, no
+ * picture, no source name or host (ADR 0015, addendum 2026-10-15 (2)) — so
+ * nothing the import writes can lead anywhere but The Desi Events. The spec
+ * uploads it with `setInputFiles({ name, mimeType, buffer })`.
  *
- * ## The pictures
- *
- * The API in these runs reads pictures from a directory, not the network
- * (`IMPORT_IMAGE_SOURCE=fixtures`): the detail config points it at
- * {@link IMPORT_PICTURE_DIR} and the sweep config at
- * {@link SWEEP_IMPORT_PICTURE_DIR}, both under the system's temporary
- * directory. {@link preparePictures} empties that directory and copies the
- * committed pictures (`e2e/fixtures/import-images/`) into it, all but
- * {@link LATE_PICTURE}, which the run therefore cannot copy and reports as
- * not found; journey I5 adds it with {@link addLatePicture} before "Retry
- * pictures". Nothing under `e2e/fixtures` is written during a run.
+ * There are no pictures: an import copies none, so no picture is read from
+ * anywhere, a directory included.
  *
  * ## Isolation
  *
@@ -55,12 +53,14 @@
  * {@link cleanupImport} removes the events this file's listings wrote (found
  * by their `sourceId`, whichever organisation now holds them) and Import
  * Gamma's events, with their nights, pictures and moderation history; the
- * import records, their pictures' rows, change notices and visits go with
- * each event by cascade. Then the runs the administrator planned, the venues
+ * import records, change notices and visits go with each event by cascade. Then the runs the administrator planned, the venues
  * whose names carry the tag, Import Gamma with its memberships, and — only
  * when the spec says it made it and it is empty — the platform-held
- * organisation "Sulekha Events". An event an order pins is kept, as the other
- * seeds keep one; nothing here sells, so none is.
+ * organisation "The Desi Events". An event an order pins is kept, as the other
+ * seeds keep one: the garba night, whose ticket the checkout sold and the
+ * ledger therefore holds. The spec's last journey takes it off the site (and
+ * refunds its order) before the cleanup runs, so it is no public event of the
+ * detail world when the next spec counts a list.
  *
  * The audit rows deliberately stay: `desi_audit_log_immutable` refuses an
  * UPDATE or a DELETE on `AuditLog`, and the actor foreign key is ON DELETE SET
@@ -72,10 +72,6 @@
  */
 
 import { createHash } from 'node:crypto'
-import { copyFile, mkdir, readdir, rm } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 import { createPrismaClient } from '@desi-event/db'
 import { hashPassword, seal } from '@desi-event/auth'
@@ -92,35 +88,24 @@ const HOUR_MS = 3_600_000
 /** Where every listing and organisation here runs its nights. */
 export const IMPORT_TIME_ZONE = 'America/Chicago'
 
-/** The committed pictures, read and never written during a run. */
-export const IMPORT_FIXTURES = fileURLToPath(new URL('../fixtures/import-images/', import.meta.url))
-
-/**
- * The directory the detail config's API reads pictures from. The config sets
- * `IMPORT_IMAGE_FIXTURE_DIR` to the same expression.
- */
-export const IMPORT_PICTURE_DIR = path.join(os.tmpdir(), 'desi-event-e2e-import-images')
-
-/** The directory the sweep config's API reads pictures from, likewise. */
-export const SWEEP_IMPORT_PICTURE_DIR = path.join(os.tmpdir(), 'desi-event-e2e-sweep-import-images')
-
-/** The one picture left out of a run until journey I5 adds it. */
-export const LATE_PICTURE = 'classical-concert-tanpura.png'
-
-/** Sulekha's listing host and picture host, as the API's run-time checks require. */
-export const SULEKHA_EVENTS = 'https://events.sulekha.com'
-export const SULEKHA_PICTURES = 'https://usimg.sulekha.io'
-
 /** The note the curator leaves on a listing whose category The Desi Events lacks. */
 export const CATEGORY_NOTE =
-  'Sulekha lists this as CLASSICAL; The Desi Events has no such category, so it is listed under MUSIC_CONCERT. If another fits better, change it in an editing session once the event is published.'
+  'The source listing’s category is CLASSICAL; The Desi Events has no such category, so it is listed under MUSIC_CONCERT. If another fits better, change it in an editing session once the event is published.'
 
-/** The prices the first listing gives: a child's ticket is free. */
+/**
+ * The prices the first listing gives: a child's ticket is free, and the early
+ * bird the listing marks sold out, which the import makes a ticket type that is
+ * not on sale.
+ */
 export const GARBA_PRICES = Object.freeze([
   { name: 'General admission', priceCents: 2_500, currency: 'USD', note: null },
   { name: 'VIP', priceCents: 4_000, currency: 'USD', note: 'Front rows and a dinner plate' },
   { name: 'Child (under 12)', priceCents: 0, currency: 'USD', note: null },
+  { name: 'Early bird', priceCents: 2_000, currency: 'USD', note: 'Sold Out' },
 ])
+
+/** What each listed price becomes: an allowance, not a count the listing gave. */
+export const IMPORT_ALLOWANCE = 100
 
 /** The second listing's one price. */
 export const BOLLYWOOD_PRICES = Object.freeze([
@@ -162,12 +147,15 @@ export function importNames(tag) {
     moderatorName: 'Kunal Shah',
     ownerEmail: `import-owner-${tag}@organiser.test`,
     ownerName: 'Pooja Desai',
+    // A digest of the tag, not the tag: see the module note.
+    buyerEmail: `import-buyer-${createHash('sha256').update(tag).digest('hex').slice(0, 12)}@attendee.test`,
+    buyerName: 'Rohan Iyer',
     gammaName: `Import Gamma ${tag}`,
     gammaSlug: `import-gamma-${tag}`,
     waitingTitle: `Import Gamma Waiting ${tag}`,
     waitingSlug: `import-gamma-waiting-${tag}`,
-    fileName: `sulekha-texas-${tag}.json`,
-    updateFileName: `sulekha-texas-${tag}-update.json`,
+    fileName: `texas-${tag}.json`,
+    updateFileName: `texas-${tag}-update.json`,
     listings: {
       garba: {
         sourceId: `${run}1`,
@@ -211,37 +199,14 @@ function evening(daysAhead, now) {
 }
 
 /**
- * A listing's Sulekha page, which is also where its tickets are sold.
- *
- * @param {string} slug The page's words.
- * @param {string} sourceId The listing.
- * @returns {string} The address.
- */
-function listingPage(slug, sourceId) {
-  return `${SULEKHA_EVENTS}/${slug}_event-in-houston_${sourceId}`
-}
-
-/**
- * A picture's address on Sulekha's picture host. The API reads the file of
- * the same name from the fixture directory.
- *
- * @param {string} run The run's number.
- * @param {string} file The fixture's name.
- * @returns {string} The address.
- */
-function pictureAddress(run, file) {
-  return `${SULEKHA_PICTURES}/events/images/${run}/${file}`
-}
-
-/**
  * The listing file, built at run time.
  *
- * Three listings: a garba night with three prices (one of them free), a cover
- * and a gallery picture, and no end time; a Bollywood evening with one price,
- * a cover and an end time; and a classical concert Sulekha prices nowhere,
- * whose category is the curator's mapping, with a cover and the late gallery
- * picture. `sweep` adds the plan-only listing the sweep previews and never
- * applies, as a file of its own ({@link planOnlyDataset}).
+ * Three listings: a garba night with four prices (one free, one sold out on
+ * the listing) and no end time; a Bollywood evening with one price and an end
+ * time; and a classical concert its listing prices nowhere, so it gets no
+ * ticket type, whose category is the curator's mapping. No listing carries an
+ * address of any kind. The sweep adds the plan-only listing it previews and
+ * never applies, as a file of its own ({@link planOnlyDataset}).
  *
  * @param {string} tag The run suffix.
  * @param {object} [options] Options.
@@ -250,7 +215,6 @@ function pictureAddress(run, file) {
  */
 export function buildImportDataset(tag, { now = new Date() } = {}) {
   const names = importNames(tag)
-  const run = importRunNumber(tag)
   const { garba, bollywood, concert } = names.listings
   const scrapedAt = new Date(now.getTime() - HOUR_MS).toISOString()
   const hall = {
@@ -276,16 +240,12 @@ export function buildImportDataset(tag, { now = new Date() } = {}) {
   return {
     format: 'desi-event-import/1',
     source: 'SULEKHA',
-    sourceName: 'Sulekha',
-    sourceSite: `${SULEKHA_EVENTS}/`,
     collectedFrom: new Date(now.getTime() - 2 * HOUR_MS).toISOString(),
     collectedTo: scrapedAt,
     curatedOn: now.toISOString().slice(0, 10),
-    imageHosts: ['usimg.sulekha.io'],
     events: [
       {
         sourceId: garba.sourceId,
-        sourceUrl: listingPage('import-garba-night', garba.sourceId),
         scrapedAt,
         title: garba.title,
         category: 'GARBA_DANDIYA',
@@ -306,26 +266,12 @@ export function buildImportDataset(tag, { now = new Date() } = {}) {
         dressCode: 'Traditional chaniya choli or kurta',
         parking: 'Free parking in the east lot.',
         faq: [{ q: 'Are sticks provided?', a: 'Yes, sticks are lent at the door.' }],
-        images: [
-          {
-            url: pictureAddress(run, 'garba-night-cover.png'),
-            role: 'cover',
-            alt: 'Dancers in a circle under strings of festival lights',
-          },
-          {
-            url: pictureAddress(run, 'garba-night-circle.png'),
-            role: 'gallery',
-            alt: 'A dandiya circle seen from the balcony',
-          },
-        ],
-        ticketUrl: listingPage('import-garba-night', garba.sourceId),
         importNotes: [
           'The header says 7:00 PM and the description says 7:30 PM; 7:00 PM is imported.',
         ],
       },
       {
         sourceId: bollywood.sourceId,
-        sourceUrl: listingPage('import-bollywood-evening', bollywood.sourceId),
         scrapedAt,
         title: bollywood.title,
         category: 'BOLLYWOOD_NIGHT',
@@ -346,19 +292,10 @@ export function buildImportDataset(tag, { now = new Date() } = {}) {
         dressCode: null,
         parking: null,
         faq: [],
-        images: [
-          {
-            url: pictureAddress(run, 'bollywood-evening-cover.png'),
-            role: 'cover',
-            alt: 'A band on a stage lit in pink and gold',
-          },
-        ],
-        ticketUrl: listingPage('import-bollywood-evening', bollywood.sourceId),
         importNotes: [],
       },
       {
         sourceId: concert.sourceId,
-        sourceUrl: listingPage('import-classical-concert', concert.sourceId),
         scrapedAt,
         title: concert.title,
         category: 'MUSIC_CONCERT',
@@ -382,19 +319,6 @@ export function buildImportDataset(tag, { now = new Date() } = {}) {
         dressCode: null,
         parking: null,
         faq: [],
-        images: [
-          {
-            url: pictureAddress(run, 'classical-concert-cover.png'),
-            role: 'cover',
-            alt: 'A sitar resting on a rug before the recital',
-          },
-          {
-            url: pictureAddress(run, LATE_PICTURE),
-            role: 'gallery',
-            alt: 'A tanpura standing beside the stage',
-          },
-        ],
-        ticketUrl: listingPage('import-classical-concert', concert.sourceId),
         importNotes: [CATEGORY_NOTE],
       },
     ],
@@ -402,7 +326,7 @@ export function buildImportDataset(tag, { now = new Date() } = {}) {
 }
 
 /**
- * The same file with one listing's start moved, as Sulekha would show it
+ * The same file with one listing's start moved, as its listing would show it
  * after the organiser moved the night: every other listing is unchanged, so
  * a new plan reads it as unchanged.
  *
@@ -445,14 +369,11 @@ export function planOnlyDataset(tag, { now = new Date() } = {}) {
       {
         ...garba,
         sourceId: planOnly.sourceId,
-        sourceUrl: listingPage('import-dandiya-matinee', planOnly.sourceId),
-        ticketUrl: listingPage('import-dandiya-matinee', planOnly.sourceId),
         title: planOnly.title,
         presentedBy: planOnly.presentedBy,
         startsAt: evening(13, now).toISOString(),
-        images: [],
         importNotes: [
-          'Sulekha lists this event twice; only this listing is imported.',
+          'The source lists this event twice; only this listing is imported.',
           'A personal phone number was removed from the description.',
         ],
       },
@@ -473,38 +394,6 @@ export function datasetUpload(dataset, name) {
     mimeType: 'application/json',
     buffer: Buffer.from(`${JSON.stringify(dataset, null, 2)}\n`, 'utf8'),
   }
-}
-
-/**
- * Empty a picture directory and copy the committed pictures into it, all but
- * the late one.
- *
- * @param {string} directory {@link IMPORT_PICTURE_DIR} or {@link SWEEP_IMPORT_PICTURE_DIR}.
- * @returns {Promise<string[]>} The files copied.
- */
-export async function preparePictures(directory) {
-  await rm(directory, { recursive: true, force: true })
-  await mkdir(directory, { recursive: true })
-
-  const files = (await readdir(IMPORT_FIXTURES)).filter(
-    (file) => file.endsWith('.png') && file !== LATE_PICTURE,
-  )
-
-  for (const file of files) {
-    await copyFile(path.join(IMPORT_FIXTURES, file), path.join(directory, file))
-  }
-
-  return files
-}
-
-/**
- * Copy the late picture in, as if Sulekha had put it up since.
- *
- * @param {string} directory The run's picture directory.
- * @returns {Promise<void>} Resolves once copied.
- */
-export async function addLatePicture(directory) {
-  await copyFile(path.join(IMPORT_FIXTURES, LATE_PICTURE), path.join(directory, LATE_PICTURE))
 }
 
 /**
@@ -568,6 +457,7 @@ export async function seedImport(tag) {
     const admin = await account(names.adminEmail, names.adminName, 'ADMIN')
     const moderator = await account(names.moderatorEmail, names.moderatorName, 'MODERATOR')
     const owner = await account(names.ownerEmail, names.ownerName, 'ORGANIZER')
+    const buyer = await account(names.buyerEmail, names.buyerName, 'ATTENDEE')
 
     for (const user of [admin, moderator, owner]) await enrol(user.id)
 
@@ -595,7 +485,9 @@ export async function seedImport(tag) {
 
     // The platform accounts belong to no organisation, so an approval is never
     // a conflict of interest and a move is never to their own.
-    await prisma.membership.deleteMany({ where: { userId: { in: [admin.id, moderator.id] } } })
+    await prisma.membership.deleteMany({
+      where: { userId: { in: [admin.id, moderator.id, buyer.id] } },
+    })
 
     const hallFields = {
       name: `Import Gamma Hall ${tag}`,
@@ -673,6 +565,7 @@ export async function seedImport(tag) {
       adminId: admin.id,
       moderatorId: moderator.id,
       ownerId: owner.id,
+      buyerId: buyer.id,
       gammaOrganizationId: gamma.id,
       waitingEventId: waiting.id,
       waitingRevision: waiting.revision ?? 0,
@@ -683,7 +576,7 @@ export async function seedImport(tag) {
 }
 
 /**
- * Whether the platform-held organisation for Sulekha is already there.
+ * Whether the platform-held organisation ("The Desi Events") is already there.
  *
  * Asked before the journeys import, so cleanup removes it only when they made
  * it.
@@ -742,16 +635,6 @@ export async function importedEvents(tag) {
         approvedById: true,
         reassignedAt: true,
         reassignedToOrganizationId: true,
-        images: {
-          orderBy: { position: 'asc' },
-          select: {
-            url: true,
-            role: true,
-            status: true,
-            failureCode: true,
-            mediaAsset: { select: { id: true, moderationStatus: true, kind: true } },
-          },
-        },
         event: {
           select: {
             id: true,
@@ -767,7 +650,26 @@ export async function importedEvents(tag) {
             websiteDecidedUrl: true,
             organization: { select: { name: true, platformHeldSource: true } },
             sessions: { select: { startsAt: true, endsAt: true, endTimeListed: true } },
-            _count: { select: { ticketTypes: true } },
+            ticketTypes: {
+              orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+              select: {
+                id: true,
+                name: true,
+                priceCents: true,
+                currency: true,
+                quantityTotal: true,
+                quantitySold: true,
+                quantityIsAllowance: true,
+                minPerOrder: true,
+                maxPerOrder: true,
+                status: true,
+                visibility: true,
+                reserved: true,
+                salesStartAt: true,
+                salesEndAt: true,
+              },
+            },
+            _count: { select: { media: true } },
           },
         },
       },
@@ -792,6 +694,42 @@ export async function eventStanding(eventId) {
     return await prisma.event.findUnique({
       where: { id: eventId },
       select: { status: true, revision: true, organizationId: true },
+    })
+  } finally {
+    await prisma.$disconnect()
+  }
+}
+
+/**
+ * Every order of an event, oldest first, with what was refunded and how its
+ * tickets stand.
+ *
+ * @param {string} eventId The event.
+ * @returns {Promise<object[]>} The orders.
+ */
+export async function ordersOf(eventId) {
+  const prisma = createPrismaClient({ connectionString: CONNECTION })
+
+  try {
+    return await prisma.order.findMany({
+      where: { eventId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        reference: true,
+        status: true,
+        buyerEmail: true,
+        totalCents: true,
+        feesCents: true,
+        refundedCents: true,
+        items: {
+          select: {
+            ticketTypeId: true,
+            unitPriceCents: true,
+            quantity: true,
+            tickets: { select: { status: true } },
+          },
+        },
+      },
     })
   } finally {
     await prisma.$disconnect()
@@ -856,7 +794,7 @@ function listingIds(run) {
  *
  * @param {string} tag The run suffix.
  * @param {object} [options] Options.
- * @param {boolean} [options.removePlatformHeld] Also remove "Sulekha Events" when it is left empty; only when the journeys made it.
+ * @param {boolean} [options.removePlatformHeld] Also remove the platform-held organisation ("The Desi Events") when it is left empty; only when the journeys made it.
  * @returns {Promise<{keptEvents: number}>} How many events an order kept.
  */
 export async function cleanupImport(tag, { removePlatformHeld = false } = {}) {
@@ -882,15 +820,15 @@ export async function cleanupImport(tag, { removePlatformHeld = false } = {}) {
     ]
 
     for (const eventId of eventIds) {
-      // Nothing here sells, so no order should pin one; asked anyway, as every
-      // seed asks, so a cleanup never fights the ledger.
+      // The checkout's order is held by the ledger, which is append-only: its
+      // event is kept (taken off the site by the spec's last journey).
       if ((await prisma.order.count({ where: { eventId } })) > 0) {
         keptEvents += 1
         continue
       }
 
-      // Import records, their pictures' rows, change notices, sittings and
-      // visits go with the event by cascade; said here for what pins it.
+      // Import records, change notices, sittings and visits go with the event
+      // by cascade; said here for what pins it.
       await prisma.mediaAsset.deleteMany({ where: { eventId } }).catch(() => {})
       await prisma.ticketType.deleteMany({ where: { eventId } }).catch(() => {})
       await prisma.eventSession.deleteMany({ where: { eventId } }).catch(() => {})
@@ -909,7 +847,7 @@ export async function cleanupImport(tag, { removePlatformHeld = false } = {}) {
       await prisma.eventImportRun.deleteMany({ where: { createdById: admin.id } }).catch(() => {})
     }
 
-    // The venues the listings made (under "Sulekha Events", or moved with an
+    // The venues the listings made (under "The Desi Events", or moved with an
     // event to Import Gamma) and Import Gamma's own, once nothing uses them.
     await prisma.venue
       .deleteMany({ where: { name: { contains: tag }, events: { none: {} } } })
@@ -932,7 +870,11 @@ export async function cleanupImport(tag, { removePlatformHeld = false } = {}) {
     }
 
     const users = await prisma.user.findMany({
-      where: { email: { in: [names.adminEmail, names.moderatorEmail, names.ownerEmail] } },
+      where: {
+        email: {
+          in: [names.adminEmail, names.moderatorEmail, names.ownerEmail, names.buyerEmail],
+        },
+      },
       select: { id: true },
     })
 

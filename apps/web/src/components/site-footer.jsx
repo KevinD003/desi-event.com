@@ -5,9 +5,11 @@
  * the catalogue, how to reach the team at The Desi Events, the cities it lists
  * nights in, and the small print. The small print says two things on every
  * page, because both are true on every page: payments here are simulated, and
- * events, organisers and prices are fictional — except events copied from
- * Sulekha.com listings, which name the organiser who presents them and show
- * Sulekha's prices (ADR 0015).
+ * events, organisers and prices are fictional — except events imported from
+ * organisers' public ticket listings, which name the organiser who presents
+ * them and are sold here at the prices the organiser listed (ADR 0015). The
+ * site those listings are on is not named, and nothing links to it: the owner
+ * asked that there be no connection with it.
  *
  * @module components/site-footer
  */
@@ -132,7 +134,8 @@ export function SiteFooter() {
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-6 text-ink-inverse-muted">
               Garba, dandiya and Navratri nights across the USA and Canada. Tickets sold here are
-              priced in US dollars alongside their booking fee.
+              priced in US dollars, or Canadian dollars at a venue in Canada, alongside their
+              booking fee.
             </p>
           </div>
 
@@ -227,7 +230,8 @@ export function SiteFooter() {
               merely looked quiet once sat at 3.74:1, below AA at this size. */}
           <p className="text-sm text-ink-inverse-muted">
             A demonstration project. Events, organisers and prices on this site are fictional,
-            except events copied from Sulekha.com listings.
+            except events imported from organisers’ public ticket listings, which name the organiser
+            who presents them and are sold here at the prices the organiser listed.
           </p>
         </div>
       </div>

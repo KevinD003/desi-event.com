@@ -4,20 +4,19 @@
  * from the command line (SPEC2-XI I-G).
  *
  * Without `--apply` it plans the file and prints the plan; nothing but the run
- * is written. With `--apply` it applies the plan and copies the pictures, with
- * no time limit. The account named by `--as` must hold `event:import` (a
+ * is written. With `--apply` it applies the plan: each listing becomes a draft
+ * sent for review, with one ticket type per listed price, not yet on sale. The account named by `--as` must hold `event:import` (a
  * platform administrator or super administrator) and must not be suspended;
  * every audit row records it and `via: 'cli'`.
  *
  * It never approves or publishes: that needs a person with a second factor in
  * the web. And it never updates a posted event: `updateFromSource` is always
  * empty from here, so a posted listing that changed stays as it is until an
- * administrator ticks "Update from Sulekha" on the import page.
+ * administrator ticks "Update from the listing" on the import page.
  *
- * Pictures are copied from `usimg.sulekha.io` directly (no proxy is used), so
- * the machine running this needs direct outbound HTTPS to that host; with
- * `IMPORT_IMAGE_SOURCE=fixtures` they are read from a directory instead, never
- * in production. Events already past are skipped.
+ * Nothing is fetched from anywhere: an import file carries no web address, and
+ * no picture is copied (2026-10-15). It needs the database and nothing else.
+ * Events already past are skipped.
  *
  * `@file` rather than `@module`: the JSDoc rule refuses a module path with
  * `import-` in it.
@@ -34,7 +33,6 @@ import { CAPABILITIES, can } from '@desi-event/permissions'
 
 import { toActor } from '../src/lib/actor.js'
 import { applyImport, previewImport, toRunView } from '../src/lib/event-import.js'
-import { createPostgresMediaStorage } from '../src/lib/media-storage.js'
 
 /** How to call it. */
 export const USAGE = 'Usage: pnpm import:events <file.json> --as <email> [--apply]'
@@ -81,9 +79,6 @@ export function parseImportArgs(argv) {
  * @param {object} options Inputs.
  * @param {string[]} options.argv The arguments.
  * @param {object} options.prisma A Prisma client.
- * @param {object} options.env The parsed API environment.
- * @param {object} [options.storage] Where picture bytes go; PostgreSQL by default.
- * @param {Function} [options.fetchImage] The picture fetcher; the SSRF-safe one by default.
  * @param {{log: Function, error: Function}} [options.out] Where lines are written.
  * @param {Date} [options.now] The moment.
  * @param {Function} [options.apply] The apply function; `applyImport` (tests watch what it is sent).
@@ -91,16 +86,7 @@ export function parseImportArgs(argv) {
  * @throws {Error} For an unknown or suspended account, one without `event:import`, or a file that cannot be imported.
  */
 export async function runImportCommand(options) {
-  const {
-    argv,
-    prisma,
-    env,
-    storage = createPostgresMediaStorage(prisma),
-    fetchImage,
-    out = console,
-    now = new Date(),
-    apply: applyRun = applyImport,
-  } = options
+  const { argv, prisma, out = console, now = new Date(), apply: applyRun = applyImport } = options
   const { file, email, apply } = parseImportArgs(argv)
   const user = await prisma.user.findUnique({ where: { email } })
 
@@ -150,27 +136,31 @@ export async function runImportCommand(options) {
   for (const row of view.rows) {
     out.log(`  ${row.action.padEnd(18)} ${row.sourceId.padEnd(12)} ${row.title}`)
     if (row.problem) out.log(`      ${row.problem}`)
+    if (row.priceCount > 0) {
+      const sold = row.soldOutCount > 0 ? `, ${row.soldOutCount} marked sold out (made closed)` : ''
+
+      const types = row.priceCount === 1 ? 'ticket type' : 'ticket types'
+
+      out.log(`      ${row.priceCount} ${types} in ${row.currency}${sold}`)
+    }
     for (const note of row.importNotes) out.log(`      Note: ${note}`)
   }
 
   if (!apply) {
     out.log('Nothing was imported. Run again with --apply to import this plan.')
 
-    return { view, results: null, pictures: null }
+    return { view, results: null }
   }
 
   // Never `updateFromSource`: a posted event is updated only from the web,
   // with a second factor.
-  const { results, pictures } = await applyRun(prisma, storage, {
+  const { results } = await applyRun(prisma, {
     run,
     actor,
     planDigest: run.planDigest,
     updateFromSource: [],
     via: 'cli',
-    env,
     now,
-    imageBudgetMs: Number.POSITIVE_INFINITY,
-    fetchImage,
   })
 
   const written = results.filter((result) => result.outcome === 'WRITTEN').length
@@ -179,13 +169,10 @@ export async function runImportCommand(options) {
   out.log(`Imported ${written} listings; ${refused.length} refused.`)
   for (const result of refused) out.log(`  ${result.sourceId}: ${result.code} ${result.message}`)
   out.log(
-    `Pictures: ${pictures.stored} copied, ${pictures.failed} failed, ${pictures.waiting} waiting.`,
-  )
-  out.log(
-    'Imported events wait for review: approve and publish them on the import page in the web, with your second factor.',
+    'Imported events wait for review: approve and publish them on the import page in the web, with your second factor. Approving one puts its ticket types on sale.',
   )
 
-  return { view, results, pictures }
+  return { view, results }
 }
 
 /**
@@ -203,7 +190,7 @@ async function main() {
   const env = loadApiEnv()
   const prisma = createPrismaClient({ connectionString: env.DATABASE_URL })
 
-  const failed = await runImportCommand({ argv: process.argv.slice(2), prisma, env }).then(
+  const failed = await runImportCommand({ argv: process.argv.slice(2), prisma }).then(
     () => false,
     (error) => {
       console.error(error.message)

@@ -236,13 +236,22 @@ export const AUDIT_ACTIONS = Object.freeze({
   // Each written inside the transaction that made the change. A run's rows
   // carry its id, the file's name and digest and the counts; an event's carry
   // the listing's id, the run and whether the web or the command line did it
-  // (`via`). Never a picture's address on the source, and never the dataset.
+  // (`via`). Never an address on the source's site, and never the dataset.
+  // (`event_import.images_retried` was written until 2026-10-15, when the
+  // importer stopped copying pictures; older rows keep it.)
   EVENT_IMPORT_PREVIEWED: 'event_import.previewed',
   EVENT_IMPORT_APPLIED: 'event_import.applied',
-  EVENT_IMPORT_IMAGES_RETRIED: 'event_import.images_retried',
   EVENT_IMPORTED: 'event.imported',
+  /** "Approve and publish" put a posted import's waiting ticket types on sale. */
+  EVENT_IMPORT_SALES_OPENED: 'event_import.sales_opened',
   EVENT_IMPORT_REASSIGNED: 'event.import_reassigned',
   ORGANIZATION_PLATFORM_HELD_CREATED: 'organization.platform_held_created',
+  /**
+   * The platform-held organisation was brought to the name, web address or
+   * description its source is given now. Carries the changed column names and
+   * the new web address, never the old values.
+   */
+  ORGANIZATION_PLATFORM_HELD_UPDATED: 'organization.platform_held_updated',
 
   // --- Event authoring ----------------------------------------------------------
   //

@@ -81,9 +81,6 @@ describe('apiEnvSchema', () => {
       // visitor's address.
       TRAFFIC_TRUSTED_FORWARDERS: ['127.0.0.1', '::1', '::ffff:127.0.0.1'],
       TRAFFIC_BEACON_MAX_PER_MINUTE: 60,
-      // Imported pictures come from their one allowed host unless a test says
-      // otherwise (SPEC2-XI §4.5).
-      IMPORT_IMAGE_SOURCE: 'network',
     })
   })
 
@@ -348,42 +345,20 @@ describe('apiEnvSchema: visit counting', () => {
     }
   })
 
-  it('reads imported pictures from a fixture directory only outside production', () => {
-    const fixtures = { IMPORT_IMAGE_SOURCE: 'fixtures', IMPORT_IMAGE_FIXTURE_DIR: '/tmp/pictures' }
+  it('has no setting for copying imported pictures: nothing is copied from anywhere (2026-10-15)', () => {
+    // The two variables the picture fetcher read are gone. Set, they are
+    // ignored like any variable the API does not know, in production too.
+    const leftOver = { IMPORT_IMAGE_SOURCE: 'fixtures', IMPORT_IMAGE_FIXTURE_DIR: '/tmp/pictures' }
 
-    expect(apiEnvSchema.parse(apiEnv({ NODE_ENV: 'test', ...fixtures }))).toMatchObject(fixtures)
-    expect(
-      issuePaths(apiEnvSchema.safeParse(apiEnv({ NODE_ENV: 'production', ...fixtures }))),
-    ).toEqual(['IMPORT_IMAGE_SOURCE'])
-    // An unset NODE_ENV is production: the fixtures source is refused there too.
-    expect(issuePaths(apiEnvSchema.safeParse(apiEnv(fixtures)))).toEqual(['IMPORT_IMAGE_SOURCE'])
-  })
+    for (const NODE_ENV of ['test', 'production']) {
+      const parsed = apiEnvSchema.safeParse(apiEnv({ NODE_ENV, ...leftOver }))
 
-  it('needs the fixture directory when pictures come from fixtures', () => {
-    expect(
-      issuePaths(
-        apiEnvSchema.safeParse(apiEnv({ NODE_ENV: 'test', IMPORT_IMAGE_SOURCE: 'fixtures' })),
-      ),
-    ).toEqual(['IMPORT_IMAGE_FIXTURE_DIR'])
-    expect(
-      issuePaths(
-        apiEnvSchema.safeParse(
-          apiEnv({
-            NODE_ENV: 'test',
-            IMPORT_IMAGE_SOURCE: 'fixtures',
-            IMPORT_IMAGE_FIXTURE_DIR: ' ',
-          }),
-        ),
-      ),
-    ).toEqual(['IMPORT_IMAGE_FIXTURE_DIR'])
-  })
+      expect(parsed.success, NODE_ENV).toBe(true)
+      expect(Object.keys(parsed.data).filter((key) => key.startsWith('IMPORT_'))).toEqual([])
+    }
 
-  it('refuses an unknown picture source and treats a blank one as the default', () => {
-    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ IMPORT_IMAGE_SOURCE: 'disk' })))).toEqual([
-      'IMPORT_IMAGE_SOURCE',
-    ])
-    expect(apiEnvSchema.parse(apiEnv({ IMPORT_IMAGE_SOURCE: '' })).IMPORT_IMAGE_SOURCE).toBe(
-      'network',
+    expect(Object.keys(apiEnvSchema.parse(apiEnv({}))).some((key) => /IMPORT/u.test(key))).toBe(
+      false,
     )
   })
 })
@@ -693,7 +668,6 @@ describe('.env.example', () => {
     ['SMTP_PORT', apiEnvSchema, apiEnv],
     ['SMTP_SECURE', apiEnvSchema, apiEnv],
     ['SMTP_REQUIRE_TLS', apiEnvSchema, apiEnv],
-    ['IMPORT_IMAGE_SOURCE', apiEnvSchema, apiEnv],
     [
       'TRAFFIC_ROLLUP_INTERVAL_MS',
       workerEnvSchema,
@@ -704,5 +678,13 @@ describe('.env.example', () => {
     const value = exampleValue(name)
 
     expect(schema.parse(base({ [name]: value }))[name]).toEqual(schema.parse(base())[name])
+  })
+
+  // The picture copy is gone (2026-10-15): the example offers no variable for
+  // it and names no host to copy from.
+  it('offers no setting for copying imported pictures, and names no host to copy from', () => {
+    expect(example.split('\n').filter((text) => /IMPORT_IMAGE_[A-Z_]*=/u.test(text))).toEqual([])
+    expect(example).not.toMatch(/sulekha/iu)
+    expect(example).toMatch(/make no outbound request/u)
   })
 })

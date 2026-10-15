@@ -784,14 +784,6 @@ export const apiRouteManifest = Object.freeze([
     query: false,
   },
   {
-    id: 'eventImports.retryImages',
-    method: 'POST',
-    path: '/v1/platform/imports/:runId/images/retry',
-    auth: 'session',
-    body: true,
-    query: false,
-  },
-  {
     id: 'eventImports.approve',
     method: 'POST',
     path: '/v1/platform/imports/:runId/approve',

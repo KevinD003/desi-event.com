@@ -230,10 +230,10 @@ describe('the home page', () => {
 
     expect(text).toContain('Garba & dandiya nights · across the USA and Canada')
     expect(text).toContain(
-      'Garba, dandiya and raas nights from Edison to Santa Clara. Tickets sold here are priced in US dollars, and the booking fee is shown before you reach checkout.',
+      'Garba, dandiya and raas nights from Edison to Santa Clara. Tickets sold here are priced in US dollars, or Canadian dollars at a venue in Canada, and the booking fee is shown before you reach checkout.',
     )
     expect(text).toContain(
-      'Tickets sold here are priced in US dollars. US sales tax is not calculated in this demo, so checkout shows it as $0.00.',
+      'Tickets sold here are priced in US dollars, or Canadian dollars at a venue in Canada. US sales tax is not calculated in this demo, so checkout shows it as $0.00.',
     )
     expect(text).not.toMatch(/Prices are in US dollars/)
   })

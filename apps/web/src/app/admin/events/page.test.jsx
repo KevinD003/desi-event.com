@@ -216,7 +216,7 @@ describe('All events', () => {
     expect(RESTORE_NOTE).toMatch(/A published event comes back published, at the same web address/u)
   })
 
-  it('narrows the list to events copied from Sulekha, deleted ones included, keeping the other filters', async () => {
+  it('narrows the list to imported events, deleted ones included, keeping the other filters', async () => {
     listPlatformEvents.mockResolvedValue({
       events: [
         row({
@@ -240,7 +240,7 @@ describe('All events', () => {
       deleted: 'only',
       imported: 'only',
     })
-    expect(screen.getByRole('link', { name: 'Copied from Sulekha' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Imported from listings' })).toHaveAttribute(
       'aria-current',
       'page',
     )

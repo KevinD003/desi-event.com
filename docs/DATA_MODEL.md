@@ -892,12 +892,13 @@ untouched on a re-seed.
 - **`EventImportRun`** — one upload: who planned it, the plan and its digest,
   status, and who applied it, within its hour.
 - **`EventImportItem`** — one imported listing, unique by `(source, sourceId)`
-  and by event: the listed prices and price text, the curator's notes, the
-  listing and ticket addresses, who imported it (the administrator whose
+  and by event: the listed prices and price text, the curator's notes, who
+  imported it (the administrator whose
   import last sent it for review) and who approved it, the run that last wrote
   it, and a reassignment (from, to, by whom).
 - **`EventImportImage`** — one picture to copy (unique by item and address):
-  its role, status, failure reason and the `MediaAsset` it became.
+  its role, status, failure reason and the `MediaAsset` it became. Dropped on
+  2026-10-15, with `EventImportItem.sourceUrl` (below).
 - **`EventSession.endTimeListed`** — false when the listing gave no end time
   and the stored end is the start plus three hours, which is never shown. It
   turns true once an editor sets the end apart from that estimate (a session
@@ -1056,3 +1057,57 @@ let in still cannot.
 Orders placed before 9 October 2026 have no recorded terms unless their pricing
 snapshot carried them (the backfill copied those); their order page says the
 terms were not recorded.
+
+## Imported events sold here — 2026-10-15
+
+`20261015100000_imported_events_sold_here` (listed last in
+`PHASE3_MIGRATIONS`). The owner asked that nothing link, redirect or connect
+to the site imported listings came from, and that their tickets be sold on
+The Desi Events (ADR 0015, addendum "2026-10-15 (2)").
+
+- **`TicketType.importKey`** — the listed price a ticket type was made from
+  (its name, amount and currency), so a re-import finds it however an
+  administrator renamed it. NULL for every ticket type an organiser or
+  administrator adds. CHECK `ticket_type_import_key_shape` (1–120 characters,
+  not blank); unique per event among the ones that have one
+  (`TicketType_eventId_importKey_key`, partial).
+- **`TicketType.quantityIsAllowance`** — true when the quantity is the import's
+  allowance (100), not a count the organiser gave, so nothing shows "tickets
+  left" from it. False by default; an organiser's edit of the quantity clears
+  it, an administrator's keeps it.
+- **Data.** Every imported event's website link on that site is cleared (the
+  decided address with its switch, time, decider and reason; the current
+  address), its revision moved on. `EventImportItem.sourceUrl` and its CHECK
+  term are dropped, and the `EventImportImage` table with its two enums. The
+  datasets runs stored lose the source site, picture hosts, name and each
+  listing's link, ticket link and pictures. An imported venue's provenance
+  `import:sulekha` becomes `import:listing`. Audit rows are left as written.
+  Steps that change data find nothing to change a second time
+  (`apps/api/tests/event-import-integration.test.js` runs them twice;
+  `pnpm db:verify:upgrade` over rows of each shape).
+
+Only `lib/event-import.js` writes `importKey` (a source scan).
+
+## What imports wrote, reworded — 2026-10-15
+
+`20261015110000_imported_listing_words` (after it in `PHASE3_MIGRATIONS`),
+data only, no schema. Events imported before 2026-10-15 still carried the
+words the importer wrote then, which named that site and said tickets were
+sold there (ADR 0015, addendum "2026-10-15 (2)", section 4). For events that
+have an `EventImportItem`:
+
+- **`Event.policies`** — the importer's old entry and refund sentences become
+  its present ones (`IMPORT_POLICIES`), an entry's " Age: …" kept. A sentence
+  anybody changed is left.
+- **`Event.faq`** — an entry naming that site is removed; so is one the import
+  wrote (it is in a stored run's file for the same listing) about that site's
+  terms of sale. An entry a person added stays.
+- **`Event.websiteRedirectReason`**, **`EventModerationAction.reason`** and
+  **`EventChangeNotice.reason`** — the import's own sentences, reworded.
+- **`EventImportItem.importNotes`** and each stored **`EventImportRun.dataset`**'s
+  listings' `faq` and `importNotes` — in the converter's words ("the source
+  listing", "the Texas file"), each note at most 500 characters.
+
+The revision moves on once per event changed; audit rows, the enum value and
+file names are left. A second run changes nothing
+(`apps/api/tests/event-import-integration.test.js`; `pnpm db:verify:upgrade`).

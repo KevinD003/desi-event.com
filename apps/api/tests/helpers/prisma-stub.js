@@ -141,11 +141,6 @@ const RELATIONS = {
       from: 'reassignedToOrganizationId',
       to: 'id',
     },
-    images: { kind: 'many', model: 'eventImportImage', from: 'id', to: 'itemId' },
-  },
-  eventImportImage: {
-    item: { kind: 'one', model: 'eventImportItem', from: 'itemId', to: 'id' },
-    mediaAsset: { kind: 'one', model: 'mediaAsset', from: 'mediaAssetId', to: 'id' },
   },
   eventModerationAction: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
@@ -267,7 +262,6 @@ const RELATIONS = {
     // A replacement cover waiting beside the cover it replaces, both ways.
     replaces: { kind: 'one', model: 'mediaAsset', from: 'replacesMediaId', to: 'id' },
     replacedBy: { kind: 'one', model: 'mediaAsset', from: 'id', to: 'replacesMediaId' },
-    importImages: { kind: 'many', model: 'eventImportImage', from: 'id', to: 'mediaAssetId' },
   },
   mediaBlob: {
     asset: { kind: 'one', model: 'mediaAsset', from: 'storageKey', to: 'storageKey' },
@@ -612,6 +606,8 @@ const DEFAULTS = {
     salesStartAt: null,
     salesEndAt: null,
     visibility: 'PUBLIC',
+    importKey: null,
+    quantityIsAllowance: false,
   },
   ticketHold: {
     status: 'ACTIVE',
@@ -1034,13 +1030,6 @@ const DEFAULTS = {
     reassignedFromOrganizationId: null,
     reassignedToOrganizationId: null,
   },
-  eventImportImage: {
-    status: 'WAITING',
-    failureCode: null,
-    attempts: 0,
-    lastTriedAt: null,
-    mediaAssetId: null,
-  },
   ledgerAccount: { currency: null, active: true },
   ledgerBatch: {
     status: 'DRAFT',
@@ -1174,10 +1163,8 @@ const COMPOUND_UNIQUE = {
   promoCode: [['organizationId', 'code']],
   // One row of totals per event per day: the roll-up's upsert key.
   trafficDaily: [['eventId', 'day']],
-  // A re-import of the same listing updates rather than duplicates, and a
-  // listing names each picture once.
+  // A re-import of the same listing updates rather than duplicates.
   eventImportItem: [['source', 'sourceId']],
-  eventImportImage: [['itemId', 'url']],
   // One fee decision per sequence number per event: the booking fee's
   // compare-and-set. And a code names an event in its scope once.
   eventFeeSetting: [['eventId', 'sequence']],
@@ -1373,17 +1360,13 @@ const TIMESTAMPED = new Set([
  * The stub runs no other referential action. These are mirrored because code
  * written for PostgreSQL leans on them (SPEC2-XI §5.X-P, §6): deleting the
  * cover a replacement waits beside makes the replacement the current cover by
- * clearing its `replacesMediaId`, and removing a picture an import stored
- * leaves the import record without a link to it. A sitting whose browser
+ * clearing its `replacesMediaId`. A sitting whose browser
  * session row is gone is one nothing can match.
  *
  * @type {Readonly<Record<string, ReadonlyArray<Readonly<{model: string, column: string}>>>>}
  */
 const ON_DELETE_SET_NULL = Object.freeze({
-  mediaAsset: Object.freeze([
-    Object.freeze({ model: 'mediaAsset', column: 'replacesMediaId' }),
-    Object.freeze({ model: 'eventImportImage', column: 'mediaAssetId' }),
-  ]),
+  mediaAsset: Object.freeze([Object.freeze({ model: 'mediaAsset', column: 'replacesMediaId' })]),
   session: Object.freeze([Object.freeze({ model: 'eventPlatformEdit', column: 'sessionId' })]),
 })
 

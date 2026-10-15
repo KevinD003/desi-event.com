@@ -519,7 +519,7 @@ feature-completion report: invitation-only organisers and the review gate,
 SMTP delivery of show-once codes, the administrator-switched website link,
 first-party visit counting, full control of posted events (editing, deleting,
 restoring, cancelling one night) with the refund repair it rested on, and the
-import of Sulekha's Texas listings. Its §Limitations table is now the list
+import of the Texas listings. Its §Limitations table is now the list
 `/limitations` mirrors, and where it and the feature-completion report
 disagree, it is the later one. The decisions it rests on are ADR 0010 to ADR
 0015 in `docs/adr/`.

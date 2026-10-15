@@ -1,13 +1,20 @@
 /**
  * Reading an import file and planning what applying it does (SPEC2-XI §5.I-C).
  *
- * The file is uploaded by a person, so every rule the committed Sulekha file
- * is held to by its validator test holds here again, at run time, for whatever
- * file arrives: the shape (`importDatasetSchema`), the format and the source,
- * and the hosts. Pictures may come only from {@link IMPORT_IMAGE_HOSTS}, and
- * every listing and ticket link must be an `https:` page on
- * {@link IMPORT_SOURCE_HOSTS}, because approving an imported event turns on a
- * public link labelled "Buy tickets on Sulekha" to that address.
+ * The file is uploaded by a person, so every rule the committed files are
+ * held to by their validator test holds here again, at run time, for whatever
+ * file arrives: the shape (`importDatasetSchema`), the format and the source.
+ *
+ * Since 2026-10-15 a file carries **no web address**: the owner asked that
+ * nothing on The Desi Events links, redirects or connects to the site the
+ * listings came from ("No contact at all"). A file that still names a listing
+ * link, a ticket link, pictures, a source site, picture hosts or a source name
+ * is refused, each such field named ({@link retiredFieldProblems}). Nothing is
+ * fetched. A listing is known by its `sourceId` alone.
+ *
+ * Each listed price becomes a ticket type sold here ({@link listingTiers}), in
+ * the currency of the venue's country (USD in the United States, CAD in
+ * Canada): a listing whose prices are in another currency is INVALID.
  *
  * The plan gives every listing one action. Every `EventStatus` maps to exactly
  * one (see {@link planActionForStatus}); a listing whose date has passed, whose
@@ -16,18 +23,19 @@
  * "Last written" is the dataset of the run in `EventImportItem.lastRunId`:
  * apply moves `lastRunId` only for rows it writes or confirms unchanged
  * (CREATE, UPDATE_DRAFT, UPDATE_POSTED, UNCHANGED), never for a kept or
- * skipped one, so that run's copy of the listing is what the event holds.
+ * skipped one, so that run's copy of the listing is what the event holds. A
+ * listing's digest is versioned ({@link LISTING_DIGEST_VERSION}), so every
+ * listing written before its prices became ticket types reads as changed and
+ * is written again, with them.
  *
  * The plan's digest is SHA-256 over its canonical JSON. Apply recomputes the
  * plan and refuses one that has changed since the administrator read it.
  *
- * The user states that they own Sulekha.com and asked for its Texas events and
- * their photos to be imported, and later for every event of their own Sulekha
- * export, in the United States and Canada; that is recorded as their
- * statement. Nothing here assumes a country: a venue's country, region and
- * postal code, a listing's zone and a price's currency are each carried as the
- * file gives them (a Toronto listing: `CA`, `ON`, `M5V 2T6`,
- * `America/Toronto`, `CAD`).
+ * The user states that they own the site the listings came from and asked
+ * for its events to be imported; that is recorded as their statement. Nothing
+ * here assumes a country beyond the currency rule: a venue's country, region
+ * and postal code and a listing's zone are each carried as the file gives
+ * them (a Toronto listing: `CA`, `ON`, `M5V 2T6`, `America/Toronto`, `CAD`).
  */
 
 import { createHash } from 'node:crypto'
@@ -35,17 +43,17 @@ import { createHash } from 'node:crypto'
 import {
   IMPORT_DATASET_FORMAT,
   IMPORT_PLAN_ACTIONS,
+  RETIRED_DATASET_FIELDS,
+  RETIRED_LISTING_FIELDS,
   importDatasetSchema,
   importEventSchema,
+  priceNoteSaysSoldOut,
 } from '@desi-event/schemas/imports'
 import { PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
-import { websiteUrlProblem } from '@desi-event/schemas/website'
+import { EVENT_CONTENT_LIMITS } from '@desi-event/schemas/event-content'
 
 import { httpError } from './errors.js'
-import { checkImportImageUrl, IMPORT_IMAGE_HOSTS } from './import-images.js'
-
-/** The only host a listing or ticket link may name. */
-export const IMPORT_SOURCE_HOSTS = Object.freeze(['events.sulekha.com'])
+import { publicPriceName } from './presenters.js'
 
 /** The source this build imports from. */
 export const IMPORT_SOURCES = Object.freeze(['SULEKHA'])
@@ -125,13 +133,21 @@ export function canonicalDigest(value) {
 }
 
 /**
+ * What a listing's digest is taken with beside the listing: changed when what
+ * applying a listing writes changes, so every listing written the old way
+ * reads as changed and is written again. `tiers-1`: its prices became ticket
+ * types (2026-10-15).
+ */
+export const LISTING_DIGEST_VERSION = 'tiers-1'
+
+/**
  * The content digest of one listing, as parsed.
  *
  * @param {object} listing A listing from a parsed dataset.
  * @returns {string} 64 hexadecimal characters.
  */
 export function listingDigest(listing) {
-  return canonicalDigest(listing)
+  return canonicalDigest({ version: LISTING_DIGEST_VERSION, listing })
 }
 
 /**
@@ -191,76 +207,149 @@ function placeOf(path, raw) {
 }
 
 /**
- * Why a listing or ticket link may not be imported, or null.
- *
- * @param {unknown} value The address.
- * @returns {string|null} The problem in words.
- */
-export function sourceUrlProblem(value) {
-  const sentence = `Use the listing's own https:// page on ${IMPORT_SOURCE_HOSTS.join(' or ')}.`
-
-  if (typeof value !== 'string' || !/^https:\/\//iu.test(value)) return sentence
-
-  let url
-
-  try {
-    url = new URL(value)
-  } catch {
-    return sentence
-  }
-
-  if (url.protocol !== 'https:') return sentence
-  if (url.username !== '' || url.password !== '' || url.port !== '') return sentence
-  if (!IMPORT_SOURCE_HOSTS.includes(url.hostname)) return sentence
-
-  return null
-}
-
-/**
- * The run-time host checks, on the file as uploaded.
+ * The retired fields a file still carries, each placed: they were addresses on
+ * the source's own site, or its name, and a file carries none since
+ * 2026-10-15.
  *
  * @param {object} raw The file.
  * @returns {string[]} Problems, each placed.
  */
-function hostProblems(raw) {
+export function retiredFieldProblems(raw) {
   const problems = []
-  const imageSentence = `Pictures are copied only from https:// addresses on ${IMPORT_IMAGE_HOSTS.join(' or ')}.`
+  const sentence =
+    'Import files carry no web address and no name of the site the listing came from. Remove this field.'
 
-  if (Array.isArray(raw.imageHosts)) {
-    raw.imageHosts.forEach((host, index) => {
-      if (!IMPORT_IMAGE_HOSTS.includes(host)) {
-        problems.push(`imageHosts[${index}]: ${imageSentence}`)
-      }
-    })
+  for (const field of RETIRED_DATASET_FIELDS) {
+    if (Object.hasOwn(raw, field)) problems.push(`${field}: ${sentence}`)
   }
-
-  const declared = Array.isArray(raw.imageHosts) ? raw.imageHosts : []
 
   if (!Array.isArray(raw.events)) return problems
 
   raw.events.forEach((listing, index) => {
     if (!isPlainObject(listing)) return
 
-    for (const field of ['sourceUrl', 'ticketUrl']) {
-      const problem = sourceUrlProblem(listing[field])
-
-      if (problem) problems.push(`${placeOf(['events', index, field], raw)}: ${problem}`)
-    }
-
-    if (!Array.isArray(listing.images)) return
-
-    listing.images.forEach((image, position) => {
-      const checked = checkImportImageUrl(image?.url)
-
-      if (!checked.ok || !declared.includes(checked.url.hostname)) {
-        problems.push(
-          `${placeOf(['events', index, 'images', position, 'url'], raw)}: ${imageSentence}`,
-        )
+    for (const field of RETIRED_LISTING_FIELDS) {
+      if (Object.hasOwn(listing, field)) {
+        problems.push(`${placeOf(['events', index, field], raw)}: ${sentence}`)
       }
-    })
+    }
   })
 
   return problems
+}
+
+/**
+ * Whether a schema issue is the strict object's own report of retired fields,
+ * which {@link retiredFieldProblems} says in its own words.
+ *
+ * @param {object} issue A zod issue.
+ * @returns {boolean} True when every key it names is retired.
+ */
+function isRetiredFieldIssue(issue) {
+  if (issue.code !== 'unrecognized_keys' || !Array.isArray(issue.keys)) return false
+
+  const retired =
+    issue.path.length === 0
+      ? RETIRED_DATASET_FIELDS
+      : issue.path.length === 2 && issue.path[0] === 'events'
+        ? RETIRED_LISTING_FIELDS
+        : []
+
+  return issue.keys.length > 0 && issue.keys.every((key) => retired.includes(key))
+}
+
+/**
+ * The currency an imported event sells in: USD at a venue in the United
+ * States, CAD in Canada, and elsewhere the one currency its prices are in.
+ *
+ * @param {object} listing A parsed listing.
+ * @returns {string|null} An ISO 4217 code, or null for a listing elsewhere with no price.
+ */
+export function listingCurrency(listing) {
+  if (listing.venue.country === 'US') return 'USD'
+  if (listing.venue.country === 'CA') return 'CAD'
+
+  return listing.prices[0]?.currency ?? null
+}
+
+/**
+ * Why a listing's prices cannot be sold as one event's tickets, or null.
+ *
+ * @param {object} listing A parsed listing.
+ * @returns {string|null} The problem in words.
+ */
+export function listingPriceProblem(listing) {
+  const currency = listingCurrency(listing)
+  const other = listing.prices.find((price) => price.currency !== currency)
+
+  if (!other) return null
+
+  return listing.venue.country === 'US' || listing.venue.country === 'CA'
+    ? `Its price "${other.name}" is in ${other.currency}, but tickets at a venue in ${listing.venue.country} are sold in ${currency}. Correct the currency in the file.`
+    : `Its prices are in more than one currency (${currency} and ${other.currency}), and an order is paid in one. Correct the file.`
+}
+
+/**
+ * A price's amount as a ticket type's name may carry it: "$35.00", "CA$35.00".
+ *
+ * @param {number} cents The amount.
+ * @param {string} currency Its currency.
+ * @returns {string} The amount in words a buyer reads.
+ */
+function amountLabel(cents, currency) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100)
+}
+
+/**
+ * The ticket types a listing's prices become, in the listing's order: one per
+ * price, named as the event page names it ({@link publicPriceName}: no sales
+ * date or urgency in a name), keyed by that name for a re-import
+ * (`TicketType.importKey`). Two prices that come to one name and one amount
+ * are one ticket type (a listing that repeats a price); two that come to one
+ * name at different amounts are told apart by their amounts ("General
+ * Admission ($35.00)"). A price the listing marked sold out (`soldOut`) is made
+ * CLOSED; one repeated is sold out only when every copy was.
+ *
+ * @param {object} listing A parsed listing.
+ * @returns {Array<{key: string, name: string, priceCents: number, currency: string, soldOut: boolean, sortOrder: number}>} The tiers.
+ */
+export function listingTiers(listing) {
+  const currency = listingCurrency(listing)
+  const limit = EVENT_CONTENT_LIMITS.tierName
+  /** @type {Map<string, {name: string, priceCents: number, soldOut: boolean, order: number}>} */
+  const merged = new Map()
+
+  listing.prices.forEach((price, order) => {
+    const name = publicPriceName(price.name).slice(0, 100)
+    const key = `${name}\u0000${price.priceCents}`
+    const soldOut = priceNoteSaysSoldOut(price.note)
+    const known = merged.get(key)
+
+    if (known) known.soldOut = known.soldOut && soldOut
+    else merged.set(key, { name, priceCents: price.priceCents, soldOut, order })
+  })
+
+  const tiers = [...merged.values()].sort((left, right) => left.order - right.order)
+  const named = new Map()
+
+  for (const tier of tiers) named.set(tier.name, (named.get(tier.name) ?? 0) + 1)
+
+  return tiers.map((tier, index) => {
+    const name = (
+      named.get(tier.name) > 1
+        ? `${tier.name} (${amountLabel(tier.priceCents, currency)})`
+        : tier.name
+    ).slice(0, limit)
+
+    return {
+      key: name,
+      name,
+      priceCents: tier.priceCents,
+      currency,
+      soldOut: tier.soldOut,
+      sortOrder: index,
+    }
+  })
 }
 
 /**
@@ -296,23 +385,24 @@ export function parseImportDataset(json) {
   }
 
   if (!IMPORT_SOURCES.includes(raw.source)) {
-    problems.push('source: Only listings from Sulekha ("SULEKHA") can be imported.')
+    problems.push('source: This file names a source this build does not import from.')
   }
+
+  problems.push(...retiredFieldProblems(raw))
 
   const parsed = importDatasetSchema.safeParse(raw)
 
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
-      // The two problems above already say these in their own words.
+      // The problems above already say these in their own words.
       if (issue.path.length === 1 && (issue.path[0] === 'format' || issue.path[0] === 'source')) {
         continue
       }
+      if (isRetiredFieldIssue(issue)) continue
 
       problems.push(`${placeOf(issue.path, raw)}: ${issue.message}`)
     }
   }
-
-  problems.push(...hostProblems(raw))
 
   const unique = [...new Set(problems)]
 
@@ -362,14 +452,14 @@ export function planRow({ listing, existing, previousDigest, now }) {
   const contentDigest = listingDigest(listing)
   const status = existing?.event?.status ?? null
   const past = Date.parse(listing.startsAt) <= now.getTime()
-  const linkProblem = websiteUrlProblem(listing.ticketUrl)
+  const priceProblem = listingPriceProblem(listing)
   let action
   let resubmit = false
   let problem = null
 
   if (!existing) {
     if (past) action = 'SKIPPED_PAST'
-    else if (linkProblem) action = 'INVALID'
+    else if (priceProblem) action = 'INVALID'
     else action = 'CREATE'
   } else if (existing.reassignedAt || !existing.event?.organization?.platformHeldSource) {
     action = 'SKIPPED_REASSIGNED'
@@ -383,14 +473,18 @@ export function planRow({ listing, existing, previousDigest, now }) {
     if (WRITABLE_ACTIONS.has(changed) && previousDigest === contentDigest) {
       action = 'UNCHANGED'
       resubmit = RESUBMIT_STATUSES.has(status)
-    } else if (WRITABLE_ACTIONS.has(changed) && linkProblem) {
+    } else if (WRITABLE_ACTIONS.has(changed) && priceProblem) {
       action = 'INVALID'
     } else {
       action = changed
     }
   }
 
-  if (action === 'INVALID') problem = `Its ticket link cannot be used: ${linkProblem}`
+  if (action === 'INVALID') problem = priceProblem
+
+  // What applying makes of the prices: a listing that repeats a price makes
+  // one ticket type of it, so the counts are the ticket types', not the prices'.
+  const tiers = listingTiers(listing)
 
   return {
     sourceId: listing.sourceId,
@@ -405,8 +499,9 @@ export function planRow({ listing, existing, previousDigest, now }) {
     contentDigest,
     problem,
     importNotes: listing.importNotes,
-    imageCount: listing.images.length,
-    priceCount: listing.prices.length,
+    priceCount: tiers.length,
+    soldOutCount: tiers.filter((tier) => tier.soldOut).length,
+    currency: listingCurrency(listing),
     endTimeListed: listing.endsAt !== null,
   }
 }

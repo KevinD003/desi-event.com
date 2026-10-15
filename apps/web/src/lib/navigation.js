@@ -252,8 +252,8 @@ export const WORKSPACE_GROUPS = Object.freeze([
       {
         href: '/admin/imports',
         label: 'Imports',
-        // Platform administrators and super administrators: events listed on
-        // Sulekha, brought here for review.
+        // Platform administrators and super administrators: events from source
+        // listings, brought here for review.
         offered: (session) => sessionCan(session, 'event:import') && admits(session, 'admin'),
       },
       {

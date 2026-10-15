@@ -1092,22 +1092,68 @@ describe('counting visits to the event page', () => {
   })
 })
 
-describe('an event copied from its Sulekha listing', () => {
-  /** A published imported event, as the API sends it: no tiers, one night with no listed end. */
+describe('an event imported from an organiser’s listing', () => {
+  /**
+   * One ticket type the import made from a listed price, as the API sends it:
+   * an allowance of 100, general admission, on sale from approval.
+   *
+   * @param {object} [overrides] Fields to change.
+   * @returns {object} The tier.
+   */
+  const tier = (overrides = {}) => ({
+    id: 'ttimported00000000000001',
+    name: 'Adult',
+    priceCents: 2500,
+    currency: 'USD',
+    quantityTotal: 100,
+    quantitySold: 0,
+    availableQuantity: 100,
+    isSoldOut: false,
+    status: 'ON_SALE',
+    visibility: 'PUBLIC',
+    salesStartAt: null,
+    salesEndAt: null,
+    minPerOrder: 1,
+    maxPerOrder: 10,
+    ...overrides,
+  })
+
+  /** A published imported event, on sale here, one night with no listed end. */
   const imported = {
     ...event,
-    status: 'PUBLISHED',
+    status: 'ON_SALE',
     timezone: 'America/Chicago',
     startsAt: '2026-11-07T00:30:00.000Z',
     endsAt: '2026-11-07T03:30:00.000Z',
+    venue: {
+      name: 'Stafford Centre',
+      slug: null,
+      addressLine1: '10505 Cash Rd',
+      city: 'Stafford',
+      region: 'TX',
+      postalCode: '77477',
+      country: 'US',
+    },
     organization: {
-      name: 'Sulekha Events',
-      slug: 'sulekha-events',
+      name: 'The Desi Events',
+      slug: 'the-desi-events',
       verified: true,
       description:
-        'Events listed on Sulekha.com and shown on The Desi Events by the team at The Desi Events. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+        'Events imported from organisers’ public ticket listings and shown on The Desi Events by its team.',
     },
-    ticketTypes: [],
+    ticketTypes: [
+      tier(),
+      tier({ id: 'ttimported00000000000002', name: 'Child', priceCents: 0 }),
+      // The listing marked it sold out: created, but not on sale.
+      tier({
+        id: 'ttimported00000000000003',
+        name: 'VIP',
+        priceCents: 6000,
+        status: 'CLOSED',
+        availableQuantity: 0,
+        isSoldOut: true,
+      }),
+    ],
     sessions: [
       {
         id: 'sesimported0000000000001',
@@ -1124,6 +1170,7 @@ describe('an event copied from its Sulekha listing', () => {
         endTimeListed: false,
       },
     ],
+    // What an older API still sent for an import: never followed or printed.
     websiteLink: { host: 'events.sulekha.com' },
     importedFrom: {
       sourceName: 'Sulekha',
@@ -1138,82 +1185,198 @@ describe('an event copied from its Sulekha listing', () => {
     },
   }
 
+  /** The exact WhatsApp address for this event: Friday 6 November at 6:30 PM in Stafford. */
+  const WHATSAPP =
+    "https://wa.me/19726949043?text=Hi!%20I'd%20like%20to%20reserve%20tickets%20for%20%22Qawwali%20Under%20the%20Banyan%22%20on%20Friday%2C%20November%206%20at%20Stafford%20Centre%2C%20Stafford."
+
   beforeEach(() => {
     loadEventBySlug.mockReset()
     readSession.mockResolvedValue(null)
+    // Whether "Reserve on WhatsApp" shows is read from the clock (the event
+    // must not have started), so the page is read at a fixed moment before
+    // the fixture's 7 November 2026. Only `Date` is replaced.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-15T12:00:00.000Z') })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('says who presents it, under the title, with no badge vouching for them', async () => {
     await renderEvent(imported)
 
     expect(screen.getByText('Presented by Raga Nights Houston')).toBeInTheDocument()
-    expect(screen.queryByText('Presented by Sulekha Events')).not.toBeInTheDocument()
+    expect(screen.queryByText('Presented by The Desi Events')).not.toBeInTheDocument()
     expect(screen.queryByText('Verified organiser')).not.toBeInTheDocument()
   })
 
-  it('sends buyers to Sulekha with the prices as listed, and offers no buying here', async () => {
+  it('says it is listed by the team from the organiser’s listing and sold here, never naming the site', async () => {
+    const { container } = await renderEvent(imported)
+    const organiser = screen.getByRole('region', { name: 'Presented by' })
+
+    expect(organiser).toHaveTextContent(
+      'Listed by the team at The Desi Events from the organiser’s own listing, and sold here under The Desi Events.',
+    )
+    expect(within(organiser).getByRole('link', { name: 'The Desi Events' })).toHaveAttribute(
+      'href',
+      '/organizers/the-desi-events',
+    )
+    // The API may still send the source's name and a link's host: neither is
+    // printed, in the page, its attributes or its structured data.
+    expect(container.innerHTML).not.toMatch(/sulekha/iu)
+  })
+
+  it('sells its ticket types here through checkout, with the simulated-payment note, like any event', async () => {
     await renderEvent(imported)
+
+    const tickets = screen.getByRole('complementary', { name: 'Tickets' })
+    const tiers = within(tickets).getByRole('list', { name: 'Ticket types' })
+
+    expect(within(tiers).getByText('Adult')).toBeInTheDocument()
+    expect(within(tiers).getByText('Child')).toBeInTheDocument()
+    expect(within(tiers).getByText('VIP')).toBeInTheDocument()
+    expect(within(tickets).getAllByText('On sale').length).toBeGreaterThan(0)
+    expect(within(tickets).getByRole('link', { name: /choose tickets/i })).toHaveAttribute(
+      'href',
+      '/events/qawwali-under-the-banyan/checkout',
+    )
+    expect(within(tickets).getByText(/Payments on this site are simulated\./u)).toBeInTheDocument()
+    expect(
+      within(tickets).getByText('Prices are as the organiser listed them on 30 September 2026.'),
+    ).toBeInTheDocument()
+    // No more "sold on another site", and no "Buy tickets" sending buyers away.
+    expect(document.body.textContent).not.toMatch(/another site|not on The Desi Events/u)
+    expect(screen.queryByRole('link', { name: 'Buy tickets' })).toBeNull()
+  })
+
+  it('offers “Reserve on WhatsApp” beside the checkout, with the exact chat address, in a new tab', async () => {
+    await renderEvent(imported)
+
+    const tickets = screen.getByRole('complementary', { name: 'Tickets' })
+    const reserve = within(tickets).getByRole('link', {
+      name: 'Reserve on WhatsApp, opens WhatsApp in a new tab',
+    })
+
+    expect(reserve).toHaveTextContent('Reserve on WhatsApp')
+    expect(reserve).toHaveAttribute('href', WHATSAPP)
+    expect(reserve).toHaveAttribute('target', '_blank')
+    expect(reserve).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
+  it('offers no “Reserve on WhatsApp” once it is cancelled, postponed or over, and keeps the prices note', async () => {
+    for (const status of ['CANCELLED', 'POSTPONED', 'COMPLETED']) {
+      const { unmount } = await renderEvent({ ...imported, status })
+      const tickets = screen.getByRole('complementary', { name: 'Tickets' })
+
+      expect(within(tickets).queryByRole('link', { name: /reserve on whatsapp/iu })).toBeNull()
+      expect(document.body.innerHTML).not.toContain('wa.me')
+      expect(
+        within(tickets).getByText('Prices are as the organiser listed them on 30 September 2026.'),
+      ).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('offers no “Reserve on WhatsApp” once its start has passed, even while still on sale', async () => {
+    vi.setSystemTime(new Date('2026-11-07T01:00:00.000Z'))
+
+    await renderEvent(imported)
+
+    expect(screen.queryByRole('link', { name: /reserve on whatsapp/iu })).toBeNull()
+  })
+
+  it('offers “Reserve on WhatsApp” while sales are paused or it has sold out here', async () => {
+    for (const status of ['SALES_PAUSED', 'SOLD_OUT']) {
+      const { unmount } = await renderEvent({ ...imported, status })
+
+      expect(screen.getByRole('link', { name: /reserve on whatsapp/iu })).toHaveAttribute(
+        'href',
+        WHATSAPP,
+      )
+      unmount()
+    }
+  })
+
+  it('never shows a count of tickets left from the allowance, nor any urgency', async () => {
+    await renderEvent({
+      ...imported,
+      ticketTypes: [tier({ availableQuantity: 12, quantitySold: 88 })],
+    })
+
+    const tickets = screen.getByRole('complementary', { name: 'Tickets' })
+
+    expect(within(tickets).queryByText(/Only \d+ (?:left|seats? left)/u)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/\b\d+ left\b|selling fast|hurry/iu)
+    expect(within(tickets).getByRole('link', { name: /choose tickets/i })).toBeInTheDocument()
+  })
+
+  it('still shows an ordinary event’s low count, which is its organiser’s own figure', async () => {
+    const { importedFrom: _ignored, websiteLink: _none, ...ordinary } = imported
+
+    await renderEvent({ ...ordinary, ticketTypes: [tier({ availableQuantity: 12 })] })
+
+    expect(screen.getByText('Only 12 left')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /reserve on whatsapp/iu })).toBeNull()
+  })
+
+  it('links nowhere outside The Desi Events but its WhatsApp chat: no website link, no redirect, no source', async () => {
+    const { container } = await renderEvent(imported)
+
+    expect(screen.queryByRole('link', { name: 'Visit the organiser’s website' })).toBeNull()
+    expect(container.innerHTML).not.toContain('/website')
+
+    const outside = [...container.querySelectorAll('a[href]')]
+      .map((link) => link.getAttribute('href'))
+      .filter((href) => /^[a-z]+:/iu.test(href))
+
+    expect(outside).toEqual([WHATSAPP])
+  })
+
+  it('says, when its listing gave no price and so it has no ticket types, that none is on sale here yet', async () => {
+    await renderEvent({
+      ...imported,
+      status: 'PUBLISHED',
+      ticketTypes: [],
+      importedFrom: { ...imported.importedFrom, prices: [], priceListed: false },
+    })
 
     const tickets = screen.getByRole('complementary', { name: 'Tickets' })
 
     expect(
-      within(tickets).getByText(
-        'Tickets for this event are sold on Sulekha, not on The Desi Events.',
-      ),
+      within(tickets).getByText('No tickets for this event are on sale here yet.'),
     ).toBeInTheDocument()
-    expect(
-      within(tickets).getByText(
-        'As listed on Sulekha on 30 September 2026: Adult $25.00, Child Free.',
-      ),
-    ).toBeInTheDocument()
-
-    const buy = within(tickets).getByRole('link', { name: 'Buy tickets on Sulekha' })
-
-    expect(buy).toHaveAttribute('href', '/events/qawwali-under-the-banyan/website')
-    expect(screen.queryByRole('link', { name: /choose tickets/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Visit the organiser’s website' })).toBeNull()
-    expect(document.body.textContent).not.toMatch(/not on sale|cannot be bought here/i)
-    expect(document.body.textContent).not.toMatch(/payments on this site are simulated/i)
+    expect(within(tickets).getByRole('link', { name: /reserve on whatsapp/iu })).toBeInTheDocument()
   })
 
-  it('says when Sulekha lists no price, and offers no link while it is off', async () => {
-    await renderEvent({
-      ...imported,
-      websiteLink: null,
-      importedFrom: {
-        ...imported.importedFrom,
-        prices: [],
-        priceListed: false,
-        ticketsOnSource: false,
-      },
-    })
-
-    expect(screen.getByText('Sulekha does not list a price for this event.')).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Buy tickets on Sulekha' })).toBeNull()
-    expect(document.body.innerHTML).not.toContain('/website')
-  })
-
-  it('shows only the start when the listing gave no end time', async () => {
+  it('shows only the start when the listing gave no end time, and its night reads like any other', async () => {
     const { container } = await renderEvent(imported)
     const nights = screen.getByRole('list', { name: 'Nights' })
 
     expect(within(nights).getByText('Starts')).toBeInTheDocument()
     expect(within(nights).queryByText('Ends')).not.toBeInTheDocument()
-    expect(within(nights).getByText('Tickets on Sulekha')).toBeInTheDocument()
+    expect(within(nights).queryByText('Tickets on another site')).toBeNull()
     // Neither the hero nor the ticket box prints the estimated end.
     expect(container.textContent).not.toMatch(/–\s*9:30/u)
   })
 
-  it('publishes the presenting organiser, no offers and no end in its structured data', async () => {
+  it('publishes the presenting organiser, its offers here and no end in its structured data', async () => {
     const { container } = await renderEvent(imported)
     const data = structuredData(container)
 
     expect(data.organizer).toEqual({ '@type': 'Organization', name: 'Raga Nights Houston' })
-    expect(data.offers).toBeUndefined()
+    expect(data.offers.map((offer) => offer.name)).toEqual(['Adult', 'Child', 'VIP'])
+    // VIP is closed (the listing sold out of it): not in stock, as its line on
+    // the page says ("Not on sale now"), never "InStock".
+    expect(data.offers.map((offer) => offer.availability)).toEqual([
+      'https://schema.org/InStock',
+      'https://schema.org/InStock',
+      'https://schema.org/OutOfStock',
+    ])
+    expect(JSON.stringify(data)).not.toMatch(/sulekha/iu)
     expect(data).not.toHaveProperty('endDate')
   })
 
-  it('shows a listing in Canada in its own zone, with a Canadian address and its prices in CA$', async () => {
+  it('shows an event in Canada in its own zone, with a Canadian address and its tiers in CA$', async () => {
     const toronto = {
       ...imported,
       timezone: 'America/Toronto',
@@ -1236,6 +1399,10 @@ describe('an event copied from its Sulekha listing', () => {
           endsAt: '2026-11-08T03:30:00.000Z',
           timezone: 'America/Toronto',
         },
+      ],
+      ticketTypes: [
+        tier({ priceCents: 3000, currency: 'CAD' }),
+        tier({ id: 'ttimported00000000000002', name: 'Child', priceCents: 0, currency: 'CAD' }),
       ],
       importedFrom: {
         ...imported.importedFrom,
@@ -1263,14 +1430,10 @@ describe('an event copied from its Sulekha listing', () => {
 
     const tickets = screen.getByRole('complementary', { name: 'Tickets' })
 
-    expect(
-      within(tickets).getByText(
-        'As listed on Sulekha on 30 September 2026: Adult CA$30.00, Child Free.',
-      ),
-    ).toBeInTheDocument()
-    expect(within(tickets).getByRole('link', { name: 'Buy tickets on Sulekha' })).toHaveAttribute(
+    expect(within(tickets).getAllByText('CA$30.00').length).toBeGreaterThan(0)
+    expect(within(tickets).getByRole('link', { name: /reserve on whatsapp/iu })).toHaveAttribute(
       'href',
-      '/events/qawwali-under-the-banyan/website',
+      "https://wa.me/19726949043?text=Hi!%20I'd%20like%20to%20reserve%20tickets%20for%20%22Qawwali%20Under%20the%20Banyan%22%20on%20Saturday%2C%20November%207%20at%20Harbourfront%20Hall%2C%20Toronto.",
     )
     // No bare "$30.00", which on this site reads as US dollars.
     expect(container.textContent).not.toMatch(/(?<!CA)\$30\.00/u)

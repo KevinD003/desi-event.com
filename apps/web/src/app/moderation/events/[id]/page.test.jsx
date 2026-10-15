@@ -384,7 +384,7 @@ describe('an import the platform-held organisation holds (SPEC2-XI O16)', () => 
     getEventMedia.mockResolvedValue({ data: [COVER], meta: { revision: 6 } })
     getOrganizerEvent.mockResolvedValue({
       ...EVENT,
-      organization: { id: 'orgsulekha', name: 'Sulekha Events', slug: 'sulekha-events' },
+      organization: { id: 'orgsulekha', name: 'The Desi Events', slug: 'the-desi-events' },
       importedFrom: IMPORTED_FROM,
     })
 
@@ -396,7 +396,7 @@ describe('an import the platform-held organisation holds (SPEC2-XI O16)', () => 
     expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled()
     expect(screen.queryByText(/your reason goes to the organiser/i)).toBeNull()
     expect(
-      screen.getByText(/nobody runs this event on the desi events, so it goes to nobody/i),
+      screen.getByText(/the organisation holding this event has no members, so it goes to nobody/i),
     ).toBeVisible()
   })
 

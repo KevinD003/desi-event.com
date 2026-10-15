@@ -100,10 +100,11 @@ export const CAPABILITIES = deepFreeze({
    */
   EVENT_PLATFORM_DELETE: 'event:platform_delete',
   /**
-   * Bring events listed on another site (Sulekha) onto The Desi Events: upload a
-   * file, read its plan, import it, retry its pictures, approve and publish the
-   * imported events (with `moderation:review`) and move one to an organiser's
-   * own organisation. Platform-only.
+   * Bring events listed on another site onto The Desi Events: upload a file,
+   * read its plan, import it (each listed price a ticket type), approve and
+   * publish the imported events with their sales open (with
+   * `moderation:review`) and move one to an organiser's own organisation.
+   * Platform-only.
    */
   EVENT_IMPORT: 'event:import',
 

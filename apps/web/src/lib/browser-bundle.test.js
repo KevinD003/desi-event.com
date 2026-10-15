@@ -11,7 +11,7 @@
  * @module lib/browser-bundle.test
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -218,11 +218,14 @@ describe('full control of posted events and the import (SPEC2-XI §0.7, §7)', (
   ]
 
   /** The importer's server-only modules. */
-  const IMPORT_MODULES = [
-    'apps/api/src/lib/event-import.js',
-    'apps/api/src/lib/import-images.js',
-    'apps/api/src/lib/import-dataset.js',
-  ]
+  const IMPORT_MODULES = ['apps/api/src/lib/event-import.js', 'apps/api/src/lib/import-dataset.js']
+
+  it('has no picture fetcher left to refuse: an import contacts no other site', () => {
+    // ADR 0015, addendum 2026-10-15 (2): the importer copies no pictures, so
+    // its outbound fetcher, once the third module here, is gone.
+    expect(existsSync(resolve(ROOT, 'apps/api/src/lib/import-images.js'))).toBe(false)
+    expect(Object.keys(FORBIDDEN)).not.toContain('apps/api/src/lib/import-images.js')
+  })
 
   it('forbids the four capability names in a client module, in code and not in a comment', () => {
     for (const literal of NEW_LITERALS) {

@@ -32,13 +32,15 @@ import { normaliseError } from '../src/lib/errors.js'
 import { runImportCommand } from '../scripts/import-events.mjs'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { makeWorld } from './helpers/fixtures.js'
-import { solidPng } from './helpers/images.js'
+import { seedPicture } from './helpers/media-world.js'
 
 /**
  * Importing listed events (SPEC2-XI area I), through the routes, on the stub:
- * the plan, applying it into the platform-held organisation, approving and
- * publishing, the review exemption and its limits, the website link, pictures,
- * moving an event to an organiser, and what the public pages carry.
+ * the plan, applying it into the platform-held organisation with a ticket
+ * type per listed price, approving and publishing, which opens sales, the
+ * review exemption and its limits, that nothing links to the source and no
+ * picture is copied (2026-10-15), moving an event to an organiser, and what
+ * the public pages carry.
  *
  * @file @desi-event/api/tests/event-import
  */
@@ -48,29 +50,8 @@ const DAY = 86_400_000
 /** One clock for every listing in this file, to the second, so a file read twice plans the same. */
 const NOW = Math.floor(Date.now() / 1000) * 1000
 
-/** A cover large enough for a cover, and a gallery picture. */
-const COVER = solidPng(1200, 700)
-const GALLERY = solidPng(400, 400)
-
 /**
- * A picture fetcher that answers from memory: a cover for an address with
- * `cover` in it, a gallery picture otherwise, and a 404 for `missing`.
- *
- * @param {string} url The address.
- * @returns {Promise<object>} What `fetchImportImage` answers.
- */
-async function fetchFromMemory(url) {
-  if (url.includes('missing')) return { ok: false, code: 'HTTP_404' }
-
-  return {
-    ok: true,
-    bytes: url.includes('cover') ? COVER : GALLERY,
-    contentType: 'image/png',
-  }
-}
-
-/**
- * One listing, starting `days` from now.
+ * One listing, starting `days` from now: no address in it.
  *
  * @param {string} sourceId The listing's id.
  * @param {object} [overrides] Fields to replace.
@@ -82,7 +63,6 @@ function listing(sourceId, overrides = {}) {
 
   return {
     sourceId,
-    sourceUrl: `https://events.sulekha.com/garba-night_event-in_irving-tx_${sourceId}`,
     scrapedAt: '2026-09-29T21:25:00Z',
     title: `Garba Night ${sourceId}`,
     category: 'GARBA_DANDIYA',
@@ -113,19 +93,6 @@ function listing(sourceId, overrides = {}) {
     dressCode: 'Traditional',
     parking: 'Free parking in lot B.',
     faq: [{ q: 'Is there food?', a: 'Yes, stalls on site.' }],
-    images: [
-      {
-        url: `https://usimg.sulekha.io/cdn/events/images/cover-${sourceId}.png`,
-        role: 'cover',
-        alt: `Garba Night ${sourceId} poster`,
-      },
-      {
-        url: `https://usimg.sulekha.io/cdn/events/images/gallery-${sourceId}.png`,
-        role: 'gallery',
-        alt: 'Dancers in a circle',
-      },
-    ],
-    ticketUrl: `https://events.sulekha.com/garba-night_event-in_irving-tx_${sourceId}`,
     importNotes: [`Note for ${sourceId}.`],
     ...rest,
   }
@@ -141,12 +108,9 @@ function dataset(events) {
   return {
     format: 'desi-event-import/1',
     source: 'SULEKHA',
-    sourceName: 'Sulekha',
-    sourceSite: 'https://events.sulekha.com/',
     collectedFrom: '2026-09-29T21:25:00Z',
     collectedTo: '2026-09-30T00:51:08Z',
     curatedOn: '2026-09-30',
-    imageHosts: ['usimg.sulekha.io'],
     events,
   }
 }
@@ -168,13 +132,13 @@ async function as(app, email, { stepUp: confirm = true } = {}) {
 }
 
 /**
- * Build the app with the picture fetcher from memory.
+ * Build the app.
  *
  * @param {object} [options] Options for `createTestApp`.
  * @returns {Promise<object>} The harness.
  */
 function importApp(options = {}) {
-  return createTestApp({ fetchImportImage: fetchFromMemory, ...options })
+  return createTestApp(options)
 }
 
 /**
@@ -281,6 +245,18 @@ function audits(prisma, action) {
   return prisma._store.auditLog.filter((row) => row.action === action)
 }
 
+/** What the platform-held organisation is given now (`PLATFORM_HELD_ORGANIZATIONS`). */
+const PLATFORM_HELD_DESCRIPTION =
+  "Events imported from organisers' public ticket listings and shown on The Desi Events by its team. Each event page names the organiser who presents it. Tickets for these events are sold on The Desi Events, and can also be reserved on WhatsApp."
+
+/** The platform-held organisation as the first build made it: test data for the rename. */
+const FIRST_PLATFORM_HELD = Object.freeze({
+  name: 'Sulekha Events',
+  slug: 'sulekha-events',
+  description:
+    'Events listed on Sulekha.com and shown on The Desi Events by its team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+})
+
 const ANIL = 'anil@desi-event.example'
 const OPS = 'ops@desi-event.example'
 const MAYA = 'maya@desi-event.example'
@@ -312,7 +288,7 @@ describe('who may import (SPEC2-XI §4.3)', () => {
     await app.close()
   })
 
-  it('needs the MODERATION step-up to apply and to retry, and EVENT_PUBLISH to approve and move', async () => {
+  it('needs the MODERATION step-up to apply, and EVENT_PUBLISH to approve and move', async () => {
     const { app, prisma, ids } = await importApp()
     const fresh = await as(app, ANIL, { stepUp: false })
 
@@ -336,7 +312,6 @@ describe('who may import (SPEC2-XI §4.3)', () => {
     expect(prisma._store.eventImportRun[0].status).toBe('PREVIEWED')
 
     for (const [url, payload] of [
-      [`/v1/platform/imports/${run.id}/images/retry`, {}],
       [`/v1/platform/imports/${run.id}/approve`, { items: [{ eventId: run.id, revision: 0 }] }],
       [
         `/v1/platform/imports/events/${run.id}/reassign`,
@@ -352,7 +327,7 @@ describe('who may import (SPEC2-XI §4.3)', () => {
     await app.close()
   })
 
-  it('shares twenty previews, applies and retries an hour per administrator', async () => {
+  it('shares twenty previews and applies an hour per administrator', async () => {
     const { app } = await importApp({ rateLimit: { eventImport: { max: 2 } } })
     const headers = await as(app, ANIL)
     const file = dataset([listing('900003')])
@@ -392,11 +367,15 @@ describe('POST /v1/platform/imports: the plan', () => {
     ])
     expect(run.rows[0]).toMatchObject({
       importNotes: ['Note for 900010.'],
-      imageCount: 2,
       priceCount: 3,
+      soldOutCount: 1,
+      currency: 'USD',
       endTimeListed: false,
       event: null,
     })
+    expect(run.rows[0]).not.toHaveProperty('imageCount')
+    expect(run.rows[0]).not.toHaveProperty('pictures')
+    expect(run).not.toHaveProperty('pictures')
     expect(prisma._store.event).toHaveLength(before)
     expect(prisma._store.organization.some((row) => row.platformHeldSource)).toBe(false)
 
@@ -412,6 +391,7 @@ describe('POST /v1/platform/imports: the plan', () => {
   it('refuses a file with problems, 422 IMPORT_INVALID, each placed', async () => {
     const { app, prisma } = await importApp()
     const headers = await as(app, ANIL)
+    // A file that still carries addresses (as every file did before 2026-10-15).
     const bad = dataset([
       listing('900020', { ticketUrl: 'https://tickets.example/elsewhere' }),
       listing('900021', {
@@ -422,10 +402,10 @@ describe('POST /v1/platform/imports: the plan', () => {
 
     expect(response.statusCode).toBe(422)
     expect(response.json().error.code).toBe('IMPORT_INVALID')
-    expect(response.json().error.problems.join('\n')).toMatch(
-      /events\[0\] \(listing 900020\) ticketUrl/u,
-    )
-    expect(response.json().error.problems.join('\n')).toMatch(/events\[1\].*images\[0\]\.url/u)
+    expect(response.json().error.problems).toEqual([
+      'events[0] (listing 900020) ticketUrl: Import files carry no web address and no name of the site the listing came from. Remove this field.',
+      'events[1] (listing 900021) images: Import files carry no web address and no name of the site the listing came from. Remove this field.',
+    ])
 
     const wrongFormat = await preview(app, headers, {
       ...dataset([listing('900022')]),
@@ -449,8 +429,10 @@ describe('POST /v1/platform/imports/:runId/apply', () => {
 
     // The organisation: created once, VERIFIED, member-less, platform-held.
     expect(organization).toMatchObject({
-      name: 'Sulekha Events',
-      slug: 'sulekha-events',
+      name: 'The Desi Events',
+      slug: 'the-desi-events',
+      description:
+        "Events imported from organisers' public ticket listings and shown on The Desi Events by its team. Each event page names the organiser who presents it. Tickets for these events are sold on The Desi Events, and can also be reserved on WhatsApp.",
       platformHeldSource: 'SULEKHA',
       verificationStatus: 'VERIFIED',
       websiteUrl: null,
@@ -471,7 +453,7 @@ describe('POST /v1/platform/imports/:runId/apply', () => {
     ])
     expect(moves[0]).toMatchObject({
       actorId: ids.platformAdministrator.id,
-      reason: `Imported from Sulekha, run ${run.id}.`,
+      reason: `Imported from its listing, run ${run.id}.`,
     })
 
     const [review] = audits(prisma, 'event.review_pending').filter(
@@ -492,40 +474,140 @@ describe('POST /v1/platform/imports/:runId/apply', () => {
       via: 'web',
     })
 
-    // Nothing invented: no ticket type, and the night's end is a marked estimate.
-    expect(prisma._store.ticketType.some((row) => row.eventId === event.id)).toBe(false)
+    // Each listed price is a ticket type sold here, in the venue country's
+    // currency, on an allowance of 100 marked as one; not on sale until it is
+    // approved; the one the listing sold out of is made, closed.
+    expect(
+      prisma._store.ticketType
+        .filter((row) => row.eventId === event.id)
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+        .map((row) => [
+          row.name,
+          row.priceCents,
+          row.currency,
+          row.status,
+          row.quantityTotal,
+          row.quantityIsAllowance,
+          row.minPerOrder,
+          row.maxPerOrder,
+          row.visibility,
+          row.importKey,
+        ]),
+    ).toEqual([
+      ['Child', 0, 'USD', 'DRAFT', 100, true, 1, 10, 'PUBLIC', 'Child'],
+      ['Early Bird', 2000, 'USD', 'CLOSED', 100, true, 1, 10, 'PUBLIC', 'Early Bird'],
+      ['Regular', 3500, 'USD', 'DRAFT', 100, true, 1, 10, 'PUBLIC', 'Regular'],
+    ])
 
+    // The night's end is a marked estimate.
     const night = prisma._store.eventSession.find((row) => row.eventId === event.id)
 
     expect(night.endTimeListed).toBe(false)
     expect(night.endsAt.getTime() - night.startsAt.getTime()).toBe(3 * 3_600_000)
     expect(event.endsAt.getTime()).toBe(night.endsAt.getTime())
-    expect(event.websiteUrl).toBe(
-      'https://events.sulekha.com/garba-night_event-in_irving-tx_900030',
-    )
-    expect(event.websiteRedirectEnabled).toBe(false)
-    expect(event.policies.entry).toBe(
-      'Entry is run by the organiser. Check the Sulekha listing for their rules. Age: All Age.',
-    )
+    // No website address, no link: nothing points at the source (2026-10-15).
+    expect(event.websiteUrl ?? null).toBeNull()
+    expect(event.websiteRedirectEnabled ?? false).toBe(false)
+    expect(event.websiteDecisionPending ?? false).toBe(false)
+    expect(event.policies).toEqual({
+      entry:
+        'Entry is run by the organiser who presents this event. Bring the ticket you bought on The Desi Events. Age: All Age.',
+      refund:
+        'Tickets for this event are sold on The Desi Events. If the event is cancelled, every ticket bought here is refunded. For anything else, contact The Desi Events before the event.',
+      conduct: "The organiser's and the venue's rules apply.",
+    })
     expect(event.faq).toEqual([{ question: 'Is there food?', answer: 'Yes, stalls on site.' }])
     expect(event.directions).toBe('Free parking in lot B.')
 
     // The venue is the platform-held organisation's, marked as imported.
     const venue = prisma._store.venue.find((row) => row.id === event.venueId)
 
-    expect(venue).toMatchObject({ organizationId: organization.id, provenance: 'import:sulekha' })
+    expect(venue).toMatchObject({ organizationId: organization.id, provenance: 'import:listing' })
 
-    // Pictures copied, stored waiting for approval, uploaded by the importer.
-    const pictures = prisma._store.mediaAsset.filter((row) => row.eventId === event.id)
-
-    expect(pictures.map((row) => [row.kind, row.moderationStatus]).sort()).toEqual([
-      ['EVENT_COVER', 'PENDING'],
-      ['EVENT_GALLERY', 'PENDING'],
-    ])
-    expect(pictures.every((row) => row.uploadedById === ids.platformAdministrator.id)).toBe(true)
-    expect(applied.data.pictures).toEqual({ total: 2, stored: 2, failed: 0, waiting: 0 })
+    // No picture is copied: the event has none until somebody uploads one.
+    expect(prisma._store.mediaAsset.filter((row) => row.eventId === event.id)).toEqual([])
+    expect(applied.data).not.toHaveProperty('pictures')
+    expect(applied).not.toHaveProperty('meta')
+    expect(applied.data.rows[0].event.ticketTypes).toEqual({ imported: 3, onSale: 0 })
     expect(applied.data.status).toBe('APPLIED')
     expect(applied.data.summary).toEqual({ CREATE: 1 })
+
+    await app.close()
+  })
+
+  it('brings a platform-held organisation made under its first name to the new one, once', async () => {
+    const { app, prisma, ids } = await importApp()
+    const headers = await as(app, ANIL)
+
+    await importFile(app, headers, dataset([listing('900032')]))
+
+    // As a database made before the rename holds it (the migration's
+    // 20261015090000 values): the first build's name, address and words.
+    const held = prisma._store.organization.find((row) => row.platformHeldSource === 'SULEKHA')
+
+    Object.assign(held, FIRST_PLATFORM_HELD)
+
+    await importFile(app, headers, dataset([listing('900033')]))
+
+    expect(prisma._store.organization.filter((row) => row.platformHeldSource)).toHaveLength(1)
+    expect(held).toMatchObject({
+      name: 'The Desi Events',
+      slug: 'the-desi-events',
+      description: PLATFORM_HELD_DESCRIPTION,
+    })
+    expect(eventFor(prisma, '900033').organizationId).toBe(held.id)
+
+    const [updated] = audits(prisma, 'organization.platform_held_updated')
+
+    expect(updated).toMatchObject({ entityId: held.id, actorId: ids.platformAdministrator.id })
+    expect(updated.metadata).toEqual({
+      source: 'SULEKHA',
+      fields: ['description', 'name', 'slug'],
+      slug: 'the-desi-events',
+    })
+    // Never the old values: only the source's enum value names it.
+    expect(JSON.stringify(updated.metadata)).not.toMatch(/Sulekha Events|sulekha-events/u)
+
+    // Up to date, the next import writes nothing to it.
+    await importFile(app, headers, dataset([listing('900034')]))
+
+    expect(audits(prisma, 'organization.platform_held_updated')).toHaveLength(1)
+    expect(audits(prisma, 'organization.platform_held_created')).toHaveLength(1)
+
+    await app.close()
+  })
+
+  it('makes the new address unique when another organisation has it, and keeps it', async () => {
+    const { app, prisma } = await importApp()
+    const headers = await as(app, ANIL)
+
+    await importFile(app, headers, dataset([listing('900035')]))
+
+    const held = prisma._store.organization.find((row) => row.platformHeldSource === 'SULEKHA')
+    const other = prisma._store.organization.find((row) => !row.platformHeldSource)
+
+    Object.assign(held, FIRST_PLATFORM_HELD)
+    prisma._store.organization.push({
+      ...other,
+      id: 'cm8takenaddressaaaaaaaaaa',
+      name: 'Desi Events of Ohio',
+      slug: 'the-desi-events',
+    })
+
+    await importFile(app, headers, dataset([listing('900036')]))
+
+    expect(held.name).toBe('The Desi Events')
+    expect(held.slug).toMatch(/^the-desi-events-[0-9a-z]{4}$/u)
+    expect(
+      prisma._store.organization.find((row) => row.id === 'cm8takenaddressaaaaaaaaaa').slug,
+    ).toBe('the-desi-events')
+
+    const unique = held.slug
+
+    await importFile(app, headers, dataset([listing('900037')]))
+
+    expect(held.slug).toBe(unique)
+    expect(audits(prisma, 'organization.platform_held_updated')).toHaveLength(1)
 
     await app.close()
   })
@@ -618,174 +700,132 @@ describe('POST /v1/platform/imports/:runId/apply', () => {
     await app.close()
   })
 
-  it('stores a cover too small for a cover in the gallery, and records a picture that failed', async () => {
-    const small = async (url) =>
-      url.includes('missing')
-        ? { ok: false, code: 'HTTP_404' }
-        : { ok: true, bytes: GALLERY, contentType: 'image/png' }
-    const { app, prisma } = await importApp({ fetchImportImage: small })
+  it('matches a draft’s ticket types to its listing again: a price changed, one added, one gone', async () => {
+    const { app, prisma } = await importApp()
     const headers = await as(app, ANIL)
 
-    await importFile(
+    await importFile(app, headers, dataset([listing('900070')]))
+
+    const event = eventFor(prisma, '900070')
+    const tiers = () =>
+      prisma._store.ticketType
+        .filter((row) => row.eventId === event.id)
+        .sort((left, right) => left.sortOrder - right.sortOrder)
+    const firstIds = Object.fromEntries(tiers().map((row) => [row.importKey, row.id]))
+    const changed = await importFile(
       app,
       headers,
       dataset([
         listing('900070', {
-          images: [
-            {
-              url: 'https://usimg.sulekha.io/cdn/events/images/cover-900070.png',
-              role: 'cover',
-              alt: 'A small poster',
-            },
-            {
-              url: 'https://usimg.sulekha.io/cdn/events/images/missing.png',
-              role: 'gallery',
-              alt: 'A picture that is not there',
-            },
+          prices: [
+            // The listing no longer sells out of it, and it is cheaper.
+            { name: 'Early Bird', priceCents: 1800, currency: 'USD', note: null },
+            { name: 'Regular', priceCents: 4000, currency: 'USD', note: 'Sold Out' },
+            { name: 'Family of four', priceCents: 12000, currency: 'USD', note: null },
           ],
         }),
       ]),
     )
 
-    const event = eventFor(prisma, '900070')
-    const stored = prisma._store.mediaAsset.filter((row) => row.eventId === event.id)
-
-    expect(stored.map((row) => row.kind)).toEqual(['EVENT_GALLERY'])
-
-    const rows = prisma._store.eventImportImage.sort(
-      (left, right) => left.position - right.position,
-    )
-
-    expect(rows.map((row) => [row.status, row.failureCode])).toEqual([
-      ['STORED', null],
-      ['FAILED', 'HTTP_404'],
-    ])
+    expect(changed.run.rows[0].action).toBe('UPDATE_DRAFT')
     expect(
-      audits(prisma, 'event.media_added').find((row) => row.entityId === event.id).metadata,
-    ).toMatchObject({ via: 'import', note: 'Too small for a cover' })
+      tiers().map((row) => [row.importKey, row.priceCents, row.status, row.sortOrder]),
+    ).toEqual([
+      ['Early Bird', 1800, 'DRAFT', 0],
+      ['Regular', 4000, 'CLOSED', 1],
+      ['Family of four', 12000, 'DRAFT', 2],
+    ])
+    // The same rows, found again by their key; "Child" is gone with its price.
+    expect(firstIds['Early Bird']).toBe(tiers()[0].id)
+    expect(firstIds.Regular).toBe(tiers()[1].id)
+    expect(tiers().some((row) => row.importKey === 'Child')).toBe(false)
+    expect(tiers().every((row) => row.quantityTotal === 100 && row.quantityIsAllowance)).toBe(true)
 
-    // The run page says why the cover is in the gallery, and why the other failed.
-    const view = await app.inject({
-      method: 'GET',
-      url: `/v1/platform/imports/${prisma._store.eventImportRun[0].id}`,
-      headers,
-    })
-    const pictures = view.json().data.rows[0].pictures
+    await app.close()
+  })
 
-    expect(pictures.map((picture) => [picture.role, picture.status, picture.note])).toEqual([
-      ['COVER', 'STORED', 'Too small for a cover'],
-      ['GALLERY', 'FAILED', null],
+  it('imports a Canadian listing as CAD ticket types, and plans one priced in another currency INVALID', async () => {
+    const { app, prisma } = await importApp()
+    const headers = await as(app, ANIL)
+    const toronto = {
+      name: 'Harbourfront Hall',
+      addressLine1: '235 Queens Quay W',
+      city: 'Toronto',
+      region: 'ON',
+      postalCode: 'M5J 2G8',
+      country: 'CA',
+    }
+    const cad = [
+      { name: 'Adult', priceCents: 3000, currency: 'CAD', note: null },
+      { name: 'Adult', priceCents: 3000, currency: 'CAD', note: null },
+    ]
+    const previewed = (
+      await preview(
+        app,
+        headers,
+        dataset([
+          listing('900071', { venue: toronto, timeZone: 'America/Toronto', prices: cad }),
+          listing('900072', {
+            venue: toronto,
+            timeZone: 'America/Toronto',
+            prices: [{ name: 'Adult', priceCents: 3000, currency: 'USD', note: null }],
+          }),
+        ]),
+      )
+    ).json().data
+
+    expect(previewed.rows.map((row) => [row.action, row.currency, row.problem])).toEqual([
+      ['CREATE', 'CAD', null],
+      [
+        'INVALID',
+        'CAD',
+        'Its price "Adult" is in USD, but tickets at a venue in CA are sold in CAD. Correct the currency in the file.',
+      ],
     ])
 
-    await app.close()
-  })
+    const applied = await apply(app, headers, previewed)
 
-  it('puts a cover too small for a cover first in the gallery, even when it is copied last', async () => {
-    let coverReachable = false
-    const fetcher = async (url) =>
-      url.includes('cover') && !coverReachable
-        ? { ok: false, code: 'TIMEOUT' }
-        : { ok: true, bytes: GALLERY, contentType: 'image/png' }
-    const { app, prisma } = await importApp({ fetchImportImage: fetcher })
-    const headers = await as(app, ANIL)
-    const { run } = await importFile(app, headers, dataset([listing('900075')]))
-    const event = eventFor(prisma, '900075')
-    const gallery = () =>
-      prisma._store.mediaAsset
-        .filter((row) => row.eventId === event.id && row.kind === 'EVENT_GALLERY')
-        .sort((left, right) => left.position - right.position)
-    const [listed] = gallery()
+    expect(applied.statusCode, applied.body).toBe(200)
+    expect(applied.json().data.summary).toEqual({ CREATE: 1, INVALID: 1 })
 
-    expect(gallery().map((row) => row.position)).toEqual([0])
+    const event = eventFor(prisma, '900071')
 
-    // Sulekha answers again: the small cover is copied after the gallery.
-    coverReachable = true
-
-    const retried = await app.inject({
-      method: 'POST',
-      url: `/v1/platform/imports/${run.id}/images/retry`,
-      headers,
-      payload: {},
-    })
-
-    expect(retried.statusCode, retried.body).toBe(200)
-
-    const after = gallery()
-    const cover = prisma._store.eventImportImage.find((row) => row.role === 'COVER')
-
-    expect(after.map((row) => row.position)).toEqual([0, 1])
-    expect(after[0].id).toBe(cover.mediaAssetId)
-    expect(after[1].id).toBe(listed.id)
+    // A price the listing repeats is one ticket type.
+    expect(
+      prisma._store.ticketType
+        .filter((row) => row.eventId === event.id)
+        .map((row) => [row.name, row.priceCents, row.currency]),
+    ).toEqual([['Adult', 3000, 'CAD']])
+    expect(eventFor(prisma, '900072')).toBeUndefined()
 
     await app.close()
   })
 
-  it('leaves pictures waiting when the copying time runs out, for "Retry pictures"', async () => {
-    let calls = 0
-    const slow = async (url) => {
-      calls += 1
-      // Every fetch answers after the budget would be gone.
-      await new Promise((resolve) => setTimeout(resolve, 5))
-
-      return fetchFromMemory(url)
-    }
-    const { app, prisma } = await importApp({ fetchImportImage: slow })
-    const headers = await as(app, ANIL)
-    const run = (await preview(app, headers, dataset([listing('900080')]))).json().data
-    const { IMPORT_IMAGE_BUDGET_MS } = await import('../src/lib/event-import.js')
-    const realNow = Date.now
-
-    // The clock jumps past the budget as soon as copying starts.
-    vi.spyOn(Date, 'now').mockImplementation(() =>
-      calls > 0 ? realNow() + IMPORT_IMAGE_BUDGET_MS + 1_000 : realNow(),
-    )
-
-    try {
-      const response = await apply(app, headers, run)
-
-      expect(response.statusCode).toBe(200)
-      expect(response.json().meta.picturesWaiting).toBeGreaterThan(0)
-    } finally {
-      vi.restoreAllMocks()
-    }
-
-    expect(prisma._store.eventImportImage.some((row) => row.status === 'WAITING')).toBe(true)
-
-    const retried = await app.inject({
-      method: 'POST',
-      url: `/v1/platform/imports/${run.id}/images/retry`,
-      headers,
-      payload: {},
-    })
-
-    expect(retried.statusCode).toBe(200)
-    expect(retried.json().meta.picturesWaiting).toBe(0)
-    expect(prisma._store.eventImportImage.every((row) => row.status === 'STORED')).toBe(true)
-    expect(audits(prisma, 'event_import.images_retried')).toHaveLength(1)
-
-    await app.close()
-  })
-
-  it('refuses to retry the pictures of an event the run did not write', async () => {
-    const { app, ids } = await importApp()
+  it('copies no picture, from anywhere: nothing is stored and there is no route to try again', async () => {
+    const { app, prisma } = await importApp()
     const headers = await as(app, ANIL)
     const { run } = await importFile(app, headers, dataset([listing('900090')]))
-    const response = await app.inject({
+    const event = eventFor(prisma, '900090')
+
+    expect(prisma._store.mediaAsset.filter((row) => row.eventId === event.id)).toEqual([])
+    expect(prisma._store.eventImportImage).toBeUndefined()
+    expect(audits(prisma, 'event_import.images_retried')).toEqual([])
+
+    const retried = await app.inject({
       method: 'POST',
       url: `/v1/platform/imports/${run.id}/images/retry`,
       headers,
-      payload: { eventIds: [ids.reviewPendingEvent.id] },
+      payload: {},
     })
 
-    expect(response.statusCode).toBe(409)
-    expect(response.json().error.code).toBe('NOT_IN_RUN')
+    expect(retried.statusCode).toBe(404)
 
     await app.close()
   })
 })
 
 describe('POST /v1/platform/imports/:runId/approve', () => {
-  it('approves, publishes and switches the Sulekha link on, recording the exemption', async () => {
+  it('approves, publishes and opens sales on The Desi Events, recording the exemption, linking nowhere', async () => {
     const { app, prisma, ids } = await importApp()
     const headers = await as(app, ANIL)
     const { run } = await importFile(app, headers, dataset([listing('900100')]))
@@ -794,25 +834,24 @@ describe('POST /v1/platform/imports/:runId/approve', () => {
 
     expect(response.statusCode, response.body).toBe(200)
     expect(response.json().data.results).toEqual([
-      expect.objectContaining({
+      {
         eventId: event.id,
         outcome: 'PUBLISHED',
-        status: 'PUBLISHED',
-        picturesApproved: 2,
+        status: 'ON_SALE',
+        revision: expect.any(Number),
+        ticketTypesOnSale: 2,
         code: null,
-      }),
+        message: null,
+      },
     ])
 
     const after = prisma._store.event.find((row) => row.id === event.id)
 
-    expect(after).toMatchObject({
-      status: 'PUBLISHED',
-      websiteRedirectEnabled: true,
-      websiteDecidedUrl: event.websiteUrl,
-      websiteRedirectReason:
-        'Tickets for this event are sold on its Sulekha page, which this link opens.',
-    })
+    expect(after.status).toBe('ON_SALE')
+    expect(after.websiteRedirectEnabled ?? false).toBe(false)
+    expect(after.websiteDecidedUrl ?? null).toBeNull()
     expect(after.publishedAt).toBeInstanceOf(Date)
+    expect(after.salesOpenedAt).toBeInstanceOf(Date)
 
     // The importer approved their own import: the exemption, recorded.
     const [approved] = audits(prisma, 'event.approved').filter((row) => row.entityId === event.id)
@@ -833,20 +872,46 @@ describe('POST /v1/platform/imports/:runId/approve', () => {
     expect(decision.reason).toContain(ids.platformAdministrator.id)
 
     const [published] = audits(prisma, 'event.published').filter((row) => row.entityId === event.id)
+    const [opened] = audits(prisma, 'event.on_sale').filter((row) => row.entityId === event.id)
 
     expect(published.metadata).toMatchObject({ authority: 'PLATFORM', via: 'IMPORT' })
-    expect(audits(prisma, 'event.website_redirect_changed')).toHaveLength(1)
+    expect(opened.metadata).toMatchObject({
+      authority: 'PLATFORM',
+      via: 'IMPORT',
+      from: 'PUBLISHED',
+      to: 'ON_SALE',
+      importRunId: run.id,
+    })
+    // No website link is switched on: nothing points at the source.
+    expect(audits(prisma, 'event.website_redirect_changed')).toHaveLength(0)
     expect(prisma._store.eventImportItem.find((row) => row.eventId === event.id)).toMatchObject({
       approvedById: ids.platformAdministrator.id,
     })
-    expect(
-      prisma._store.mediaAsset
-        .filter((row) => row.eventId === event.id)
-        .every((row) => row.moderationStatus === 'APPROVED'),
-    ).toBe(true)
 
-    // Published without opening sales: nothing can be sold.
-    expect(prisma._store.ticketType.some((row) => row.eventId === event.id)).toBe(false)
+    // Its tiers on sale from now until it starts; the one the listing sold
+    // out of stays closed.
+    const tiers = prisma._store.ticketType
+      .filter((row) => row.eventId === event.id)
+      .sort((left, right) => left.sortOrder - right.sortOrder)
+
+    expect(tiers.map((row) => [row.name, row.status])).toEqual([
+      ['Child', 'ON_SALE'],
+      ['Early Bird', 'CLOSED'],
+      ['Regular', 'ON_SALE'],
+    ])
+    for (const tier of tiers.filter((row) => row.status === 'ON_SALE')) {
+      expect(tier.salesStartAt.getTime()).toBeLessThanOrEqual(Date.now())
+      expect(tier.salesEndAt.getTime()).toBe(after.startsAt.getTime())
+    }
+
+    // A buyer can now take them.
+    const held = await app.inject({
+      method: 'POST',
+      url: '/v1/holds',
+      payload: { ticketTypeId: tiers[2].id, quantity: 2 },
+    })
+
+    expect(held.statusCode, held.body).toBe(201)
 
     await app.close()
   })
@@ -898,31 +963,17 @@ describe('POST /v1/platform/imports/:runId/approve', () => {
     await app.close()
   })
 
-  it('refuses an approval at a revision the page did not show: a picture stored since', async () => {
+  it('refuses an approval at a revision the page did not show: a change made since', async () => {
     const { app, prisma } = await importApp()
     const headers = await as(app, ANIL)
     const { run } = await importFile(app, headers, dataset([listing('900120')]))
     const event = eventFor(prisma, '900120')
     const seen = event.revision
-    const image = prisma._store.eventImportImage.find((row) => row.role === 'GALLERY')
 
-    // The picture is copied again after the page was read: the revision moves.
-    image.status = 'FAILED'
-    image.failureCode = 'TIMEOUT'
-    prisma._store.mediaAsset = prisma._store.mediaAsset.filter(
-      (row) => row.id !== image.mediaAssetId,
-    )
+    // The listing is imported again after the page was read: the revision moves.
+    await importFile(app, headers, dataset([listing('900120', { title: 'Garba Night, moved' })]))
 
-    expect(
-      (
-        await app.inject({
-          method: 'POST',
-          url: `/v1/platform/imports/${run.id}/images/retry`,
-          headers,
-          payload: {},
-        })
-      ).statusCode,
-    ).toBe(200)
+    expect(eventFor(prisma, '900120').revision).toBeGreaterThan(seen)
 
     const response = await app.inject({
       method: 'POST',
@@ -933,9 +984,30 @@ describe('POST /v1/platform/imports/:runId/approve', () => {
 
     expect(response.json().data.results[0]).toMatchObject({
       outcome: 'REFUSED',
+      code: 'NOT_IN_RUN',
+    })
+
+    // The run that wrote it last, at the revision it shows now, is the one
+    // that may approve it; at the old revision it is refused STALE_REVISION.
+    const latest = prisma._store.eventImportRun.at(-1)
+    const stale = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/imports/${latest.id}/approve`,
+      headers,
+      payload: { items: [{ eventId: event.id, revision: seen }] },
+    })
+
+    expect(stale.json().data.results[0]).toMatchObject({
+      outcome: 'REFUSED',
       code: 'STALE_REVISION',
     })
     expect(prisma._store.event.find((row) => row.id === event.id).status).toBe('REVIEW_PENDING')
+    expect(
+      prisma._store.ticketType
+        .filter((row) => row.eventId === event.id)
+        .every((row) => row.status !== 'ON_SALE'),
+    ).toBe(true)
+    expect(run.id).not.toBe(latest.id)
 
     await app.close()
   })
@@ -961,7 +1033,8 @@ describe('POST /v1/platform/imports/:runId/approve', () => {
 
     expect(response.json().data.results[0]).toMatchObject({
       outcome: 'PUBLISHED',
-      status: 'PUBLISHED',
+      status: 'ON_SALE',
+      ticketTypesOnSale: 2,
     })
     expect(audits(prisma, 'event.approved')).toHaveLength(1)
     expect(prisma._store.eventImportItem.find((row) => row.eventId === event.id)).toMatchObject({
@@ -971,7 +1044,7 @@ describe('POST /v1/platform/imports/:runId/approve', () => {
     await app.close()
   })
 
-  it('approves only the waiting imported pictures of an event already posted', async () => {
+  it('opens the sales of a posted import whose new ticket types wait, and refuses one with nothing waiting', async () => {
     const { app, prisma } = await importApp()
     const headers = await as(app, ANIL)
     const { run } = await importFile(app, headers, dataset([listing('900140')]))
@@ -979,59 +1052,88 @@ describe('POST /v1/platform/imports/:runId/approve', () => {
 
     await approve(app, prisma, headers, run.id, [event.id])
 
-    // A picture copied after publication waits for approval.
-    const image = prisma._store.eventImportImage.find((row) => row.role === 'GALLERY')
+    // Nothing waits: there is nothing to approve.
+    const nothing = await approve(app, prisma, headers, run.id, [event.id])
 
-    prisma._store.mediaAsset = prisma._store.mediaAsset.filter(
-      (row) => row.id !== image.mediaAssetId,
-    )
-    image.status = 'WAITING'
-    image.mediaAssetId = null
-
-    await app.inject({
-      method: 'POST',
-      url: `/v1/platform/imports/${run.id}/images/retry`,
-      headers,
-      payload: {},
+    expect(nothing.json().data.results[0]).toMatchObject({
+      outcome: 'REFUSED',
+      code: 'NOT_EDITABLE',
     })
 
-    const waiting = prisma._store.mediaAsset.filter(
-      (row) => row.eventId === event.id && row.moderationStatus === 'PENDING',
+    // The listing adds a price; the posted event is updated from it, and the
+    // new tier waits, not on sale, for an approval.
+    const updated = await preview(
+      app,
+      headers,
+      dataset([
+        listing('900140', {
+          prices: [
+            ...listing('900140').prices,
+            { name: 'VIP', priceCents: 9000, currency: 'USD', note: null },
+          ],
+        }),
+      ]),
+    )
+    const second = updated.json().data
+
+    expect(second.rows[0]).toMatchObject({ action: 'POSTED_KEPT', updatable: true })
+    expect((await apply(app, headers, second, ['900140'])).statusCode).toBe(200)
+
+    const vip = prisma._store.ticketType.find(
+      (row) => row.eventId === event.id && row.importKey === 'VIP',
     )
 
-    expect(waiting).toHaveLength(1)
+    expect(vip).toMatchObject({ status: 'DRAFT', quantityTotal: 100, quantityIsAllowance: true })
 
-    const response = await approve(app, prisma, headers, run.id, [event.id])
+    const response = await approve(app, prisma, headers, second.id, [event.id])
 
     expect(response.json().data.results[0]).toMatchObject({
-      outcome: 'PICTURES_APPROVED',
-      status: 'PUBLISHED',
-      picturesApproved: 1,
+      outcome: 'SALES_OPENED',
+      status: 'ON_SALE',
+      ticketTypesOnSale: 3,
+    })
+    expect(vip.status).toBe('ON_SALE')
+    expect(audits(prisma, 'event_import.sales_opened')[0].metadata).toMatchObject({
+      importRunId: second.id,
+      ticketTypesOpened: 1,
+      ticketTypesOnSale: 3,
+      from: 'ON_SALE',
+      to: 'ON_SALE',
     })
     expect(audits(prisma, 'event.published')).toHaveLength(1)
 
     await app.close()
   })
 
-  it('leaves the link alone when another administrator already switched it on', async () => {
+  it('publishes an import with no price to sell, leaving it PUBLISHED with no sales opened', async () => {
     const { app, prisma } = await importApp()
     const headers = await as(app, ANIL)
-    const { run } = await importFile(app, headers, dataset([listing('900150')]))
-    const event = eventFor(prisma, '900150')
-    const ops = await as(app, OPS)
-    const switched = await app.inject({
-      method: 'POST',
-      url: `/v1/moderation/events/${event.id}/website-redirect`,
-      headers: ops,
-      payload: { enabled: true, reason: 'Checked the listing.', websiteUrl: event.websiteUrl },
-    })
+    const { run } = await importFile(
+      app,
+      headers,
+      dataset([
+        listing('900150', {
+          prices: [{ name: 'Early Bird', priceCents: 2000, currency: 'USD', note: 'Sold Out' }],
+        }),
+        listing('900151', { prices: [] }),
+      ]),
+    )
+    const events = ['900150', '900151'].map((sourceId) => eventFor(prisma, sourceId))
+    const response = await approve(
+      app,
+      prisma,
+      headers,
+      run.id,
+      events.map((event) => event.id),
+    )
 
-    expect(switched.statusCode, switched.body).toBe(200)
-
-    const response = await approve(app, prisma, headers, run.id, [event.id])
-
-    expect(response.json().data.results[0].outcome).toBe('PUBLISHED')
-    expect(audits(prisma, 'event.website_redirect_changed')).toHaveLength(1)
+    expect(
+      response.json().data.results.map((row) => [row.outcome, row.status, row.ticketTypesOnSale]),
+    ).toEqual([
+      ['PUBLISHED', 'PUBLISHED', 0],
+      ['PUBLISHED', 'PUBLISHED', 0],
+    ])
+    expect(audits(prisma, 'event.on_sale')).toHaveLength(0)
 
     await app.close()
   })
@@ -1059,18 +1161,15 @@ describe('POST /v1/platform/imports/:runId/approve', () => {
       doctored.withoutReview = false
     }
 
-    expect(eventFor(prisma, '900160')).toMatchObject({
-      status: 'REVIEW_PENDING',
-      websiteRedirectEnabled: false,
-    })
+    expect(eventFor(prisma, '900160')).toMatchObject({ status: 'REVIEW_PENDING' })
     expect(prisma._store.auditLog.length).toBe(auditsBefore)
     expect(prisma._store.eventImportItem.find((row) => row.sourceId === '900160')).toMatchObject({
       approvedById: null,
     })
 
-    // Holding both, the same request approves and publishes it.
+    // Holding both, the same request approves, publishes and puts it on sale.
     expect((await approve(app, prisma, headers, run.id, [event.id])).statusCode).toBe(200)
-    expect(eventFor(prisma, '900160').status).toBe('PUBLISHED')
+    expect(eventFor(prisma, '900160').status).toBe('ON_SALE')
 
     await app.close()
   })
@@ -1183,7 +1282,10 @@ describe('the review of a platform-held import (SPEC2-XI O5, O16)', () => {
     await app.close()
   })
 
-  it('lets the importer approve an imported picture, and not after the event has moved', async () => {
+  it('exempts no picture: one the importer uploaded is decided by another administrator', async () => {
+    // Pictures an import copied were exempt until 2026-10-15; nothing is
+    // copied now, so every picture is somebody's upload and needs a reviewer
+    // other than its uploader, on a platform-held event too.
     const { app, prisma, ids } = await importApp()
     const headers = await as(app, ANIL)
     const { run } = await importFile(app, headers, dataset([listing('900220')]))
@@ -1191,114 +1293,183 @@ describe('the review of a platform-held import (SPEC2-XI O5, O16)', () => {
 
     await approve(app, prisma, headers, run.id, [event.id])
 
-    // Two pictures copied again after publication.
-    for (const image of prisma._store.eventImportImage) {
-      prisma._store.mediaAsset = prisma._store.mediaAsset.filter(
-        (row) => row.id !== image.mediaAssetId,
-      )
-      image.status = 'WAITING'
-      image.mediaAssetId = null
-    }
-
-    await app.inject({
-      method: 'POST',
-      url: `/v1/platform/imports/${run.id}/images/retry`,
-      headers,
-      payload: {},
+    const picture = seedPicture(prisma, {
+      event,
+      kind: 'EVENT_GALLERY',
+      moderationStatus: 'PENDING',
     })
 
-    const [first, second] = prisma._store.mediaAsset.filter(
-      (row) => row.eventId === event.id && row.moderationStatus === 'PENDING',
-    )
-    const decide = (mediaId) =>
+    picture.uploadedById = ids.platformAdministrator.id
+
+    const decide = (who) =>
       app.inject({
         method: 'POST',
-        url: `/v1/moderation/media/${mediaId}/decision`,
-        headers,
+        url: `/v1/moderation/media/${picture.id}/decision`,
+        headers: who,
         payload: { decision: 'approve' },
       })
 
-    const allowed = await decide(first.id)
-
-    expect(allowed.statusCode, allowed.body).toBe(200)
-    expect(
-      audits(prisma, 'moderation.media_approved').find((row) => row.entityId === first.id).metadata,
-    ).toMatchObject({
-      exemption: 'PLATFORM_HELD_IMPORT',
-      approvedById: ids.platformAdministrator.id,
-    })
-
-    const current = prisma._store.event.find((row) => row.id === event.id)
-    const moved = await app.inject({
-      method: 'POST',
-      url: `/v1/platform/imports/events/${event.id}/reassign`,
-      headers,
-      payload: {
-        organizationId: ids.organization.id,
-        reason: 'They run this event themselves.',
-        revision: current.revision,
-      },
-    })
-
-    expect(moved.statusCode, moved.body).toBe(200)
-
-    const refused = await decide(second.id)
+    const refused = await decide(headers)
 
     expect(refused.statusCode).toBe(403)
     expect(refused.json().error.code).toBe('SELF_REVIEW')
+
+    const allowed = await decide(await as(app, OPS))
+
+    expect(allowed.statusCode, allowed.body).toBe(200)
+    expect(
+      audits(prisma, 'moderation.media_approved').find((row) => row.entityId === picture.id)
+        .metadata.exemption,
+    ).toBeUndefined()
 
     await app.close()
   })
 })
 
-describe('nothing is sold here while the platform holds it (SPEC2-XI I5)', () => {
-  it('refuses a ticket type and sales even to a super administrator, until the event moves', async () => {
+describe('sold here while the platform holds it (2026-10-15)', () => {
+  it('lets an administrator add and change tiers and open and pause sales in an editing session, with no SOLD_ON_SOURCE', async () => {
     const { app, prisma, ids } = await importApp()
     const headers = await as(app, ANIL)
-    const { run } = await importFile(app, headers, dataset([listing('900300')]))
+    const { run } = await importFile(app, headers, dataset([listing('900300', { prices: [] })]))
     const event = eventFor(prisma, '900300')
 
+    // No price listed: published, nothing on sale yet.
     await approve(app, prisma, headers, run.id, [event.id])
+    expect(prisma._store.event.find((row) => row.id === event.id).status).toBe('PUBLISHED')
 
-    const ops = await as(app, OPS)
+    const revision = () => prisma._store.event.find((row) => row.id === event.id).revision
+
+    // Outside a sitting, an ADMIN may not open sales (Rule L stands)...
+    const early = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/open-sales`,
+      headers,
+      payload: {},
+    })
+
+    expect(early.statusCode).toBe(403)
+    expect(early.json().error.code).toBe('PLATFORM_EDIT_NOT_OPEN')
+
+    // ...in one, they add a tier, change its allowance and open sales.
     const sitting = await app.inject({
       method: 'POST',
       url: `/v1/platform/events/${event.id}/edit`,
-      headers: ops,
+      headers,
       payload: { reason: 'Adding the tiers the organiser sent us.' },
     })
 
     expect(sitting.statusCode, sitting.body).toBe(201)
 
-    const revision = () => prisma._store.event.find((row) => row.id === event.id).revision
     const tier = await app.inject({
       method: 'POST',
       url: `/v1/events/${event.id}/tiers`,
-      headers: ops,
+      headers,
       payload: { revision: revision(), name: 'General', priceCents: 2000, quantityTotal: 10 },
     })
+
+    expect(tier.statusCode, tier.body).toBe(201)
+    expect(tier.json().data).toMatchObject({ currency: 'USD', quantityIsAllowance: false })
+
     const legacy = await app.inject({
       method: 'POST',
       url: `/v1/events/${event.id}/ticket-types`,
-      headers: ops,
-      payload: { eventId: event.id, name: 'General', priceCents: 2000, quantityTotal: 10 },
+      headers,
+      payload: { eventId: event.id, name: 'Family', priceCents: 5000, quantityTotal: 10 },
     })
+
+    expect(legacy.statusCode, legacy.body).toBe(201)
+
+    const live = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${event.id}/tiers/${tier.json().data.id}`,
+      headers,
+      payload: { revision: revision(), status: 'ON_SALE', quantityTotal: 250 },
+    })
+
+    expect(live.statusCode, live.body).toBe(200)
+
     const sales = await app.inject({
       method: 'POST',
       url: `/v1/events/${event.id}/open-sales`,
-      headers: ops,
+      headers,
       payload: {},
     })
 
-    for (const response of [tier, legacy, sales]) {
-      expect(response.statusCode, response.body).toBe(409)
-      expect(response.json().error.code).toBe('SOLD_ON_SOURCE')
-    }
+    expect(sales.statusCode, sales.body).toBe(200)
+    expect(prisma._store.event.find((row) => row.id === event.id).status).toBe('ON_SALE')
 
-    expect(prisma._store.ticketType.some((row) => row.eventId === event.id)).toBe(false)
-    expect(prisma._store.event.find((row) => row.id === event.id).status).toBe('PUBLISHED')
+    const [opened] = audits(prisma, 'event.on_sale').filter((row) => row.entityId === event.id)
 
-    // Moved to its organiser's organisation: they may sell.
+    // Recorded as the team's doing, under the sitting.
+    expect(opened.metadata).toMatchObject({
+      authority: 'PLATFORM',
+      platformEditId: prisma._store.eventPlatformEdit.find((row) => row.eventId === event.id).id,
+    })
+
+    const paused = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/pause-sales`,
+      headers,
+      payload: { reason: 'The organiser asked us to hold sales.' },
+    })
+
+    expect(paused.statusCode, paused.body).toBe(200)
+
+    // A sitting opens nothing else: postponing stays the organiser's (Rule L).
+    const postponed = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/postpone`,
+      headers,
+      payload: { reasonCode: 'WEATHER', reason: 'Rain is expected that evening.' },
+    })
+
+    expect(postponed.statusCode).toBe(403)
+    expect(postponed.json().error.code).toBe('ORGANIZER_ONLY')
+
+    // And an organiser's own event is not opened by a sitting either.
+    const own = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/open-sales`,
+      headers,
+      payload: {},
+    })
+
+    expect(own.statusCode).toBe(403)
+
+    await app.close()
+  })
+
+  it('keeps an import’s allowance an allowance when an administrator changes it, and the organiser’s count once moved', async () => {
+    const { app, prisma, ids } = await importApp()
+    const headers = await as(app, ANIL)
+    const { run } = await importFile(app, headers, dataset([listing('900301')]))
+    const event = eventFor(prisma, '900301')
+
+    await approve(app, prisma, headers, run.id, [event.id])
+
+    const regular = prisma._store.ticketType.find(
+      (row) => row.eventId === event.id && row.importKey === 'Regular',
+    )
+    const revision = () => prisma._store.event.find((row) => row.id === event.id).revision
+
+    await app.inject({
+      method: 'POST',
+      url: `/v1/platform/events/${event.id}/edit`,
+      headers,
+      payload: { reason: 'The organiser gave us the real capacity.' },
+    })
+
+    const changed = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${event.id}/tiers/${regular.id}`,
+      headers,
+      payload: { revision: revision(), quantityTotal: 300 },
+    })
+
+    expect(changed.statusCode, changed.body).toBe(200)
+    expect(regular).toMatchObject({ quantityTotal: 300, quantityIsAllowance: true })
+
+    await app.inject({ method: 'POST', url: `/v1/platform/events/${event.id}/edit/close`, headers })
     await app.inject({
       method: 'POST',
       url: `/v1/platform/imports/events/${event.id}/reassign`,
@@ -1310,22 +1481,23 @@ describe('nothing is sold here while the platform holds it (SPEC2-XI I5)', () =>
       },
     })
 
-    const owner = await as(app, 'owner@rangoli.example', { stepUp: false })
+    const owner = await as(app, 'owner@rangoli.example')
     const theirs = await app.inject({
-      method: 'POST',
-      url: `/v1/events/${event.id}/tiers`,
+      method: 'PATCH',
+      url: `/v1/events/${event.id}/tiers/${regular.id}`,
       headers: owner,
-      payload: { revision: revision(), name: 'General', priceCents: 2000, quantityTotal: 10 },
+      payload: { revision: revision(), quantityTotal: 280 },
     })
 
-    expect(theirs.statusCode, theirs.body).toBe(201)
+    expect(theirs.statusCode, theirs.body).toBe(200)
+    expect(regular).toMatchObject({ quantityTotal: 280, quantityIsAllowance: false })
 
     await app.close()
   })
 })
 
 describe('what the public pages carry (SPEC2-XI I-E)', () => {
-  it('shows who presents it, Sulekha’s prices and the link, and no picture address', async () => {
+  it('shows who presents it, the listed prices and its own ticket types, and nothing of the source', async () => {
     const { app, prisma } = await importApp()
     const headers = await as(app, ANIL)
     const { run } = await importFile(app, headers, dataset([listing('900400')]))
@@ -1345,7 +1517,6 @@ describe('what the public pages carry (SPEC2-XI I-E)', () => {
     const data = page.json().data
 
     expect(data.importedFrom).toEqual({
-      sourceName: 'Sulekha',
       presentedBy: 'DFW Garba Collective',
       listedOn: '2026-09-29',
       prices: [
@@ -1354,19 +1525,28 @@ describe('what the public pages carry (SPEC2-XI I-E)', () => {
         { name: 'Regular', priceCents: 3500, currency: 'USD' },
       ],
       priceListed: true,
-      ticketsOnSource: true,
     })
-    expect(data.websiteLink).toEqual({ host: 'events.sulekha.com' })
-    expect(data.ticketTypes).toEqual([])
+    // No link anywhere; its tickets are its own tiers, the sold-out one shown
+    // closed, each on an allowance no page may count down from.
+    expect(data.websiteLink).toBeNull()
+    expect(
+      data.ticketTypes.map((tier) => [tier.name, tier.status, tier.quantityIsAllowance]),
+    ).toEqual([
+      ['Child', 'ON_SALE', true],
+      ['Early Bird', 'CLOSED', true],
+      ['Regular', 'ON_SALE', true],
+    ])
     expect(data.sessions[0].endTimeListed).toBe(false)
-    expect(page.body).not.toMatch(/usimg\.sulekha\.io|Sold Out|Under 5/u)
+    expect(page.body).not.toMatch(/sulekha|Sold Out|Under 5/iu)
 
     const list = await app.inject({ method: 'GET', url: '/v1/events?perPage=100' })
     const card = list.json().data.find((row) => row.id === event.id)
 
-    expect(card.importedFrom).toMatchObject({ priceListed: true, ticketsOnSource: true })
-    expect(card.minPriceCents).toBeNull()
-    expect(list.body).not.toMatch(/usimg\.sulekha\.io/u)
+    expect(card.importedFrom).toMatchObject({ priceListed: true })
+    expect(card.importedFrom).not.toHaveProperty('ticketsOnSource')
+    // The card's "from" price is now a price on The Desi Events: the free tier.
+    expect(card.minPriceCents).toBe(0)
+    expect(list.body).not.toMatch(/sulekha/iu)
 
     await app.close()
   })
@@ -1374,12 +1554,12 @@ describe('what the public pages carry (SPEC2-XI I-E)', () => {
   it('is null for every other event, for a moved one, and says so when no price was listed', () => {
     const base = {
       status: 'PUBLISHED',
+      // A link to the source left on from before 2026-10-15 changes nothing.
       websiteRedirectEnabled: true,
       websiteDecidedUrl: 'https://events.sulekha.com/x_1',
       organization: { platformHeldSource: 'SULEKHA' },
       importItem: {
         source: 'SULEKHA',
-        sourceUrl: 'https://events.sulekha.com/x_1',
         scrapedAt: new Date('2026-09-30T23:59:00Z'),
         presentedBy: null,
         prices: [],
@@ -1387,24 +1567,32 @@ describe('what the public pages carry (SPEC2-XI I-E)', () => {
       },
     }
 
-    expect(importedFromView(base)).toMatchObject({
+    expect(importedFromView(base)).toEqual({
+      presentedBy: null,
       listedOn: '2026-09-30',
       prices: [],
       priceListed: false,
-      ticketsOnSource: true,
     })
     expect(importedFromView({ ...base, importItem: null })).toBeNull()
     expect(importedFromView({ ...base, organization: { platformHeldSource: null } })).toBeNull()
     expect(
       importedFromView({ ...base, importItem: { ...base.importItem, reassignedAt: new Date() } }),
     ).toBeNull()
-    // The link off, or going elsewhere: not "Buy tickets on Sulekha".
-    expect(importedFromView({ ...base, websiteRedirectEnabled: false }).ticketsOnSource).toBe(false)
-    expect(
-      importedFromView({ ...base, websiteDecidedUrl: 'https://organiser.example/' })
-        .ticketsOnSource,
-    ).toBe(false)
-    expect(importedFromView({ ...base, status: 'APPROVED' }).ticketsOnSource).toBe(false)
+    // Whatever its link, the view says nothing about where tickets are sold
+    // elsewhere: they are sold here.
+    for (const event of [
+      base,
+      { ...base, websiteRedirectEnabled: false },
+      { ...base, websiteDecidedUrl: 'https://organiser.example/' },
+      { ...base, status: 'APPROVED' },
+    ]) {
+      expect(Object.keys(importedFromView(event)).sort()).toEqual([
+        'listedOn',
+        'presentedBy',
+        'priceListed',
+        'prices',
+      ])
+    }
   })
 
   it('never prints a sales date or a call to hurry that the listing put into a price name', () => {
@@ -1415,7 +1603,6 @@ describe('what the public pages carry (SPEC2-XI I-E)', () => {
       organization: { platformHeldSource: 'SULEKHA' },
       importItem: {
         source: 'SULEKHA',
-        sourceUrl: 'https://events.sulekha.com/x_402109',
         scrapedAt: new Date('2026-09-29T21:25:00Z'),
         presentedBy: 'DFW Garba Collective',
         // As the committed file lists 402109 and 401676.
@@ -1456,7 +1643,7 @@ describe('what the public pages carry (SPEC2-XI I-E)', () => {
 })
 
 describe('POST /v1/platform/imports/events/:eventId/reassign', () => {
-  it('moves the event and its venue, stamps it, switches the Sulekha link off, audited', async () => {
+  it('moves the event and its venue, stamps it, switches its website link off, audited', async () => {
     const { app, prisma, ids } = await importApp()
     const headers = await as(app, ANIL)
     const { run } = await importFile(app, headers, dataset([listing('900500')]))
@@ -1464,6 +1651,24 @@ describe('POST /v1/platform/imports/events/:eventId/reassign', () => {
     const event = { ...eventFor(prisma, '900500') }
 
     await approve(app, prisma, headers, run.id, [event.id])
+
+    // An administrator approved the organiser's own site as its link (an
+    // import never sets one).
+    const site = 'https://dfw-garba.example/tickets'
+
+    Object.assign(
+      prisma._store.event.find((row) => row.id === event.id),
+      { websiteUrl: site, websiteDecisionPending: true, websiteSubmittedAt: new Date() },
+    )
+
+    const switched = await app.inject({
+      method: 'POST',
+      url: `/v1/moderation/events/${event.id}/website-redirect`,
+      headers: await as(app, OPS),
+      payload: { enabled: true, reason: 'The organiser’s own page.', websiteUrl: site },
+    })
+
+    expect(switched.statusCode, switched.body).toBe(200)
 
     const current = prisma._store.event.find((row) => row.id === event.id)
     const response = await app.inject({
@@ -1480,7 +1685,7 @@ describe('POST /v1/platform/imports/events/:eventId/reassign', () => {
     expect(response.statusCode, response.body).toBe(200)
     expect(response.json().data).toMatchObject({
       organizationId: ids.organization.id,
-      status: 'PUBLISHED',
+      status: 'ON_SALE',
       slug: event.slug,
       importedFrom: null,
     })
@@ -1489,8 +1694,15 @@ describe('POST /v1/platform/imports/events/:eventId/reassign', () => {
 
     expect(after.websiteRedirectEnabled).toBe(false)
     expect(after.websiteRedirectReason).toBe(
-      "Moved to Rangoli Collective. The Sulekha ticket link is off until an administrator approves the organiser's own address.",
+      "Moved to Rangoli Collective. Its website link is off until an administrator approves the organiser's own address.",
     )
+    // Its tiers and sales go with it, unchanged.
+    expect(
+      prisma._store.ticketType
+        .filter((row) => row.eventId === event.id)
+        .map((row) => row.status)
+        .sort(),
+    ).toEqual(['CLOSED', 'ON_SALE', 'ON_SALE'])
     expect(prisma._store.venue.find((row) => row.id === after.venueId).organizationId).toBe(
       ids.organization.id,
     )
@@ -1606,7 +1818,7 @@ describe('POST /v1/platform/imports/events/:eventId/reassign', () => {
       'TARGET_NOT_ELIGIBLE',
     )
 
-    const stale = await move(event.id, ids.organization.id, event.revision - 1)
+    const stale = await move(event.id, ids.organization.id, event.revision + 1)
 
     expect(stale.json().error.code).toBe('STALE_REVISION')
     expect(prisma._store.event.find((row) => row.id === event.id).organizationId).toBe(
@@ -1634,7 +1846,7 @@ describe('POST /v1/platform/imports/events/:eventId/reassign', () => {
 
     const all = await app.inject({ method: 'GET', url: '/v1/platform/import-targets', headers })
 
-    expect(all.json().data.some((row) => row.slug === 'sulekha-events')).toBe(false)
+    expect(all.json().data.some((row) => row.slug === 'the-desi-events')).toBe(false)
     // A wildcard is a character, not a pattern.
     const wild = await app.inject({
       method: 'GET',
@@ -1643,14 +1855,14 @@ describe('POST /v1/platform/imports/events/:eventId/reassign', () => {
     })
 
     expect(wild.json().data).toEqual([])
-    expect(prisma._store.organization.some((row) => row.slug === 'sulekha-events')).toBe(true)
+    expect(prisma._store.organization.some((row) => row.slug === 'the-desi-events')).toBe(true)
 
     await app.close()
   })
 })
 
 describe('updating a posted event from its listing', () => {
-  it('keeps a posted listing unless it is named, then updates it as a live edit with a notice', async () => {
+  it('keeps a posted listing unless it is named, then updates it as a live edit with a notice, never touching a tier that sold', async () => {
     const { app, prisma } = await importApp()
     const headers = await as(app, ANIL)
     const { run } = await importFile(app, headers, dataset([listing('900600')]))
@@ -1658,7 +1870,25 @@ describe('updating a posted event from its listing', () => {
 
     await approve(app, prisma, headers, run.id, [event.id])
 
-    const moved = listing('900600', { days: 14, title: 'Garba Night, moved' })
+    // Somebody holds two of "Regular": it has sales in progress.
+    const tier = (key) =>
+      prisma._store.ticketType.find((row) => row.eventId === event.id && row.importKey === key)
+    const held = await app.inject({
+      method: 'POST',
+      url: '/v1/holds',
+      payload: { ticketTypeId: tier('Regular').id, quantity: 2 },
+    })
+
+    expect(held.statusCode, held.body).toBe(201)
+
+    const moved = listing('900600', {
+      days: 14,
+      title: 'Garba Night, moved',
+      prices: [
+        { name: 'Child', priceCents: 500, currency: 'USD', note: null },
+        { name: 'Regular', priceCents: 9900, currency: 'USD', note: 'Sold Out' },
+      ],
+    })
     const kept = await importFile(app, headers, dataset([moved]))
 
     expect(kept.run.rows[0]).toMatchObject({ action: 'POSTED_KEPT', updatable: true })
@@ -1675,7 +1905,16 @@ describe('updating a posted event from its listing', () => {
 
     const after = prisma._store.event.find((row) => row.id === event.id)
 
-    expect(after).toMatchObject({ title: 'Garba Night, moved', status: 'PUBLISHED' })
+    expect(after).toMatchObject({ title: 'Garba Night, moved', status: 'ON_SALE' })
+
+    // The held tier is as it was; the one nobody bought takes the listing's
+    // price; the one the listing dropped, with no sale, is gone.
+    expect(tier('Regular')).toMatchObject({ priceCents: 3500, status: 'ON_SALE' })
+    expect(tier('Child')).toMatchObject({ priceCents: 500, status: 'ON_SALE' })
+    expect(tier('Early Bird')).toBeUndefined()
+    expect(
+      audits(prisma, 'event.updated').find((row) => row.entityId === event.id).metadata.ticketTypes,
+    ).toEqual({ created: 0, updated: 1, kept: 1, removed: 1 })
     expect(prisma._store.eventChangeNotice.filter((row) => row.eventId === event.id)).toHaveLength(
       1,
     )
@@ -1759,27 +1998,22 @@ describe('the command line (SPEC2-XI I-G)', () => {
 
     await writeFile(file, JSON.stringify(dataset([listing('900700')])))
 
-    const planned = await runImportCommand({
-      argv: [file, '--as', ANIL],
-      prisma,
-      env: { NODE_ENV: 'test', IMPORT_IMAGE_SOURCE: 'network' },
-      fetchImage: fetchFromMemory,
-      out,
-    })
+    const planned = await runImportCommand({ argv: [file, '--as', ANIL], prisma, out })
 
     expect(planned.results).toBeNull()
     expect(prisma._store.event.some((row) => row.title === 'Garba Night 900700')).toBe(false)
     expect(lines.join('\n')).toMatch(/CREATE\s+900700/u)
+    // It says what the prices become, and nothing about pictures.
+    expect(lines).toContain('      3 ticket types in USD, 1 marked sold out (made closed)')
+    expect(lines.join('\n')).not.toMatch(/picture/iu)
 
     const sent = []
     const applied = await runImportCommand({
       argv: ['--', file, '--as', ANIL.toUpperCase(), '--apply'],
       prisma,
-      env: { NODE_ENV: 'test', IMPORT_IMAGE_SOURCE: 'network' },
-      fetchImage: fetchFromMemory,
       out,
       apply: async (...args) => {
-        sent.push(args[2])
+        sent.push(args[1])
 
         const { applyImport } = await import('../src/lib/event-import.js')
 
@@ -1797,12 +2031,13 @@ describe('the command line (SPEC2-XI I-G)', () => {
     expect(prisma._store.event.find((row) => row.title === 'Garba Night 900700').status).toBe(
       'REVIEW_PENDING',
     )
+    expect(lines.join('\n')).not.toMatch(/picture/iu)
 
     // The library refuses a command-line update of a posted event outright.
     const { applyImport } = await import('../src/lib/event-import.js')
 
     await expect(
-      applyImport(prisma, null, {
+      applyImport(prisma, {
         run: {},
         actor: { id: ids.platformAdministrator.id },
         planDigest: 'a'.repeat(64),
@@ -1812,9 +2047,9 @@ describe('the command line (SPEC2-XI I-G)', () => {
     ).rejects.toThrow(/never updates a posted event/u)
 
     await expect(
-      runImportCommand({ argv: [file, '--as', 'maya@desi-event.example'], prisma, env: {}, out }),
+      runImportCommand({ argv: [file, '--as', 'maya@desi-event.example'], prisma, out }),
     ).rejects.toThrow(/may not import events/u)
-    await expect(runImportCommand({ argv: [file], prisma, env: {}, out })).rejects.toThrow(/Usage/u)
+    await expect(runImportCommand({ argv: [file], prisma, out })).rejects.toThrow(/Usage/u)
   })
 
   it('refuses a suspended account, as the web does, before planning anything', async () => {
@@ -1834,8 +2069,6 @@ describe('the command line (SPEC2-XI I-G)', () => {
       runImportCommand({
         argv: [file, '--as', ANIL, '--apply'],
         prisma,
-        env: { NODE_ENV: 'test', IMPORT_IMAGE_SOURCE: 'network' },
-        fetchImage: fetchFromMemory,
         out,
       }),
     ).rejects.toThrow('This account is suspended.')

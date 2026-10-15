@@ -235,6 +235,26 @@ describe('GET /events/{slug}/website', () => {
     }
   })
 
+  it('never redirects to the site the imported listings came from, whatever the API answers', async () => {
+    for (const url of [
+      'https://events.sulekha.com/garba_event-in_irving-tx_401616',
+      'https://www.sulekha.com/',
+      'https://usimg.sulekha.io/cdn/events/images/cover.png',
+    ]) {
+      fetchMock.mockResolvedValueOnce(api({ data: { url } }))
+
+      const response = await GET(...follow())
+
+      expect(response.status, url).toBe(404)
+      expect(response.headers.get('location'), url).toBeNull()
+
+      const html = await response.text()
+
+      expect(html, url).toContain(PAGES.notAvailable.body)
+      expect(html, url).not.toMatch(/sulekha/iu)
+    }
+  })
+
   it('shows the unavailable page, never "too many visits", when the API is busy or down', async () => {
     fetchMock.mockResolvedValueOnce(
       api({ error: { code: 'RATE_LIMITED' } }, { status: 429, headers: { 'retry-after': '42' } }),

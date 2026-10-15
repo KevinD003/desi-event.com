@@ -763,12 +763,15 @@ autosave and asks "Confirm it's you to keep editing. The Desi Events team
 confirms every 10 minutes while editing someone else's event." The organiser
 sees the team's changes as "by the team at The Desi Events", with the reason.
 
-**Imported events say where they come from.** The ticket box says the tickets
-are sold on Sulekha, shows the prices as Sulekha listed them on the date they
-were read (or that no price is listed), and offers "Buy tickets on Sulekha"
-through the counted redirect. Cards read "On Sulekha from $x", "Free, on
-Sulekha" or "On Sulekha". The page says "Presented by" the organiser. A listing
-without an end time shows only its start.
+**Imported events say how their tickets are sold, without naming the site.**
+The ticket box says the tickets are sold on another site by the organiser, not
+on The Desi Events, shows the prices as the listing showed them on the date
+they were read (or that no price is listed), and offers "Buy tickets" through
+the counted redirect, described by the note "Opens the organiser's ticket page
+on another site." Cards read "From $x", "Free" or "No price listed". The page
+says "Presented by" the organiser. A listing without an end time shows only its
+start. Since 15 October 2026 no public page or administrator screen names the
+site the listings are on (ADR 0015, note of that date).
 
 Every new surface is built to WCAG 2.2 AA: headings and labelled fields in
 every dialog, an error summary with links, targets at least 44 px, polite live

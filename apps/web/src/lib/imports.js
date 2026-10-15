@@ -1,21 +1,19 @@
 /**
- * How an event copied from its listing on another site reads in public
- * (SPEC2-XI I-E).
+ * How an event imported from an organiser's own listing reads in public
+ * (SPEC2-XI I-E; ADR 0015, addendum 2026-10-15 (2)).
  *
- * The API sends `importedFrom` on an event only while it is held by the
- * team at The Desi Events for that site: `{ sourceName, presentedBy, listedOn,
- * prices, priceListed, ticketsOnSource }`. Tickets for such an event are sold
- * on the source site, so nothing here offers to sell one: the card says where
- * the tickets are and what the cheapest paid one cost when it was listed, and
- * the event page says the prices as listed on that date.
+ * The API sends `importedFrom` on an event only while it is held by the team
+ * at The Desi Events: `{ presentedBy, listedOn, prices, priceListed, … }`.
+ * Such an event is sold here like any other, through its own ticket types and
+ * checkout, and can also be reserved on WhatsApp: nothing here links to, or
+ * names, the site its listing was read from, and `sourceName` (if the API
+ * still sends one) is never printed.
  *
  * Pure and dependency-light, so a server component and a client one may both
  * import it.
  *
  * @module lib/imports
  */
-
-import { formatPrice } from './pricing.js'
 
 /** The date a listing was read, as the page prints it: "30 September 2026". */
 const LISTED_ON = new Intl.DateTimeFormat('en-GB', {
@@ -24,18 +22,6 @@ const LISTED_ON = new Intl.DateTimeFormat('en-GB', {
   year: 'numeric',
   timeZone: 'UTC',
 })
-
-/**
- * The listed prices that are real numbers.
- *
- * @param {object|null|undefined} importedFrom The event's `importedFrom`.
- * @returns {{name: string, priceCents: number, currency: string}[]} The prices.
- */
-function listedPrices(importedFrom) {
-  return (importedFrom?.prices ?? []).filter(
-    (price) => Number.isInteger(price?.priceCents) && price.priceCents >= 0,
-  )
-}
 
 /**
  * The day a listing was read, in words, or null when it cannot be read.
@@ -52,53 +38,18 @@ export function listedOnWords(listedOn) {
 }
 
 /**
- * What a listing card says in its price slot for an imported event.
- *
- * "On Sulekha from {the lowest price above zero}"; "Free, on Sulekha" when
- * every listed price is zero; "On Sulekha" when the listing gives no price. A
- * free child's ticket beside paid ones never makes it say "from Free".
- *
- * @param {object} importedFrom The event's `importedFrom`.
- * @returns {string} The words.
- */
-export function importedCardPrice(importedFrom) {
-  const source = importedFrom?.sourceName ?? 'Sulekha'
-  const prices = importedFrom?.priceListed === false ? [] : listedPrices(importedFrom)
-
-  if (prices.length === 0) return `On ${source}`
-
-  const paid = prices.filter((price) => price.priceCents > 0)
-
-  if (paid.length === 0) return `Free, on ${source}`
-
-  const lowest = paid.reduce((cheapest, price) =>
-    price.priceCents < cheapest.priceCents ? price : cheapest,
-  )
-
-  return `On ${source} from ${formatPrice(lowest.priceCents, lowest.currency ?? 'USD')}`
-}
-
-/**
- * The prices sentence on an imported event's page.
- *
- * "As listed on Sulekha on 30 September 2026: Adult $25.00, Child Free." or
- * "Sulekha does not list a price for this event."
+ * Where an imported event's prices come from, in a sentence for its ticket
+ * box: "Prices are as the organiser listed them on 30 September 2026." With
+ * no date it says only that they are as the organiser listed them. It names no
+ * other site and invents no count or deadline.
  *
  * @param {object} importedFrom The event's `importedFrom`.
  * @returns {string} The sentence.
  */
 export function importedPricesSentence(importedFrom) {
-  const source = importedFrom?.sourceName ?? 'Sulekha'
-  const prices = importedFrom?.priceListed === false ? [] : listedPrices(importedFrom)
+  const when = listedOnWords(importedFrom?.listedOn)
 
-  if (prices.length === 0) return `${source} does not list a price for this event.`
-
-  const when = listedOnWords(importedFrom.listedOn)
-  const list = prices
-    .map((price) => `${price.name} ${formatPrice(price.priceCents, price.currency ?? 'USD')}`)
-    .join(', ')
-
-  return `As listed on ${source}${when ? ` on ${when}` : ''}: ${list}.`
+  return `Prices are as the organiser listed them${when ? ` on ${when}` : ''}.`
 }
 
 /**
@@ -119,7 +70,7 @@ export function endTimeListed(event) {
  * listing did not give (SPEC2-XI §0 rule 9). The stored end is then a planning
  * estimate, the start plus three hours, which no public page shows.
  */
-export const ESTIMATED_END_LABEL = 'Not listed by Sulekha (estimate for scheduling)'
+export const ESTIMATED_END_LABEL = 'Not given by the listing (estimate for scheduling)'
 
 /**
  * Whether a night's stored end is the importer's estimate rather than a listed
@@ -130,4 +81,28 @@ export const ESTIMATED_END_LABEL = 'Not listed by Sulekha (estimate for scheduli
  */
 export function endIsEstimate(session) {
   return session?.endTimeListed === false
+}
+
+/**
+ * The statuses in which an imported event can still be asked about on
+ * WhatsApp: announced, on sale, paused or sold out here. Not a cancelled,
+ * postponed or finished one, whose chat message would ask to reserve tickets
+ * for something not happening on that day.
+ *
+ * @type {ReadonlySet<string>}
+ */
+export const RESERVABLE_STATUSES = new Set(['PUBLISHED', 'ON_SALE', 'SALES_PAUSED', 'SOLD_OUT'])
+
+/**
+ * Whether an imported event's page offers "Reserve on WhatsApp" now: it is in
+ * one of {@link RESERVABLE_STATUSES} and its start is still ahead.
+ *
+ * @param {{status?: string, startsAt?: string}} event The public event.
+ * @param {Date} [now] The moment in question. Defaults to now.
+ * @returns {boolean} True when the button is shown.
+ */
+export function reservableOnWhatsApp(event, now = new Date()) {
+  const start = Date.parse(event?.startsAt)
+
+  return RESERVABLE_STATUSES.has(event?.status) && Number.isFinite(start) && start > now.getTime()
 }

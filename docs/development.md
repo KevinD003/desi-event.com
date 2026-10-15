@@ -105,8 +105,6 @@ than a confusing failure an hour later.
 | `WEB_ORIGIN`                                                                                           | —                                   | The site's own origin, for the join link in an emailed letter (the code is never in it). Required with `EMAIL`; https in production                                                                  |
 | `TRAFFIC_TRUSTED_FORWARDERS`                                                                           | `127.0.0.1,::1,::ffff:127.0.0.1`    | IP addresses whose `x-desi-client-address` header the API believes: the web servers. Keep the API port private when loopback is trusted                                                              |
 | `TRAFFIC_BEACON_MAX_PER_MINUTE`                                                                        | `60`                                | Visit beacons one visitor may send a minute                                                                                                                                                          |
-| `IMPORT_IMAGE_SOURCE`                                                                                  | `network`                           | Where imported pictures are copied from: `network` (only `usimg.sulekha.io`, directly, no proxy) or `fixtures` (a directory; refused in production)                                                  |
-| `IMPORT_IMAGE_FIXTURE_DIR`                                                                             | —                                   | The directory `fixtures` reads pictures from, by file name. Required with `fixtures`                                                                                                                 |
 
 ### Worker (`apps/worker`)
 
@@ -293,7 +291,7 @@ asked to set up two-step sign-in the first time it signs in.
   set to the moment the seed ran. `/analytics` says "Demonstration figures"
   while any of them is summed.
 - **No imported events**: run `pnpm import:events` after seeding (README,
-  "Importing the Sulekha events").
+  "Importing listed events").
 
 **What else it seeds for booking fees, referral codes and paying at the venue
 (2026-10-13, ADRs 0016 and 0017):**
@@ -396,18 +394,16 @@ member of the event's organisation, or as staff, are not counted. With the web
 and API on one machine the defaults (`TRAFFIC_TRUSTED_FORWARDERS` loopback,
 `TRAFFIC_TRUSTED_PROXY_HOPS=0`) are right.
 
-## Importing the Sulekha events locally
+## Importing listed events locally
 
-See the README section "Importing the Sulekha events". In short:
-`pnpm import:events packages/db/data/imports/sulekha-texas-2026.json --as
+See the README section "Importing listed events". In short:
+`pnpm import:events packages/db/data/imports/texas-2026.json --as
 platform-admin@desi-event.example` plans the file; add `--apply` to import the
-events into review. `sulekha-north-america-2026.json`, in the same folder, is
-loaded the same way. Approving and publishing is done in the browser at
-`/admin/imports`. Picture copying needs direct outbound HTTPS to
-`usimg.sulekha.io` (no proxy is used); without it, set
-`IMPORT_IMAGE_SOURCE=fixtures` and `IMPORT_IMAGE_FIXTURE_DIR` to a directory of
-pictures named as in the listing addresses, or accept generated posters and use
-"Retry pictures" later. Events whose date has passed are skipped.
+events into review, each with one ticket type per listed price.
+`north-america-2026.json`, in the same folder, is loaded the same way.
+Approving, which publishes an event and opens its sales, is done in the
+browser at `/admin/imports`. The importer needs no network access: it copies
+nothing and makes no request. Events whose date has passed are skipped.
 
 ## Debugging
 

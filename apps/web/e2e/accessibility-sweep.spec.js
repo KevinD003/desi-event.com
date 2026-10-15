@@ -37,13 +37,11 @@ import {
   seedFullControl,
 } from './support/seed-full-control.mjs'
 import {
-  SWEEP_IMPORT_PICTURE_DIR,
   buildImportDataset,
   cleanupImport,
   importNames,
   planOnlyDataset,
   platformHeldExists,
-  preparePictures,
   seedImport,
 } from './support/seed-import.mjs'
 import {
@@ -4857,7 +4855,7 @@ test.describe.serial('imported events, swept', () => {
   const importContexts = []
   /** The administrator's window, opened once. @type {Promise<object>|null} */
   let importAdminWindow = null
-  /** Whether "Sulekha Events" was there before this block imported anything. */
+  /** Whether "The Desi Events" (the platform-held organisation) was there before this block imported anything. */
   let importHeldBefore = true
 
   /**
@@ -4954,12 +4952,12 @@ test.describe.serial('imported events, swept', () => {
 
     importHeldBefore = await platformHeldExists()
     await seedImport(TAG)
-    await preparePictures(SWEEP_IMPORT_PICTURE_DIR)
 
     // Imported, applied and one event approved, through the same requests the
     // run page sends, so every state the cases measure is a real one: a run
-    // applied with events waiting for review and a picture that could not be
-    // copied, a published import, and a plan nobody has applied.
+    // applied with events waiting for review, a published import on sale
+    // here, and a plan nobody has applied. Nothing is copied from anywhere:
+    // an import contacts no other site.
     const admin = await importAdmin(browser)
 
     await admin.goto('/admin/imports')
@@ -5078,11 +5076,11 @@ test.describe.serial('imported events, swept', () => {
     await walkedByKeyboard(admin, admin.locator('main'), 'the plan')
   })
 
-  test('an applied run, with events to approve and a picture not copied, reflows and scans clean', async ({
+  test('an applied run, with events to approve and their ticket types, reflows and scans clean', async ({
     browser,
   }) => {
     const admin = await importAdmin(browser)
-    const { concert } = names().listings
+    const { concert, garba } = names().listings
 
     await admin.setViewportSize(DOOR_WIDTHS[0])
     await admin.goto(`/admin/imports/${imported.appliedRunId}`)
@@ -5090,7 +5088,11 @@ test.describe.serial('imported events, swept', () => {
     const table = admin.getByRole('table', { name: /^The plan for /u })
     const concertRow = table.getByRole('row').filter({ hasText: concert.title })
 
-    await expect(concertRow).toContainText('Sulekha answered with status 404.')
+    await expect(concertRow).toContainText('No price listed, so no ticket type')
+    await expect(table.getByRole('row').filter({ hasText: garba.title })).toContainText(
+      /\d of 4 ticket types on sale/u,
+    )
+    await expect(table.getByRole('columnheader', { name: 'Pictures' })).toHaveCount(0)
 
     const tick = admin.getByRole('checkbox', { name: `Approve “${concert.title}”` })
 
@@ -5103,7 +5105,7 @@ test.describe.serial('imported events, swept', () => {
     await expect(
       admin.getByRole('button', { name: 'Approve and publish 1 event', exact: true }),
     ).toBeEnabled()
-    await expect(admin.getByRole('button', { name: 'Retry pictures', exact: true })).toBeVisible()
+    await expect(admin.getByRole('button', { name: /retry pictures/iu })).toHaveCount(0)
 
     await measuredEverywhere(admin, 'the applied run')
     await walkedByKeyboard(admin, admin.locator('main'), 'the applied run')
@@ -5118,7 +5120,7 @@ test.describe.serial('imported events, swept', () => {
     await admin.setViewportSize(DOOR_WIDTHS[0])
     await admin.goto(`/admin/events/${event.id}`)
 
-    const section = admin.getByRole('region', { name: 'Copied from Sulekha', exact: true })
+    const section = admin.getByRole('region', { name: 'Imported from a listing', exact: true })
     const opener = section.getByRole('button', { name: 'Move to an organisation…', exact: true })
 
     await expect
@@ -5161,11 +5163,22 @@ test.describe.serial('imported events, swept', () => {
     importContexts.push(context)
     await visitor.goto(`/events/${event.slug}`)
     await expect(visitor.getByRole('heading', { level: 1, name: event.title })).toBeVisible()
-    await expect(
-      visitor
-        .locator('#tickets')
-        .getByRole('link', { name: 'Buy tickets on Sulekha', exact: true }),
-    ).toBeVisible()
+
+    const tickets = visitor.locator('#tickets')
+    const reserve = tickets.getByRole('link', {
+      name: 'Reserve on WhatsApp, opens WhatsApp in a new tab',
+      exact: true,
+    })
+
+    // Sold here, through the checkout, beside the company's WhatsApp chat.
+    await expect(tickets.getByRole('link', { name: /choose tickets/iu })).toBeVisible()
+    await expect(reserve).toBeVisible()
+    await expect(reserve).toHaveAttribute('href', /^https:\/\/wa\.me\/19726949043\?text=/u)
+    await expect(reserve).toHaveAccessibleDescription(
+      'Opens a WhatsApp chat with the team at The Desi Events, with a message about this event ready for you to send.',
+    )
+    await expect(visitor.getByRole('link', { name: 'Buy tickets', exact: true })).toHaveCount(0)
+    expect(await visitor.content()).not.toMatch(/sulekha/iu)
 
     await measuredEverywhere(visitor, 'the imported event’s page')
 
@@ -5175,7 +5188,8 @@ test.describe.serial('imported events, swept', () => {
       .getByRole('listitem')
       .filter({ has: visitor.getByRole('link', { name: event.title, exact: true }) })
 
-    await expect(card).toContainText('On Sulekha from $25.00')
+    await expect(card).toContainText(names().listings.garba.presentedBy)
+    await expect(card).not.toContainText(/sulekha|No price listed/iu)
 
     await measuredEverywhere(visitor, 'the imported event’s card')
   })

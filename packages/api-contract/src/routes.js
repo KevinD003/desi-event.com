@@ -261,7 +261,6 @@ import {
   eventImportListQuerySchema,
   eventImportPreviewRequestSchema,
   eventImportReassignRequestSchema,
-  eventImportRetryRequestSchema,
   eventImportRunListResponseSchema,
   eventImportRunParamSchema,
   eventImportRunResponseSchema,
@@ -394,7 +393,8 @@ export const API_TAGS = Object.freeze([
   { name: 'waitlist', description: 'Waitlist sign-up for sold-out events.' },
   {
     name: 'imports',
-    description: 'Bringing events listed on another site onto The Desi Events, by its own team.',
+    description:
+      'Bringing listed events onto The Desi Events, by its own team, and selling their tickets here.',
   },
   {
     name: 'referral-codes',
@@ -2154,7 +2154,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events/:id/open-sales',
       summary: 'Open or resume ticket sales',
       description:
-        'Moves PUBLISHED, SALES_PAUSED or POSTPONED to ON_SALE. Refuses unless the organisation is verified and at least one ticket type is ready to sell. The first time it succeeds it stamps `salesOpenedAt`, after which the seating map behind the sessions is frozen. Requires `event:publish` for the owning organisation, asserted in the handler, and a recent step-up.',
+        'Moves PUBLISHED, SALES_PAUSED or POSTPONED to ON_SALE. Refuses unless the organisation is verified and at least one ticket type is ready to sell. The first time it succeeds it stamps `salesOpenedAt`, after which the seating map behind the sessions is frozen. Requires `event:publish` for the owning organisation, asserted in the handler, and a recent step-up. For an imported event the team at The Desi Events holds, which has no organiser here, an administrator (`event:platform_edit`) may open sales in an open editing session (403 `PLATFORM_EDIT_NOT_OPEN` without one), recorded as the team’s doing with the session and its reason.',
       tags: ['events'],
       auth: 'session',
       stepUp: 'EVENT_PUBLISH',
@@ -2178,7 +2178,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events/:id/pause-sales',
       summary: 'Stop selling without cancelling',
       description:
-        'Moves ON_SALE or SOLD_OUT to SALES_PAUSED. Nothing already sold is affected; this closes the door rather than reversing what came through it. Requires `event:pause_sales` for the owning organisation, asserted in the handler.',
+        'Moves ON_SALE or SOLD_OUT to SALES_PAUSED. Nothing already sold is affected; this closes the door rather than reversing what came through it. Requires `event:pause_sales` for the owning organisation, asserted in the handler. For an imported event the team at The Desi Events holds, an administrator (`event:platform_edit`) may pause sales in an open editing session, as with opening them.',
       tags: ['events'],
       auth: 'session',
       params: idParamSchema,
@@ -2542,7 +2542,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/platform/imports',
       summary: 'Upload an import file and plan it',
       description:
-        'Reads an uploaded `desi-event-import/1` file (`source` SULEKHA) and plans it against what The Desi Events holds, writing nothing but the run: each listing becomes CREATE, UPDATE_DRAFT, UNCHANGED, POSTED_KEPT, SKIPPED_DECIDED, SKIPPED_DELETED, SKIPPED_REASSIGNED, SKIPPED_PAST or INVALID, with the curator’s notes, its picture and price counts and whether it lists an end time. A file with problems is 422 `IMPORT_INVALID`, each problem placed in `error.problems` (at most 50): its shape, its format and source, a listing or ticket link off `https://events.sulekha.com`, or a picture off `https://usimg.sulekha.io`. The plan stays applicable for one hour. The body may be up to 2 MiB. Held by `event:import`; twenty preview, apply and retry requests an hour per administrator. Audited `event_import.previewed`. Never cached.',
+        'Reads an uploaded `desi-event-import/1` file (its `source` one this build imports from) and plans it against what The Desi Events holds, writing nothing but the run: each listing becomes CREATE, UPDATE_DRAFT, UNCHANGED, POSTED_KEPT, SKIPPED_DECIDED, SKIPPED_DELETED, SKIPPED_REASSIGNED, SKIPPED_PAST or INVALID (its prices not in the currency of its venue’s country: USD in the United States, CAD in Canada), with the curator’s notes, how many prices it lists (each becomes a ticket type) and how many of them it marked sold out, its currency, and whether it lists an end time. A file carries no web address: one that still names a listing link, a ticket link, pictures, a source site, picture hosts or a source name is refused, each such field named. A file with problems is 422 `IMPORT_INVALID`, each problem placed in `error.problems` (at most 50). The plan stays applicable for one hour. The body may be up to 2 MiB. Nothing is fetched from anywhere. Held by `event:import`; twenty preview and apply requests an hour per administrator. Audited `event_import.previewed`. Never cached.',
       tags: ['imports'],
       auth: 'session',
       capability: 'event:import',
@@ -2566,7 +2566,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/platform/imports/:runId',
       summary: 'One import run: its plan, and what each row wrote',
       description:
-        'The run’s plan row by row (the listing, its action, why an INVALID row cannot be imported, the curator’s notes) and, once applied, each event it wrote: its status and revision (what an approval must name), whether this run last wrote it, whether it was since moved to an organiser’s organisation, who imported and who approved it, and each picture with its status and failure reason. The pictures’ addresses on the source are listed here for administrators and appear in no public payload. Held by `event:import`. Never cached.',
+        'The run’s plan row by row (the listing, its action, why an INVALID row cannot be imported, the curator’s notes, its price and sold-out counts and currency) and, once applied, each event it wrote: its status and revision (what an approval must name), whether this run last wrote it, whether it was since moved to an organiser’s organisation, who imported and who approved it, and how many ticket types the import made for it and how many are on sale. Held by `event:import`. Never cached.',
       tags: ['imports'],
       auth: 'session',
       capability: 'event:import',
@@ -2583,7 +2583,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/platform/imports/:runId/apply',
       summary: 'Import a planned run',
       description:
-        'Applies the plan the administrator read: `planDigest` must be the run’s (and the plan, worked out again now, must still give it: 409 `IMPORT_PLAN_CHANGED`), and a run applies once (409 `IMPORT_RUN_APPLIED`) within its hour (409 `IMPORT_RUN_EXPIRED`). One transaction per listing writes the event into the platform-held organisation “Sulekha Events” (created VERIFIED, with no members, the first time) as a DRAFT and sends it for review: its venue, its night (a listing with no end time stores start plus three hours, never shown), its words, terms and its website address (the Sulekha page), and its import record with the listed prices; no ticket type is made. A draft already imported is updated and sent for review again; a posted event is left alone unless named in `updateFromSource`, which updates it as a live edit with a change notice. Then pictures are copied, four at a time, for at most 60 seconds; those not reached stay waiting (`meta.picturesWaiting`) for “Retry pictures”. Each copied picture is stored waiting for approval. Held by `event:import`, with a second factor within the MODERATION window. Audited `event.imported` per event and `event_import.applied`.',
+        'Applies the plan the administrator read: `planDigest` must be the run’s (and the plan, worked out again now, must still give it: 409 `IMPORT_PLAN_CHANGED`), and a run applies once (409 `IMPORT_RUN_APPLIED`) within its hour (409 `IMPORT_RUN_EXPIRED`). One transaction per listing writes the event into the platform-held organisation “The Desi Events” (created VERIFIED, with no members, the first time) as a DRAFT and sends it for review: its venue, its night (a listing with no end time stores start plus three hours, never shown), its words and terms, its import record with the listed prices, and one ticket type per listed price, sold on The Desi Events: general admission, priced as listed in the event’s currency, an allowance of 100 tickets each (`quantityIsAllowance`, never shown as tickets left), 1 to 10 per order, not yet on sale; a price the listing marked sold out is made CLOSED. No website address is set, and nothing is fetched: there are no pictures to copy. A draft already imported is updated and sent for review again, its ticket types matched to the listing’s prices. A posted event is left alone unless named in `updateFromSource`, which updates it as a live edit with a change notice; a ticket type that has been sold, ordered or held is never changed by it, one that has not takes the listing’s price, a new price is added not yet on sale, and one the listing no longer gives is removed. Held by `event:import`, with a second factor within the MODERATION window. Audited `event.imported` per event and `event_import.applied`.',
       tags: ['imports'],
       auth: 'session',
       capability: 'event:import',
@@ -2608,40 +2608,12 @@ export const apiRoutes = Object.freeze(
       ],
     },
     {
-      id: 'eventImports.retryImages',
-      method: 'POST',
-      path: '/v1/platform/imports/:runId/images/retry',
-      summary: 'Copy an applied run’s pictures again',
-      description:
-        'Tries again every picture of the run that is waiting or failed, or only those of the events named in `eventIds` (each must be an event this run wrote: 409 `NOT_IN_RUN`), four at a time, for at most 60 seconds. Pictures are copied only from `https://usimg.sulekha.io`, with every address it resolves to checked to be public, at most 10 MiB, as a JPEG, PNG or WebP that passes the upload sanitiser; each is stored waiting for approval. 409 `NOT_EDITABLE` for a run not applied. Held by `event:import`, with a second factor within the MODERATION window. Audited `event_import.images_retried`.',
-      tags: ['imports'],
-      auth: 'session',
-      capability: 'event:import',
-      stepUp: 'MODERATION',
-      params: eventImportRunParamSchema,
-      query: null,
-      body: eventImportRetryRequestSchema,
-      response: eventImportRunResponseSchema,
-      successStatus: 200,
-      errors: [
-        API_ERRORS.validation,
-        API_ERRORS.unauthorized,
-        API_ERRORS.stepUpRequired,
-        API_ERRORS.notFound,
-        API_ERRORS.conflict,
-        API_ERRORS.rateLimited,
-        // A picture that cannot wait is reported `TRY_AGAIN`; only the run's
-        // own record running out answers this (`Retry-After`).
-        API_ERRORS.unavailable,
-      ],
-    },
-    {
       id: 'eventImports.approve',
       method: 'POST',
       path: '/v1/platform/imports/:runId/approve',
       summary: 'Approve and publish imported events',
       description:
-        'For each event named, at the revision the page showed, in its own transaction (a refusal rolls back that event only and is reported for it): the event must be one this run last wrote, still in the platform-held organisation (409 `NOT_IN_RUN`, `NOT_PLATFORM_HELD`). One waiting for review is approved, with its waiting pictures, then published without opening sales, and its website link to its Sulekha page switched on, labelled “Buy tickets on Sulekha”. One a moderator already approved is published the same way. One already posted has only its waiting imported pictures approved. A picture stored after the page was read changes the revision, so that event is refused 409 `STALE_REVISION`. The administrator who imported an event may approve it (the reviewer-independence exemption for the platform-held organisation, recorded with who imported and who approved). A run that has not been applied has no events to approve (409 `NOT_EDITABLE`). Held by `event:import` and `moderation:review`, with a second factor within the EVENT_PUBLISH window. Audited `event.approved` and `event.published` per event.',
+        'For each event named, at the revision the page showed, in its own transaction (a refusal rolls back that event only and is reported for it): the event must be one this run last wrote, still in the platform-held organisation (409 `NOT_IN_RUN`, `NOT_PLATFORM_HELD`). One waiting for review is approved, published and put on sale: each of its imported ticket types that is not closed goes on sale from now until the event starts, and the event moves to ON_SALE (when it has none to sell it stays PUBLISHED). One a moderator already approved is published the same way. One already posted has its imported ticket types that are not yet on sale put on sale, and is moved to ON_SALE if it was PUBLISHED (`SALES_OPENED`). No website link is switched on. A change to the event after the page was read changes the revision, so that event is refused 409 `STALE_REVISION`. The administrator who imported an event may approve it (the reviewer-independence exemption for the platform-held organisation, recorded with who imported and who approved). A run that has not been applied has no events to approve (409 `NOT_EDITABLE`). Held by `event:import` and `moderation:review`, with a second factor within the EVENT_PUBLISH window. Audited `event.approved` and `event.published` per event.',
       tags: ['imports'],
       auth: 'session',
       capability: 'event:import',
@@ -2686,7 +2658,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/platform/imports/events/:eventId/reassign',
       summary: 'Move an imported event to an organiser’s organisation',
       description:
-        'Moves an imported event out of the platform-held organisation into a verified, unsuspended organisation (409 `TARGET_NOT_ELIGIBLE` otherwise; 409 `NOT_IMPORTED` or `NOT_PLATFORM_HELD` for an event that is not, or no longer, held there; 409 `NOT_EDITABLE` for a deleted one; 409 `STALE_REVISION` for another revision). In one transaction: the event and its venue move (the venue is copied when another event uses it), the move is recorded on the import record, and its Sulekha ticket link is switched off when on. Its status, pictures and web address are unchanged; it no longer shows “Presented by” or Sulekha’s prices, and its new owner may add ticket types and sell. The organisation is not asked first. A reason of 10 to 500 characters and a second factor within the EVENT_PUBLISH window. Held by `event:import`. Audited `event.import_reassigned`.',
+        'Moves an imported event out of the platform-held organisation into a verified, unsuspended organisation (409 `TARGET_NOT_ELIGIBLE` otherwise; 409 `NOT_IMPORTED` or `NOT_PLATFORM_HELD` for an event that is not, or no longer, held there; 409 `NOT_EDITABLE` for a deleted one; 409 `STALE_REVISION` for another revision). In one transaction: the event and its venue move (the venue is copied when another event uses it), the move is recorded on the import record, and its website link is switched off when on. Its status, ticket types, sales, pictures and web address are unchanged; it no longer shows “Presented by” or the listing’s prices, and its new owner runs its ticket types and sales from then on. The organisation is not asked first. A reason of 10 to 500 characters and a second factor within the EVENT_PUBLISH window. Held by `event:import`. Audited `event.import_reassigned`.',
       tags: ['imports'],
       auth: 'session',
       capability: 'event:import',
@@ -3612,7 +3584,7 @@ export const apiRoutes = Object.freeze(
       summary:
         'An event’s booking fee and pay-at-the-venue setting, for the team at The Desi Events',
       description:
-        'The event’s booking fee (the platform fee): its effective percentage and amount per ticket, whether they are the event’s own or the site default for the event’s currency, and who last changed them, when and why; the site default for that currency; and whether buyers may pay the ticket price at the door, with the most tickets that may be waiting to be paid there and the event’s bookings to pay at the door (whether any exist, unpaid tickets, and what was taken at the door). Also whether the event is online, sold on its listing’s own site (`soldOnSource`) or was ever posted, and the 50 newest changes of either kind, newest first; `historyHasMore` says older ones exist, and `before` (an instant, the oldest shown) pages back. Readable in every status, a deleted event included. Held by `payment_terms:manage` (ADMIN and SUPER_ADMIN). Answers `cache-control: no-store, private`.',
+        'The event’s booking fee (the platform fee): its effective percentage and amount per ticket, whether they are the event’s own or the site default for the event’s currency, and who last changed them, when and why; the site default for that currency; and whether buyers may pay the ticket price at the door, with the most tickets that may be waiting to be paid there and the event’s bookings to pay at the door (whether any exist, unpaid tickets, and what was taken at the door). Also whether the event is online or was ever posted, and the 50 newest changes of either kind, newest first; `historyHasMore` says older ones exist, and `before` (an instant, the oldest shown) pages back. Readable in every status, a deleted event included. Held by `payment_terms:manage` (ADMIN and SUPER_ADMIN). Answers `cache-control: no-store, private`.',
       tags: ['events'],
       auth: 'session',
       capability: 'payment_terms:manage',
@@ -3634,7 +3606,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/platform/events/:id/platform-fee',
       summary: 'Set an event’s booking fee, or return it to the site default',
       description:
-        'Sets the event’s own booking fee — a percentage of the ticket price after any promo (0 to 30.00%, in basis points) and an amount per ticket (0 to 100.00 in the currency the event sells in), either of which may be 0 — or returns it to the site default. The fee is in the event’s one currency, so the request names none. Allowed in every status but DELETED (409 `NOT_EDITABLE`; a restore brings the fee back as it was), at any time, and never frozen once the event is live: it applies to orders priced after it is saved, and every order keeps the fee it was charged. An event sold on its listing’s own site has no booking fee here (409 `SOLD_ON_SOURCE`). `expectedSequence` is the newest decision’s sequence the administrator read (0 when there is none): another change since answers 409 `PAYMENT_TERMS_CHANGED` with `error.details.currentSequence`, and the same terms again answer 409 `PLATFORM_FEE_UNCHANGED`. A reason of 10 to 500 characters, shown to the organiser with the administrator’s name. An administrator who belongs to the event’s organisation is refused with 403 `CONFLICT_OF_INTEREST`. Held by `payment_terms:manage` (ADMIN and SUPER_ADMIN) with a second factor within the PAYMENT_TERMS window; sixty changes of booking fees and pay-at-the-venue settings an hour per administrator, together. The event’s revision is not changed. Waits behind other changes to the event for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing changed). Audited `event.platform_fee_changed`; answers `cache-control: no-store, private`.',
+        'Sets the event’s own booking fee — a percentage of the ticket price after any promo (0 to 30.00%, in basis points) and an amount per ticket (0 to 100.00 in the currency the event sells in), either of which may be 0 — or returns it to the site default. The fee is in the event’s one currency, so the request names none. Allowed in every status but DELETED (409 `NOT_EDITABLE`; a restore brings the fee back as it was), at any time, and never frozen once the event is live: it applies to orders priced after it is saved, and every order keeps the fee it was charged. `expectedSequence` is the newest decision’s sequence the administrator read (0 when there is none): another change since answers 409 `PAYMENT_TERMS_CHANGED` with `error.details.currentSequence`, and the same terms again answer 409 `PLATFORM_FEE_UNCHANGED`. A reason of 10 to 500 characters, shown to the organiser with the administrator’s name. An administrator who belongs to the event’s organisation is refused with 403 `CONFLICT_OF_INTEREST`. Held by `payment_terms:manage` (ADMIN and SUPER_ADMIN) with a second factor within the PAYMENT_TERMS window; sixty changes of booking fees and pay-at-the-venue settings an hour per administrator, together. The event’s revision is not changed. Waits behind other changes to the event for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing changed). Audited `event.platform_fee_changed`; answers `cache-control: no-store, private`.',
       tags: ['events'],
       auth: 'session',
       capability: 'payment_terms:manage',
@@ -3662,7 +3634,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/platform/events/:id/venue-payment',
       summary: 'Switch paying at the venue on or off for an event, or change its limit',
       description:
-        'Whether buyers may book and pay the ticket price at the door (paying the booking fee online), and the most pay-at-the-venue tickets all buyers together may hold unpaid at once (1 to 100,000; required to turn it on, kept when it is turned off). Changing the limit while it is on is the same command. Allowed in every status but DELETED (409 `NOT_EDITABLE`); refused for an event sold on its listing’s own site (409 `SOLD_ON_SOURCE`); turning it on is refused for an online event (422 `VENUE_PAYMENT_ONLINE_EVENT`), turning it off is allowed for one; turning it on without a limit answers 422 `VENUE_LIMIT_REQUIRED`. `seen` is the switch and limit the administrator read: anything else now answers 409 `PAYMENT_TERMS_CHANGED`, and the same setting again 409 `VENUE_PAYMENT_UNCHANGED`. Turning it off, or lowering the limit, leaves every booking already made as it is; it applies to checkouts priced after it is saved. A reason of 10 to 500 characters, shown to the organiser with the administrator’s name. An administrator who belongs to the event’s organisation is refused with 403 `CONFLICT_OF_INTEREST`. Held by `payment_terms:manage` (ADMIN and SUPER_ADMIN) with a second factor within the PAYMENT_TERMS window, on the same hourly budget as the booking fee. The event’s revision is not changed. Waits behind other changes to the event for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing changed). Audited `event.venue_payment_changed`; answers `cache-control: no-store, private`.',
+        'Whether buyers may book and pay the ticket price at the door (paying the booking fee online), and the most pay-at-the-venue tickets all buyers together may hold unpaid at once (1 to 100,000; required to turn it on, kept when it is turned off). Changing the limit while it is on is the same command. Allowed in every status but DELETED (409 `NOT_EDITABLE`); turning it on is refused for an online event (422 `VENUE_PAYMENT_ONLINE_EVENT`) and for an imported event the team at The Desi Events holds (409 `VENUE_PAYMENT_UNAVAILABLE`: nobody takes money at its door), turning it off is allowed for either; turning it on without a limit answers 422 `VENUE_LIMIT_REQUIRED`. `seen` is the switch and limit the administrator read: anything else now answers 409 `PAYMENT_TERMS_CHANGED`, and the same setting again 409 `VENUE_PAYMENT_UNCHANGED`. Turning it off, or lowering the limit, leaves every booking already made as it is; it applies to checkouts priced after it is saved. A reason of 10 to 500 characters, shown to the organiser with the administrator’s name. An administrator who belongs to the event’s organisation is refused with 403 `CONFLICT_OF_INTEREST`. Held by `payment_terms:manage` (ADMIN and SUPER_ADMIN) with a second factor within the PAYMENT_TERMS window, on the same hourly budget as the booking fee. The event’s revision is not changed. Waits behind other changes to the event for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing changed). Audited `event.venue_payment_changed`; answers `cache-control: no-store, private`.',
       tags: ['events'],
       auth: 'session',
       capability: 'payment_terms:manage',

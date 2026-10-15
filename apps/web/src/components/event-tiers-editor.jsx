@@ -38,6 +38,9 @@ import { fieldIssues, refusalSentence } from '../lib/refusal.js'
 import { formatAmount, formatPrice } from '../lib/pricing.js'
 import { blankTierForm, sessionLabel, toTierForm } from '../lib/tier-form.js'
 
+/** What a tier's line adds when its quantity is an allowance an import set. */
+export const ALLOWANCE_NOTE = '(an allowance the import set: buyers see no count of what is left)'
+
 /** How each tier status reads. */
 const TIER_STATUS = Object.freeze({
   DRAFT: ['Not on sale (draft)', 'neutral'],
@@ -416,6 +419,7 @@ export function EventTiersEditor({
                           {tier.reserved
                             ? ` · ${(tier.quantitySold ?? 0).toLocaleString('en-US')} sold`
                             : ` · ${(tier.quantitySold ?? 0).toLocaleString('en-US')} of ${tier.quantityTotal.toLocaleString('en-US')} sold`}
+                          {tier.quantityIsAllowance ? ` ${ALLOWANCE_NOTE}` : ''}
                           {tier.heldQuantity > 0
                             ? ` · ${tier.heldQuantity.toLocaleString('en-US')} held`
                             : ''}
@@ -529,6 +533,7 @@ export function EventTiersEditor({
                           kind="edit"
                           idPrefix={`tier-${tier.id}`}
                           initial={toTierForm(tier)}
+                          allowance={tier.quantityIsAllowance === true}
                           sessions={sessions}
                           eventTimezone={eventZone}
                           mode={mode}

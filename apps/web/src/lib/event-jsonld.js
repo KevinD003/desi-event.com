@@ -92,6 +92,33 @@ const AVAILABILITY = Object.freeze({
 })
 
 /**
+ * One ticket type's availability, read as its line on the page reads it
+ * (`availabilityLabel` in `components/ticket-tiers.jsx`), so the structured
+ * data never says "in stock" beside a line that says otherwise: a tier sold
+ * out by status or by stock is `SoldOut`; a closed one (an import's tier the
+ * listing sold out of, or one whose sales ended) is `OutOfStock`; a paused one
+ * or one not opened yet is `PreOrder`. Otherwise the event's own situation
+ * decides ({@link AVAILABILITY}).
+ *
+ * @param {object} tier A public ticket type: `status`, `isSoldOut`, `availableQuantity`.
+ * @param {string} eventStatus The event's status.
+ * @returns {string} A `schema.org` availability URL.
+ */
+function offerAvailability(tier, eventStatus) {
+  if (tier.status === 'SOLD_OUT') return 'https://schema.org/SoldOut'
+  if (tier.status === 'CLOSED') return 'https://schema.org/OutOfStock'
+  if (tier.status === 'PAUSED' || tier.status === 'DRAFT') return 'https://schema.org/PreOrder'
+  if (
+    tier.isSoldOut === true ||
+    (Number.isFinite(tier.availableQuantity) && tier.availableQuantity <= 0)
+  ) {
+    return 'https://schema.org/SoldOut'
+  }
+
+  return AVAILABILITY[eventStatus] ?? 'https://schema.org/PreOrder'
+}
+
+/**
  * The structured-data object for an event, or null when there is nothing to say.
  *
  * @param {object} event The public event payload.
@@ -110,10 +137,10 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
     (tier) => Number.isFinite(tier.priceCents) && tier.visibility !== 'HIDDEN',
   )
 
-  // An event copied from its Sulekha listing: its tickets are sold there, so
-  // it has no offers here; its organiser is the one the listing names; and
-  // where the listing gave no end time, no end is claimed (the API's end is a
-  // planning estimate then).
+  // An event imported from an organiser's listing: sold here like any other,
+  // so its offers are its tiers; its organiser is the one the listing names;
+  // and where the listing gave no end time, no end is claimed (the API's end
+  // is a planning estimate then).
   const imported = event.importedFrom ?? null
   const endListed = endTimeListed(event)
 
@@ -189,13 +216,13 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
 
   // A cancelled event has no offers. Leaving them in would describe tickets on
   // sale for something that is not happening.
-  if (tiers.length > 0 && event.status !== 'CANCELLED' && !imported) {
+  if (tiers.length > 0 && event.status !== 'CANCELLED') {
     data.offers = tiers.map((tier) => ({
       '@type': 'Offer',
       name: tier.name,
       price: (tier.priceCents / 100).toFixed(2),
       priceCurrency: tier.currency ?? 'USD',
-      availability: AVAILABILITY[event.status] ?? 'https://schema.org/PreOrder',
+      availability: offerAvailability(tier, event.status),
       url,
       ...(tier.salesStartAt ? { validFrom: tier.salesStartAt } : {}),
     }))

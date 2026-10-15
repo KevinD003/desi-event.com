@@ -28,7 +28,7 @@ function run(overrides = {}) {
     id: 'crun0000000000000000001',
     source: 'SULEKHA',
     status: 'APPLIED',
-    fileName: 'sulekha-texas-2026.json',
+    fileName: 'texas-2026.json',
     eventCount: 45,
     createdAt: '2026-10-06T10:00:00.000Z',
     expiresAt: '2026-10-06T11:00:00.000Z',
@@ -74,7 +74,7 @@ describe('the imports page', () => {
     const rows = within(table).getAllByRole('row')
 
     expect(rows).toHaveLength(3)
-    expect(within(rows[1]).getByRole('link', { name: 'sulekha-texas-2026.json' })).toHaveAttribute(
+    expect(within(rows[1]).getByRole('link', { name: 'texas-2026.json' })).toHaveAttribute(
       'href',
       '/admin/imports/crun0000000000000000001',
     )

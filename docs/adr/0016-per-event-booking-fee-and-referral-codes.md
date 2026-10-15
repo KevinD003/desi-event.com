@@ -81,8 +81,11 @@ promo codes.
 - **Any time, any status except deleted** (DF5, R4): draft, under review, on
   sale, paused, sold out, postponed, finished, cancelled, rejected, archived.
   A deleted event refuses (409 `NOT_EDITABLE`); its settings stay as they were,
-  so a restore brings them back. The platform-held "Sulekha Events" organisation
-  refuses (409 `SOLD_ON_SOURCE`).
+  so a restore brings them back. The platform-held organisation that holds
+  imported events refuses (409 `SOLD_ON_SOURCE`). _Superseded 2026-10-15 (ADR 0015, addendum
+  "2026-10-15 (2)"): its tickets are sold here, so its fee is set like any
+  other event's; only paying at the venue is refused for it (409
+  `VENUE_PAYMENT_UNAVAILABLE`)._
 - **Who** (DF6): `payment_terms:manage` (ADMIN, SUPER_ADMIN), step-up
   `PAYMENT_TERMS` (ten minutes), a reason of 10–500 characters, a
   compare-and-set on the decision's sequence, an audit row

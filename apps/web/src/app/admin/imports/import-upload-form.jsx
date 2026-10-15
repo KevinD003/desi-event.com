@@ -200,7 +200,7 @@ export function ImportUploadForm({ maxBytes }) {
         label="Listing file"
         id={fileId}
         required
-        description="A Sulekha listing file in JSON (desi-event-import/1). Planning it writes nothing but the plan; nothing is imported until you apply it."
+        description="An imported listing file in JSON (desi-event-import/1). Planning it writes nothing but the plan; nothing is imported until you apply it."
         {...(fieldError ? { error: fieldError } : {})}
       >
         <input

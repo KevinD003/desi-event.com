@@ -157,14 +157,7 @@ async function loadPaymentTerms(event, session, changesBefore, tiers = undefined
 
   return {
     terms,
-    readOnly:
-      event.status === 'DELETED'
-        ? 'deleted'
-        : terms.soldOnSource
-          ? 'source'
-          : member
-            ? 'member'
-            : null,
+    readOnly: event.status === 'DELETED' ? 'deleted' : member ? 'member' : null,
     canCancelUnpaid: sessionCan(session, 'venue_booking:cancel'),
     example: cheapestPaidTier(tierRead),
     changesBefore,
@@ -264,8 +257,8 @@ function Header({ event }) {
 /**
  * The danger zone: deleting, which needs no editing session. It says first
  * that deleting can be undone at any time with "Restore…", and what a restore
- * brings back; for an event copied from Sulekha, that deleting only takes it
- * off the site.
+ * brings back; for an imported event, that deleting only takes it off the
+ * site.
  *
  * @param {object} props Component props.
  * @param {object} props.event The event.
@@ -317,12 +310,12 @@ function ImportedEventSection({ event }) {
       className="mt-8 max-w-3xl space-y-3 rounded-card border border-line bg-surface-subtle p-4"
     >
       <h2 id="admin-imported-heading" className="text-lg font-semibold text-ink">
-        Copied from Sulekha
+        Imported from a listing
       </h2>
       <p className="text-sm text-ink">
         {event.importedFrom.presentedBy
-          ? `This event was copied from its Sulekha listing and is presented by ${event.importedFrom.presentedBy}. Its tickets are sold on Sulekha. Once its organiser has an organisation here, move it there.`
-          : 'This event was copied from its Sulekha listing, which names no organiser. Its tickets are sold on Sulekha. Once its organiser has an organisation here, move it there.'}
+          ? `This event was imported from its organiser’s listing and is presented by ${event.importedFrom.presentedBy}. Its tickets are sold here, with simulated payment, and can be reserved on WhatsApp. Change its ticket types and their allowances in an editing session. Once its organiser has an organisation here, move it there.`
+          : 'This event was imported from its organiser’s listing, which names no organiser. Its tickets are sold here, with simulated payment, and can be reserved on WhatsApp. Change its ticket types and their allowances in an editing session. Once its organiser has an organisation here, move it there.'}
       </p>
       <ReassignEventDialog event={{ id: event.id, title: event.title, revision: event.revision }} />
     </section>
@@ -363,7 +356,7 @@ function MovedStatus({ event }) {
 
   return (
     <p role="status" aria-live="polite" className="mt-4 text-sm font-medium text-ink">
-      {`Moved to ${event.organization?.name ?? 'its organisation'}. Its Sulekha ticket link is off until an administrator approves the organiser’s own address.`}
+      {`Moved to ${event.organization?.name ?? 'its organisation'}. Its organisation now runs it, and it is no longer shown as an imported listing.`}
     </p>
   )
 }

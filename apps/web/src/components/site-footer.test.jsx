@@ -24,13 +24,14 @@ describe('SiteFooter', () => {
     expect(images[0]).not.toHaveAttribute('fetchpriority')
   })
 
-  it('says on every page that payments are simulated and the catalogue is fictional, apart from Sulekha listings', () => {
+  it('says on every page that payments are simulated and the catalogue is fictional, apart from imported listings, without naming their site', () => {
     const { container } = render(<SiteFooter />)
 
     expect(container.textContent).toMatch(/Payments on this site are simulated/)
     expect(container.textContent).toMatch(
-      /Events, organisers and prices on this site are fictional, except events copied from Sulekha\.com listings\./,
+      /Events, organisers and prices on this site are fictional, except events imported from organisers’ public ticket listings, which name the organiser who presents them and are sold here at the prices the organiser listed\./,
     )
+    expect(container.textContent).not.toMatch(/sulekha/iu)
     // Imported events are real listings, so the blanket claim would be false
     // wherever an administrator has imported them (ADR 0015).
     expect(container.textContent).not.toMatch(
@@ -42,9 +43,9 @@ describe('SiteFooter', () => {
     const { container } = render(<SiteFooter />)
 
     expect(container.textContent).toMatch(
-      /Garba, dandiya and Navratri nights across the USA and Canada\. Tickets sold here are priced in US dollars alongside their booking fee\./,
+      /Garba, dandiya and Navratri nights across the USA and Canada\. Tickets sold here are priced in US dollars, or Canadian dollars at a venue in Canada, alongside their booking fee\./,
     )
-    // A Canadian listing copied from Sulekha is priced in CA$, not US dollars.
+    // A Canadian imported event is sold here in CA$, not US dollars.
     expect(container.textContent).not.toMatch(/every price shown in US dollars/)
   })
 

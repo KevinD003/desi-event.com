@@ -15,9 +15,10 @@ const { getImportRun } = await import('../../../../lib/imports-api.js')
 const { readSession } = await import('../../../../lib/session.js')
 const {
   default: ImportRunPage,
-  picturesSentence,
+  NO_PICTURES_SENTENCE,
   withoutSourceAddresses,
 } = await import('./page.jsx')
+const pageModule = await import('./page.jsx')
 const { NOT_FOR_THIS_ACCOUNT } = await import('../import-vocabulary.js')
 
 const ADMIN = {
@@ -38,7 +39,7 @@ function run(overrides = {}) {
     id: 'crun0000000000000000001',
     source: 'SULEKHA',
     status: 'APPLIED',
-    fileName: 'sulekha-texas-2026.json',
+    fileName: 'texas-2026.json',
     eventCount: 1,
     createdAt: '2026-10-06T10:00:00.000Z',
     expiresAt: '2026-10-06T11:00:00.000Z',
@@ -104,17 +105,18 @@ beforeEach(() => {
 })
 
 describe('one import', () => {
-  it('names the file and where the run stands, and how many pictures still wait', async () => {
+  it('names the file and where the run stands, says imports copy no pictures, and offers no “Retry pictures”', async () => {
     await renderPage()
 
-    expect(
-      screen.getByRole('heading', { level: 1, name: 'sulekha-texas-2026.json' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'texas-2026.json' })).toBeInTheDocument()
     expect(screen.getByText('Applied')).toBeInTheDocument()
+    expect(document.body.textContent).toContain(NO_PICTURES_SENTENCE)
     expect(
-      screen.getByText(/1 pictures are still waiting: use Retry pictures\./u),
+      screen.getByText(/approve and publish them here, which puts their tickets on sale here/u),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Retry pictures' })).toBeInTheDocument()
+    // Even with a picture an older build recorded as waiting, nothing offers to copy it.
+    expect(screen.queryByRole('button', { name: /retry pictures/iu })).toBeNull()
+    expect(screen.queryByText(/use Retry pictures|still waiting/u)).toBeNull()
   })
 
   it('lets the administrator tick as many events as one approval takes, IMPORT_LIMITS.approveItems', async () => {
@@ -132,7 +134,7 @@ describe('one import', () => {
         revision: 2,
         inThisRun: true,
         reassigned: false,
-        organizationName: 'Sulekha Events',
+        organizationName: 'The Desi Events',
         importedByName: 'Anil Rao',
         approvedAt: null,
         approvedByName: null,
@@ -152,11 +154,29 @@ describe('one import', () => {
     ).toBeInTheDocument()
   })
 
-  it('never puts a Sulekha picture address in the page', async () => {
+  it('never puts an address of the source site in the page, nor any link to it', async () => {
+    const withAddresses = run({
+      rows: [
+        {
+          ...run().rows[0],
+          sourceUrl: 'https://events.sulekha.com/raga-night_event-in_houston-tx_401684',
+          ticketUrl: 'https://events.sulekha.com/raga-night/tickets',
+        },
+      ],
+    })
+
+    getImportRun.mockResolvedValue({ run: withAddresses, picturesWaiting: 0 })
+
     const { container } = await renderPage()
 
-    expect(container.innerHTML).not.toContain('usimg.sulekha.io')
-    expect(withoutSourceAddresses(run()).rows[0].pictures[0]).not.toHaveProperty('url')
+    expect(container.innerHTML).not.toMatch(/sulekha\.(?:com|io)/iu)
+    expect(screen.queryByRole('link', { name: /source listing/iu })).toBeNull()
+
+    const kept = withoutSourceAddresses(withAddresses).rows[0]
+
+    expect(kept.pictures[0]).not.toHaveProperty('url')
+    expect(kept).not.toHaveProperty('sourceUrl')
+    expect(kept).not.toHaveProperty('ticketUrl')
   })
 
   it('says an expired plan cannot be applied, and offers no import', async () => {
@@ -185,13 +205,11 @@ describe('one import', () => {
   })
 })
 
-describe('picturesSentence', () => {
-  it('says how the pictures stand, and that none are named when none are', () => {
-    expect(picturesSentence({ total: 0, stored: 0, failed: 0, waiting: 0 }, 0)).toBe(
-      'The listings in this run name no pictures.',
-    )
-    expect(picturesSentence({ total: 3, stored: 1, failed: 1, waiting: 1 }, 0)).toBe(
-      'Pictures: 1 of 3 copied, 1 not copied, 1 waiting.',
+describe('what the page says about pictures', () => {
+  it('no longer counts pictures copied or waiting: an import copies none', () => {
+    expect(pageModule).not.toHaveProperty('picturesSentence')
+    expect(NO_PICTURES_SENTENCE).toBe(
+      'Imports copy no pictures: each imported event shows a generated poster until a picture is added to it in an editing session.',
     )
   })
 })

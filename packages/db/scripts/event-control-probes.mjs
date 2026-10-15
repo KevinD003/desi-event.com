@@ -702,7 +702,8 @@ export async function runEventControlProbes(prisma, { probe, record }) {
   const noMembers = /platform_held_organization_has_no_members/
 
   /**
-   * The platform-held organisation for Sulekha, made inside the probe.
+   * The platform-held organisation for imported events, made inside the probe
+   * with the name the API gives it.
    *
    * @param {object} tx A transaction client.
    * @returns {Promise<object>} The organisation.
@@ -710,8 +711,8 @@ export async function runEventControlProbes(prisma, { probe, record }) {
   const platformHeld = (tx) =>
     tx.organization.create({
       data: {
-        name: 'Sulekha Events',
-        slug: unique('sulekha-events'),
+        name: 'The Desi Events',
+        slug: unique('the-desi-events'),
         contactEmail: 'imports@desi-event.example',
         verified: true,
         verificationStatus: 'VERIFIED',
@@ -791,7 +792,6 @@ export async function runEventControlProbes(prisma, { probe, record }) {
       data: {
         source: 'SULEKHA',
         sourceId: '402059',
-        sourceUrl: 'https://events.sulekha.com/probe-event_402059',
         eventId: event.id,
         importedById: user.id,
         scrapedAt: new Date('2026-09-29T21:25:00Z'),
@@ -818,29 +818,73 @@ export async function runEventControlProbes(prisma, { probe, record }) {
 
     await importItem(tx, held.id, { prices: { name: 'General' } })
   })
+  // Since 2026-10-15 an import copies nothing and keeps no address on the
+  // source: the pictures' table and the record's link are gone.
+  const [{ pictures, links }] = await prisma.$queryRawUnsafe(
+    'SELECT ' +
+      "(SELECT count(*)::int FROM information_schema.tables WHERE table_schema = 'public' " +
+      "AND table_name = 'EventImportImage') AS pictures, " +
+      "(SELECT count(*)::int FROM information_schema.columns WHERE table_schema = 'public' " +
+      "AND table_name = 'EventImportItem' AND column_name = 'sourceUrl') AS links",
+  )
+  results.push(
+    record(
+      'an import keeps no address on the source: no table of pictures, no link on its record',
+      pictures === 0 && links === 0,
+      {
+        note: `pictures' table ${pictures === 0 ? 'absent' : 'present'}, sourceUrl ${links === 0 ? 'absent' : 'present'}`,
+      },
+    ),
+  )
+
+  /**
+   * A ticket type an import made, on a fresh event in the platform-held organisation.
+   *
+   * @param {object} tx A transaction client.
+   * @param {string} eventId The event.
+   * @param {object} [overrides] Field overrides.
+   * @returns {Promise<object>} The `TicketType` row.
+   */
+  const importedTier = (tx, eventId, overrides = {}) =>
+    tx.ticketType.create({
+      data: {
+        eventId,
+        name: 'General',
+        priceCents: 2500,
+        currency: 'USD',
+        quantityTotal: 100,
+        importKey: 'General|2500|USD',
+        quantityIsAllowance: true,
+        ...overrides,
+      },
+    })
+
   await check(
-    'an imported picture address must be https',
-    /event_import_image_shape/,
+    "an imported ticket type's import key may not be blank",
+    /ticket_type_import_key_shape/,
     async (tx) => {
       const held = await platformHeld(tx)
       const item = await importItem(tx, held.id)
 
-      await tx.eventImportImage.create({
-        data: {
-          itemId: item.id,
-          url: 'http://usimg.sulekha.io/probe.webp',
-          role: 'COVER',
-          alt: 'A probe poster',
-          position: 0,
-        },
-      })
+      await importedTier(tx, item.eventId, { importKey: '   ' })
+    },
+  )
+  await check(
+    'two ticket types of one event made from the same listed price are refused',
+    /TicketType_eventId_importKey_key/,
+    async (tx) => {
+      const held = await platformHeld(tx)
+      const item = await importItem(tx, held.id)
+
+      await importedTier(tx, item.eventId)
+      await importedTier(tx, item.eventId, { name: 'General (renamed)' })
     },
   )
   await check('a malformed plan digest is refused', /event_import_run_shape/, (tx) =>
     tx.eventImportRun.create({
       data: {
         source: 'SULEKHA',
-        fileName: 'sulekha-texas-2026.json',
+        fileName: 'texas-2026.json',
         datasetSha256: digest(),
         dataset: { format: 'desi-event-import/1' },
         plan: [],
@@ -851,33 +895,46 @@ export async function runEventControlProbes(prisma, { probe, record }) {
       },
     }),
   )
-  await check('a well-formed run, record and picture are accepted', null, async (tx) => {
-    const held = await platformHeld(tx)
-    const run = await tx.eventImportRun.create({
-      data: {
-        source: 'SULEKHA',
-        fileName: 'sulekha-texas-2026.json',
-        datasetSha256: digest(),
-        dataset: { format: 'desi-event-import/1' },
-        plan: [],
-        planDigest: digest(),
-        eventCount: 1,
-        createdById: user.id,
-        expiresAt: new Date(Date.now() + 3_600_000),
-      },
-    })
-    const item = await importItem(tx, held.id, { lastRunId: run.id })
+  await check(
+    'a well-formed run, record and imported ticket types are accepted',
+    null,
+    async (tx) => {
+      const held = await platformHeld(tx)
+      const run = await tx.eventImportRun.create({
+        data: {
+          source: 'SULEKHA',
+          fileName: 'texas-2026.json',
+          datasetSha256: digest(),
+          dataset: { format: 'desi-event-import/1' },
+          plan: [],
+          planDigest: digest(),
+          eventCount: 1,
+          createdById: user.id,
+          expiresAt: new Date(Date.now() + 3_600_000),
+        },
+      })
+      const item = await importItem(tx, held.id, { lastRunId: run.id })
 
-    await tx.eventImportImage.create({
-      data: {
-        itemId: item.id,
-        url: 'https://usimg.sulekha.io/probe.webp',
-        role: 'COVER',
-        alt: 'A probe poster',
-        position: 0,
-      },
-    })
-  })
+      // One per listed price; a tier an organiser adds has no key, and many may.
+      await importedTier(tx, item.eventId)
+      await importedTier(tx, item.eventId, {
+        name: 'VIP',
+        priceCents: 6000,
+        importKey: 'VIP|6000|USD',
+        status: 'CLOSED',
+      })
+      await importedTier(tx, item.eventId, {
+        name: 'Door',
+        importKey: null,
+        quantityIsAllowance: false,
+      })
+      await importedTier(tx, item.eventId, {
+        name: 'Door 2',
+        importKey: null,
+        quantityIsAllowance: false,
+      })
+    },
+  )
 
   return results.every(Boolean)
 }

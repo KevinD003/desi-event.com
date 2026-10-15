@@ -23,11 +23,7 @@
  * @module @desi-event/api/tests/security-regression
  */
 
-import { execFile } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
-import { createServer, isIP } from 'node:net'
-import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
 
 import { describe, expect, it } from 'vitest'
 
@@ -48,10 +44,8 @@ import {
 import { EXPORT_COLUMNS as ANALYTICS_EXPORT_COLUMNS } from '../src/routes/analytics.js'
 import { toConnectStatus } from '../src/lib/connect.js'
 import { toDispute, toEvidence, toPayout, toRefund, toTransfer } from '../src/lib/presenters.js'
-import { fetchImportImage } from '../src/lib/import-images.js'
 import { mediaReadRateLimit, mediaUploadRateLimit } from '../src/plugins/rate-limit.js'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
-import { addRows, makeWorld, platformHeldImportFixture } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
 import {
   REPO_ROOT,
@@ -76,9 +70,6 @@ import {
   writesTo,
   writtenFields,
 } from './helpers/source-scan.js'
-
-/** `execFile`, awaited. */
-const run = promisify(execFile)
 
 /** The organisation's owner, who holds `finance:view`. */
 const OWNER = 'owner@rangoli.example'
@@ -978,7 +969,6 @@ describe('the surfaces added for feature completion', () => {
     'eventImports.list',
     'eventImports.preview',
     'eventImports.reassign',
-    'eventImports.retryImages',
     'eventImports.targets',
   ]
 
@@ -1707,11 +1697,20 @@ describe('every path to a public event (SPEC2 §6)', () => {
     // Inside the importer: which steps make the import's moves, and which
     // entry point reaches each step. None of the steps is exported.
     const STEPS = {
-      importMove: ['confirmUnchanged', 'createImported', 'publishImported', 'updateImportedDraft'],
+      importMove: [
+        'confirmUnchanged',
+        'createImported',
+        'openImportedSales',
+        'publishImported',
+        'updateImportedDraft',
+      ],
       createImported: ['applyImport'],
       updateImportedDraft: ['applyImport'],
       confirmUnchanged: ['applyImport'],
       publishImported: ['approveOne'],
+      // Opening sales (2026-10-15): right after publication, or for a posted
+      // import whose tiers wait, both only from an approval.
+      openImportedSales: ['approveOne', 'publishImported'],
       approveOne: ['approveImported'],
     }
     const OWNERS = /(?:^|\/)(?:event-deletion|event-import)\.js$/u
@@ -1825,16 +1824,23 @@ describe('every path to a public event (SPEC2 §6)', () => {
 
     expect([...new Set(targets.map(([to]) => to))].sort()).toEqual([
       'DRAFT',
+      'ON_SALE',
       'PUBLISHED',
       'REVIEW_PENDING',
     ])
 
-    // Publication only in `publishImported`, which only an approval calls.
-    const publish = functionRange(importer, 'publishImported')
+    // Publication only in `publishImported`, and opening sales only in
+    // `openImportedSales`, which only an approval reaches.
+    for (const [destination, owner] of [
+      ['PUBLISHED', 'publishImported'],
+      ['ON_SALE', 'openImportedSales'],
+    ]) {
+      const range = functionRange(importer, owner)
 
-    for (const [to, index] of targets.filter(([to]) => to === 'PUBLISHED')) {
-      expect(index, to).toBeGreaterThan(publish.start)
-      expect(index, to).toBeLessThan(publish.end)
+      for (const [to, index] of targets.filter(([target]) => target === destination)) {
+        expect(index, to).toBeGreaterThan(range.start)
+        expect(index, to).toBeLessThan(range.end)
+      }
     }
 
     const approval = functionRange(importer, 'approveOne')
@@ -2171,10 +2177,10 @@ describe('the website link (SPEC2 §4.W, §6)', () => {
       callers.push([file, routes])
     }
 
-    // The importer switches an imported event's Sulekha link on in the
-    // transaction that publishes it, and off when it moves to an organiser
-    // (SPEC2-XI O6, O10, I-F), through the same function; its routes are the
-    // approve and reassign routes, below.
+    // The importer never switches a link on (2026-10-15: an imported event is
+    // sold here and links to nothing of the site it came from). It switches
+    // one off when the event moves to an organiser (SPEC2-XI I-F), through the
+    // same function; its route is the reassign route, below.
     expect(callers).toEqual([
       ['apps/api/src/lib/event-import.js', []],
       ['apps/api/src/routes/website-redirect.js', ['moderation.setWebsiteRedirect']],
@@ -2182,20 +2188,16 @@ describe('the website link (SPEC2 §4.W, §6)', () => {
 
     const importer = readCode('apps/api/src/lib/event-import.js')
     const decisions = [...importer.matchAll(/(?<!function\s+)\bdecideWebsiteRedirect\s*\(/gu)]
-    const publish = functionRange(importer, 'publishImported')
     const reassign = functionRange(importer, 'reassignImportedEvent')
 
-    expect(decisions).toHaveLength(2)
-    expect(decisions[0].index).toBeGreaterThan(publish.start)
-    expect(decisions[0].index).toBeLessThan(publish.end)
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0].index).toBeGreaterThan(reassign.start)
+    expect(decisions[0].index).toBeLessThan(reassign.end)
     expect(importer.slice(decisions[0].index, decisions[0].index + 160)).toMatch(
-      /enabled:\s*true,\s*reason:\s*IMPORT_REDIRECT_REASON/u,
-    )
-    expect(decisions[1].index).toBeGreaterThan(reassign.start)
-    expect(decisions[1].index).toBeLessThan(reassign.end)
-    expect(importer.slice(decisions[1].index, decisions[1].index + 160)).toMatch(
       /enabled:\s*false/u,
     )
+    expect(importer).not.toMatch(/enabled:\s*true/u)
+    expect(importer).not.toMatch(/IMPORT_REDIRECT_REASON|websiteUrl:|applyWebsiteChange/u)
 
     const importRoutes = routeRegistrations(readCode('apps/api/src/routes/event-imports.js'))
       .filter((route) => /\b(approveImported|reassignImportedEvent)\s*\(/u.test(route.body))
@@ -2708,7 +2710,6 @@ describe('importing listed events (SPEC2-XI I, §7)', () => {
     'eventImports.list',
     'eventImports.preview',
     'eventImports.reassign',
-    'eventImports.retryImages',
     'eventImports.targets',
   ]
 
@@ -2775,11 +2776,10 @@ describe('importing listed events (SPEC2-XI I, §7)', () => {
       'eventImports.apply': 'MODERATION',
       'eventImports.approve': 'EVENT_PUBLISH',
       'eventImports.reassign': 'EVENT_PUBLISH',
-      'eventImports.retryImages': 'MODERATION',
     })
   })
 
-  it('spends one budget on planning, importing and copying pictures', () => {
+  it('spends one budget on planning and importing', () => {
     const code = readCode('apps/api/src/routes/event-imports.js')
     const registrations = Object.fromEntries(
       routeRegistrations(code).map((route) => [route.id, route.body]),
@@ -2788,7 +2788,7 @@ describe('importing listed events (SPEC2-XI I, §7)', () => {
     expect(Object.keys(registrations).sort()).toEqual(I_ROUTES)
     expect(code).toMatch(/const budget = eventImportRateLimit\(/u)
 
-    for (const id of ['eventImports.apply', 'eventImports.preview', 'eventImports.retryImages']) {
+    for (const id of ['eventImports.apply', 'eventImports.preview']) {
       expect(registrations[id], id).toMatch(/preHandler:\s*\[budget\]/u)
       expect(
         routeById(id).errors.map((error) => error.code),
@@ -2968,11 +2968,15 @@ describe('the records full control and imports keep, each with one writer (SPEC2
     expect(PLATFORM_ONLY_CAPABILITIES).toContain(routeById('platformEvents.openEdit').capability)
   })
 
-  it('never lets a sitting’s authority move an event’s status (Rule L)', () => {
+  it('never lets a sitting’s authority move an event’s status (Rule L), but for the sales of an import the team holds', () => {
     // SPEC2-XI §7: a sitting edits what an event says, its nights and tiers
-    // and its pictures, and cancels a night; it never publishes, opens or
-    // pauses sales, postpones, cancels, deletes or restores. The lifecycle's
-    // own check is `lifecycleAuthority`, which takes no sitting.
+    // and its pictures, and cancels a night; it never publishes, postpones,
+    // cancels, deletes or restores. The lifecycle's own check is
+    // `lifecycleAuthority`, which takes no sitting. One exception since
+    // 2026-10-15: an imported event the platform-held organisation holds has
+    // no organiser here and is sold on The Desi Events, so an administrator's
+    // sitting may open or pause its sales, and nothing else
+    // (`PLATFORM_HELD_SALES_MOVES`).
     const SITTING_READERS =
       /(?<!function\s+)\b(?:resolveEventAuthority|openSittingOf|assertSittingStillOpen)\s*\(/gu
     const readers = sourceFiles({ packages: true }).filter(
@@ -2986,19 +2990,39 @@ describe('the records full control and imports keep, each with one writer (SPEC2
       'apps/api/src/lib/session-cancellation.js',
       'apps/api/src/routes/event-authoring.js',
       'apps/api/src/routes/event-control.js',
+      'apps/api/src/routes/events.js',
     ])
 
-    // None of them is where a status moves, and no route that moves one
-    // reads a sitting.
+    // None of the others is where a status moves.
     for (const owner of [
       'apps/api/src/lib/event-deletion.js',
       'apps/api/src/lib/event-import.js',
       'apps/api/src/lib/event-lifecycle.js',
-      'apps/api/src/routes/events.js',
       'apps/api/src/routes/moderation.js',
     ]) {
       expect(readers, owner).not.toContain(owner)
     }
+
+    // The lifecycle routes read a sitting in one place only: the command that
+    // makes a move, for a sales move of a platform-held event, and the
+    // lifecycle takes it for exactly those moves of exactly those events.
+    const events = readCode('apps/api/src/routes/events.js')
+
+    expect([...events.matchAll(SITTING_READERS)].map((match) => match[0].trim())).toEqual([
+      'resolveEventAuthority(',
+      'assertSittingStillOpen(',
+    ])
+    expect(events).toMatch(
+      /const sitting =\s*PLATFORM_HELD_SALES_MOVES\.has\(to\) &&\s*isPlatformHeld\(event\) &&/u,
+    )
+    expect(readCode('apps/api/src/lib/event-lifecycle.js').replace(/\s+/gu, ' ')).toMatch(
+      /isPlatformHeld\(event\) && PLATFORM_HELD_SALES_MOVES\.has\(move\.to\) \) \{ return sitting \}/u,
+    )
+    expect(
+      readCode('apps/api/src/lib/event-lifecycle.js').match(
+        /export const PLATFORM_HELD_SALES_MOVES = Object\.freeze\(new Set\(\[([^\]]*)\]\)\)/u,
+      )?.[1],
+    ).toBe("'ON_SALE', 'SALES_PAUSED'")
 
     const statusRoutes = new Set([
       'eventImports.apply',
@@ -3076,12 +3100,24 @@ describe('the records full control and imports keep, each with one writer (SPEC2
       expect(keys, `${route.id} accepts platformHeldSource`).not.toContain('platformHeldSource')
     }
 
-    for (const model of ['EventImportRun', 'EventImportItem', 'EventImportImage']) {
+    for (const model of ['EventImportRun', 'EventImportItem']) {
       const writes = modelWrites(model)
 
       expect(filesOf(writes), model).toEqual(['apps/api/src/lib/event-import.js'])
       expect(writes.length, model).toBeGreaterThan(0)
     }
+
+    // The pictures' table is gone with the copying (2026-10-15): nothing
+    // writes or reads it.
+    expect(modelWrites('EventImportImage')).toEqual([])
+    for (const file of sourceFiles({ packages: true })) {
+      expect(readCode(file), file).not.toMatch(/\beventImportImage\b/u)
+    }
+
+    // And only the importer names a ticket type's import key.
+    expect(
+      sourceFiles({ packages: true }).filter((file) => /\bimportKey\b/u.test(readCode(file))),
+    ).toEqual(['apps/api/src/lib/event-import.js'])
   })
 
   it('records change notices in one module, from the four moves that change an event under its buyers', () => {
@@ -3128,16 +3164,17 @@ describe('the records full control and imports keep, each with one writer (SPEC2
   })
 })
 
-describe('the picture fetcher, the API’s one way out (SPEC2-XI §0.6, §5.I-D)', () => {
-  const FETCHER = 'apps/api/src/lib/import-images.js'
-
+describe('the API has no way out: nothing is fetched from anywhere (2026-10-15)', () => {
   /** Modules that are, or open, a network client. */
   const CLIENTS = /^(?:node:)?(?:http|https|http2|tls|dgram|child_process|undici)$/u
 
   /** What `node:net` may be asked for without opening anything. */
   const NET_HELPERS = new Set(['isIP', 'isIPv4', 'isIPv6', 'BlockList', 'SocketAddress'])
 
-  it('is the only module under apps/api/src that loads an HTTP client or opens a socket, and nothing calls fetch', () => {
+  it('has no module under apps/api/src that loads an HTTP client or opens a socket, and nothing calls fetch', () => {
+    // The picture fetcher was the one exception (SPEC2-XI §0.6, §5.I-D). The
+    // owner asked for no contact at all with the site the listings came from,
+    // so it is gone, and so is the exception.
     /** @type {Record<string, string[]>} */
     const loads = {}
     const callers = []
@@ -3165,170 +3202,34 @@ describe('the picture fetcher, the API’s one way out (SPEC2-XI §0.6, §5.I-D)
       }
     }
 
-    expect(loads).toEqual({ [FETCHER]: ['node:https'] })
+    expect(loads).toEqual({})
     expect(callers).toEqual([])
   })
 
-  it('sends nothing through a proxy, whatever the environment says', async () => {
-    // A proxy would connect to wherever it resolved the name, after this code
-    // checked a different answer. The listener stands in for one; the child
-    // process is told to use it by every variable Node and the usual tools read.
-    const seen = []
-    const proxy = createServer((socket) => {
-      socket.on('error', () => {})
-      socket.once('data', (chunk) => {
-        seen.push(chunk.toString('latin1').split('\r\n')[0])
-        socket.destroy()
-      })
-    })
+  it('has no picture fetcher, no copying route and nothing that names the source’s hosts', async () => {
+    const files = sourceFiles({ packages: true })
 
-    await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    expect(files).not.toContain('apps/api/src/lib/import-images.js')
+    expect(apiRoutes.some((route) => /\/images\/retry$/u.test(route.path))).toBe(false)
 
-    const url = `http://127.0.0.1:${proxy.address().port}`
-
-    try {
-      const { stdout } = await run(
-        process.execPath,
-        [
-          fileURLToPath(new URL('./helpers/proxy-env-probe.mjs', import.meta.url)),
-          'control.invalid',
-        ],
-        {
-          cwd: fileURLToPath(new URL('..', import.meta.url)),
-          timeout: 30_000,
-          env: {
-            PATH: process.env.PATH ?? '',
-            NODE_ENV: 'test',
-            NODE_USE_ENV_PROXY: '1',
-            HTTPS_PROXY: url,
-            https_proxy: url,
-            HTTP_PROXY: url,
-            http_proxy: url,
-            ALL_PROXY: url,
-            all_proxy: url,
-            NO_PROXY: '',
-            no_proxy: '',
-          },
-        },
-      )
-      const result = JSON.parse(stdout.trim().split('\n').at(-1))
-
-      // The control went through the proxy, so the environment was in force.
-      expect(seen).toContain('CONNECT control.invalid:443 HTTP/1.1')
-      // The fetcher did not: no tunnel to the picture host, one direct socket.
-      expect(seen.filter((line) => /sulekha/iu.test(line))).toEqual([])
-      expect(seen).toHaveLength(1)
-      expect(result.direct).toBe(1)
-      expect(result.fetched).not.toBe('OK')
-    } finally {
-      await new Promise((resolve) => proxy.close(resolve))
+    for (const file of files) {
+      expect(readCode(file), file).not.toMatch(/usimg\.sulekha|events\.sulekha|fetchImportImage/u)
     }
-  })
 
-  it('refuses a picture whose host resolves to a private address before any connection, through the import route', async () => {
-    const world = await makeWorld()
-    const imported = platformHeldImportFixture(world.ids)
-    // One address from the ranges most worth reaching, and their IPv4-mapped
-    // and NAT64 forms; the full list is pinned in import-images.test.js.
-    const PRIVATE = [
-      '127.0.0.1',
-      '10.0.0.7',
-      '100.64.0.1',
-      '169.254.169.254',
-      '172.16.0.1',
-      '192.168.1.1',
-      '0.0.0.0',
-      '::1',
-      'fd00::1',
-      'fe80::1',
-      '::ffff:127.0.0.1',
-      '64:ff9b::a9fe:a9fe',
-    ]
-    /** @type {Map<string, Array<{address: string, family: number}>>} */
-    const answers = new Map([[imported.image.url, [{ address: '192.168.0.10', family: 4 }]]])
-    const extra = PRIVATE.map((address, index) => {
-      const url = `https://usimg.sulekha.io/cdn/events/images/private-${index}.png`
-
-      answers.set(url, [{ address, family: isIP(address) }])
-
-      return { ...imported.image, id: cuid(), url, role: 'GALLERY', position: index + 1 }
-    })
-    // A public answer beside a private one is refused too.
-    const mixed = 'https://usimg.sulekha.io/cdn/events/images/mixed.png'
-
-    answers.set(mixed, [
-      { address: '93.184.216.34', family: 4 },
-      { address: '10.1.2.3', family: 4 },
-    ])
-    extra.push({ ...imported.image, id: cuid(), url: mixed, role: 'GALLERY', position: 99 })
-
-    // The run page answers with the plan the administrator read: a whole row.
-    imported.run.plan = [
-      {
-        sourceId: imported.item.sourceId,
-        title: imported.event.title,
-        startsAt: imported.event.startsAt.toISOString(),
-        city: imported.venue.city,
-        action: 'CREATE',
-        eventId: imported.event.id,
-        eventStatus: null,
-        resubmit: false,
-        updatable: false,
-        contentDigest: 'c'.repeat(64),
-        problem: null,
-        importNotes: [],
-        imageCount: extra.length + 1,
-        priceCount: imported.item.prices.length,
-        endTimeListed: false,
-      },
-    ]
-
-    addRows(world.seed, imported.rows)
-    addRows(world.seed, { eventImportImage: extra })
-
-    const connections = []
-    const { app, prisma } = await createTestApp({
-      seed: world.seed,
-      ids: world.ids,
-      // The real fetcher, with the name answered here and no socket anywhere.
-      fetchImportImage: (url, options) =>
-        fetchImportImage(url, {
-          ...options,
-          source: 'network',
-          resolve: (_host, _options, callback) => callback(null, answers.get(url)),
-          request: (requestOptions) => {
-            connections.push(requestOptions.hostname)
-            throw new Error('No connection may be opened.')
-          },
-        }),
-    })
+    // The route that copied pictures answers as any unknown route does.
+    const { app } = await createTestApp()
     const headers = bearer(await signIn(app, 'anil@desi-event.example'))
 
     await stepUp(app, 'anil@desi-event.example', headers)
 
     const response = await app.inject({
       method: 'POST',
-      url: `/v1/platform/imports/${imported.run.id}/images/retry`,
+      url: `/v1/platform/imports/${cuid()}/images/retry`,
       headers,
       payload: {},
     })
 
-    expect(response.statusCode, response.body).toBe(200)
-
-    const images = prisma._store.eventImportImage.filter((row) => row.itemId === imported.item.id)
-
-    expect(images).toHaveLength(PRIVATE.length + 2)
-
-    for (const image of images) {
-      expect([image.url, image.status, image.failureCode]).toEqual([
-        image.url,
-        'FAILED',
-        'ADDRESS_NOT_PUBLIC',
-      ])
-    }
-
-    expect(connections).toEqual([])
-    expect(prisma._store.mediaAsset.filter((row) => row.eventId === imported.event.id)).toEqual([])
+    expect(response.statusCode).toBe(404)
 
     await app.close()
   })
@@ -4173,8 +4074,10 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
     // Every tier row built away from its write, read and pinned: none of them
     // is built from anything that names the count.
     const OPAQUE_TIER_WRITES = {
+      // The patch, and the allowance flag an organisation's own quantity
+      // clears (2026-10-15).
       'apps/api/src/routes/event-authoring.js update': {
-        args: /\bdata:\s*toTierPatch\(patch\)/u,
+        args: /\bdata:\s*\{\s*\.\.\.toTierPatch\(patch\),[\s\S]*?\{ quantityIsAllowance: false \}/u,
         builder: ['apps/api/src/routes/event-authoring.js', 'toTierPatch'],
       },
       'apps/api/src/routes/events.js update': {
@@ -4274,7 +4177,8 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
     'apps/api/src/lib/event-cancellation.js': ['Order UPDATE', 'Order UPDATE'],
     'apps/api/src/lib/event-deletion.js': ['Order UPDATE', 'Order UPDATE', 'OrderItem KEY SHARE'],
     'apps/api/src/lib/event-import.js': ['Event UPDATE', 'Event UPDATE', 'Event UPDATE'],
-    'apps/api/src/lib/event-media.js': ['Event UPDATE', 'Event UPDATE'],
+    // One: the imported-picture copy that took the other is gone (2026-10-15).
+    'apps/api/src/lib/event-media.js': ['Event UPDATE'],
     'apps/api/src/lib/group-admission.js': [
       'EventSession KEY SHARE',
       'Order SHARE',

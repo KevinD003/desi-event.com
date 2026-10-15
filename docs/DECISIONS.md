@@ -169,16 +169,19 @@ defects were fixed first.
 
 ### 0015 — Importing listed events
 
-The 45 Texas listings collected from Sulekha.com are imported by an
-administrator into a member-less "Sulekha Events" organisation, reviewed and
-approved by that administrator (the one exception to reviewer independence),
-shown with Sulekha's prices and a "Buy tickets on Sulekha" link, never sold
-here, and copied with their pictures by one locked-down fetcher. The owner's
-statement that they own Sulekha.com is recorded there as their statement. Its
-addendum of 2026-10-15 adds a second file under the same rules: 294 events in
-the United States and Canada from the owner's own Sulekha export, with each
-venue's time zone, Canadian prices in CAD (an assumption where Sulekha shows a
-plain `$`, noted on each event), and ten listings shared with the Texas file.
+Listings collected from another site (45 in Texas, and 294 in the United
+States and Canada from the owner's own export) are imported by an administrator
+into the member-less platform-held organisation "The Desi Events", reviewed and
+approved by that administrator (the one exception to reviewer independence).
+The owner's statement that they own the source site is recorded there as their
+statement. Since its addendum "2026-10-15 (2)" nothing connects an imported
+event to the source site: no link, no redirect, no copied picture and no
+request of any kind. Each listed price becomes a ticket type on an allowance of
+100 (a price marked sold out is created closed), sold here through the normal
+checkout (simulated payment) from approval until the event starts, in USD at US
+venues and CAD in Canada, and every imported event page offers "Reserve on
+WhatsApp". Earlier versions showed the source's prices with a link to its
+listing and copied the pictures once; those are gone.
 
 ### 0016 — Per-event booking fee and referral codes
 
@@ -385,11 +388,12 @@ for you") states them in plain words.
   address stays retired if it was ever public; administrators edit an
   organisation's events only once published; a venue cannot change while a
   night uses a seating map.
-- Imported events belong to a member-less "Sulekha Events" organisation, are
-  shown with Sulekha's prices without ticket types, have their pictures approved
-  with the event, are approved or rejected rather than sent back, and may be
-  moved to an organiser's organisation without asking it first (which switches
-  the Sulekha link off).
+- Imported events belong to the member-less platform-held organisation "The
+  Desi Events", get one ticket type per listed price (an allowance of 100,
+  never shown as a count of tickets left), are approved or rejected rather than
+  sent back, open their sales on approval, and may be moved to an organiser's
+  organisation without asking it first. They carry no link to the source site
+  (ADR 0015, addendum 2026-10-15 (2)).
 - The new platform role is called `ADMIN` ("Platform administrator"), separate
   from an organisation's "Administrator".
 

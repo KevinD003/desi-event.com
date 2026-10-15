@@ -182,64 +182,122 @@ turns the marking off again. [direnv](https://direnv.net) with an `.envrc` of
 `dotenv` does the same thing automatically. `pnpm db:seed` is the exception —
 it reads the root `.env` itself — but the rest need the export.
 
-## Importing the Sulekha events
+## Importing listed events
 
-The seed does not import anything. Two files of events copied from Sulekha.com
-listings are in `packages/db/data/imports/`:
+The seed does not import anything. Two files of events copied from organisers'
+public ticket listings are in `packages/db/data/imports/` (their file names and
+the source identifier `SULEKHA` are identifiers only):
 
-- `sulekha-texas-2026.json`: 45 Texas events, collected on 29–30 September
+- `texas-2026.json`: 45 Texas events, collected on 29–30 September
   2026, dated 2 October to 22 November 2026.
-- `sulekha-north-america-2026.json`: 294 events in 23 US states, DC and 3
-  Canadian provinces, from the owner's own Sulekha export of 397 listings,
-  curated on 15 October 2026, dated 15 October 2026 to 7 May 2027.
+- `north-america-2026.json`: 294 events in 23 US states, DC and 3
+  Canadian provinces, from the owner's own export of 397 listings, curated on
+  15 October 2026, dated 15 October 2026 to 7 May 2027.
 
 They are loaded after seeding by an account that holds `event:import` (a
 platform administrator or super administrator):
 
 ```bash
-pnpm import:events packages/db/data/imports/sulekha-north-america-2026.json \
+pnpm import:events packages/db/data/imports/north-america-2026.json \
   --as platform-admin@desi-event.example            # plan only; writes the run
-pnpm import:events packages/db/data/imports/sulekha-north-america-2026.json \
+pnpm import:events packages/db/data/imports/north-america-2026.json \
   --as platform-admin@desi-event.example --apply    # import into review
 ```
 
 The two files share ten listings (all in Texas). Importing both is safe: each
-listing is imported once, by its Sulekha id, and the second file plans those
+listing is imported once, by its source id, and the second file plans those
 ten as updates of the drafts the first one wrote (or leaves a posted one as it
-is unless "Update from Sulekha" is ticked). Each of the ten carries a note
+is unless "Update from the listing" is ticked). Each of the ten carries a note
 saying how the newer export differs.
 
 The file can also be uploaded at `/admin/imports`, which shows the same plan.
-Applying writes each event as a draft waiting for review and copies its
-pictures. Approving and publishing is done only in the browser, at
-`/admin/imports`, with a second factor; the command line never approves and
-never changes an event that is already posted.
+Applying writes each event as a draft waiting for review, with one ticket type
+per listed price. Approving is done only in the browser, at `/admin/imports`,
+with a second factor; it publishes the event and opens its ticket sales. The
+command line never approves and never changes an event that is already posted.
 
+**Tickets are sold on The Desi Events (15 October 2026).** At the owner's
+request nothing links, redirects or connects to the site the listings came
+from: an imported event has no website link, the files carry no web address
+and no picture, and the importer makes no outbound request at all (nothing is
+copied; an imported event shows a generated poster until someone adds a
+picture). Visitors buy tickets here, through the ordinary checkout, and the
+event page also offers to reserve them on WhatsApp.
+
+- **One ticket type per listed price,** in the event's currency (US dollars at
+  US venues, Canadian dollars at Canadian ones), 1 to 10 per order. Each starts
+  with an **allowance of 100**, which is not the organiser's count, so no page
+  shows "tickets left" from it; an administrator changes it in the ticket-type
+  editor, and it becomes a real count once the organiser edits it. A price the
+  listing marks sold out becomes a ticket type that is closed, not on sale,
+  and so does every price of a listing the export shows sold out as a whole
+  (seven in the North America file): approving such an event opens nothing.
+- **Approving opens sales** from the moment of approval until the event
+  starts. An event already posted before this change gets its ticket types
+  when it is next updated from its listing, and its sales open when an
+  administrator approves it again.
+- **Importing again never touches a ticket type that has sales** (an order,
+  a hold or a ticket): it is kept as it is. The import locks each ticket type
+  before it reads what is held, as the ticket-type editor does, so a hold made
+  at that moment is counted, never repriced. A ticket type nobody has bought
+  takes the listing's new price and order, and is closed if the listing now
+  says sold out; one whose price left the listing is removed. Names,
+  allowances and order limits an administrator set are kept.
+- **Payments are simulated** in this build (`PAYMENT_MODE=MOCK`): checkout,
+  tickets, the door, refunds and the finance views work for these events, and
+  no money moves. Paying at the venue is not offered for them (409
+  `VENUE_PAYMENT_UNAVAILABLE`). The platform administrators open and pause
+  sales in an editing session; only a super administrator admits at the door.
+- **Reserve on WhatsApp.** Every imported event page, and only those, has a
+  "Reserve on WhatsApp" button beside the checkout. It opens a chat with the
+  company's WhatsApp number (`apps/web/src/lib/contact.js`) in a new tab, with
+  the message "Hi! I'd like to reserve tickets for "<title>" on <weekday,
+  month day> at <venue>, <city>." ready to send. It is shown while the event
+  is announced, on sale, paused or sold out and has not started; not on a
+  cancelled, postponed or finished one. The page also says the prices are as
+  the organiser listed them on the date the listing was read.
+- **No other site's terms.** The files carry no FAQ answer about refunds,
+  cancelling, buying or when tickets go on sale: those answers gave the
+  listing site's terms, and the event's own terms apply here (a cancelled
+  event's tickets are refunded). The page's structured data says a closed or
+  sold-out ticket type is not in stock, as its line on the page does.
 - **Events already past are skipped.** The Texas file imports nothing after
   22 November 2026; the North America file nothing after 7 May 2027.
 - **What the North America file left out, and why.** Of the 397 listings in
-  the export, 51 Sulekha marks Ended, 7 Cancelled, and 45 more were dated
+  the export, 51 were marked Ended, 7 Cancelled, and 45 more were dated
   before 15 October 2026; none were duplicates. Sold Out, Selling Fast and
   Open Soon events are kept, with that status in a note for the administrator
   only. The export gives no collection time, so 15 October 2026 00:00 UTC
   stands for it. Prices at the 30 Canadian venues are imported in Canadian
-  dollars: where Sulekha shows a plain `$`, that is an assumption, said in
+  dollars: where the listing shows a plain `$`, that is an assumption, said in
   each event's note. ADR 0015's addendum lists every curation rule.
-- **Pictures need direct outbound HTTPS to `usimg.sulekha.io`.** The importer
-  copies each picture itself and uses no proxy, deliberately, so that it can
-  check the address it connects to. A machine that reaches the internet only
-  through a proxy cannot copy them. This build's own environment is one: its
-  imported events show generated posters, and "Retry pictures" on
-  `/admin/imports` copies them later from a machine that can reach the host.
-  Whether Sulekha's picture host lets another server fetch its pictures has not
-  been tried from here.
-- **Nothing is kept up to date.** A change on Sulekha shows here only when the
-  file is updated and imported again, and a posted event is updated only when
-  an administrator ticks "Update from Sulekha" for it.
+- **Nothing is kept up to date.** A change to a listing shows here only when
+  the file is updated and imported again, and a posted event is updated only
+  when an administrator ticks "Update from the listing" for it.
+
+**Databases made before then.** Migration
+`20261015100000_imported_events_sold_here` switches off and clears every
+imported event's website link to that site, drops the import's own links and
+its table of pictures, removes the addresses from the files runs stored, and
+renames an imported venue's provenance `import:listing`. Pictures already
+copied stay as ordinary pictures of their events. The address rule refuses
+that site for every event from now on. Migration
+`20261015110000_imported_listing_words` then rewords what imports wrote: an
+imported event's entry and refund terms become the importer's present ones
+(the age limit kept), FAQ entries naming that site or giving its terms of sale
+are removed when the import wrote them (an entry a person added stays), and
+the notes, moderation history, change notices and stored files say "the
+source listing" instead of its name. Both are safe to run twice.
+
+No public page and no administrator screen names that site, in any case. The
+platform-held organisation the events belong to is "The Desi Events", at
+`/organizers/the-desi-events`; each event still says "Presented by" its real
+organiser. `packages/db/tests/import-dataset.test.js` fails if a file names the
+site or carries an address, and `apps/api/tests/import-no-outbound.test.js` if
+an import makes any request.
 
 [ADR 0015](docs/adr/0015-importing-listed-events.md) records why it works this
-way, and [docs/development.md](docs/development.md) how to try it locally
-without network access to the picture host.
+way, and [docs/development.md](docs/development.md) how to try it locally.
 
 ## pnpm scripts
 
@@ -384,13 +442,13 @@ Start with the one that matches what you are doing.
 
 ### Where the project stands
 
-| Document                                                                                 | Contents                                                                                                                                                                   |
-| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [PHASE2_STATUS.md](PHASE2_STATUS.md)                                                     | **Authoritative current status**: the twenty gates, in one table                                                                                                           |
-| [PHASE2_FINAL_CLOSEOUT_REPORT.md](PHASE2_FINAL_CLOSEOUT_REPORT.md)                       | The closeout cycle, its verification, and the one thing left                                                                                                               |
-| [PHASE2_REQUIREMENTS_TRACEABILITY.md](PHASE2_REQUIREMENTS_TRACEABILITY.md)               | Requirement → implementation → evidence, row by row                                                                                                                        |
-| [docs/PHASE4_FEATURE_COMPLETION_REPORT.md](docs/PHASE4_FEATURE_COMPLETION_REPORT.md)     | The feature-completion work: what each area built, its safeguards, and what is still limited                                                                               |
-| [docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md](docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md) | Organiser invitations, the website link, visit counts, full control of posted events and the Sulekha import: what was built, what was checked and what needs your accounts |
+| Document                                                                                 | Contents                                                                                                                                                                            |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [PHASE2_STATUS.md](PHASE2_STATUS.md)                                                     | **Authoritative current status**: the twenty gates, in one table                                                                                                                    |
+| [PHASE2_FINAL_CLOSEOUT_REPORT.md](PHASE2_FINAL_CLOSEOUT_REPORT.md)                       | The closeout cycle, its verification, and the one thing left                                                                                                                        |
+| [PHASE2_REQUIREMENTS_TRACEABILITY.md](PHASE2_REQUIREMENTS_TRACEABILITY.md)               | Requirement → implementation → evidence, row by row                                                                                                                                 |
+| [docs/PHASE4_FEATURE_COMPLETION_REPORT.md](docs/PHASE4_FEATURE_COMPLETION_REPORT.md)     | The feature-completion work: what each area built, its safeguards, and what is still limited                                                                                        |
+| [docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md](docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md) | Organiser invitations, the website link, visit counts, full control of posted events and the import of listed events: what was built, what was checked and what needs your accounts |
 
 ### The system
 

@@ -79,12 +79,12 @@ export const FORBIDDEN = Object.freeze({
     'composes and sends show-once codes by email. A code reaches the recipient\u2019s mailbox and nowhere else.',
   'apps/web/src/lib/traffic-forwarding.js':
     'derives a visitor\u2019s address from the trusted proxy hops (TRAFFIC_TRUSTED_PROXY_HOPS) and forwards it to the API. It runs on the web server only; in a browser it would hand the address to whoever reads the bundle.',
-  // SPEC2-XI I: the importer's three modules. `apps/api/` below already
-  // covers them; each is named so a refusal says which rule it broke.
+  // SPEC2-XI I: the importer's two modules (its picture fetcher is gone: an
+  // import contacts no other site, ADR 0015, addendum 2026-10-15 (2)).
+  // `apps/api/` below already covers them; each is named so a refusal says
+  // which rule it broke.
   'apps/api/src/lib/event-import.js':
     'the importer: the platform-held organisation, the review exemption and publication of imported events. Only an administrator\u2019s request reaches it, through the API.',
-  'apps/api/src/lib/import-images.js':
-    'the API\u2019s one outbound fetcher, with the address ranges it refuses and how it pins a connection. A browser holding it is a map of how to get past it.',
   'apps/api/src/lib/import-dataset.js':
     'the import file\u2019s run-time host checks and the plan it makes against the database.',
   'packages/db/': 'Prisma, the schema, and anything that can open a connection.',

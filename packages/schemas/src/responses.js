@@ -30,14 +30,11 @@ import {
   checkInOutcomeSchema,
   connectOnboardingStatusSchema,
   eventCategorySchema,
-  eventImportImageRoleSchema,
-  eventImportImageStatusSchema,
   eventImportRunStatusSchema,
   eventImportSourceSchema,
   eventSessionStatusSchema,
   eventStatusSchema,
   feeSourceSchema,
-  mediaModerationStatusSchema,
   orderStatusSchema,
   referralCodeScopeSchema,
   venuePaymentViaSchema,
@@ -1038,8 +1035,9 @@ export const eventSessionSchema = z.object({
   /**
    * False for an imported night whose listing gave no end time: `endsAt` is
    * then a planning estimate (start plus three hours) that no public page
-   * shows, and the editor labels it "Not listed by Sulekha (estimate for
-   * scheduling)". It turns true once an editor sets the end apart from it.
+   * shows, and the editor labels it as not listed by the source listing (an
+   * estimate for scheduling). It turns true once an editor sets the end apart
+   * from it.
    */
   endTimeListed: z.boolean().default(true),
 })
@@ -1092,6 +1090,12 @@ export const authorTicketTypeSchema = z.object({
   reserved: z.boolean(),
   complimentary: z.boolean(),
   visibility: z.enum(['PUBLIC', 'HIDDEN']),
+  /**
+   * True when `quantityTotal` is the allowance an import set (the listing gave
+   * no quantity), not a count the organiser gave. Optional, so a reader built
+   * before it existed still parses.
+   */
+  quantityIsAllowance: z.boolean().optional(),
   /** Tickets in live holds right now: part of what a quantity cut must leave room for. */
   heldQuantity: z.number().int(),
   /** Whether any order has a line for it, paid or not. */
@@ -1941,8 +1945,6 @@ export const paymentTermsAdminResponseSchema = z.object({
     eventId: cuidSchema,
     eventStatus: eventStatusSchema,
     isOnline: z.boolean(),
-    /** Tickets are sold on the listing's own site: no booking fee here, nothing to switch on. */
-    soldOnSource: z.boolean(),
     /** Whether the event was ever posted (left DRAFT). */
     posted: z.boolean(),
     history: z
@@ -2242,32 +2244,13 @@ export const mediaQueueResponseSchema = z.object({
 
 // --- Importing listed events (SPEC2-XI area I) ---------------------------------
 //
-// Administrators' reads only: each names the source's own addresses (the
-// listing and its pictures), which no public payload carries.
+// Administrators' reads only. Since 2026-10-15 no import response carries an
+// address on the site the listings came from: a file holds none, and nothing
+// is copied from it.
 
 // The public projection of an import lives beside the event shapes it is part
 // of; it is exported from here as well, where the import responses are.
 export { importedFromSchema } from './entities.js'
-
-/** One picture a listing names, and what copying it came to. */
-export const eventImportPictureSchema = z.object({
-  id: cuidSchema,
-  /** The source's own address for it. Administrators only; never public. */
-  url: z.string().max(IMPORT_LIMITS.url),
-  role: eventImportImageRoleSchema,
-  alt: z.string().max(IMPORT_LIMITS.alt),
-  position: z.int().min(0),
-  status: eventImportImageStatusSchema,
-  /** Why the last attempt failed (`HOST_NOT_ALLOWED`, `TIMEOUT`, …), or null. */
-  failureCode: z.string().max(100).nullable(),
-  attempts: z.int().min(0),
-  lastTriedAt: timestampSchema.nullable(),
-  /** The stored picture, once copied, and where its approval stands. */
-  mediaId: cuidSchema.nullable(),
-  mediaStatus: mediaModerationStatusSchema.nullable(),
-  /** "Too small for a cover" when a cover was stored in the gallery instead, or null. */
-  note: z.string().max(200).nullable(),
-})
 
 /** The event an import row wrote, as the run page reads it. */
 export const eventImportRowEventSchema = z.object({
@@ -2275,7 +2258,7 @@ export const eventImportRowEventSchema = z.object({
   title: nonEmptyStringSchema,
   slug: z.string().max(200),
   status: eventStatusSchema,
-  /** What an approval must name: every stored picture moves it. */
+  /** What an approval must name: every change to the event moves it. */
   revision: z.int().min(0),
   /** Whether this run last wrote it, so this run's page may approve it. */
   inThisRun: z.boolean(),
@@ -2285,6 +2268,8 @@ export const eventImportRowEventSchema = z.object({
   importedByName: z.string().max(200).nullable(),
   approvedAt: timestampSchema.nullable(),
   approvedByName: z.string().max(200).nullable(),
+  /** How many of its ticket types the import made, and how many of those are on sale now. */
+  ticketTypes: z.object({ imported: countSchema, onSale: countSchema }),
 })
 
 /** One listing of a run: what the plan says, and, once applied, what it wrote. */
@@ -2298,25 +2283,23 @@ export const eventImportRowSchema = z.object({
   problem: z.string().max(1000).nullable(),
   /** What the curator noted, for administrators only. */
   importNotes: z.array(z.string().max(500)).max(IMPORT_LIMITS.importNotes),
-  imageCount: z.int().min(0),
+  /**
+   * How many ticket types the listing's prices become on The Desi Events: one
+   * per price, a price the listing repeats counted once.
+   */
   priceCount: z.int().min(0),
+  /** How many of them the listing marked sold out: made closed, not on sale. */
+  soldOutCount: z.int().min(0),
+  /** The currency the event sells in: USD at a venue in the United States, CAD in Canada. */
+  currency: z.string().length(3).nullable(),
   /** False when the listing gives no end time. */
   endTimeListed: z.boolean(),
-  /** A posted event whose listing changed: "Update from Sulekha" may be ticked for it. */
+  /** A posted event whose listing changed: it may be ticked to be updated from its source listing. */
   updatable: z.boolean(),
   /** An unchanged draft that applying sends for review again. */
   resubmit: z.boolean(),
   eventStatusAtPlan: eventStatusSchema.nullable(),
   event: eventImportRowEventSchema.nullable(),
-  pictures: z.array(eventImportPictureSchema).max(IMPORT_LIMITS.images),
-})
-
-/** How a run's pictures stand. */
-export const eventImportPictureCountsSchema = z.object({
-  total: countSchema,
-  stored: countSchema,
-  failed: countSchema,
-  waiting: countSchema,
 })
 
 /** A run, as its list row shows it. */
@@ -2341,17 +2324,11 @@ export const eventImportRunSchema = eventImportRunSummarySchema.extend({
   /** The digest of the plan as shown, which applying it must name. */
   planDigest: z.string().regex(/^[0-9a-f]{64}$/u),
   rows: z.array(eventImportRowSchema).max(IMPORT_LIMITS.events),
-  pictures: eventImportPictureCountsSchema,
 })
 
-/**
- * `POST /v1/platform/imports`, `GET /v1/platform/imports/:runId`, and apply
- * and retry. `meta.picturesWaiting` says how many pictures were not tried in
- * the request's time and wait for "Retry pictures".
- */
+/** `POST /v1/platform/imports`, `GET /v1/platform/imports/:runId`, and apply. */
 export const eventImportRunResponseSchema = z.object({
   data: eventImportRunSchema,
-  meta: z.object({ picturesWaiting: countSchema }).optional(),
 })
 
 /** `GET /v1/platform/imports`: a page of runs, newest first. */
@@ -2365,14 +2342,16 @@ export const eventImportApproveResultSchema = z.object({
   eventId: cuidSchema,
   /**
    * `PUBLISHED`: approved (unless a moderator already had) and published,
-   * with the Sulekha link on. `PICTURES_APPROVED`: a posted event whose
-   * waiting pictures were approved. `REFUSED`: nothing was written for it.
+   * with its ticket sales opened when it has a ticket type to sell.
+   * `SALES_OPENED`: a posted event whose ticket sales were opened.
+   * `REFUSED`: nothing was written for it.
    */
-  outcome: z.enum(['PUBLISHED', 'PICTURES_APPROVED', 'REFUSED']),
-  /** The event's status after this, or null when it was refused. */
+  outcome: z.enum(['PUBLISHED', 'SALES_OPENED', 'REFUSED']),
+  /** The event's status after this (ON_SALE once sales are open), or null when it was refused. */
   status: eventStatusSchema.nullable(),
   revision: z.int().min(0).nullable(),
-  picturesApproved: countSchema,
+  /** How many of its ticket types are on sale after this. */
+  ticketTypesOnSale: countSchema,
   /** For a refusal: the API's code and sentence. */
   code: z.string().max(100).nullable(),
   message: z.string().max(1000).nullable(),

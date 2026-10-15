@@ -259,8 +259,6 @@ beforeAll(async () => {
     docs: false,
     processEnv: {},
     rateLimit: { global: { max: 10_000, timeWindow: '1 minute' }, eventImport: { max: 1000 } },
-    // No listing in this suite has a picture; nothing is fetched.
-    fetchImportImage: async () => ({ ok: false, code: 'NETWORK_UNAVAILABLE' }),
   })
   await app.ready()
 
@@ -464,21 +462,16 @@ function importFile(title) {
   sequence += 1
 
   const sourceId = `${String(Date.now()).slice(-8)}${String(sequence % 100).padStart(2, '0')}`
-  const sourceUrl = `https://events.sulekha.com/garba_event-in_irving-tx_${sourceId}`
 
   return {
     format: 'desi-event-import/1',
     source: 'SULEKHA',
-    sourceName: 'Sulekha',
-    sourceSite: 'https://events.sulekha.com/',
     collectedFrom: '2026-09-29T21:25:00Z',
     collectedTo: '2026-09-30T00:51:08Z',
     curatedOn: '2026-09-30',
-    imageHosts: ['usimg.sulekha.io'],
     events: [
       {
         sourceId,
-        sourceUrl,
         scrapedAt: '2026-09-29T21:25:00Z',
         title,
         category: 'GARBA_DANDIYA',
@@ -505,8 +498,6 @@ function importFile(title) {
         dressCode: null,
         parking: null,
         faq: [],
-        images: [],
-        ticketUrl: sourceUrl,
         importNotes: [],
       },
     ],

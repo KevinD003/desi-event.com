@@ -3,11 +3,11 @@
 /**
  * Moving an imported event to an organiser's own organisation (SPEC2-XI I-F).
  *
- * An event copied from its Sulekha listing is held by "Sulekha Events", which
- * has no members. Once its organiser has an organisation here, the team at
- * The Desi Events moves it there: its status, pictures and web address stay as
- * they are; its Sulekha ticket link is switched off; and it stops being
- * presented as a Sulekha listing, so its new owner adds its own tickets.
+ * An imported event is held by "The Desi Events", which has no members. Once
+ * its organiser has an organisation here, the team at The Desi Events moves it
+ * there: its status, pictures, web address and ticket types stay as they
+ * are, and it stops being presented as an imported listing, so its new owner
+ * runs it from then on.
  *
  * The organisation is not asked first: the event appears in its list at once.
  * The dialog says so, in the words the specification gives.
@@ -49,7 +49,7 @@ export const NOT_ASKED_SENTENCE =
 
 /** What moving does, said before anything is sent. */
 export const MOVE_SENTENCE =
-  'The event keeps its status, pictures and web address. Its Sulekha ticket link is switched off, and it is no longer shown as a Sulekha listing: the organisation adds its own tickets, and any of its event managers can change or delete it.'
+  'The event keeps its status, pictures, web address and ticket types, and it is no longer shown as an imported listing: the organisation runs it from then on, and any of its event managers can change or delete it.'
 
 /**
  * @typedef {object} ReassignEventDialogProps

@@ -1,17 +1,34 @@
 /**
- * The committed Sulekha dataset, `data/imports/sulekha-texas-2026.json`
+ * The committed Sulekha dataset, `data/imports/texas-2026.json`
  * (SPEC2-XI §5.I I-A).
  *
  * The user states that they own Sulekha.com and asked for these Texas events
  * and their photos to be imported onto The Desi Events; this file records that as
  * their statement. The dataset was curated once from the collected listings by
  * a script kept outside the repository, and these assertions are what makes it
- * trustworthy: the stated totals, the curation (three duplicate listings and
- * one wrong picture left out, one time zone corrected, lower-case venue names
- * title-cased), the category mapping, every curator's note word for word, the
- * two hosts the file may name, and no personal contact details anywhere.
+ * trustworthy: the stated totals, the curation (three duplicate listings left
+ * out, one time zone corrected, lower-case venue names title-cased), the
+ * category mapping, every curator's note word for word, and no personal
+ * contact details anywhere.
  *
- * The second file, `data/imports/sulekha-north-america-2026.json`, is the
+ * Since 2026-10-15 neither file carries a web address or the name of the site
+ * its listings came from: no listing link, ticket link, picture, source site,
+ * picture host or source name (the owner: "no connection", "No contact at
+ * all"). The Texas file was rewritten by a reviewed script that removed only
+ * those fields and the notes about pictures; the North America file was
+ * converted again by its script. Only the source's enum value, `"source":
+ * "SULEKHA"`, is left, an identifier no screen shows.
+ *
+ * And since tickets are sold on The Desi Events (2026-10-15), neither file
+ * carries a FAQ answer about the listing site's terms of sale: refunds,
+ * cancelling, buying, when tickets go on sale, its fees, its app or its pages.
+ * Those answers described another site and would contradict the event's own
+ * terms and checkout. The Texas file's were removed by a second reviewed
+ * script; the North America file's converter no longer writes them. A listing
+ * the export showed as sold out as a whole has every price marked sold out, so
+ * approval opens none of them.
+ *
+ * The second file, `data/imports/north-america-2026.json`, is the
  * owner's own Sulekha export of 397 listings in the United States and Canada
  * ("Add all these events into our website"), curated on 15 October 2026 by a
  * script kept outside the repository (ADR 0015, addendum). It is held to the
@@ -28,14 +45,18 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import { EVENT_CATEGORIES } from '@desi-event/schemas'
-import { IMPORT_DATASET_FORMAT, importDatasetSchema } from '@desi-event/schemas/imports'
+import {
+  IMPORT_DATASET_FORMAT,
+  RETIRED_DATASET_FIELDS,
+  RETIRED_LISTING_FIELDS,
+  importDatasetSchema,
+} from '@desi-event/schemas/imports'
 
-const FILE = new URL('../data/imports/sulekha-texas-2026.json', import.meta.url)
+const FILE = new URL('../data/imports/texas-2026.json', import.meta.url)
 const text = readFileSync(FILE, 'utf8')
 const dataset = JSON.parse(text)
 const events = dataset.events
 const byId = new Map(events.map((event) => [event.sourceId, event]))
-const images = events.flatMap((event) => event.images)
 
 /** The source category in words, as the category note names it. */
 const SOURCE_CATEGORY_WORDS = {
@@ -96,42 +117,36 @@ const CATEGORY_NOTED = [
  * @returns {string} The sentence.
  */
 function categoryNote(event) {
-  return `Sulekha lists this as ${SOURCE_CATEGORY_WORDS[event.sourceCategory]}; The Desi Events has no such category, so it is listed under ${CATEGORY_WORDS[event.category]}. If another fits better, change it in an editing session once the event is published.`
+  return `The source listing's category is ${SOURCE_CATEGORY_WORDS[event.sourceCategory]}; The Desi Events has no such category, so it is listed under ${CATEGORY_WORDS[event.category]}. If another fits better, change it in an editing session once the event is published.`
 }
 
 const CST_NOTE =
   'The page says CST, but the date falls in daylight saving time, so the time is imported as Central Daylight Time.'
 const COMEDY_FEST_NOTE =
-  'Sulekha says tickets are sold at DesiComedyFest.com; the link still goes to the Sulekha page.'
+  "The source listing says tickets are sold at DesiComedyFest.com, the organiser's own site; on The Desi Events they are sold through this event's own ticket types."
 
 /** Every note SPEC2-XI lists, word for word, by listing. */
 const LISTED_NOTES = {
-  402059: [
-    'Sulekha lists this event twice (402059 and 402060); only 402059 is imported.',
-    "One gallery picture on the Sulekha page was another event's poster (Navratri Dandiya Night In Austin), so it was left out.",
-  ],
+  402059: ['The source site lists this event twice (402059 and 402060); only 402059 is imported.'],
   400972: [
-    'Sulekha lists this event twice (400522 and 400972) with different street numbers (1401 and 1420 Toro Grande Blvd); 400972 and its address are imported.',
+    'The source site lists this event twice (400522 and 400972) with different street numbers (1401 and 1420 Toro Grande Blvd); 400972 and its address are imported.',
     'Its prices cover Friday and Saturday; the Saturday night is also listed on its own (400973).',
   ],
-  401979: ['Sulekha lists this event twice (401979 and 401980); only 401979 is imported.'],
+  401979: ['The source site lists this event twice (401979 and 401980); only 401979 is imported.'],
   401388: [
-    'The Sulekha page gives 4:00 PM EDT for a Texas venue. It is imported as 3:00 PM Central, the same moment. Check the time with the organiser.',
+    'The source listing gives 4:00 PM EDT for a Texas venue. It is imported as 3:00 PM Central, the same moment. Check the time with the organiser.',
   ],
-  400744: [
-    CST_NOTE,
-    'The page has no poster, so the event has no cover; its only picture is a performer photo.',
-  ],
+  400744: [CST_NOTE],
   401110: [CST_NOTE],
   401728: ['The header says 7:00 PM and the description says 7:30 PM; 7:00 PM is imported.'],
   401885: [
     "The page's metadata says 25 October and the visible date is 23 October; 23 October is imported.",
   ],
   401963: [
-    "Its Sulekha description was for a different event (in the Bay Area), so the description here is built from the page's other details.",
+    "Its description on the source listing was for a different event (in the Bay Area), so the description here is built from the page's other details.",
   ],
   401870: [
-    "Sulekha gives no description, so the description here is built from the page's other details.",
+    "The source listing gives no description, so the description here is built from the page's other details.",
   ],
   402109: ['A personal phone number was removed from the description.'],
   401684: ['The listing says Dallas; the venue is in Farmers Branch, which is used.'],
@@ -160,13 +175,84 @@ const PHONE_PATTERNS = [
 const EMAIL_PATTERN = /[^\s@"]+@[^\s@"]+\.[^\s@"]+/u
 
 /**
- * The host of an address.
- *
- * @param {string} value An absolute URL.
- * @returns {string} Its host name.
+ * Header fields that are identifiers: the source's enum value, which no
+ * screen shows (a run carries its file name, counts and plan; an event its own
+ * fields).
  */
-function host(value) {
-  return new URL(value).hostname
+const HEADER_IDENTIFIERS = new Set(['source'])
+
+/** Any web address. */
+const ADDRESS = /https?:\/\//iu
+
+/** A FAQ question about terms of sale: refunds, cancelling, buying, going on sale. */
+const SALES_TERMS_QUESTION =
+  /\b(?:refunds?|cancel(?:led|lation)?|purchase|buy|go(?:es)? on sale)\b/iu
+
+/**
+ * A FAQ answer describing another ticket site: the site itself, its fees, what
+ * it refunds, its own pages or app.
+ */
+const SALES_TERMS_ANSWER =
+  /ticket(?:ing)? site|not (?:the )?(?:transaction|service) fee|\b(?:transaction|service) fees?\b|face value|\bour website\b|\bapp\b|\bdropdown\b/iu
+
+/**
+ * Every FAQ entry of a dataset about the listing site's terms of sale.
+ *
+ * @param {object} file A parsed dataset.
+ * @returns {string[]} Each, as `sourceId: question`.
+ */
+function salesTermsAnswers(file) {
+  return file.events.flatMap((event) =>
+    event.faq
+      .filter(
+        (entry) =>
+          SALES_TERMS_QUESTION.test(entry.q) ||
+          SALES_TERMS_ANSWER.test(entry.q) ||
+          SALES_TERMS_ANSWER.test(entry.a),
+      )
+      .map((entry) => `${event.sourceId}: ${entry.q}`),
+  )
+}
+
+/**
+ * The lines of a file's text that name the source site, but for its enum
+ * value.
+ *
+ * @param {string} fileText The file as committed.
+ * @returns {string[]} The lines.
+ */
+function linesNamingTheSource(fileText) {
+  return fileText
+    .split('\n')
+    .filter((line) => /sulekha/iu.test(line) && line.trim() !== '"source": "SULEKHA",')
+}
+
+/**
+ * Every string of a dataset a person can read that names the source site, in
+ * any case: every field of each listing, its FAQ, prices and the
+ * administrator's `importNotes` included (the owner's request, 2026-10-15).
+ *
+ * @param {object} file A parsed dataset.
+ * @returns {string[]} Each place, as `events[i].path: text`.
+ */
+function namesOfTheSource(file) {
+  const found = []
+  const walk = (value, path) => {
+    if (typeof value === 'string') {
+      if (/sulekha/iu.test(value)) found.push(`${path}: ${value}`)
+    } else if (Array.isArray(value)) {
+      value.forEach((item, index) => walk(item, `${path}[${index}]`))
+    } else if (value && typeof value === 'object') {
+      for (const [field, item] of Object.entries(value)) walk(item, `${path}.${field}`)
+    }
+  }
+
+  for (const [field, value] of Object.entries(file)) {
+    if (field === 'events') value.forEach((event, index) => walk(event, `events[${index}]`))
+    else if (!HEADER_IDENTIFIERS.has(field)) walk(value, field)
+  }
+
+  return found
 }
 
 describe('the Sulekha Texas dataset', () => {
@@ -180,23 +266,17 @@ describe('the Sulekha Texas dataset', () => {
     expect(Object.keys(dataset)).toEqual([
       'format',
       'source',
-      'sourceName',
-      'sourceSite',
       'collectedFrom',
       'collectedTo',
       'curatedOn',
-      'imageHosts',
       'events',
     ])
     expect(dataset).toMatchObject({
       format: IMPORT_DATASET_FORMAT,
       source: 'SULEKHA',
-      sourceName: 'Sulekha',
-      sourceSite: 'https://events.sulekha.com/',
       collectedFrom: '2026-09-29T21:25:00Z',
       collectedTo: '2026-09-30T00:51:08Z',
       curatedOn: '2026-09-30',
-      imageHosts: ['usimg.sulekha.io'],
     })
   })
 
@@ -204,10 +284,6 @@ describe('the Sulekha Texas dataset', () => {
     const withPrices = events.filter((event) => event.prices.length > 0)
 
     expect(events).toHaveLength(45)
-    expect(images).toHaveLength(86)
-    expect(new Set(images.map((image) => image.url)).size).toBe(84)
-    expect(images.filter((image) => image.role === 'cover')).toHaveLength(44)
-    expect(images.filter((image) => image.role === 'gallery')).toHaveLength(42)
     expect(withPrices).toHaveLength(29)
     expect(withPrices.reduce((sum, event) => sum + event.prices.length, 0)).toBe(109)
     expect(events.filter((event) => event.prices.length === 0)).toHaveLength(16)
@@ -215,38 +291,26 @@ describe('the Sulekha Texas dataset', () => {
     expect(events.filter((event) => event.importNotes.length > 0)).toHaveLength(22)
   })
 
-  it('leaves out the three duplicate listings and the wrong gallery picture', () => {
+  it('leaves out the three duplicate listings', () => {
     for (const dropped of ['402060', '400522', '401980']) {
       expect(byId.has(dropped)).toBe(false)
-      expect(text.includes(`_${dropped}"`)).toBe(false)
+      expect(text.includes(`"sourceId": "${dropped}"`)).toBe(false)
     }
 
-    // The poster of 401885 stays on 401885 only, never on 402059.
-    const poster = 'navratri-dandiya-night-in-texas_2026-09-16-05-14-47-542_12'
-
-    expect(byId.get('402059').images.some((image) => image.url.includes(poster))).toBe(false)
-    expect(
-      events
-        .filter((event) => event.images.some((image) => image.url.includes(poster)))
-        .map((event) => event.sourceId),
-    ).toEqual(['401885'])
     // The kept copy of each pair is the richer one.
     expect(byId.get('400972').prices).toHaveLength(5)
-    expect(byId.get('400972').images).toHaveLength(2)
   })
 
-  it('names only usimg.sulekha.io for pictures and events.sulekha.com for listings and tickets', () => {
-    expect(images.every((image) => host(image.url) === 'usimg.sulekha.io')).toBe(true)
-    expect(images.every((image) => new URL(image.url).protocol === 'https:')).toBe(true)
-    expect(events.filter((event) => host(event.sourceUrl) === 'events.sulekha.com')).toHaveLength(
-      45,
-    )
-    expect(events.filter((event) => host(event.ticketUrl) === 'events.sulekha.com')).toHaveLength(
-      45,
-    )
-    // "the link still goes to the Sulekha page": every ticket link is the listing itself.
-    expect(events.every((event) => event.ticketUrl === event.sourceUrl)).toBe(true)
-    expect(events.every((event) => event.sourceUrl.endsWith(`_${event.sourceId}`))).toBe(true)
+  it('names no web address, no picture and no host of the source site, anywhere (2026-10-15)', () => {
+    expect(text.match(ADDRESS)?.[0] ?? null).toBeNull()
+    expect(linesNamingTheSource(text)).toEqual([])
+
+    for (const field of RETIRED_DATASET_FIELDS) expect(Object.hasOwn(dataset, field)).toBe(false)
+    for (const event of events) {
+      for (const field of RETIRED_LISTING_FIELDS) {
+        expect(Object.hasOwn(event, field), `${event.sourceId} ${field}`).toBe(false)
+      }
+    }
   })
 
   it('maps every category into the enum by the table, with its exceptions', () => {
@@ -303,7 +367,7 @@ describe('the Sulekha Texas dataset', () => {
     }
   })
 
-  it('has phone and email patterns that would catch one, and spare the picture names', () => {
+  it('has phone and email patterns that would catch one, and spare a dated file name', () => {
     for (const phone of [
       '(512) 555-0134',
       '512-555-0134',
@@ -325,16 +389,11 @@ describe('the Sulekha Texas dataset', () => {
     ).toBe(false)
   })
 
-  it('describes every picture in 1 to 300 characters, with at most one cover per listing', () => {
-    for (const image of images) {
-      expect(image.alt.trim().length).toBeGreaterThanOrEqual(1)
-      expect(image.alt.length).toBeLessThanOrEqual(300)
-    }
-
+  it('lists no picture, and no note speaks of one: nothing is copied from the source', () => {
+    expect(events.some((event) => 'images' in event)).toBe(false)
     expect(
-      events.every((event) => event.images.filter((i) => i.role === 'cover').length <= 1),
-    ).toBe(true)
-    expect(byId.get('400744').images.map((image) => image.role)).toEqual(['gallery'])
+      events.flatMap((event) => event.importNotes).filter((note) => /picture|poster/iu.test(note)),
+    ).toEqual([])
   })
 
   it('carries every curator note word for word, and no other', () => {
@@ -356,12 +415,11 @@ describe('the Sulekha Texas dataset', () => {
   })
 })
 
-const NA_FILE = new URL('../data/imports/sulekha-north-america-2026.json', import.meta.url)
+const NA_FILE = new URL('../data/imports/north-america-2026.json', import.meta.url)
 const naText = readFileSync(NA_FILE, 'utf8')
 const naDataset = JSON.parse(naText)
 const naEvents = naDataset.events
 const naById = new Map(naEvents.map((event) => [event.sourceId, event]))
-const naImages = naEvents.flatMap((event) => event.images)
 const naPrices = naEvents.flatMap((event) => event.prices)
 
 /** The upload has no collection time, so the curation day at midnight UTC stands for it. */
@@ -572,12 +630,9 @@ describe('the Sulekha North America dataset', () => {
     expect(naDataset).toMatchObject({
       format: IMPORT_DATASET_FORMAT,
       source: 'SULEKHA',
-      sourceName: 'Sulekha',
-      sourceSite: 'https://events.sulekha.com/',
       collectedFrom: NA_SCRAPED_AT,
       collectedTo: NA_SCRAPED_AT,
       curatedOn: '2026-10-15',
-      imageHosts: ['usimg.sulekha.io'],
     })
     expect(Buffer.byteLength(naText)).toBeLessThan(2 * 1024 * 1024)
   })
@@ -586,15 +641,15 @@ describe('the Sulekha North America dataset', () => {
     const withPrices = naEvents.filter((event) => event.prices.length > 0)
 
     expect(naEvents).toHaveLength(294)
-    expect(naImages).toHaveLength(497)
-    expect(new Set(naImages.map((image) => image.url)).size).toBe(497)
-    expect(naImages.filter((image) => image.role === 'cover')).toHaveLength(286)
-    expect(naImages.filter((image) => image.role === 'gallery')).toHaveLength(211)
     expect(withPrices).toHaveLength(273)
     expect(naPrices).toHaveLength(1008)
     expect(naEvents.filter((event) => event.prices.length === 0)).toHaveLength(21)
     expect(naEvents.filter((event) => event.endsAt === null)).toHaveLength(94)
-    expect(naEvents.filter((event) => event.importNotes.length > 0)).toHaveLength(197)
+    expect(naEvents.filter((event) => event.importNotes.length > 0)).toHaveLength(195)
+    // 269 since 2026-10-15: 401907, shown sold out as a whole, no longer notes
+    // one price "no longer on sale" (every price of it is sold out).
+    expect(naEvents.reduce((sum, event) => sum + event.importNotes.length, 0)).toBe(269)
+    expect(naPrices.filter((price) => price.note === 'Sold Out')).toHaveLength(48)
     expect(naEvents.filter((event) => event.venue.country === 'US')).toHaveLength(264)
     expect(naEvents.filter((event) => event.venue.country === 'CA')).toHaveLength(30)
   })
@@ -616,18 +671,22 @@ describe('the Sulekha North America dataset', () => {
   it('leaves out the cancelled listings', () => {
     for (const dropped of NA_CANCELLED) {
       expect(naById.has(dropped), dropped).toBe(false)
-      expect(naText.includes(`_${dropped}"`)).toBe(false)
+      expect(naText.includes(`"sourceId": "${dropped}"`)).toBe(false)
     }
   })
 
-  it('names only usimg.sulekha.io for pictures and events.sulekha.com for listings and tickets', () => {
-    expect(naImages.every((image) => host(image.url) === 'usimg.sulekha.io')).toBe(true)
-    expect(naImages.every((image) => new URL(image.url).protocol === 'https:')).toBe(true)
-    expect(naImages.some((image) => image.url.includes('/images/organizer/'))).toBe(false)
-    expect(naEvents.every((event) => host(event.sourceUrl) === 'events.sulekha.com')).toBe(true)
-    expect(naEvents.every((event) => new URL(event.sourceUrl).protocol === 'https:')).toBe(true)
-    expect(naEvents.every((event) => event.ticketUrl === event.sourceUrl)).toBe(true)
-    expect(naEvents.every((event) => event.sourceUrl.endsWith(`_${event.sourceId}`))).toBe(true)
+  it('names no web address, no picture and no host of the source site, anywhere (2026-10-15)', () => {
+    expect(naText.match(ADDRESS)?.[0] ?? null).toBeNull()
+    expect(linesNamingTheSource(naText)).toEqual([])
+
+    for (const field of RETIRED_DATASET_FIELDS) {
+      expect(Object.hasOwn(naDataset, field)).toBe(false)
+    }
+    for (const event of naEvents) {
+      for (const field of RETIRED_LISTING_FIELDS) {
+        expect(Object.hasOwn(event, field), `${event.sourceId} ${field}`).toBe(false)
+      }
+    }
   })
 
   it('maps every category by the priority table, with its exceptions and notes', () => {
@@ -641,7 +700,7 @@ describe('the Sulekha North America dataset', () => {
 
       if (inexact && !NA_CATEGORY_EXCEPTIONS[event.sourceId]) {
         expect(event.importNotes, event.sourceId).toContain(
-          `Sulekha lists this as ${inexact}; The Desi Events has no such category, so it is listed under ${SITE_CATEGORY_WORDS[event.category]}. If another fits better, change it in an editing session once the event is published.`,
+          `The source listing's category is ${inexact}; The Desi Events has no such category, so it is listed under ${SITE_CATEGORY_WORDS[event.category]}. If another fits better, change it in an editing session once the event is published.`,
         )
       }
     }
@@ -650,7 +709,7 @@ describe('the Sulekha North America dataset', () => {
       expect(
         naById
           .get(sourceId)
-          .importNotes.some((note) => note.startsWith('Sulekha lists this under')),
+          .importNotes.some((note) => note.startsWith('The source listing puts this under')),
         sourceId,
       ).toBe(true)
     }
@@ -669,7 +728,7 @@ describe('the Sulekha North America dataset', () => {
       expect(
         event.importNotes.some(
           (note) =>
-            note.startsWith('Sulekha lists this under') &&
+            note.startsWith('The source listing puts this under') &&
             note.includes(
               'nothing in its title or description mentions garba, dandiya, raas or Navratri',
             ) &&
@@ -801,7 +860,6 @@ describe('the Sulekha North America dataset', () => {
         event.ageRestriction ?? '',
         ...event.prices.map((price) => price.name),
         ...event.faq.flatMap((entry) => [entry.q, entry.a]),
-        ...event.images.map((image) => image.alt),
       ].join('\n')
 
       expect(shown.match(URGENCY)?.[0] ?? null, event.sourceId).toBeNull()
@@ -812,10 +870,12 @@ describe('the Sulekha North America dataset', () => {
       }
     }
 
-    // The status Sulekha showed reaches the administrator only.
+    // The status the source listing showed reaches the administrator only.
     expect(
       naEvents.filter((event) =>
-        event.importNotes.some((note) => note.startsWith("Sulekha's export (curated 2026-10-15)")),
+        event.importNotes.some((note) =>
+          note.startsWith("The source listing's export (curated 2026-10-15)"),
+        ),
       ),
     ).toHaveLength(43)
   })
@@ -829,40 +889,59 @@ describe('the Sulekha North America dataset', () => {
     }
   })
 
-  it('describes every picture in 1 to 300 characters, with one cover first wherever there is a picture', () => {
-    for (const image of naImages) {
-      expect(image.alt.trim().length).toBeGreaterThanOrEqual(1)
-      expect(image.alt.length).toBeLessThanOrEqual(300)
-    }
-
-    for (const event of naEvents) {
-      if (event.images.length === 0) continue
-
-      expect(event.images.map((image) => image.role).filter((role) => role === 'cover')).toEqual([
-        'cover',
-      ])
-      expect(event.images[0].role, event.sourceId).toBe('cover')
-    }
-
+  it('lists no picture, and no note speaks of one: nothing is copied from the source', () => {
+    expect(naEvents.some((event) => 'images' in event)).toBe(false)
     expect(
       naEvents
-        .filter((event) => event.images.length === 0)
-        .map((event) => event.sourceId)
-        .sort(),
-    ).toEqual(['401779', '401834', '401966', '401970', '402195', '402252', '402260', '402309'])
+        .flatMap((event) => event.importNotes)
+        .filter((note) => /picture|poster|placeholder/iu.test(note)),
+    ).toEqual([])
   })
 
-  it('asks only the refund question, and names who presents each listing', () => {
+  it('asks no question at all, not even the listing site’s refund one, and names who presents each listing', () => {
     for (const event of naEvents) {
-      expect(
-        event.faq.every((entry) => entry.q === 'What is the refund policy?'),
-        event.sourceId,
-      ).toBe(true)
-      expect(event.faq.length).toBeLessThanOrEqual(1)
+      // The export's only question was its refund answer, which gave the
+      // listing site's terms of sale: left out since tickets are sold here.
+      expect(event.faq, event.sourceId).toEqual([])
       expect(event.presentedBy, event.sourceId).toEqual(expect.any(String))
       expect(event.sourceId).toMatch(/^[0-9]{1,12}$/u)
       expect(event.performers.every((performer) => performer.role === null)).toBe(true)
     }
+  })
+
+  it('marks every price sold out on a listing the export showed sold out as a whole, saying so to the administrator', () => {
+    const wholly = naEvents.filter((event) =>
+      event.importNotes.some((note) =>
+        note.startsWith(
+          'The source listing\'s export (curated 2026-10-15) shows this event as "Sold Out", so every price is imported sold out',
+        ),
+      ),
+    )
+
+    expect(wholly.map((event) => event.sourceId).sort()).toEqual([
+      '401125',
+      '401907',
+      '402106',
+      '402122',
+      '402133',
+      '402134',
+      '402135',
+    ])
+
+    for (const event of wholly) {
+      expect(event.prices.length, event.sourceId).toBeGreaterThan(0)
+      expect(
+        event.prices.every((price) => price.note === 'Sold Out'),
+        event.sourceId,
+      ).toBe(true)
+    }
+
+    // No other listing says it was shown sold out as a whole.
+    expect(
+      naEvents.filter((event) =>
+        event.importNotes.some((note) => note.includes('shows this event as "Sold Out"')),
+      ),
+    ).toHaveLength(wholly.length)
   })
 
   it('keeps the listings also in the Texas file, each noting how this export differs', () => {
@@ -873,13 +952,81 @@ describe('the Sulekha North America dataset', () => {
     for (const sourceId of NA_TEXAS_OVERLAP) {
       const event = naById.get(sourceId)
 
-      expect(event.sourceUrl).toBe(byId.get(sourceId).sourceUrl)
+      expect(event.sourceId).toBe(byId.get(sourceId).sourceId)
       expect(
-        event.importNotes.some((note) =>
-          note.startsWith('This listing is also in sulekha-texas-2026.json'),
-        ),
+        event.importNotes.some((note) => note.startsWith('This listing is also in the Texas file')),
         sourceId,
       ).toBe(true)
     }
   })
+})
+
+describe('no visible field of either file names the source site', () => {
+  it('finds a planted name in any field', () => {
+    const planted = structuredClone(naDataset)
+    planted.events[0].faq = [
+      { q: 'What is the refund policy?', a: 'Refunds follow SULEKHA terms.' },
+    ]
+    planted.events[1].importNotes = ['The sulekha page says so.']
+    planted.events[2].presentedBy = "Sulekha's own team"
+    planted.events[3].prices = [{ ...naPrices[0], name: 'Sulekha early bird' }]
+
+    expect(namesOfTheSource(planted)).toEqual([
+      'events[0].faq[0].a: Refunds follow SULEKHA terms.',
+      'events[1].importNotes[0]: The sulekha page says so.',
+      "events[2].presentedBy: Sulekha's own team",
+      'events[3].prices[0].name: Sulekha early bird',
+    ])
+    expect(namesOfTheSource(naDataset)).toEqual([])
+  })
+
+  it.each([
+    ['texas-2026.json', dataset],
+    ['north-america-2026.json', naDataset],
+  ])('%s: no listing field, FAQ, price or note names it, and it carries no address', (_, file) => {
+    expect(namesOfTheSource(file)).toEqual([])
+    expect(JSON.stringify(file).match(ADDRESS)?.[0] ?? null).toBeNull()
+    expect(file.source).toBe('SULEKHA')
+  })
+
+  it('asks no question about terms of sale in the Texas file, and keeps where each concert is', () => {
+    const questions = events.flatMap((event) => event.faq.map((entry) => entry.q))
+
+    expect(questions.filter((question) => /refund|purchase|on sale/iu.test(question))).toEqual([])
+    expect(questions).toHaveLength(4)
+    expect(questions.every((question) => /^Where is the .+ happening\?$/u.test(question))).toBe(
+      true,
+    )
+  })
+})
+
+describe('no FAQ of either file gives another site’s terms of sale (2026-10-15)', () => {
+  it('finds a planted refund answer, a purchase question and a ticket site’s fee', () => {
+    const planted = structuredClone(naDataset)
+    planted.events[0].faq = [
+      { q: 'What is the refund policy?', a: 'All sales are final.' },
+      { q: 'How do I purchase tickets?', a: 'On the event page.' },
+      {
+        q: 'Anything else?',
+        a: 'The ticket site refunds only the ticket face value, not the transaction fee.',
+      },
+      { q: 'Where is it?', a: 'At the hall.' },
+    ]
+
+    expect(salesTermsAnswers(planted)).toEqual([
+      `${naEvents[0].sourceId}: What is the refund policy?`,
+      `${naEvents[0].sourceId}: How do I purchase tickets?`,
+      `${naEvents[0].sourceId}: Anything else?`,
+    ])
+  })
+
+  it.each([
+    ['texas-2026.json', dataset],
+    ['north-america-2026.json', naDataset],
+  ])(
+    '%s: no refund, purchase or on-sale answer, and no ticket site, fee, app or page of one',
+    (_, file) => {
+      expect(salesTermsAnswers(file)).toEqual([])
+    },
+  )
 })

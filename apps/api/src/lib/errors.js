@@ -576,8 +576,6 @@ export const PAYMENT_TERMS_SENTENCES = Object.freeze({
     "You belong to this event's organisation, so another administrator has to make this change.",
   /** 409 `NOT_EDITABLE`, on a deleted event's booking fee or switch. */
   deletedEvent: 'This event was deleted. Restore it first; its booking fee comes back as it was.',
-  /** 409 `SOLD_ON_SOURCE`, on an event sold on its listing's own site. */
-  soldOnSource: 'Tickets for this event are sold on Sulekha, so it has no booking fee here.',
   /** 503 `SERVICE_UNAVAILABLE` (with `Retry-After`), when a change to the booking fee waited too long. */
   feeTryAgain:
     'Another change to this event was being saved at the same moment, so the booking fee was not changed. Try again in a moment.',

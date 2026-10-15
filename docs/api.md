@@ -285,7 +285,7 @@ accident.
 | `organizerInvitations.create` and `organizerInvitations.reissue`, together                                                                                                         | 30 an hour per administrator                                                                                                                            |
 | `organizerInvitations.accept`                                                                                                                                                      | The credential budget, 10 per minute per account                                                                                                        |
 | `platformEvents.openEdit`                                                                                                                                                          | 30 sittings an hour per administrator                                                                                                                   |
-| `eventImports.preview`, `eventImports.apply` and `eventImports.retryImages`, together                                                                                              | 20 an hour per administrator                                                                                                                            |
+| `eventImports.preview` and `eventImports.apply`, together                                                                                                                          | 20 an hour per administrator                                                                                                                            |
 | `traffic.beacon`                                                                                                                                                                   | 60 per minute per visitor; beyond 3,000 a minute for one event or 6,000 a minute for one API process, beacons are answered and not counted              |
 | `traffic.websiteVisit`                                                                                                                                                             | 120 per minute per visitor (6,000 shared); at most 300 counted visits per event a minute per process                                                    |
 | `tickets.startTransfer`, in `EMAIL` delivery only                                                                                                                                  | 5 an hour per sender                                                                                                                                    |
@@ -307,7 +307,7 @@ budget.
 
 ## Endpoints
 
-**208 operations across 25 tags.** This page describes the ones whose behaviour
+**207 operations across 25 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
@@ -319,7 +319,7 @@ validates with, and CI fails on a difference.
 | `tickets`        | 15  | `finance`     | 12  |
 | `operations`     | 12  | `venues`      | 12  |
 | `privacy`        | 10  | `organizers`  | 9   |
-| `imports`        | 8   | `orders`      | 9   |
+| `imports`        | 7   | `orders`      | 9   |
 | `platform`       | 8   | `teams`       | 8   |
 | `referral-codes` | 7   | `refunds`     | 7   |
 | `ticket-types`   | 6   | `promo-codes` | 5   |
@@ -328,6 +328,12 @@ validates with, and CI fails on a difference.
 | `webhooks`       | 2   | `health`      | 1   |
 | `media`          | 1   | `payments`    | 1   |
 | `waitlist`       | 1   |               |     |
+
+> **Correction — 2026-10-15 (imports sold here).** The total read "208
+> operations across 25 tags". Imported events no longer copy anything from
+> the site their listings came from, so `eventImports.retryImages` ("Try
+> copying pictures again") is gone: the total is **207** across **185**
+> paths, and `imports` has seven.
 
 > **Correction — 2026-10-09 (unpaid tickets cancelled).** The total read
 > "206 operations across 25 tags". Cancelling unpaid pay-at-the-venue tickets
@@ -1271,28 +1277,56 @@ The Desi Events edits another organisation's posted event only inside a sitting
 that answers one browser session, lasts up to an hour, and asks for a second
 factor again every ten minutes of writes. Full reasoning: ADR 0014.
 
-### Imports — 2026-10-06
+### Imports — 2026-10-06, sold here since 2026-10-15
 
-Eight routes on the `imports` tag, all `event:import` (ADMIN and SUPER_ADMIN);
+Seven routes on the `imports` tag, all `event:import` (ADMIN and SUPER_ADMIN);
 approving also needs `moderation:review`.
 
-| Method | Path                                            | Step-up         | Purpose                                                                |
-| ------ | ----------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
-| GET    | `/v1/platform/imports`                          | —               | The import runs                                                        |
-| POST   | `/v1/platform/imports`                          | —               | Upload a dataset file and plan it; writes only the run. Up to 2 MiB    |
-| GET    | `/v1/platform/imports/:runId`                   | —               | One run: its plan, notes, events and pictures                          |
-| POST   | `/v1/platform/imports/:runId/apply`             | `MODERATION`    | Import the plan the administrator read; events land in review          |
-| POST   | `/v1/platform/imports/:runId/images/retry`      | `MODERATION`    | Try copying pictures again                                             |
-| POST   | `/v1/platform/imports/:runId/approve`           | `EVENT_PUBLISH` | Approve and publish named events, with their pictures and Sulekha link |
-| GET    | `/v1/platform/import-targets`                   | —               | Organisations an imported event may move to                            |
-| POST   | `/v1/platform/imports/events/:eventId/reassign` | `EVENT_PUBLISH` | Move an imported event to an organiser's own organisation              |
+| Method | Path                                            | Step-up         | Purpose                                                             |
+| ------ | ----------------------------------------------- | --------------- | ------------------------------------------------------------------- |
+| GET    | `/v1/platform/imports`                          | —               | The import runs                                                     |
+| POST   | `/v1/platform/imports`                          | —               | Upload a dataset file and plan it; writes only the run. Up to 2 MiB |
+| GET    | `/v1/platform/imports/:runId`                   | —               | One run: its plan, notes, events and their ticket types             |
+| POST   | `/v1/platform/imports/:runId/apply`             | `MODERATION`    | Import the plan the administrator read; events land in review       |
+| POST   | `/v1/platform/imports/:runId/approve`           | `EVENT_PUBLISH` | Approve, publish and open the sales of named events                 |
+| GET    | `/v1/platform/import-targets`                   | —               | Organisations an imported event may move to                         |
+| POST   | `/v1/platform/imports/events/:eventId/reassign` | `EVENT_PUBLISH` | Move an imported event to an organiser's own organisation           |
 
-Imported events belong to the member-less platform-held organisation "Sulekha
-Events", are published without ticket types or sales (409 `SOLD_ON_SOURCE` for
-adding tiers or opening sales there), and link to their Sulekha page through
-the website switch. Pictures are copied only from `https://usimg.sulekha.io`.
-The CLI `pnpm import:events` previews and applies; it never approves. Full
-reasoning: ADR 0015.
+Imported events belong to the member-less platform-held organisation "The
+Desi Events" (renamed from its first name on 15 October 2026, ADR 0015) and
+are sold here, like any event, since the owner's request of the same day ("no
+connection" with the site the listings came from):
+
+- **A file carries no web address.** No listing link, ticket link, picture,
+  source site, picture hosts or source name: a file that still names one is
+  refused 422 `IMPORT_INVALID`, each field placed. A listing is known by its
+  `sourceId` alone. Nothing is fetched, and no website link is set; the
+  address rule refuses that site as any event's website.
+- **Each listed price becomes a ticket type**: general admission, priced as
+  listed in the event's currency (USD at a venue in the United States, CAD in
+  Canada; a listing priced otherwise is planned `INVALID`), an allowance of
+  100 tickets marked `quantityIsAllowance` (no page shows a count left from
+  it), 1 to 10 per order. A price the listing marked sold out is made `CLOSED`.
+  Approval publishes the event, puts its tiers on sale from then until it
+  starts and moves it to `ON_SALE` (`outcome: PUBLISHED`); for a posted import
+  whose new tiers wait, it opens them (`outcome: SALES_OPENED`).
+- **A re-import never changes a tier that has been sold, ordered or held.**
+  One that has not takes the listing's price (and is closed when the listing
+  marks it sold out); a new price is a new tier, not on sale until approved; a
+  tier the listing dropped is removed. An administrator's name and allowance
+  for it stay.
+- **The team runs its sales.** In an editing session an administrator adds
+  and changes its tiers and opens or pauses its sales (`events.openSales`,
+  `events.pauseSales`; the only lifecycle moves a sitting makes, and only for
+  a platform-held event). Its booking fee is set like any event's; paying at
+  its door is never switched on (409 `VENUE_PAYMENT_UNAVAILABLE`). Checkout,
+  holds, orders, tickets, the door (a super administrator admits: the
+  organisation has no members), refunds and the finance and analytics views
+  work for it as for any organisation, in `PAYMENT_MODE=MOCK`.
+
+No sentence the API sends names the source site; only its identifier
+`SULEKHA` does. The CLI `pnpm import:events` previews and applies; it never
+approves. Full reasoning: ADR 0015.
 
 ### Booking fees, referral codes and paying at the venue — 2026-10-09
 

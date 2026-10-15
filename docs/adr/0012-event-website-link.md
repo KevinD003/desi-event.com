@@ -5,8 +5,9 @@
 - **Supersedes:** nothing. It replaces the free `socialLinks.website` field an
   organiser could fill, which was never an ADR.
 - **Related:** ADR 0010 (the platform administrator), ADR 0013 (visit
-  counting), ADR 0015 (imported events link to their Sulekha page through this
-  switch); `docs/SECURITY.md` ("Outbound links and the website redirect");
+  counting), ADR 0015 (imported events once linked to their source listing
+  through this switch; since its addendum "2026-10-15 (2)" they never do, and
+  the address rule refuses the source site's hosts); `docs/SECURITY.md` ("Outbound links and the website redirect");
   SPEC2 §1 D6 and §4.W.
 
 ## Context

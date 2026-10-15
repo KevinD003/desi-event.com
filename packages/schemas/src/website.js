@@ -33,6 +33,35 @@ export const WEBSITE_LIMITS = Object.freeze({
 /** The Desi Events itself. A "visit the organiser's website" link here is a loop or an impersonation. */
 export const PLATFORM_HOSTS = Object.freeze(['thedesievents.com'])
 
+/**
+ * The site the imported listings came from, under any of its domains and any
+ * name beneath them (`events.…`, `usimg.…`, `www.…`): the owner asked, on
+ * 2026-10-15, that nothing on The Desi Events links, redirects or connects
+ * there. A regular expression rather than a list of names, so that no string
+ * in the code spells the site.
+ *
+ * @type {RegExp}
+ */
+export const RETIRED_SOURCE_HOST = /(?:^|\.)sulekha\.[a-z]{2,63}(?:\.[a-z]{2,63})?$/iu
+
+/**
+ * What {@link websiteUrlProblem} says about an address on
+ * {@link RETIRED_SOURCE_HOST}. Kept apart from `WEBSITE_PROBLEMS`, which the
+ * browser's mirror repeats word for word.
+ */
+export const RETIRED_SOURCE_PROBLEM =
+  'The Desi Events does not link to that site. Use the organiser’s own website.'
+
+/**
+ * Whether a host is on the site the imported listings came from.
+ *
+ * @param {unknown} host A host name.
+ * @returns {boolean} True for the retired source's domains.
+ */
+export function isRetiredSourceHost(host) {
+  return typeof host === 'string' && RETIRED_SOURCE_HOST.test(host.replace(/\.$/u, ''))
+}
+
 /** Names that resolve only on somebody's own network, or nowhere. */
 export const PRIVATE_HOST_SUFFIXES = Object.freeze([
   'localhost',
@@ -175,6 +204,8 @@ export function websiteUrlProblem(value) {
   if (PLATFORM_HOSTS.some((platform) => host === platform || host.endsWith(`.${platform}`))) {
     return WEBSITE_PROBLEMS.platform
   }
+
+  if (isRetiredSourceHost(host)) return RETIRED_SOURCE_PROBLEM
 
   for (const name of [...parameterNames(url.search), ...parameterNames(url.hash)]) {
     if (CREDENTIAL_PARAMETERS.includes(name.toLowerCase())) return credentialParameterProblem(name)

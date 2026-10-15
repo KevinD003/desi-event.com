@@ -506,7 +506,6 @@ describe('paymentTerms responses', () => {
     eventId: id(1),
     eventStatus: 'ON_SALE',
     isOnline: false,
-    soldOnSource: false,
     posted: true,
     historyHasMore: false,
   }

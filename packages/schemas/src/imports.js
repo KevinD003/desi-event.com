@@ -1,17 +1,19 @@
 /**
- * Importing events listed on another site (Sulekha) onto The Desi Events, by the team
- * at The Desi Events (SPEC2-XI area I): the dataset file's shape, and the bodies
- * of the import routes.
+ * Importing listed events onto The Desi Events, by the team at The Desi Events
+ * (SPEC2-XI area I): the dataset file's shape, and the bodies of the import
+ * routes.
  *
  * At `@desi-event/schemas/imports`. Server-only in use — the upload form reads
  * the file in the browser and sends it as it is; the API parses it — but
  * nothing here is secret, and it imports nothing the browser may not have.
  *
- * The schema checks shape only. Which hosts a file may name (one picture host,
- * one source host) and whether its listings are still to come are checked at
- * run time by the API's `lib/import-dataset.js`, because the file is uploaded
- * by a person and every rule has to hold for that file, not only for the one
- * committed to the repository.
+ * Since 2026-10-15 (the owner: "no connection" with the site the listings came
+ * from) a file carries **no web address at all**: no listing link, no ticket
+ * link, no picture, no source site and no picture hosts. A listing is known by
+ * its `sourceId` only, which keeps an import idempotent. Each listed price
+ * becomes a ticket type sold on The Desi Events ({@link IMPORT_TIER_DEFAULTS}).
+ * The schema is strict, so a file that still carries an address is refused;
+ * the API words that refusal itself (`lib/import-dataset.js`).
  *
  * @module @desi-event/schemas/imports
  */
@@ -40,7 +42,7 @@ export const IMPORT_PLAN_ACTIONS = Object.freeze([
   'UPDATE_DRAFT',
   /** Imported, and the listing has not changed. */
   'UNCHANGED',
-  /** Imported and posted: left alone unless the administrator ticks "Update from Sulekha". */
+  /** Imported and posted: left alone unless the administrator ticks it to be updated from its source listing. */
   'POSTED_KEPT',
   /** Imported and posted, and the administrator chose to update it from the listing. */
   'UPDATE_POSTED',
@@ -52,7 +54,7 @@ export const IMPORT_PLAN_ACTIONS = Object.freeze([
   'SKIPPED_REASSIGNED',
   /** The listing's date has passed. */
   'SKIPPED_PAST',
-  /** The listing cannot be imported as it is (its link does not pass the website rules). */
+  /** The listing cannot be imported as it is (its prices are not in the venue country's currency). */
   'INVALID',
 ])
 
@@ -64,9 +66,6 @@ export const IMPORT_LIMITS = Object.freeze({
   events: 500,
   prices: 20,
   importNotes: 20,
-  images: 20,
-  alt: 300,
-  url: 2048,
   title: 200,
   summary: 500,
   description: 20_000,
@@ -83,25 +82,37 @@ export const importSourceIdSchema = z
   .regex(/^[0-9]{1,12}$/u, 'A listing id is 1 to 12 digits.')
 
 /**
- * Whether a value is an absolute `https:` address within the length bound.
- *
- * @param {string} value The candidate.
- * @returns {boolean} True when it parses as https with a host.
+ * What each listed price becomes on import: a general-admission ticket type
+ * sold on The Desi Events. The listing gives no quantity, so each tier gets an
+ * **allowance** of 100 tickets, marked `TicketType.quantityIsAllowance` so no
+ * page shows a count of tickets left that was never the organiser's; an
+ * administrator changes it in the tier editor at any time. A price the listing
+ * marked sold out is made `CLOSED`: shown, not on sale.
  */
-function isHttpsAddress(value) {
-  if (value.length > IMPORT_LIMITS.url) return false
+export const IMPORT_TIER_DEFAULTS = Object.freeze({
+  quantityTotal: 100,
+  minPerOrder: 1,
+  maxPerOrder: 10,
+})
 
-  try {
-    const url = new URL(value)
-
-    return url.protocol === 'https:' && url.hostname.length > 0
-  } catch {
-    return false
-  }
+/**
+ * Whether a listed price's note says the listing had sold out of it.
+ *
+ * @param {string|null|undefined} note The price's note.
+ * @returns {boolean} True for "Sold Out" and the like.
+ */
+export function priceNoteSaysSoldOut(note) {
+  return typeof note === 'string' && /\bsold[\s-]*out\b/iu.test(note)
 }
 
-/** An absolute `https:` address. Its host is checked at run time. */
-const httpsAddressSchema = z.string().min(1).refine(isHttpsAddress, 'Use a full https:// address.')
+/**
+ * The fields a file carried before 2026-10-15 that it may no longer carry:
+ * each is a web address on the source's own site, or names it.
+ */
+export const RETIRED_DATASET_FIELDS = Object.freeze(['sourceName', 'sourceSite', 'imageHosts'])
+
+/** The listing fields retired with them: the listing's link, its ticket link and its pictures. */
+export const RETIRED_LISTING_FIELDS = Object.freeze(['sourceUrl', 'ticketUrl', 'images'])
 
 /**
  * A trimmed line of text between `min` and `max` characters.
@@ -122,16 +133,10 @@ function optionalText(max) {
   return text(max).nullable()
 }
 
-/** A picture the source lists for an event. */
-export const importImageSchema = z
-  .object({
-    url: httpsAddressSchema,
-    role: z.enum(['cover', 'gallery']),
-    alt: text(IMPORT_LIMITS.alt),
-  })
-  .strict()
-
-/** A price as the source lists it. No ticket type is made from it. */
+/**
+ * A price as the listing gives it. Each becomes a ticket type
+ * ({@link IMPORT_TIER_DEFAULTS}); `note` is for the administrator only.
+ */
 export const importPriceSchema = z
   .object({
     name: text(100),
@@ -145,7 +150,6 @@ export const importPriceSchema = z
 export const importEventSchema = z
   .object({
     sourceId: importSourceIdSchema,
-    sourceUrl: httpsAddressSchema,
     scrapedAt: isoDateTimeSchema,
     title: text(IMPORT_LIMITS.title),
     category: eventCategorySchema,
@@ -179,14 +183,6 @@ export const importEventSchema = z
     dressCode: optionalText(200),
     parking: optionalText(500),
     faq: z.array(z.object({ q: text(500), a: text(2000) }).strict()).max(IMPORT_LIMITS.faq),
-    images: z
-      .array(importImageSchema)
-      .max(IMPORT_LIMITS.images)
-      .refine(
-        (images) => images.filter((image) => image.role === 'cover').length <= 1,
-        'A listing has at most one cover picture.',
-      ),
-    ticketUrl: httpsAddressSchema,
     /** What the curator noted, for the administrator only. */
     importNotes: z.array(text(500)).max(IMPORT_LIMITS.importNotes),
   })
@@ -197,15 +193,9 @@ export const importDatasetSchema = z
   .object({
     format: z.literal(IMPORT_DATASET_FORMAT),
     source: eventImportSourceSchema,
-    sourceName: text(100),
-    sourceSite: httpsAddressSchema,
     collectedFrom: isoDateTimeSchema,
     collectedTo: isoDateTimeSchema,
     curatedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u, 'A date as YYYY-MM-DD.'),
-    imageHosts: z
-      .array(z.string().regex(/^[a-z0-9.-]{1,253}$/u, 'A lower-case host name.'))
-      .min(1)
-      .max(10),
     events: z.array(importEventSchema).min(1).max(IMPORT_LIMITS.events),
   })
   .strict()
@@ -299,22 +289,6 @@ export const eventImportRunParamSchema = z.object({ runId: cuidSchema })
 
 /** `:eventId` in the reassign route. */
 export const eventImportEventParamSchema = z.object({ eventId: cuidSchema })
-
-/**
- * `POST /v1/platform/imports/:runId/images/retry`: every waiting or failed
- * picture of the run, or only those of the events named (each must be in the
- * run).
- */
-export const eventImportRetryRequestSchema = z
-  .object({
-    eventIds: z
-      .array(cuidSchema)
-      .min(1)
-      .max(IMPORT_LIMITS.events)
-      .refine((ids) => new Set(ids).size === ids.length, 'Name each event once.')
-      .optional(),
-  })
-  .strict()
 
 /** `GET /v1/platform/import-targets`: organisations matched by name or web address. */
 export const importTargetQuerySchema = z.object({

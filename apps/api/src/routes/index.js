@@ -66,7 +66,6 @@ import { registerWebsiteRedirectRoutes } from './website-redirect.js'
  * @param {{max?: number, timeWindow?: string|number}} [deps.organizerInviteLimit] Overrides for the organiser-invitation budget.
  * @param {{max?: number, timeWindow?: string|number}} [deps.platformEditLimit] Overrides for the platform editing-sitting budget.
  * @param {{max?: number, timeWindow?: string|number}} [deps.eventImportLimit] Overrides for the import budget.
- * @param {Function} [deps.fetchImportImage] How an import copies one picture.
  * @param {{max?: number, timeWindow?: string|number}} [deps.transferMailLimit] Overrides for the ticket-transfer mail budget.
  * @param {'MANUAL'|'EMAIL'} [deps.deliveryMode] How single-use codes reach people, resolved once by `buildApp`.
  * @param {object} [deps.mediaStorage] Where picture bytes live; see `lib/media-storage.js`.

@@ -1,16 +1,12 @@
 {
   "format": "desi-event-import/1",
   "source": "SULEKHA",
-  "sourceName": "Sulekha",
-  "sourceSite": "https://events.sulekha.com/",
   "collectedFrom": "2026-09-29T21:25:00Z",
   "collectedTo": "2026-09-30T00:51:08Z",
   "curatedOn": "2026-09-30",
-  "imageHosts": ["usimg.sulekha.io"],
   "events": [
     {
       "sourceId": "400132",
-      "sourceUrl": "https://events.sulekha.com/falguni-pathak-live-in-dallas-dandiya-dhoom-2026_event-in_frisco-tx_400132",
       "scrapedAt": "2026-09-29T21:25:00Z",
       "title": "Falguni Pathak Live in Dallas – Dandiya Dhoom 2026",
       "category": "GARBA_DANDIYA",
@@ -58,43 +54,12 @@
         {
           "q": "Where is the Falguni Pathak Concert happening?",
           "a": "frisco flyers, 6300 Flyers Way, Frisco, TX"
-        },
-        {
-          "q": "When do Falguni Pathak event tickets go on sale in Frisco, TX?",
-          "a": "Falguni Pathak upcoming concert tour tickets go on sale 1 to 2 months prior to the performance and sometimes even a year in advance."
-        },
-        {
-          "q": "How do I purchase tickets?",
-          "a": "You can purchase any ticket to any events listed on our website."
-        },
-        {
-          "q": "What is Sulekha's Refund Policy?",
-          "a": "All sales are final. No Refunds will be issued unless an event is canceled or rescheduled."
         }
       ],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/falguni-pathak-live-in-dallas-%E2%80%93-dandiya-dhoom-2026_2026-05-22-03-26-38-519_81.webp?ver=0.333792",
-          "role": "cover",
-          "alt": "Falguni Pathak Live in Dallas – Dandiya Dhoom 2026 banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-05-22-03-43-46-853_55.webp",
-          "role": "gallery",
-          "alt": "Falguni Pathak Live in Dallas – Dandiya Dhoom 2026 poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/artist/falguni-pathak_2017-9-22-3-28-15.jpg",
-          "role": "gallery",
-          "alt": "Falguni Pathak"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/falguni-pathak-live-in-dallas-dandiya-dhoom-2026_event-in_frisco-tx_400132",
       "importNotes": []
     },
     {
       "sourceId": "401764",
-      "sourceUrl": "https://events.sulekha.com/garba-night-with-purva-mantri-live-in-houston_event-in_houston-tx_401764",
       "scrapedAt": "2026-09-30T00:00:00Z",
       "title": "Garba Night With Purva Mantri Live In Houston",
       "category": "GARBA_DANDIYA",
@@ -136,43 +101,12 @@
         {
           "q": "Where is the Purva Mantri Concert happening?",
           "a": "GSH Event Center, 9550 W Bellfort Ave, Houston, TX"
-        },
-        {
-          "q": "When do Purva Mantri event tickets go on sale in Houston, TX?",
-          "a": "Purva Mantri upcoming concert tour tickets go on sale 1 to 2 months prior to the performance."
-        },
-        {
-          "q": "How do I purchase tickets?",
-          "a": "You can purchase any ticket to any events listed on our website."
-        },
-        {
-          "q": "What is Sulekha's Refund Policy?",
-          "a": "All sales are final. No Refunds will be issued unless an event is canceled or rescheduled."
         }
       ],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/garba-night-with-purva-mantri-live-in-houston_2026-09-09-11-43-35-159_99.webp?ver=0.693051",
-          "role": "cover",
-          "alt": "Garba Night With Purva Mantri Live In Houston banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-14-02-27-19-871_54.webp",
-          "role": "gallery",
-          "alt": "Garba Night With Purva Mantri Live In Houston poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/purva-mantri_2020-04-24-09-11-11-308_92.jpeg",
-          "role": "gallery",
-          "alt": "Purva Mantri"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/garba-night-with-purva-mantri-live-in-houston_event-in_houston-tx_401764",
       "importNotes": []
     },
     {
       "sourceId": "400744",
-      "sourceUrl": "https://events.sulekha.com/sacred-rivers-the-musical_event-in_austin-tx_400744",
       "scrapedAt": "2026-09-30T00:01:00Z",
       "title": "Sacred Rivers: The Musical",
       "category": "THEATRE",
@@ -212,23 +146,13 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/artist/artist_2016-03-02-04-53-07-635.jpg",
-          "role": "gallery",
-          "alt": "Trichur Brothers"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/sacred-rivers-the-musical_event-in_austin-tx_400744",
       "importNotes": [
         "The page says CST, but the date falls in daylight saving time, so the time is imported as Central Daylight Time.",
-        "The page has no poster, so the event has no cover; its only picture is a performer photo.",
-        "Sulekha lists this as Classical; The Desi Events has no such category, so it is listed under Theatre. If another fits better, change it in an editing session once the event is published."
+        "The source listing's category is Classical; The Desi Events has no such category, so it is listed under Theatre. If another fits better, change it in an editing session once the event is published."
       ]
     },
     {
       "sourceId": "401110",
-      "sourceUrl": "https://events.sulekha.com/saffron-and-silks-in-dallas_event-in_fort-worth-tx_401110",
       "scrapedAt": "2026-09-30T00:28:24Z",
       "title": "Saffron and Silks in Dallas",
       "category": "FOOD_FESTIVAL",
@@ -255,27 +179,13 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-07-27-04-23-38-088_92.webp",
-          "role": "cover",
-          "alt": "Saffron and Silks in Dallas event poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/saffron-and-silks-in-dallas_2026-07-27-04-32-39-869_29.webp",
-          "role": "gallery",
-          "alt": "Saffron and Silks in Dallas banner (thumbnail size)"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/saffron-and-silks-in-dallas_event-in_fort-worth-tx_401110",
       "importNotes": [
         "The page says CST, but the date falls in daylight saving time, so the time is imported as Central Daylight Time.",
-        "Sulekha lists this as Food; The Desi Events has no such category, so it is listed under Food Festivals. If another fits better, change it in an editing session once the event is published."
+        "The source listing's category is Food; The Desi Events has no such category, so it is listed under Food Festivals. If another fits better, change it in an editing session once the event is published."
       ]
     },
     {
       "sourceId": "401420",
-      "sourceUrl": "https://events.sulekha.com/nandgam-haveli-garba-2026_event-in_cedar-park-tx_401420",
       "scrapedAt": "2026-09-30T00:30:07Z",
       "title": "Nandgam Haveli Garba 2026",
       "category": "GARBA_DANDIYA",
@@ -315,24 +225,10 @@
       "dressCode": "Colorful traditional attire",
       "parking": "Free Parking",
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-19-04-33-02-882_72.webp",
-          "role": "cover",
-          "alt": "Nandgam Haveli Garba 2026 poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/nandgam-haveli-garba-2026_2026-08-19-04-46-03-538_39.webp",
-          "role": "gallery",
-          "alt": "Nandgam Haveli Garba 2026 banner (thumbnail size)"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/nandgam-haveli-garba-2026_event-in_cedar-park-tx_401420",
       "importNotes": []
     },
     {
       "sourceId": "401727",
-      "sourceUrl": "https://events.sulekha.com/navratri-raas-garba-with-sunny-jadhav-dfw-gujarati-samaj_event-in_frisco-tx_401727",
       "scrapedAt": "2026-09-30T00:30:41Z",
       "title": "Navratri Raas Garba with Sunny Jadhav - DFW Gujarati Samaj",
       "category": "GARBA_DANDIYA",
@@ -364,24 +260,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-07-06-32-50-928_70.webp",
-          "role": "cover",
-          "alt": "Navratri Raas Garba with Sunny Jadhav - DFW Gujarati Samaj poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/navratri-raas-garba-with-sunny-jadhav-dfw-gujarati-samaj_2026-09-07-06-57-52-161_72.webp",
-          "role": "gallery",
-          "alt": "Navratri Raas Garba with Sunny Jadhav banner (thumbnail size)"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/navratri-raas-garba-with-sunny-jadhav-dfw-gujarati-samaj_event-in_frisco-tx_401727",
       "importNotes": []
     },
     {
       "sourceId": "402025",
-      "sourceUrl": "https://events.sulekha.com/pearland-garba-2026-mts_event-in_pearland-tx_402025",
       "scrapedAt": "2026-09-30T00:31:14Z",
       "title": "Pearland Garba 2026 MTS",
       "category": "GARBA_DANDIYA",
@@ -408,24 +290,10 @@
       "dressCode": "Traditional attire",
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-24-06-49-01-021_1.webp",
-          "role": "cover",
-          "alt": "Pearland Garba 2026 MTS poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/pearland-garba-2026-mts_2026-09-24-06-31-04-474_56.webp",
-          "role": "gallery",
-          "alt": "Pearland Garba 2026 MTS banner (thumbnail size)"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/pearland-garba-2026-mts_event-in_pearland-tx_402025",
       "importNotes": []
     },
     {
       "sourceId": "401487",
-      "sourceUrl": "https://events.sulekha.com/jigardan-gadhvi-live-in-dallas-garba-mahotsav-2026_event-in_frisco-tx_401487",
       "scrapedAt": "2026-09-30T00:31:46Z",
       "title": "Jigardan Gadhvi - Live in Dallas Garba Mahotsav 2026",
       "category": "GARBA_DANDIYA",
@@ -467,43 +335,12 @@
         {
           "q": "Where is the Jigardan Gadhavi Concert happening?",
           "a": "Frisco Flyers, 6300 Flyers Way, Frisco, TX"
-        },
-        {
-          "q": "When do Jigardan Gadhavi event tickets go on sale in Frisco, TX?",
-          "a": "Jigardan Gadhavi upcoming concert tour tickets go on sale 1 to 2 months prior to the performance."
-        },
-        {
-          "q": "How do I purchase tickets?",
-          "a": "Tickets can be purchased on our website or by contacting us."
-        },
-        {
-          "q": "What is Sulekha's Refund Policy?",
-          "a": "All sales are final. No refunds unless the event is canceled."
         }
       ],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/jigardan-gadhvi-live-in-dallas-garba-mahotsav-2026_2026-08-21-07-54-11-298_35.webp?ver=0.384052",
-          "role": "cover",
-          "alt": "Jigardan Gadhvi - Live in Dallas Garba Mahotsav 2026 banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-25-06-31-07-049_29.webp",
-          "role": "gallery",
-          "alt": "Jigardan Gadhvi - Live in Dallas Garba Mahotsav 2026 poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/jigardan-gadhavi_2023-08-23-02-25-30-447_47.webp",
-          "role": "gallery",
-          "alt": "Jigardan Gadhavi"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/jigardan-gadhvi-live-in-dallas-garba-mahotsav-2026_event-in_frisco-tx_401487",
       "importNotes": []
     },
     {
       "sourceId": "401388",
-      "sourceUrl": "https://events.sulekha.com/atx-diwali-garba-6th-annual-bollywood-garba_event-in_leander-tx_401388",
       "scrapedAt": "2026-09-30T00:32:37Z",
       "title": "ATX DIWALI & GARBA | 6TH ANNUAL | BOLLYWOOD GARBA",
       "category": "GARBA_DANDIYA",
@@ -530,26 +367,12 @@
       "dressCode": null,
       "parking": "Free parking",
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-18-05-38-41-759_7.webp",
-          "role": "cover",
-          "alt": "ATX Diwali & Garba 6th Annual Bollywood Garba poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/atx-diwali-garba-6th-annual-bollywood-garba_2026-08-18-05-16-44-164_19.webp",
-          "role": "gallery",
-          "alt": "ATX Diwali & Garba banner (thumbnail size)"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/atx-diwali-garba-6th-annual-bollywood-garba_event-in_leander-tx_401388",
       "importNotes": [
-        "The Sulekha page gives 4:00 PM EDT for a Texas venue. It is imported as 3:00 PM Central, the same moment. Check the time with the organiser."
+        "The source listing gives 4:00 PM EDT for a Texas venue. It is imported as 3:00 PM Central, the same moment. Check the time with the organiser."
       ]
     },
     {
       "sourceId": "401908",
-      "sourceUrl": "https://events.sulekha.com/jazim-sharma-concert-between-the-lines-ishq-lafz-vibes-houston-2026_event-in_houston-tx_401908",
       "scrapedAt": "2026-09-30T00:33:20Z",
       "title": "Jazim Sharma Concert-Between the Lines ISHQ, LAFZ & VIBES | Houston 2026",
       "category": "MUSIC_CONCERT",
@@ -603,43 +426,12 @@
         {
           "q": "Where is the Jazim Sharma Concert happening?",
           "a": "The Pyramids, Unity of Houston, 2929 Unity Drive, Houston, TX"
-        },
-        {
-          "q": "When do Jazim Sharma event tickets go on sale in Houston, TX?",
-          "a": "Jazim Sharma upcoming concert tour tickets go on sale 1 to 2 months prior to the performance and sometimes even a year in advance."
-        },
-        {
-          "q": "How do I purchase tickets?",
-          "a": "You can purchase any ticket to any events listed on our website."
-        },
-        {
-          "q": "What is Sulekha's Refund Policy?",
-          "a": "All sales are final."
         }
       ],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/jazim-sharma-concert-between-the-lines-ishq-lafz-vibes-houston-2026_2026-09-17-07-27-19-407_69.webp?ver=0.522293",
-          "role": "cover",
-          "alt": "Jazim Sharma Concert - Between the Lines ISHQ, LAFZ & VIBES Houston 2026 banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-23-03-30-52-197_51.webp",
-          "role": "gallery",
-          "alt": "Jazim Sharma Concert Houston 2026 poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/jazim-sharma_2025-01-07-12-18-47-518_26.webp",
-          "role": "gallery",
-          "alt": "Jazim Sharma"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/jazim-sharma-concert-between-the-lines-ishq-lafz-vibes-houston-2026_event-in_houston-tx_401908",
       "importNotes": []
     },
     {
       "sourceId": "401819",
-      "sourceUrl": "https://events.sulekha.com/gruhapravesh-india-property-expo-in-frisco-tx-oct-10th_event-in_frisco-tx_401819",
       "scrapedAt": "2026-09-30T00:34:02Z",
       "title": "Gruhapravesh: India Property Expo In Frisco, TX- Oct 10th",
       "category": "NETWORKING",
@@ -672,36 +464,13 @@
       "ageRestriction": null,
       "dressCode": null,
       "parking": null,
-      "faq": [
-        {
-          "q": "How do I purchase tickets?",
-          "a": "You can purchase any ticket to any events listed on our website. To buy, select the # of tickets you want to purchase in the dropdown of a specific event and follow the instructions."
-        },
-        {
-          "q": "What is Sulekha's Refund Policy?",
-          "a": "All sales are final. No Refunds will be issued under any circumstance unless an event is canceled or rescheduled."
-        }
-      ],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/gruhapravesh-india-property-expo-in-frisco-tx-oct-10th_2026-09-12-01-52-30-104_66.webp?ver=0.693825",
-          "role": "cover",
-          "alt": "Gruhapravesh: India Property Expo in Frisco, TX - Oct 10th banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-15-01-01-20-795_29.webp",
-          "role": "gallery",
-          "alt": "Gruhapravesh: India Property Expo Frisco poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/gruhapravesh-india-property-expo-in-frisco-tx-oct-10th_event-in_frisco-tx_401819",
+      "faq": [],
       "importNotes": [
-        "Sulekha lists this as Expo; The Desi Events has no such category, so it is listed under Networking. If another fits better, change it in an editing session once the event is published."
+        "The source listing's category is Expo; The Desi Events has no such category, so it is listed under Networking. If another fits better, change it in an editing session once the event is published."
       ]
     },
     {
       "sourceId": "401728",
-      "sourceUrl": "https://events.sulekha.com/raas-garba-with-khelaiya-group_event-in_frisco-tx_401728",
       "scrapedAt": "2026-09-30T00:34:40Z",
       "title": "Raas Garba with Khelaiya Group",
       "category": "GARBA_DANDIYA",
@@ -745,21 +514,12 @@
       "dressCode": "Traditional Gujarati attire",
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/raas-garba-with-khelaiya-group_2026-09-07-07-01-22-794_81.webp",
-          "role": "cover",
-          "alt": "Raas Garba with Khelaiya Group poster (thumbnail size; the page shows no larger version)"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/raas-garba-with-khelaiya-group_event-in_frisco-tx_401728",
       "importNotes": [
         "The header says 7:00 PM and the description says 7:30 PM; 7:00 PM is imported."
       ]
     },
     {
       "sourceId": "402027",
-      "sourceUrl": "https://events.sulekha.com/katy-garba-2026_event-in_katy-tx_402027",
       "scrapedAt": "2026-09-30T00:38:08Z",
       "title": "Katy Garba 2026",
       "category": "GARBA_DANDIYA",
@@ -786,24 +546,10 @@
       "dressCode": "Traditional attire / festive best",
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/katy-garba-2026_2026-09-24-06-47-42-242_67.webp?ver=0.972408",
-          "role": "cover",
-          "alt": "Katy Garba 2026 banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-24-06-29-41-477_74.webp",
-          "role": "gallery",
-          "alt": "Katy Garba 2026 poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/katy-garba-2026_event-in_katy-tx_402027",
       "importNotes": []
     },
     {
       "sourceId": "402059",
-      "sourceUrl": "https://events.sulekha.com/gujarati-samaj-of-greater-austin-navratri-2026-october-10_event-in_round-rock-tx_402059",
       "scrapedAt": "2026-09-30T00:38:08Z",
       "title": "Gujarati Samaj of Greater Austin - Navratri 2026 - October 10",
       "category": "GARBA_DANDIYA",
@@ -852,22 +598,12 @@
       "dressCode": "Festive best",
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/gujarati-samaj-of-greater-austin-navratri-2026-october-10_2026-09-26-03-46-37-994_62.webp?ver=0.0604149",
-          "role": "cover",
-          "alt": "Gujarati Samaj of Greater Austin - Navratri 2026 - October 10 banner"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/gujarati-samaj-of-greater-austin-navratri-2026-october-10_event-in_round-rock-tx_402059",
       "importNotes": [
-        "Sulekha lists this event twice (402059 and 402060); only 402059 is imported.",
-        "One gallery picture on the Sulekha page was another event's poster (Navratri Dandiya Night In Austin), so it was left out."
+        "The source site lists this event twice (402059 and 402060); only 402059 is imported."
       ]
     },
     {
       "sourceId": "401719",
-      "sourceUrl": "https://events.sulekha.com/the-space-between-the-notes_event-in_stafford-tx_401719",
       "scrapedAt": "2026-09-30T00:38:08Z",
       "title": "The Space Between the Notes",
       "category": "MUSIC_CONCERT",
@@ -928,26 +664,12 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/the-space-between-the-notes_2026-09-06-04-03-05-344_56.webp?ver=0.192173",
-          "role": "cover",
-          "alt": "The Space Between the Notes banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-06-04-53-04-266_56.webp",
-          "role": "gallery",
-          "alt": "The Space Between the Notes concert poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/the-space-between-the-notes_event-in_stafford-tx_401719",
       "importNotes": [
-        "Sulekha lists this as Classical; The Desi Events has no such category, so it is listed under Live Music. If another fits better, change it in an editing session once the event is published."
+        "The source listing's category is Classical; The Desi Events has no such category, so it is listed under Live Music. If another fits better, change it in an editing session once the event is published."
       ]
     },
     {
       "sourceId": "401820",
-      "sourceUrl": "https://events.sulekha.com/gruhapravesh-india-property-expo-in-frisco-tx-oct-11th_event-in_frisco-tx_401820",
       "scrapedAt": "2026-09-30T00:38:08Z",
       "title": "Gruhapravesh: India Property Expo In Frisco, TX- Oct 11th",
       "category": "NETWORKING",
@@ -981,21 +703,12 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/gruhapravesh-india-property-expo-in-frisco-tx-oct-11th_2026-09-12-01-46-33-740_2.webp?ver=0.250145",
-          "role": "cover",
-          "alt": "Gruhapravesh: India Property Expo Frisco banner"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/gruhapravesh-india-property-expo-in-frisco-tx-oct-11th_event-in_frisco-tx_401820",
       "importNotes": [
-        "Sulekha lists this as Expo; The Desi Events has no such category, so it is listed under Networking. If another fits better, change it in an editing session once the event is published."
+        "The source listing's category is Expo; The Desi Events has no such category, so it is listed under Networking. If another fits better, change it in an editing session once the event is published."
       ]
     },
     {
       "sourceId": "402012",
-      "sourceUrl": "https://events.sulekha.com/desi-comedy-fest-houston-wed-oct-14_event-in_houston-tx_402012",
       "scrapedAt": "2026-09-30T00:38:08Z",
       "title": "Desi Comedy Fest - Houston - Wed Oct 14",
       "category": "COMEDY",
@@ -1043,26 +756,12 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/desi-comedy-fest-houston-wed-oct-14_2026-09-24-12-46-25-490_94.webp?ver=0.105961",
-          "role": "cover",
-          "alt": "Desi Comedy Fest Houston banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/desi-comedy-fest_houston_2026-09-17-07-27-19-407_69.webp?ver=0.522293",
-          "role": "gallery",
-          "alt": "Desi Comedy Fest Houston poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/desi-comedy-fest-houston-wed-oct-14_event-in_houston-tx_402012",
       "importNotes": [
-        "Sulekha says tickets are sold at DesiComedyFest.com; the link still goes to the Sulekha page."
+        "The source listing says tickets are sold at DesiComedyFest.com, the organiser's own site; on The Desi Events they are sold through this event's own ticket types."
       ]
     },
     {
       "sourceId": "402013",
-      "sourceUrl": "https://events.sulekha.com/desi-comedy-fest-austin-thu-oct-15_event-in_austin-tx_402013",
       "scrapedAt": "2026-09-30T00:38:08Z",
       "title": "Desi Comedy Fest - Austin - Thu Oct 15",
       "category": "COMEDY",
@@ -1114,21 +813,12 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/desi-comedy-fest-austin-thu-oct-15_2026-09-24-12-39-32-876_86.webp?ver=0.0831981",
-          "role": "cover",
-          "alt": "Desi Comedy Fest Austin banner"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/desi-comedy-fest-austin-thu-oct-15_event-in_austin-tx_402013",
       "importNotes": [
-        "Sulekha says tickets are sold at DesiComedyFest.com; the link still goes to the Sulekha page."
+        "The source listing says tickets are sold at DesiComedyFest.com, the organiser's own site; on The Desi Events they are sold through this event's own ticket types."
       ]
     },
     {
       "sourceId": "400647",
-      "sourceUrl": "https://events.sulekha.com/rahat-fateh-ali-khan-live-in-dallas_event-in_frisco-tx_400647",
       "scrapedAt": "2026-09-30T00:38:08Z",
       "title": "Rahat Fateh Ali Khan Live In Dallas",
       "category": "MUSIC_CONCERT",
@@ -1275,24 +965,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/rahat-fateh-ali-khan-live-in-dallas_2026-06-23-04-01-55-783_41.webp?ver=0.881134",
-          "role": "cover",
-          "alt": "Rahat Fateh Ali Khan Live In Dallas banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-06-23-04-49-54-940_80.webp",
-          "role": "gallery",
-          "alt": "Rahat Fateh Ali Khan Live In Dallas poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/rahat-fateh-ali-khan-live-in-dallas_event-in_frisco-tx_400647",
       "importNotes": []
     },
     {
       "sourceId": "400972",
-      "sourceUrl": "https://events.sulekha.com/bollywood-dandiya-2026_event-in_cedar-park-tx_400972",
       "scrapedAt": "2026-09-30T00:38:08Z",
       "title": "Bollywood Dandiya 2026",
       "category": "GARBA_DANDIYA",
@@ -1350,27 +1026,13 @@
       "dressCode": "Traditional attire",
       "parking": "Free Parking",
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/bollywood-dandiya-2026_2026-07-17-08-18-50-156_77.webp?ver=0.10835",
-          "role": "cover",
-          "alt": "Bollywood Dandiya 2026 banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-07-17-08-08-50-484_40.webp",
-          "role": "gallery",
-          "alt": "Bollywood Dandiya 2026 poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/bollywood-dandiya-2026_event-in_cedar-park-tx_400972",
       "importNotes": [
-        "Sulekha lists this event twice (400522 and 400972) with different street numbers (1401 and 1420 Toro Grande Blvd); 400972 and its address are imported.",
+        "The source site lists this event twice (400522 and 400972) with different street numbers (1401 and 1420 Toro Grande Blvd); 400972 and its address are imported.",
         "Its prices cover Friday and Saturday; the Saturday night is also listed on its own (400973)."
       ]
     },
     {
       "sourceId": "401684",
-      "sourceUrl": "https://events.sulekha.com/akriti-kakar-band-live-2026_event-in_dallas-tx_401684",
       "scrapedAt": "2026-09-30T00:38:08Z",
       "title": "Akriti Kakar & Band Live - 2026",
       "category": "MUSIC_CONCERT",
@@ -1421,19 +1083,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/akriti-kakar-band-live-2026_2026-09-03-02-59-55-118_81.webp?ver=0.0566815",
-          "role": "cover",
-          "alt": "Akriti Kakar & Band Live - 2026 banner"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/akriti-kakar-band-live-2026_event-in_dallas-tx_401684",
       "importNotes": ["The listing says Dallas; the venue is in Farmers Branch, which is used."]
     },
     {
       "sourceId": "402028",
-      "sourceUrl": "https://events.sulekha.com/southlake-garba-night_event-in_southlake-tx_402028",
       "scrapedAt": "2026-09-30T00:38:08Z",
       "title": "Southlake Garba Night",
       "category": "GARBA_DANDIYA",
@@ -1460,24 +1113,10 @@
       "dressCode": "Colorful traditional attire",
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/southlake-garba-night_2026-09-24-07-14-09-732_86.webp?ver=0.608396",
-          "role": "cover",
-          "alt": "Southlake Garba Night banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-24-07-32-07-405_13.webp",
-          "role": "gallery",
-          "alt": "Southlake Garba Night poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/southlake-garba-night_event-in_southlake-tx_402028",
       "importNotes": []
     },
     {
       "sourceId": "400973",
-      "sourceUrl": "https://events.sulekha.com/bollywood-dandiya-2026_event-in_cedar-park-tx_400973",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Bollywood Dandiya 2026",
       "category": "GARBA_DANDIYA",
@@ -1529,24 +1168,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/bollywood-dandiya-2026_2026-07-17-08-52-55-468_35.webp?ver=0.751061",
-          "role": "cover",
-          "alt": "Bollywood Dandiya 2026 banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-07-17-08-01-55-530_5.webp",
-          "role": "gallery",
-          "alt": "Bollywood Dandiya 2026 poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/bollywood-dandiya-2026_event-in_cedar-park-tx_400973",
       "importNotes": []
     },
     {
       "sourceId": "401529",
-      "sourceUrl": "https://events.sulekha.com/rahat-fateh-ali-khan-the-voice-of-peace-houston_event-in_houston-tx_401529",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Rahat Fateh Ali Khan – The Voice of Peace | Houston",
       "category": "MUSIC_CONCERT",
@@ -1615,24 +1240,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/rahat-fateh-ali-khan-%E2%80%93-the-voice-of-peace-houston_2026-08-24-07-00-10-102_59.webp?ver=0.203731",
-          "role": "cover",
-          "alt": "Rahat Fateh Ali Khan – The Voice of Peace | Houston banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-24-07-28-09-321_79.webp",
-          "role": "gallery",
-          "alt": "Rahat Fateh Ali Khan – The Voice of Peace Houston poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/rahat-fateh-ali-khan-the-voice-of-peace-houston_event-in_houston-tx_401529",
       "importNotes": []
     },
     {
       "sourceId": "402014",
-      "sourceUrl": "https://events.sulekha.com/desi-comedy-fest-dallas-sat-oct-17_event-in_irving-tx_402014",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Desi Comedy Fest - Dallas - Sat Oct 17",
       "category": "COMEDY",
@@ -1684,19 +1295,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/desi-comedy-fest-dallas-sat-oct-17_2026-09-24-12-32-37-798_22.webp",
-          "role": "cover",
-          "alt": "Desi Comedy Fest - Dallas - Sat Oct 17 poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/desi-comedy-fest-dallas-sat-oct-17_event-in_irving-tx_402014",
       "importNotes": []
     },
     {
       "sourceId": "402108",
-      "sourceUrl": "https://events.sulekha.com/riicas-kids-focus-math-contest-spell-bee-science-bowl-competitions_event-in_sugar-land-tx_402108",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "RIICAS KIDS FOCUS Math Contest, Spell Bee, Science Bowl competitions",
       "category": "WORKSHOP",
@@ -1723,21 +1325,12 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/riicas-kids-focus-math-contest-spell-bee-science-bowl-competitions_2026-09-29-03-14-01-941_85.webp",
-          "role": "cover",
-          "alt": "RIICAS KIDS FOCUS Math Contest, Spell Bee, Science Bowl poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/riicas-kids-focus-math-contest-spell-bee-science-bowl-competitions_event-in_sugar-land-tx_402108",
       "importNotes": [
-        "Sulekha lists this as Kids; The Desi Events has no such category, so it is listed under Workshops. If another fits better, change it in an editing session once the event is published."
+        "The source listing's category is Kids; The Desi Events has no such category, so it is listed under Workshops. If another fits better, change it in an editing session once the event is published."
       ]
     },
     {
       "sourceId": "401721",
-      "sourceUrl": "https://events.sulekha.com/echoes-of-tradition-a-global-percussion-violin-summit_event-in_houston-tx_401721",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Echoes of Tradition A Global percussion & Violin Summit",
       "category": "MUSIC_CONCERT",
@@ -1800,26 +1393,12 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/echoes-of-tradition-a-global-percussion-violin-summit_2026-09-06-06-07-11-331_64.webp?ver=0.667821",
-          "role": "cover",
-          "alt": "Echoes of Tradition A Global Percussion & Violin Summit banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-08-01-52-12-667_68.webp",
-          "role": "gallery",
-          "alt": "Echoes of Tradition A Global Percussion & Violin Summit poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/echoes-of-tradition-a-global-percussion-violin-summit_event-in_houston-tx_401721",
       "importNotes": [
-        "Sulekha lists this as Classical; The Desi Events has no such category, so it is listed under Live Music. If another fits better, change it in an editing session once the event is published."
+        "The source listing's category is Classical; The Desi Events has no such category, so it is listed under Live Music. If another fits better, change it in an editing session once the event is published."
       ]
     },
     {
       "sourceId": "401885",
-      "sourceUrl": "https://events.sulekha.com/navratri-dandiya-night-in-texas_event-in_round-rock-tx_401885",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Navratri Dandiya Night In Austin",
       "category": "GARBA_DANDIYA",
@@ -1859,26 +1438,12 @@
       "dressCode": "Traditional attire",
       "parking": "Free Parking",
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/navratri-dandiya-night-in-texas_2026-09-16-05-14-47-542_12.webp?ver=0.810876",
-          "role": "cover",
-          "alt": "Navratri Dandiya Night In Austin banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-22-11-10-02-451_41.webp",
-          "role": "gallery",
-          "alt": "Navratri Dandiya Night In Austin poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/navratri-dandiya-night-in-texas_event-in_round-rock-tx_401885",
       "importNotes": [
         "The page's metadata says 25 October and the visible date is 23 October; 23 October is imported."
       ]
     },
     {
       "sourceId": "401963",
-      "sourceUrl": "https://events.sulekha.com/anuradha-sriram-live-dallas_event-in_plano-tx_401963",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Anuradha Sriram Live - Dallas",
       "category": "MUSIC_CONCERT",
@@ -1910,21 +1475,12 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/anuradha-sriram-live-dallas_2026-09-21-09-47-39-718_50.webp",
-          "role": "cover",
-          "alt": "Anuradha Sriram Live - Dallas poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/anuradha-sriram-live-dallas_event-in_plano-tx_401963",
       "importNotes": [
-        "Its Sulekha description was for a different event (in the Bay Area), so the description here is built from the page's other details."
+        "Its description on the source listing was for a different event (in the Bay Area), so the description here is built from the page's other details."
       ]
     },
     {
       "sourceId": "400974",
-      "sourceUrl": "https://events.sulekha.com/tribute-to-r-d-burman-by-trumpet-king-of-india-kishore-sodha-live_event-in_stafford-tx_400974",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Tribute to R.D. Burman by Trumpet King of India – Kishore Sodha Live",
       "category": "BOLLYWOOD_NIGHT",
@@ -1993,24 +1549,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/tribute-to-r-d-burman-by-trumpet-king-of-india-%E2%80%93-kishore-sodha-live_2026-07-17-11-24-42-881_55.webp?ver=0.155541",
-          "role": "cover",
-          "alt": "Tribute to R.D. Burman – Kishore Sodha Live banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-07-20-03-45-53-242_12.webp",
-          "role": "gallery",
-          "alt": "Tribute to R.D. Burman – Kishore Sodha Live poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/tribute-to-r-d-burman-by-trumpet-king-of-india-kishore-sodha-live_event-in_stafford-tx_400974",
       "importNotes": []
     },
     {
       "sourceId": "401453",
-      "sourceUrl": "https://events.sulekha.com/rangtaali-aishwarya-majmudar-live-in-dallas-2026_event-in_frisco-tx_401453",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Rangtaali - Aishwarya Majmudar the Finale Live In Dallas 2026",
       "category": "GARBA_DANDIYA",
@@ -2061,24 +1603,10 @@
       "dressCode": null,
       "parking": "Free Parking",
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/rangtaali-aishwarya-majmudar-live-in-dallas-2026_2026-08-20-03-31-48-750_31.webp?ver=0.487955",
-          "role": "cover",
-          "alt": "Rangtaali - Aishwarya Majmudar the Finale Live In Dallas 2026 banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-14-03-28-30-686_95.webp",
-          "role": "gallery",
-          "alt": "Rangtaali - Aishwarya Majmudar Live In Dallas poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/rangtaali-aishwarya-majmudar-live-in-dallas-2026_event-in_frisco-tx_401453",
       "importNotes": []
     },
     {
       "sourceId": "401870",
-      "sourceUrl": "https://events.sulekha.com/self-transformation-in-the-age-of-ai-ony-for-working-for-professionals_event-in_pilot-point-tx_401870",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Self-Transformation in the Age of AI ony for working for professionals",
       "category": "WORKSHOP",
@@ -2105,22 +1633,13 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/weekend-retreat-for-working-professionals_2026-09-15-06-02-17-709_5.webp",
-          "role": "cover",
-          "alt": "Self-Transformation in the Age of AI retreat poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/self-transformation-in-the-age-of-ai-ony-for-working-for-professionals_event-in_pilot-point-tx_401870",
       "importNotes": [
-        "Sulekha gives no description, so the description here is built from the page's other details.",
-        "Sulekha lists this as Other; The Desi Events has no such category, so it is listed under Workshops. If another fits better, change it in an editing session once the event is published."
+        "The source listing gives no description, so the description here is built from the page's other details.",
+        "The source listing's category is Other; The Desi Events has no such category, so it is listed under Workshops. If another fits better, change it in an editing session once the event is published."
       ]
     },
     {
       "sourceId": "401212",
-      "sourceUrl": "https://events.sulekha.com/dallas-festival-of-lights-diwali-mela-2026_event-in_mckinney-tx_401212",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Dallas Festival of Lights – Diwali Mela 2026",
       "category": "CULTURAL_FESTIVAL",
@@ -2166,24 +1685,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/dallas-festival-of-lights-%E2%80%93-diwali-mela-2026_2026-08-05-04-39-38-332_21.webp?ver=0.861214",
-          "role": "cover",
-          "alt": "Dallas Festival of Lights – Diwali Mela 2026 banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-05-04-30-38-864_78.webp",
-          "role": "gallery",
-          "alt": "Dallas Festival of Lights – Diwali Mela 2026 poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/dallas-festival-of-lights-diwali-mela-2026_event-in_mckinney-tx_401212",
       "importNotes": []
     },
     {
       "sourceId": "402109",
-      "sourceUrl": "https://events.sulekha.com/riicas-diwali-dandiya-masti_event-in_sugar-land-tx_402109",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "RIICAS Diwali Dandiya Masti",
       "category": "GARBA_DANDIYA",
@@ -2223,19 +1728,10 @@
       "dressCode": null,
       "parking": "Free Parking",
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/riicas-diwali-dandiya-masti_2026-09-29-03-58-31-190_40.webp?ver=0.98929",
-          "role": "cover",
-          "alt": "RIICAS Diwali Dandiya Masti banner"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/riicas-diwali-dandiya-masti_event-in_sugar-land-tx_402109",
       "importNotes": ["A personal phone number was removed from the description."]
     },
     {
       "sourceId": "401869",
-      "sourceUrl": "https://events.sulekha.com/an-evening-for-peace-unity-in-texas_event-in_euless-tx_401869",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "An Evening for Peace & Unity In Texas",
       "category": "CULTURAL_FESTIVAL",
@@ -2287,26 +1783,12 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/an-evening-for-peace-unity-in-texas_2026-09-15-06-44-19-537_9.webp?ver=0.0241918",
-          "role": "cover",
-          "alt": "An Evening for Peace & Unity In Texas banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-16-01-09-20-375_88.webp",
-          "role": "gallery",
-          "alt": "An Evening for Peace & Unity In Texas poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/an-evening-for-peace-unity-in-texas_event-in_euless-tx_401869",
       "importNotes": [
-        "Sulekha lists this as Other; The Desi Events has no such category, so it is listed under Melas & Festivals. If another fits better, change it in an editing session once the event is published."
+        "The source listing's category is Other; The Desi Events has no such category, so it is listed under Melas & Festivals. If another fits better, change it in an editing session once the event is published."
       ]
     },
     {
       "sourceId": "401360",
-      "sourceUrl": "https://events.sulekha.com/vibha-houston-garba-2026_event-in_houston-tx_401360",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Vibha Houston Garba 2026",
       "category": "GARBA_DANDIYA",
@@ -2333,24 +1815,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/vibha-houston-garba-2026_2026-08-17-02-34-19-452_44.webp?ver=0.686839",
-          "role": "cover",
-          "alt": "Vibha Houston Garba 2026 banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-17-02-14-15-766_3.webp",
-          "role": "gallery",
-          "alt": "Vibha Houston Garba 2026 poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/vibha-houston-garba-2026_event-in_houston-tx_401360",
       "importNotes": ["A '$0 General Admission' price could not be confirmed and was left out."]
     },
     {
       "sourceId": "401558",
-      "sourceUrl": "https://events.sulekha.com/band-capricio-live-music-in-houston_event-in_houston-tx_401558",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Band Capricio Live Music in Houston",
       "category": "MUSIC_CONCERT",
@@ -2437,24 +1905,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/band-capricio-live-music-in-houston_2026-08-25-11-11-40-479_67.webp?ver=0.830165",
-          "role": "cover",
-          "alt": "Band Capricio Live Music in Houston banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/band-capricio_2022-09-07-10-54-37-193_24.webp",
-          "role": "gallery",
-          "alt": "Band Capricio"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/band-capricio-live-music-in-houston_event-in_houston-tx_401558",
       "importNotes": []
     },
     {
       "sourceId": "401976",
-      "sourceUrl": "https://events.sulekha.com/anuradha-sriram-live-houston_event-in_katy-tx_401976",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Anuradha Sriram Live - Houston",
       "category": "MUSIC_CONCERT",
@@ -2486,24 +1940,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/anuradha-sriram-live-houston_2026-09-22-07-28-16-268_92.webp?ver=0.782621",
-          "role": "cover",
-          "alt": "Anuradha Sriram Live - Houston banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-22-07-40-13-956_38.webp",
-          "role": "gallery",
-          "alt": "Anuradha Sriram Live - Houston poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/anuradha-sriram-live-houston_event-in_katy-tx_401976",
       "importNotes": []
     },
     {
       "sourceId": "401935",
-      "sourceUrl": "https://events.sulekha.com/sagar-wali-qawwali-with-sagar-bhatia-live-concert-in-houston-29th-oct_event-in_houston-tx_401935",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Sagar Wali Qawwali With Sagar Bhatia Live Concert in Houston - 29th Oct",
       "category": "MUSIC_CONCERT",
@@ -2560,29 +2000,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/sagar-wali-qawwali-with-sagar-bhatia-live-concert-in-houston-29th-oct_2026-09-21-02-13-53-038_92.webp?ver=0.843",
-          "role": "cover",
-          "alt": "Sagar Wali Qawwali With Sagar Bhatia banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-21-03-00-00-991_90.webp",
-          "role": "gallery",
-          "alt": "Sagar Wali Qawwali With Sagar Bhatia poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/sagar-bhatia_2023-09-04-08-41-51-975_4.webp",
-          "role": "gallery",
-          "alt": "Sagar Bhatia"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/sagar-wali-qawwali-with-sagar-bhatia-live-concert-in-houston-29th-oct_event-in_houston-tx_401935",
       "importNotes": []
     },
     {
       "sourceId": "401235",
-      "sourceUrl": "https://events.sulekha.com/nishant-tanwar-live-in-austin-tx_event-in_austin-tx_401235",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Nishant Tanwar Live In Austin TX",
       "category": "COMEDY",
@@ -2633,29 +2054,10 @@
       "dressCode": null,
       "parking": "Ample parking is available.",
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/nishant-tanwar-live-in-austin-tx_2026-08-06-07-14-32-534_60.webp?ver=0.838798",
-          "role": "cover",
-          "alt": "Nishant Tanwar Live In Austin TX banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-06-07-11-30-409_98.webp",
-          "role": "gallery",
-          "alt": "Nishant Tanwar Live In Austin TX poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/nishant-tanwar_2023-01-23-04-37-37-329_31.webp",
-          "role": "gallery",
-          "alt": "Nishant Tanwar"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/nishant-tanwar-live-in-austin-tx_event-in_austin-tx_401235",
       "importNotes": []
     },
     {
       "sourceId": "401940",
-      "sourceUrl": "https://events.sulekha.com/sidhu-moosewala-signed-to-god-world-tour-houston_event-in_rosenberg-tx_401940",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Sidhu Moosewala Signed to God World Tour Houston",
       "category": "MUSIC_CONCERT",
@@ -2694,24 +2096,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/sidhu-moosewala-signed-to-god-world-tour-houston_2026-09-19-02-41-20-054_14.webp?ver=0.842473",
-          "role": "cover",
-          "alt": "Sidhu Moosewala Signed to God World Tour Houston banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-19-02-28-20-239_82.webp",
-          "role": "gallery",
-          "alt": "Sidhu Moosewala Signed to God World Tour Houston poster"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/sidhu-moosewala-signed-to-god-world-tour-houston_event-in_rosenberg-tx_401940",
       "importNotes": []
     },
     {
       "sourceId": "401926",
-      "sourceUrl": "https://events.sulekha.com/nishant-tanwar-live-in-dallas-tx_event-in_plano-tx_401926",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Nishant Tanwar Live In Dallas, TX",
       "category": "COMEDY",
@@ -2762,29 +2150,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/nishant-tanwar-live-in-dallas-tx_2026-09-18-04-03-53-202_45.webp?ver=0.168439",
-          "role": "cover",
-          "alt": "Nishant Tanwar Live In Dallas, TX banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-18-05-34-26-432_1.webp",
-          "role": "gallery",
-          "alt": "Nishant Tanwar Live In Dallas, TX poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/nishant-tanwar_2023-01-23-04-37-37-329_31.webp",
-          "role": "gallery",
-          "alt": "Nishant Tanwar"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/nishant-tanwar-live-in-dallas-tx_event-in_plano-tx_401926",
       "importNotes": []
     },
     {
       "sourceId": "401676",
-      "sourceUrl": "https://events.sulekha.com/band-capricio-live-in-dallas-halloween-concert-night-2026_event-in_frisco-tx_401676",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Band Capricio Live in Dallas: Halloween Concert Night 2026",
       "category": "MUSIC_CONCERT",
@@ -2871,29 +2240,10 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/band-capricio-live-in-dallas-halloween-concert-night-2026_2026-09-02-09-28-05-303_74.webp?ver=0.447489",
-          "role": "cover",
-          "alt": "Band Capricio Live in Dallas: Halloween Concert Night 2026 banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-02-09-16-05-616_32.webp",
-          "role": "gallery",
-          "alt": "Band Capricio Halloween Concert Night poster"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/band-capricio_2022-09-07-10-54-37-193_24.webp",
-          "role": "gallery",
-          "alt": "Band Capricio"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/band-capricio-live-in-dallas-halloween-concert-night-2026_event-in_frisco-tx_401676",
       "importNotes": []
     },
     {
       "sourceId": "401979",
-      "sourceUrl": "https://events.sulekha.com/spooky-music-concert-by-studio71-deshi-halloween-costume-party_event-in_magnolia-tx_401979",
       "scrapedAt": "2026-09-30T00:49:36Z",
       "title": "Spooky Music Concert by Studio71 - Deshi Halloween Costume Party",
       "category": "MUSIC_CONCERT",
@@ -2932,21 +2282,12 @@
       "dressCode": null,
       "parking": "Free Parking",
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/header2/spooky-music-concert-by-studio71-deshi-halloween-costume-party_2026-09-22-10-36-36-850_62.webp?ver=0.276302",
-          "role": "cover",
-          "alt": "Spooky Music Concert by Studio71 banner"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/spooky-music-concert-by-studio71-deshi-halloween-costume-party_event-in_magnolia-tx_401979",
       "importNotes": [
-        "Sulekha lists this event twice (401979 and 401980); only 401979 is imported."
+        "The source site lists this event twice (401979 and 401980); only 401979 is imported."
       ]
     },
     {
       "sourceId": "401997",
-      "sourceUrl": "https://events.sulekha.com/neeyum-naanum-a-gopinath-interactive-show-austin_event-in_georgetown-tx_401997",
       "scrapedAt": "2026-09-30T00:51:08Z",
       "title": "Neeyum Naanum - A Gopinath interactive show - Austin",
       "category": "THEATRE",
@@ -2991,21 +2332,8 @@
       "dressCode": null,
       "parking": null,
       "faq": [],
-      "images": [
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-23-07-06-02-573_72.webp",
-          "role": "cover",
-          "alt": "Neeyum Naanum - A Gopinath interactive show banner"
-        },
-        {
-          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/neeyum-naanum-a-gopinath-interactive-show-austin_2026-09-23-07-24-03-745_75.webp",
-          "role": "gallery",
-          "alt": "Neeyum Naanum - A Gopinath interactive show - Austin thumbnail"
-        }
-      ],
-      "ticketUrl": "https://events.sulekha.com/neeyum-naanum-a-gopinath-interactive-show-austin_event-in_georgetown-tx_401997",
       "importNotes": [
-        "Sulekha lists this as Other; The Desi Events has no such category, so it is listed under Theatre. If another fits better, change it in an editing session once the event is published."
+        "The source listing's category is Other; The Desi Events has no such category, so it is listed under Theatre. If another fits better, change it in an editing session once the event is published."
       ]
     }
   ]

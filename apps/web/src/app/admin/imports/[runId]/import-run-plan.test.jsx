@@ -79,7 +79,7 @@ function written(overrides = {}) {
     revision: 3,
     inThisRun: true,
     reassigned: false,
-    organizationName: 'Sulekha Events',
+    organizationName: 'The Desi Events',
     importedByName: 'Anil Rao',
     approvedAt: null,
     approvedByName: null,
@@ -98,7 +98,7 @@ function run(overrides = {}) {
     id: RUN_ID,
     source: 'SULEKHA',
     status: 'PREVIEWED',
-    fileName: 'sulekha-texas-2026.json',
+    fileName: 'texas-2026.json',
     eventCount: 2,
     createdAt: '2026-10-06T10:00:00.000Z',
     expiresAt: '2026-10-06T11:00:00.000Z',
@@ -128,6 +128,13 @@ function run(overrides = {}) {
   }
 }
 
+/**
+ * The plan's table.
+ *
+ * @returns {HTMLElement} The table.
+ */
+const planTable = () => screen.getByRole('table')
+
 beforeEach(() => {
   apiFetch.mockReset()
   refresh.mockReset()
@@ -138,7 +145,7 @@ describe('a new plan', () => {
     render(<ImportRunPlan run={run()} canApprove />)
 
     const table = screen.getByRole('table', {
-      name: 'The plan for sulekha-texas-2026.json, one row per listing',
+      name: 'The plan for texas-2026.json, one row per listing',
     })
 
     expect(within(table).getByText('New')).toBeInTheDocument()
@@ -168,7 +175,7 @@ describe('a new plan', () => {
     render(<ImportRunPlan run={run()} canApprove />)
 
     const region = screen.getByRole('region', {
-      name: 'The plan for sulekha-texas-2026.json, scrolls sideways',
+      name: 'The plan for texas-2026.json, scrolls sideways',
     })
 
     expect(region).toHaveAttribute('tabindex', '0')
@@ -189,7 +196,9 @@ describe('a new plan', () => {
 
     expect(screen.getByRole('button', { name: 'Import this 1 event' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('checkbox', { name: 'Update “Diwali Mela” from Sulekha' }))
+    await user.click(
+      screen.getByRole('checkbox', { name: 'Update “Diwali Mela” from the listing' }),
+    )
     await user.click(screen.getByRole('button', { name: 'Import these 2 events' }))
 
     expect(await screen.findByText(/The plan was applied\./u)).toBeInTheDocument()
@@ -215,8 +224,12 @@ describe('a new plan', () => {
     await user.click(await screen.findByRole('button', { name: 'Confirm to import these events' }))
 
     expect(
-      await screen.findByText(/3 pictures are still waiting: use Retry pictures\./u),
+      await screen.findByText(
+        'The plan was applied. Its events wait for review: approve and publish them here.',
+      ),
     ).toBeInTheDocument()
+    // Whatever the answer says of pictures, nothing tells the administrator to copy them.
+    expect(screen.queryByText(/pictures|Retry/u)).toBeNull()
     expect(apiFetch).toHaveBeenCalledTimes(2)
   })
 
@@ -288,7 +301,7 @@ describe('an applied plan', () => {
       ],
     })
 
-  it('links each event waiting for review to its review page, and says how each picture went', () => {
+  it('links each event waiting for review to its review page, and says how each picture an older run copied went', () => {
     render(<ImportRunPlan run={applied()} canApprove />)
 
     expect(screen.getByRole('link', { name: 'Review “Raga Night”' })).toHaveAttribute(
@@ -298,7 +311,7 @@ describe('an applied plan', () => {
     expect(
       screen.getByText(/Copied, waiting for approval \(Too small for a cover\)/u),
     ).toBeInTheDocument()
-    expect(screen.getByText('Sulekha’s picture host took too long to answer.')).toBeInTheDocument()
+    expect(screen.getByText('The picture host took too long to answer.')).toBeInTheDocument()
   })
 
   it('gives each event link a target at least 24 px high, wrapped or not', () => {
@@ -325,9 +338,9 @@ describe('an applied plan', () => {
             {
               eventId: 'cevent0000000000000000001',
               outcome: 'PUBLISHED',
-              status: 'PUBLISHED',
+              status: 'ON_SALE',
               revision: 5,
-              picturesApproved: 1,
+              ticketTypesOnSale: 2,
               code: null,
               message: null,
             },
@@ -346,7 +359,7 @@ describe('an applied plan', () => {
 
     expect(
       await within(status).findByText(
-        'Raga Night: approved and published, with its Sulekha ticket link on.',
+        'Raga Night: approved and published, with 2 ticket types on sale.',
       ),
     ).toBeInTheDocument()
     expect(status).toHaveAttribute('aria-live', 'polite')
@@ -356,27 +369,85 @@ describe('an applied plan', () => {
     })
   })
 
-  it('copies the pictures again on "Retry pictures"', async () => {
-    const user = userEvent.setup()
-
-    apiFetch.mockResolvedValue(
-      answer(200, {
-        data: { ...applied(), pictures: { total: 2, stored: 2, failed: 0, waiting: 0 } },
-        meta: { picturesWaiting: 0 },
-      }),
-    )
+  it('offers no “Retry pictures”, even for a picture an older run could not copy, and never asks to copy one', () => {
     render(<ImportRunPlan run={applied()} canApprove />)
-    await user.click(screen.getByRole('button', { name: 'Retry pictures' }))
 
+    expect(screen.queryByRole('button', { name: /retry pictures|copy/iu })).toBeNull()
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('says what each listing’s prices become, and how many of an event’s ticket types are on sale', () => {
+    render(
+      <ImportRunPlan
+        run={run({
+          status: 'APPLIED',
+          rows: [
+            row({
+              priceCount: 3,
+              soldOutCount: 1,
+              currency: 'USD',
+              event: written({ status: 'ON_SALE', ticketTypes: { imported: 3, onSale: 2 } }),
+            }),
+          ],
+        })}
+        canApprove
+      />,
+    )
+
+    const line = planTable()
+
+    expect(line).toHaveTextContent(
+      '3 ticket types, 1 not on sale (sold out on the listing), in USD',
+    )
+    expect(line).toHaveTextContent('2 of 3 ticket types on sale')
+  })
+
+  it('offers approval for a published import whose ticket types are not on sale yet, to put them on sale', () => {
     expect(
-      await screen.findByText(
-        'Pictures were tried again. Pictures: 2 copied, 0 not copied, 0 waiting.',
+      approvable(
+        row({ event: written({ status: 'PUBLISHED', ticketTypes: { imported: 2, onSale: 0 } }) }),
       ),
-    ).toBeInTheDocument()
-    expect(apiFetch).toHaveBeenCalledWith(`/v1/platform/imports/${RUN_ID}/images/retry`, {
-      method: 'POST',
-      body: '{}',
-    })
+    ).toBe(true)
+    expect(
+      approvable(
+        row({ event: written({ status: 'ON_SALE', ticketTypes: { imported: 2, onSale: 2 } }) }),
+      ),
+    ).toBe(false)
+    expect(
+      approvable(
+        row({ event: written({ status: 'PUBLISHED', ticketTypes: { imported: 0, onSale: 0 } }) }),
+      ),
+    ).toBe(false)
+  })
+
+  it('has no “Pictures” column for a run that recorded no pictures, as no import does now', () => {
+    render(
+      <ImportRunPlan
+        run={run({ status: 'APPLIED', rows: [row({ event: written(), pictures: [] })] })}
+        canApprove
+      />,
+    )
+
+    expect(screen.queryByRole('columnheader', { name: 'Pictures' })).toBeNull()
+    expect(screen.queryByText(/copied once applied/u)).toBeNull()
+  })
+
+  it('shows no address or link of the source site, whatever a row carries', () => {
+    const { container } = render(
+      <ImportRunPlan
+        run={run({
+          status: 'APPLIED',
+          rows: [row({ event: written(), sourceUrl: undefined, ticketUrl: undefined })],
+        })}
+        canApprove
+      />,
+    )
+
+    expect(container.innerHTML).not.toMatch(/sulekha\.(?:com|io)/iu)
+    expect(screen.queryByRole('link', { name: /source listing/iu })).toBeNull()
+    expect(
+      screen.getAllByRole('link').every((link) => link.getAttribute('href').startsWith('/')),
+    ).toBe(true)
   })
 
   it('offers no approval to an account without review rights, and says why', () => {

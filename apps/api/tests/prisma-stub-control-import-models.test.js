@@ -327,7 +327,7 @@ describe('imports in the stub', () => {
     ).resolves.toMatchObject({ platformHeldSource: null })
   })
 
-  it('keeps one record per listing and per event, and one picture per address per record', async () => {
+  it('keeps one record per listing and per event, and keeps no picture at all', async () => {
     const { prisma, ids, built } = await world((given) => platformHeldImportFixture(given))
     const [{ item, organization }] = built
     const other = await prisma.event.create({
@@ -344,7 +344,6 @@ describe('imports in the stub', () => {
     })
     const record = {
       source: 'SULEKHA',
-      sourceUrl: item.sourceUrl,
       scrapedAt: item.scrapedAt,
       importedById: ids.platformAdministrator.id,
     }
@@ -373,29 +372,21 @@ describe('imports in the stub', () => {
     })
     expect(created.importedAt).toBeInstanceOf(Date)
     expect(created.lastSyncedAt).toBeInstanceOf(Date)
+    // The record keeps the listing's id, never an address on its site.
+    expect(created).not.toHaveProperty('sourceUrl')
 
-    const picture = { itemId: created.id, url: 'https://usimg.sulekha.io/a.webp', role: 'COVER' }
-    const image = await prisma.eventImportImage.create({
-      data: { ...picture, alt: 'A poster', position: 0 },
-    })
-
-    expect(image).toMatchObject({
-      status: 'WAITING',
-      attempts: 0,
-      failureCode: null,
-      mediaAssetId: null,
-    })
-    await expect(
-      prisma.eventImportImage.create({ data: { ...picture, alt: 'Again', position: 1 } }),
-    ).rejects.toMatchObject({ code: 'P2002' })
+    // The table of copied pictures is gone, as from the schema (2026-10-15).
+    expect(prisma.eventImportImage).toBeUndefined()
   })
 
   // `EventImportImage_mediaAssetId_fkey` is ON DELETE SET NULL: the organiser
   // may remove an imported picture later, and the import record keeps saying it
   // was stored while no longer naming a picture that is gone.
-  it('clears an imported picture’s stored copy when that picture is removed, as ON DELETE SET NULL does', async () => {
+  it('keeps a picture stored before 2026-10-15 an ordinary picture of its event, its cover removable', async () => {
+    // Nothing points at a stored picture from an import record any more, so
+    // removing one clears nothing but the picture itself.
     const { prisma, built } = await world((ids) => platformHeldImportFixture(ids))
-    const [{ event, image }] = built
+    const [{ event }] = built
     const stored = await prisma.mediaAsset.create({
       data: {
         ownerType: 'EVENT',
@@ -409,21 +400,14 @@ describe('imports in the stub', () => {
       },
     })
 
-    await prisma.eventImportImage.update({
-      where: { id: image.id },
-      data: { status: 'STORED', mediaAssetId: stored.id },
-    })
     await prisma.mediaAsset.delete({ where: { id: stored.id } })
 
-    expect(await prisma.eventImportImage.findUnique({ where: { id: image.id } })).toMatchObject({
-      status: 'STORED',
-      mediaAssetId: null,
-    })
+    expect(await prisma.mediaAsset.findUnique({ where: { id: stored.id } })).toBeNull()
   })
 
-  it('fills a run’s defaults and follows the record to its event, run, importer and pictures', async () => {
+  it('fills a run’s defaults and follows the record to its event, run, importer and ticket types', async () => {
     const { prisma, built } = await world((ids) => platformHeldImportFixture(ids))
-    const [{ item, run, event, image }] = built
+    const [{ item, run, event, tiers }] = built
     const fresh = await prisma.eventImportRun.create({
       data: {
         source: 'SULEKHA',
@@ -442,13 +426,15 @@ describe('imports in the stub', () => {
 
     const read = await prisma.eventImportItem.findUnique({
       where: { id: item.id },
-      include: { event: true, lastRun: true, importedBy: true, images: true },
+      include: { event: { include: { ticketTypes: true } }, lastRun: true, importedBy: true },
     })
 
     expect(read.event.id).toBe(event.id)
     expect(read.lastRun.id).toBe(run.id)
     expect(read.importedBy.email).toBe('anil@desi-event.example')
-    expect(read.images.map((row) => row.id)).toEqual([image.id])
+    expect(read.event.ticketTypes.map((row) => row.id).sort()).toEqual(
+      tiers.map((tier) => tier.id).sort(),
+    )
 
     const back = await prisma.event.findUnique({
       where: { id: event.id },
@@ -513,9 +499,25 @@ describe('the SPEC2-XI fixtures', () => {
 
     expect(await prisma.membership.count({ where: { organizationId: organization.id } })).toBe(0)
     expect(organization).toMatchObject({ verificationStatus: 'VERIFIED', verified: true })
-    expect(venue).toMatchObject({ provenance: 'import:sulekha', organizationId: organization.id })
+    expect(venue).toMatchObject({ provenance: 'import:listing', organizationId: organization.id })
     expect(event).toMatchObject({ status: 'REVIEW_PENDING', organizationId: organization.id })
     expect(session.endTimeListed).toBe(false)
     expect(session.endsAt.getTime() - session.startsAt.getTime()).toBe(3 * 3_600_000)
+    // Sold here: a ticket type per listed price, not on sale yet, on an
+    // allowance; no website address and no picture.
+    expect(event.websiteUrl).toBeNull()
+    expect(
+      (await prisma.ticketType.findMany({ where: { eventId: event.id } })).map((tier) => [
+        tier.name,
+        tier.priceCents,
+        tier.status,
+        tier.quantityTotal,
+        tier.quantityIsAllowance,
+        tier.importKey,
+      ]),
+    ).toEqual([
+      ['Early Bird', 2000, 'DRAFT', 100, true, 'Early Bird'],
+      ['Child', 0, 'DRAFT', 100, true, 'Child'],
+    ])
   })
 })

@@ -32,7 +32,7 @@ export const metadata = {
     template: '%s · The Desi Events',
   },
   description:
-    'Find Navratri garba and dandiya nights, beginner garba classes and Navratri melas across the USA and Canada — Edison, Queens, Houston, Chicago, the Bay Area, Atlanta and more. Tickets sold here are priced in US dollars with their fee shown; events listed on Sulekha show Sulekha’s own prices.',
+    'Find Navratri garba and dandiya nights, beginner garba classes and Navratri melas across the USA and Canada — Edison, Queens, Houston, Chicago, the Bay Area, Atlanta and more. Tickets sold here are priced in US dollars, or Canadian dollars at a venue in Canada, with their fee shown; events imported from organisers’ public ticket listings are sold at the prices the organiser listed.',
   applicationName: 'The Desi Events',
   keywords: [
     'garba tickets',

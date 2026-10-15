@@ -107,6 +107,43 @@ beforeEach(() => {
   apiFetch.mockReset()
 })
 
+describe('an imported event’s ticket type, on an allowance', () => {
+  it('says its quantity is an allowance the import set, and lets the team change it like any quantity', async () => {
+    const user = userEvent.setup()
+    const allowance = tier({ quantityTotal: 100, quantityIsAllowance: true })
+
+    respond(answer(200, { data: tier({ quantityTotal: 250 }), meta: { revision: 8 } }), [allowance])
+    render(<EventTiersEditor event={event} sessions={sessions} tiers={[allowance]} revision={7} />)
+
+    expect(
+      screen.getByText(
+        /0 of 100 sold \(an allowance the import set: buyers see no count of what is left\)/u,
+      ),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+
+    const quantity = screen.getByLabelText(/^How many/, {
+      selector: '#tier-tgeneral-quantityTotal',
+    })
+
+    expect(quantity).toHaveAccessibleDescription(/The import set this as an allowance/u)
+
+    await user.clear(quantity)
+    await user.type(quantity, '250')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(writeCall()).toBeDefined())
+    expect(JSON.parse(writeCall()[1].body)).toEqual({ revision: 7, quantityTotal: 250 })
+  })
+
+  it('says nothing of an allowance for an ordinary tier', () => {
+    render(<EventTiersEditor event={event} sessions={sessions} tiers={[tier()]} revision={7} />)
+
+    expect(screen.queryByText(/allowance/u)).toBeNull()
+  })
+})
+
 describe('editing a ticket type', () => {
   it('opens a prefilled form and sends only the changed name, with the revision', async () => {
     const user = userEvent.setup()

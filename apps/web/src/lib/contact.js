@@ -35,6 +35,71 @@ export const CONTACT_PHONE_E164 = '+19726949043'
 /** The WhatsApp chat for that number. */
 export const WHATSAPP_URL = 'https://wa.me/19726949043'
 
+/** What the "Reserve on WhatsApp" button says. */
+export const RESERVE_ON_WHATSAPP_LABEL = 'Reserve on WhatsApp'
+
+/**
+ * The button's accessible name: its visible words first, so a speech-input
+ * user can say what they see (WCAG 2.5.3), then where it goes.
+ */
+export const RESERVE_ON_WHATSAPP_NAME = `${RESERVE_ON_WHATSAPP_LABEL}, opens WhatsApp in a new tab`
+
+/**
+ * The day of an event's start in its own zone: "Saturday, November 7".
+ *
+ * @param {string} startsAt An ISO instant.
+ * @param {string} [timeZone] The event's IANA zone.
+ * @returns {string|null} The day, or null when it cannot be read.
+ */
+function reserveDay(startsAt, timeZone) {
+  const time = Date.parse(startsAt)
+
+  if (!Number.isFinite(time)) return null
+
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      timeZone: timeZone || 'UTC',
+    }).format(new Date(time))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The message a "Reserve on WhatsApp" chat opens with:
+ * `Hi! I'd like to reserve tickets for "Raga Night" on Saturday, November 7 at
+ * Stafford Centre, Houston.` A part the event does not have is left out
+ * rather than guessed.
+ *
+ * @param {{title: string, startsAt?: string, timezone?: string, venue?: {name?: string, city?: string}|null}} event The public event.
+ * @returns {string} The message.
+ */
+export function reserveMessage(event) {
+  const day = reserveDay(event?.startsAt, event?.timezone)
+  const place = [event?.venue?.name, event?.venue?.city]
+    .filter((part) => typeof part === 'string' && part.trim() !== '')
+    .join(', ')
+
+  return `Hi! I'd like to reserve tickets for "${event?.title ?? ''}"${day ? ` on ${day}` : ''}${
+    place ? ` at ${place}` : ''
+  }.`
+}
+
+/**
+ * The company's WhatsApp chat, opened with {@link reserveMessage} for an
+ * event. Nothing about the visitor is in it: only the event's public title,
+ * day and place.
+ *
+ * @param {object} event The public event.
+ * @returns {string} The `https://wa.me/…?text=…` address.
+ */
+export function reserveOnWhatsAppUrl(event) {
+  return `${WHATSAPP_URL}?text=${encodeURIComponent(reserveMessage(event))}`
+}
+
 /** The Facebook page. */
 export const FACEBOOK_URL = 'https://www.facebook.com/the.desievents'
 

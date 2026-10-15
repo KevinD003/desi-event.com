@@ -84,7 +84,7 @@ export function taxNameInSentence(place = {}) {
  * Canadian and Australian dollars are formatted `en-US` too, so they read
  * `CA$25.00` and `A$25.00`. Their own locales write a bare `$25.00`, which on
  * a site whose prices are otherwise US dollars says the wrong currency: an
- * event copied from a Sulekha listing in Toronto lists its prices in CAD.
+ * event imported from a listing in Toronto lists its prices in CAD.
  *
  * @param {string} [currency] ISO 4217 code.
  * @returns {string} A BCP 47 locale tag.

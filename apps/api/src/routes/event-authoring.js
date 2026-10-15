@@ -63,6 +63,7 @@ import {
   tierUsage,
 } from '../lib/event-authoring.js'
 import {
+  AUTHORITY_KINDS,
   authorityAuditMetadata,
   byPlatform,
   resolveEventAuthority,
@@ -71,7 +72,6 @@ import {
   boundSeatCounts,
   inventoryProblems,
   publishabilityProblems,
-  refuseSoldOnSource,
   sellabilityProblems,
 } from '../lib/event-lifecycle.js'
 import {
@@ -172,6 +172,7 @@ function toAuthorTier(tier, usage = UNUSED_TIER) {
     reserved: Boolean(tier.reserved),
     complimentary: Boolean(tier.complimentary),
     visibility: tier.visibility === 'HIDDEN' ? 'HIDDEN' : 'PUBLIC',
+    quantityIsAllowance: tier.quantityIsAllowance === true,
     heldQuantity: usage.held,
     hasOrders: usage.orderItems > 0,
     removable: tierRemovable(usage),
@@ -645,9 +646,6 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
     handler: async (request) => {
       const { event, mode, authority, sessionId } = await authorable(request)
 
-      // Tickets for a platform-held import are sold on its source (SPEC2-XI I5).
-      refuseSoldOnSource(event)
-
       const { revision, ...body } = request.body
       // A complimentary tier is free and hidden, and the database refuses
       // anything else (ticket_type_complimentary_free_and_hidden). A tier
@@ -813,7 +811,16 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
           updated = await tx.ticketType.update({
             where: { id: existing.id },
-            data: toTierPatch(patch),
+            data: {
+              ...toTierPatch(patch),
+              // An import's allowance stays one while the team at The Desi
+              // Events adjusts it; once the organisation itself sets the
+              // quantity, it is the organiser's count.
+              ...(authority.kind === AUTHORITY_KINDS.ORGANIZATION &&
+              patch.quantityTotal !== undefined
+                ? { quantityIsAllowance: false }
+                : {}),
+            },
           })
 
           for (const eventSessionId of seatedSessionsOf(existing, updated)) {

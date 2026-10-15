@@ -34,7 +34,7 @@ function answer(status, body) {
  * @param {string} [name] Its name.
  * @returns {File} The file.
  */
-function file(text, name = 'sulekha-texas-2026.json') {
+function file(text, name = 'texas-2026.json') {
   return new File([text], name, { type: 'application/json' })
 }
 
@@ -60,7 +60,7 @@ describe('planning an import from a file', () => {
     expect(apiFetch).toHaveBeenCalledWith('/v1/platform/imports', {
       method: 'POST',
       body: JSON.stringify({
-        fileName: 'sulekha-texas-2026.json',
+        fileName: 'texas-2026.json',
         dataset: { format: 'desi-event-import/1' },
       }),
     })
@@ -118,7 +118,10 @@ describe('planning an import from a file', () => {
         error: {
           code: 'IMPORT_INVALID',
           message: 'The import file cannot be used as it is.',
-          problems: ['events[0].ticketUrl is not on events.sulekha.com.', 'format is wrong.'],
+          problems: [
+            'events[0].ticketUrl is not an address on the listing’s site.',
+            'format is wrong.',
+          ],
         },
       }),
     )
@@ -128,7 +131,7 @@ describe('planning an import from a file', () => {
 
     expect(await screen.findByText('The import file cannot be used as it is.')).toBeInTheDocument()
     expect(
-      screen.getByText('events[0].ticketUrl is not on events.sulekha.com.'),
+      screen.getByText('events[0].ticketUrl is not an address on the listing’s site.'),
     ).toBeInTheDocument()
     expect(screen.getByText('format is wrong.')).toBeInTheDocument()
     expect(push).not.toHaveBeenCalled()

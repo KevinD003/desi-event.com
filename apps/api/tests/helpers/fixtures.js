@@ -1056,25 +1056,22 @@ const EVENT_DELETION_FIXTURE_COLUMNS = Object.freeze({
   deletedSlug: null,
 })
 
-/** The Sulekha listing the import fixture copies. */
-const FIXTURE_LISTING = Object.freeze({
-  sourceId: '402059',
-  sourceUrl: 'https://events.sulekha.com/navratri-dandiya-night_event-in_irving-tx_402059',
-  imageUrl: 'https://usimg.sulekha.io/cdn/events/images/navratri-dandiya-night-cover.webp',
-})
+/** The listing the import fixture holds: known by its id alone, with no address. */
+const FIXTURE_LISTING = Object.freeze({ sourceId: '402059' })
 
 /**
- * The platform-held organisation "Sulekha Events" with one imported event, as
- * an import run leaves them: VERIFIED, no member, `platformHeldSource` SULEKHA;
- * the event's one night has no listed end (stored as start + 3 hours); its
- * import record carries the listed prices and the curator's notes; its cover
- * is still waiting to be copied.
+ * The platform-held organisation "The Desi Events" with one imported event, as
+ * an import run leaves them (2026-10-15): VERIFIED, no member,
+ * `platformHeldSource` SULEKHA; the event's one night has no listed end
+ * (stored as start + 3 hours); its import record carries the listed prices and
+ * the curator's notes; each price is a ticket type the import made, not yet on
+ * sale, with the allowance of 100; it has no website address and no picture.
  *
  * @param {object} ids `makeWorld().ids`.
  * @param {object} [options] Options.
  * @param {string} [options.status] The imported event's status; REVIEW_PENDING by default.
  * @param {object} [options.importedBy] The importing administrator; the world's ADMIN by default.
- * @returns {object} `{rows, organization, venue, event, session, run, item, image}`: the rows keyed by model, and the ones a test names.
+ * @returns {object} `{rows, organization, venue, event, session, run, item, tiers}`: the rows keyed by model, and the ones a test names.
  */
 export function platformHeldImportFixture(
   ids,
@@ -1084,10 +1081,10 @@ export function platformHeldImportFixture(
   const organization = {
     ...ids.organization,
     id: cuid(),
-    name: 'Sulekha Events',
-    slug: 'sulekha-events',
+    name: 'The Desi Events',
+    slug: 'the-desi-events',
     description:
-      'Events listed on Sulekha.com and shown on The Desi Events by its team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+      "Events imported from organisers' public ticket listings and shown on The Desi Events by its team. Each event page names the organiser who presents it. Tickets for these events are sold on The Desi Events, and can also be reserved on WhatsApp.",
     contactEmail: 'imports@desi-event.example',
     websiteUrl: null,
     verified: true,
@@ -1114,7 +1111,7 @@ export function platformHeldImportFixture(
     slug: null,
     timezone: 'America/Chicago',
     accessibility: null,
-    provenance: 'import:sulekha',
+    provenance: 'import:listing',
     organizationId: organization.id,
   }
   const startsAt = minutesFromNow(60 * 24 * 12)
@@ -1138,14 +1135,15 @@ export function platformHeldImportFixture(
     timezone: 'America/Chicago',
     languages: ['Gujarati', 'Hindi'],
     policies: {
-      entry: 'Entry is run by the organiser. Check the Sulekha listing for their rules.',
+      entry:
+        'Entry is run by the organiser who presents this event. Bring the ticket you bought on The Desi Events.',
       refund:
-        "Tickets for this event are sold on Sulekha, not on The Desi Events. Refunds follow Sulekha's and the organiser's terms.",
+        'Tickets for this event are sold on The Desi Events. If the event is cancelled, every ticket bought here is refunded. For anything else, contact The Desi Events before the event.',
       conduct: "The organiser's and the venue's rules apply.",
     },
-    websiteUrl: FIXTURE_LISTING.sourceUrl,
-    websiteDecisionPending: true,
-    websiteSubmittedAt: created,
+    websiteUrl: null,
+    websiteDecisionPending: false,
+    websiteSubmittedAt: null,
     createdAt: created,
     updatedAt: created,
   }
@@ -1154,7 +1152,7 @@ export function platformHeldImportFixture(
     id: cuid(),
     source: 'SULEKHA',
     status: 'APPLIED',
-    fileName: 'sulekha-texas-2026.json',
+    fileName: 'texas-2026.json',
     datasetSha256: 'a'.repeat(64),
     dataset: { format: 'desi-event-import/1', source: 'SULEKHA' },
     plan: [{ sourceId: FIXTURE_LISTING.sourceId, action: 'CREATE' }],
@@ -1171,7 +1169,6 @@ export function platformHeldImportFixture(
     id: cuid(),
     source: 'SULEKHA',
     sourceId: FIXTURE_LISTING.sourceId,
-    sourceUrl: FIXTURE_LISTING.sourceUrl,
     eventId: event.id,
     lastRunId: run.id,
     importedById: importedBy.id,
@@ -1184,7 +1181,9 @@ export function platformHeldImportFixture(
       { name: 'Child', priceCents: 0, currency: 'USD', note: 'Under 5' },
     ],
     priceText: '$20',
-    importNotes: ['Sulekha lists this event twice (402059 and 402060); only 402059 is imported.'],
+    importNotes: [
+      'The source site lists this event twice (402059 and 402060); only 402059 is imported.',
+    ],
     approvedById: null,
     approvedAt: null,
     reassignedAt: null,
@@ -1192,19 +1191,31 @@ export function platformHeldImportFixture(
     reassignedFromOrganizationId: null,
     reassignedToOrganizationId: null,
   }
-  const image = {
+  const tiers = item.prices.map((price, index) => ({
     id: cuid(),
-    itemId: item.id,
-    url: FIXTURE_LISTING.imageUrl,
-    role: 'COVER',
-    alt: 'Navratri Dandiya Night in Irving poster',
-    position: 0,
-    status: 'WAITING',
-    failureCode: null,
-    attempts: 0,
-    lastTriedAt: null,
-    mediaAssetId: null,
-  }
+    eventId: event.id,
+    name: price.name,
+    description: null,
+    priceCents: price.priceCents,
+    currency: price.currency,
+    quantityTotal: 100,
+    quantitySold: 0,
+    quantityIsAllowance: true,
+    minPerOrder: 1,
+    maxPerOrder: 10,
+    salesStartAt: null,
+    salesEndAt: null,
+    status: 'DRAFT',
+    sortOrder: index,
+    eventSessionId: null,
+    priceZoneId: null,
+    reserved: false,
+    complimentary: false,
+    visibility: 'PUBLIC',
+    importKey: price.name,
+    createdAt: created,
+    updatedAt: created,
+  }))
 
   return {
     rows: {
@@ -1214,7 +1225,7 @@ export function platformHeldImportFixture(
       eventSession: [session],
       eventImportRun: [run],
       eventImportItem: [item],
-      eventImportImage: [image],
+      ticketType: tiers,
     },
     organization,
     venue,
@@ -1222,7 +1233,7 @@ export function platformHeldImportFixture(
     session,
     run,
     item,
-    image,
+    tiers,
   }
 }
 

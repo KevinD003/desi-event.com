@@ -371,25 +371,15 @@ export function isPlatformHeld(event) {
   return Boolean(event?.organization?.platformHeldSource)
 }
 
-/** Why a platform-held import takes no ticket type and opens no sales (SPEC2-XI I5). */
-export const SOLD_ON_SOURCE_SENTENCE =
-  "Tickets for this event are sold on Sulekha. Move it to the organiser's own organisation before selling tickets here."
-
 /**
- * Refuse a ticket type or sales for an event the platform-held organisation
- * holds: tickets for it are sold on its source's page, and the organisation has
- * no payout account, so nothing may be sold here until the event is moved to
- * the organiser's own organisation. Even a super administrator is refused.
- *
- * @param {object} event The event, with `organization` loaded.
- * @returns {void}
- * @throws {Error} 409 `SOLD_ON_SOURCE`.
+ * The organiser's sales moves the team at The Desi Events makes for an event
+ * the platform-held organisation holds, which has no organiser here to make
+ * them: opening sales and pausing them. Since 2026-10-15 imported events are
+ * sold on The Desi Events, so an administrator with an open editing sitting
+ * (`resolveEventAuthority`) may make these two, and only these two, on such
+ * an event; publishing, postponing and cancelling stay as Rule L has them.
  */
-export function refuseSoldOnSource(event) {
-  if (isPlatformHeld(event)) {
-    throw httpError(409, 'SOLD_ON_SOURCE', SOLD_ON_SOURCE_SENTENCE)
-  }
-}
+export const PLATFORM_HELD_SALES_MOVES = Object.freeze(new Set(['ON_SALE', 'SALES_PAUSED']))
 
 /**
  * Assert the actor is entitled to make this kind of move, and say whose
@@ -397,15 +387,18 @@ export function refuseSoldOnSource(event) {
  *
  * An organiser's move follows Rule L (SPEC2-XI X-A): the actor's membership,
  * or a SUPER_ADMIN's platform role, recorded as the doing of the team at The
- * Desi Events; a platform ADMIN is refused with `ORGANIZER_ONLY`.
+ * Desi Events; a platform ADMIN is refused with `ORGANIZER_ONLY`, except for
+ * {@link PLATFORM_HELD_SALES_MOVES} on a platform-held event, made under the
+ * sitting the caller resolved (`sitting`).
  *
  * @param {object} move The transition from the table.
  * @param {object} actor The request actor.
  * @param {object} event The event.
+ * @param {object|null} [sitting] A sitting's authority (`resolveEventAuthority`), for a platform-held event's sales.
  * @returns {object|null} The authority for an organiser's move; null for a moderator's.
  * @throws {Error} A 403 when the actor is not entitled.
  */
-function assertEntitled(move, actor, event) {
+function assertEntitled(move, actor, event, sitting = null) {
   if (move.actor === ACTORS.SYSTEM) {
     // No route reaches a system transition. If one ever does, this is the line
     // that says so rather than a comment claiming it.
@@ -429,7 +422,21 @@ function assertEntitled(move, actor, event) {
 
   // An organiser move. The capability depends on the destination, because
   // publishing and cancelling are not the same authority as submitting.
-  return lifecycleAuthority(actor, event, capabilityFor(move.to))
+  try {
+    return lifecycleAuthority(actor, event, capabilityFor(move.to))
+  } catch (error) {
+    if (
+      error?.code === 'ORGANIZER_ONLY' &&
+      sitting?.kind === 'PLATFORM' &&
+      sitting.via === 'SITTING' &&
+      isPlatformHeld(event) &&
+      PLATFORM_HELD_SALES_MOVES.has(move.to)
+    ) {
+      return sitting
+    }
+
+    throw error
+  }
 }
 
 /**
@@ -486,7 +493,12 @@ export async function availableTransitions(prisma, event, actor) {
     let entitled =
       move.actor === ACTORS.MODERATOR
         ? can(actor, MODERATION_CAPABILITY)
-        : can(actor, capabilityFor(move.to), { organizationId: event.organizationId })
+        : can(actor, capabilityFor(move.to), { organizationId: event.organizationId }) ||
+          // The team's sales moves on a platform-held event, made in an
+          // editing sitting (checked when the move is asked for).
+          (isPlatformHeld(event) &&
+            PLATFORM_HELD_SALES_MOVES.has(move.to) &&
+            can(actor, CAPABILITIES.EVENT_PLATFORM_EDIT))
 
     /** @type {string[]} */
     const blockers = []
@@ -530,6 +542,7 @@ export async function availableTransitions(prisma, event, actor) {
  * @param {Function} [options.onCommit] Extra work inside the transaction, given `(tx, event, { authority, byPlatform })`. It may return `{ auditMetadata }`, which the transition's audit record carries beside `from`, `to` and `reason`.
  * @param {{timeout: number, maxWait: number}} [options.transactionOptions] The transaction's budget, when `onCommit` does work that grows with the event (a cancellation reserves a refund per paid order). Prisma's default of five seconds otherwise.
  * @param {number} [options.lockWaitMs] When set, the longest any statement of the transaction waits for one lock another transaction holds (`lock_timeout`), and no statement outlives `transactionOptions.timeout` (`statement_timeout`): `lib/transaction-budget.js`, for a caller whose budget counts on it.
+ * @param {object|null} [options.sitting] An administrator's open sitting (`resolveEventAuthority`), under which {@link PLATFORM_HELD_SALES_MOVES} are made on a platform-held event; the caller re-checks it inside `onCommit`.
  * @returns {Promise<object>} The updated event.
  * @throws {Error} 403, 404, 409 or 422, each meaning something different; 503 when the transaction outran its budget and nothing was changed.
  */
@@ -543,6 +556,7 @@ export async function transitionEvent(prisma, options) {
     onCommit = null,
     transactionOptions = undefined,
     lockWaitMs = null,
+    sitting = null,
   } = options
   const from = event.status
 
@@ -573,10 +587,7 @@ export async function transitionEvent(prisma, options) {
   // 2. Is this actor entitled to it? A moderator decision also needs a
   // reviewer independent of the event: not a member of its organisation, and
   // not the person who sent it for review.
-  const authority = assertEntitled(move, actor, event)
-
-  // Nothing is sold here for a platform-held import (SPEC2-XI I5).
-  if (to === 'ON_SALE') refuseSoldOnSource(event)
+  const authority = assertEntitled(move, actor, event, sitting)
 
   // A platform-held import has nobody to make changes: approve, reject or
   // delete it instead (SPEC2-XI O16).

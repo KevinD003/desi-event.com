@@ -1,7 +1,8 @@
 /**
  * The words of the import pages (SPEC2-XI I-H): what a plan row will do,
- * where a run stands, how each picture's copying went, and what "Approve and
- * publish" did for each event.
+ * where a run stands, what "Approve and publish" did for each event, and, for
+ * a run applied before imports stopped copying pictures (ADR 0015, addendum
+ * 2026-10-15 (2)), how each of its pictures' copying went.
  *
  * Pure, with no imports, so the server pages and the client actions read the
  * same sentences.
@@ -14,7 +15,7 @@
 
 /** What a session without `event:import` is told. */
 export const NOT_FOR_THIS_ACCOUNT =
-  'Events listed on other sites are imported by the platform administrators at The Desi Events. Nothing on this page can grant it.'
+  'Events from organisers’ listings are imported by the platform administrators at The Desi Events. Nothing on this page can grant it.'
 
 /** The path of the imports list. */
 export const IMPORTS_PATH = '/admin/imports'
@@ -120,7 +121,7 @@ export function planReading(row) {
     return {
       ...reading,
       detail:
-        'Already published, and its listing has changed. Tick “Update from Sulekha” to copy the changes onto its public page; otherwise it is left as it is.',
+        'Already published, and its listing has changed. Tick “Update from the listing” to copy the changes onto its public page; otherwise it is left as it is.',
     }
   }
 
@@ -142,7 +143,7 @@ export function writtenCount(rows, updateFromSource = []) {
   ).length
 }
 
-/** A picture's copying, in words. */
+/** A picture's copying, in words: only a run applied before imports stopped copying pictures has any. */
 export const PICTURE_STATUSES = Object.freeze({
   WAITING: { label: 'Waiting to be copied', tone: 'neutral' },
   STORED: { label: 'Copied', tone: 'success' },
@@ -158,11 +159,11 @@ export const MEDIA_STATUSES = Object.freeze({
 
 /** Why a picture was not copied, by the API's code. */
 const FAILURES = Object.freeze({
-  HOST_NOT_ALLOWED: 'Its address is not on Sulekha’s picture host.',
+  HOST_NOT_ALLOWED: 'Its address is not on the picture host.',
   ADDRESS_NOT_PUBLIC: 'Its address does not lead to a public server.',
-  NETWORK_UNAVAILABLE: 'Sulekha’s picture host could not be reached.',
-  TIMEOUT: 'Sulekha’s picture host took too long to answer.',
-  REDIRECT_OFF_LIST: 'It redirected to an address off Sulekha’s picture host.',
+  NETWORK_UNAVAILABLE: 'The picture host could not be reached.',
+  TIMEOUT: 'The picture host took too long to answer.',
+  REDIRECT_OFF_LIST: 'It redirected to an address off the picture host.',
   TOO_MANY_REDIRECTS: 'It redirected too many times.',
   NOT_AN_IMAGE: 'What came back was not a picture.',
   TOO_LARGE: 'It is larger than 10 MiB.',
@@ -185,7 +186,7 @@ export function failureReason(code) {
 
   const http = /^HTTP_(\d{3})$/u.exec(code)
 
-  if (http) return `Sulekha answered with status ${http[1]}.`
+  if (http) return `The picture host answered with status ${http[1]}.`
   if (code.startsWith('SANITISER_REFUSED:')) {
     return `The picture checks refused it (${code.slice('SANITISER_REFUSED:'.length)}).`
   }
@@ -194,16 +195,62 @@ export function failureReason(code) {
 }
 
 /**
+ * "1 ticket type" or "3 ticket types".
+ *
+ * @param {number} count How many.
+ * @returns {string} The words.
+ */
+export function ticketTypeCount(count) {
+  return `${count} ${count === 1 ? 'ticket type' : 'ticket types'}`
+}
+
+/**
+ * What a plan row's prices become, in a line: "3 ticket types, 1 not on sale
+ * (sold out on the listing)", or "No price listed, so no ticket type". Null
+ * for a row an older build planned, which does not say.
+ *
+ * @param {{priceCount?: number, soldOutCount?: number}} row A run row.
+ * @returns {string|null} The line.
+ */
+export function ticketTypesLine(row) {
+  if (!Number.isInteger(row?.priceCount)) return null
+  if (row.priceCount === 0) return 'No price listed, so no ticket type'
+
+  const soldOut = Number.isInteger(row.soldOutCount) ? row.soldOutCount : 0
+
+  return soldOut > 0
+    ? `${ticketTypeCount(row.priceCount)}, ${soldOut} not on sale (sold out on the listing)`
+    : ticketTypeCount(row.priceCount)
+}
+
+/**
  * What "Approve and publish" did for one event.
  *
- * @param {{outcome: string, picturesApproved?: number, message?: string|null}} result One result.
+ * @param {{outcome: string, status?: string|null, ticketTypesOnSale?: number, picturesApproved?: number, message?: string|null}} result One result.
  * @param {string} title The event's title.
  * @returns {string} The sentence.
  */
 export function approveSentence(result, title) {
+  const onSale = Number.isInteger(result.ticketTypesOnSale) ? result.ticketTypesOnSale : null
+
   if (result.outcome === 'PUBLISHED') {
-    return `${title}: approved and published, with its Sulekha ticket link on.`
+    if (onSale > 0) {
+      return `${title}: approved and published, with ${ticketTypeCount(onSale)} on sale.`
+    }
+    if (onSale === null && result.status === 'ON_SALE') {
+      return `${title}: approved and published, with its tickets on sale.`
+    }
+
+    return onSale === 0
+      ? `${title}: approved and published. It has no ticket type to put on sale.`
+      : `${title}: approved and published.`
   }
+  if (result.outcome === 'SALES_OPENED') {
+    return onSale > 0
+      ? `${title}: its tickets were put on sale (${ticketTypeCount(onSale)}).`
+      : `${title}: its tickets were put on sale.`
+  }
+  // Only a run an older build applied, which copied pictures, answers this.
   if (result.outcome === 'PICTURES_APPROVED') {
     const count = result.picturesApproved ?? 0
 

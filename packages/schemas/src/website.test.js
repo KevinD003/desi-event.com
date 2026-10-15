@@ -10,9 +10,11 @@ import {
   CREDENTIAL_PARAMETERS,
   PLATFORM_HOSTS,
   PRIVATE_HOST_SUFFIXES,
+  RETIRED_SOURCE_PROBLEM,
   WEBSITE_LIMITS,
   WEBSITE_PROBLEMS,
   credentialParameterProblem,
+  isRetiredSourceHost,
   normaliseWebsiteUrl,
   publicWebsiteLinkSchema,
   websiteHost,
@@ -121,6 +123,40 @@ describe('websiteUrlProblem refuses, each with its own sentence', () => {
     const copy = [...Object.values(WEBSITE_PROBLEMS), credentialParameterProblem('p')].join(' ')
 
     expect(copy).not.toMatch(/\b(soon|yet|planned)\b/i)
+  })
+})
+
+describe('the site the imported listings came from is never a link (2026-10-15)', () => {
+  it('refuses that site under any of its domains and any name beneath them', () => {
+    for (const address of [
+      'https://events.sulekha.com/garba_event-in_irving-tx_401616',
+      'https://usimg.sulekha.io/cdn/events/images/cover.png',
+      'https://sulekha.com/',
+      'https://www.sulekha.com/events',
+      'https://SULEKHA.COM/',
+      'https://us.sulekha.co.in/x',
+      'https://sulekha.net/',
+    ]) {
+      expect(websiteUrlProblem(address), address).toBe(RETIRED_SOURCE_PROBLEM)
+      expect(websiteUrlSchema.safeParse(address).success, address).toBe(false)
+    }
+
+    expect(RETIRED_SOURCE_PROBLEM).not.toMatch(/sulekha/iu)
+  })
+
+  it('leaves other sites alone, a person or a business named alike included', () => {
+    for (const address of [
+      'https://sulekhadance.example/',
+      'https://www.sulekha-patel.example/',
+      'https://notsulekha.com/',
+      'https://sulekha.com.evil.example/',
+      'https://example.com/sulekha',
+    ]) {
+      expect(websiteUrlProblem(address), address).toBeNull()
+    }
+
+    expect(isRetiredSourceHost('events.sulekha.com.')).toBe(true)
+    expect(isRetiredSourceHost(null)).toBe(false)
   })
 })
 

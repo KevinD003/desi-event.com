@@ -194,11 +194,16 @@ export async function createInvitedOrganization(
  * is created the first time.
  */
 export const PLATFORM_HELD_ORGANIZATIONS = Object.freeze({
+  // Named for the team that holds it, never for the site the events are
+  // listed on: the owner asked that no page names that site (2026-10-15). A
+  // database that holds it under its first name is brought to this one by
+  // migration 20261015090000_platform_held_organisation_name, and by
+  // `ensurePlatformHeldOrganization` on the next import.
   SULEKHA: Object.freeze({
-    name: 'Sulekha Events',
-    slug: 'sulekha-events',
+    name: 'The Desi Events',
+    slug: 'the-desi-events',
     description:
-      'Events listed on Sulekha.com and shown on The Desi Events by its team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+      "Events imported from organisers' public ticket listings and shown on The Desi Events by its team. Each event page names the organiser who presents it. Tickets for these events are sold on The Desi Events, and can also be reserved on WhatsApp.",
     // The organisation's own zone, for its reports. Each imported event and its
     // venue keep the zone the listing gives (America/Toronto for a Toronto
     // listing), and every page shows its times in that zone.
@@ -212,7 +217,9 @@ export const PLATFORM_HELD_VERIFICATION_NOTE =
 
 /**
  * Find the platform-held organisation for an import source, creating it the
- * first time (SPEC2-XI I-B).
+ * first time (SPEC2-XI I-B), and bringing one that already exists to the name,
+ * web address and description {@link PLATFORM_HELD_ORGANIZATIONS} gives it
+ * ({@link bringPlatformHeldUpToDate}).
  *
  * Created VERIFIED, with its first verification event by the importing
  * administrator; `websiteUrl` null; paid in USD; `platformHeldSource` set,
@@ -240,7 +247,12 @@ export async function ensurePlatformHeldOrganization(tx, { source, actor, now })
 
   const existing = await tx.organization.findUnique({ where: { platformHeldSource: source } })
 
-  if (existing) return { organization: existing, created: false }
+  if (existing) {
+    return {
+      organization: await bringPlatformHeldUpToDate(tx, existing, { source, actor }),
+      created: false,
+    }
+  }
 
   const taken = await tx.organization.findUnique({
     where: { slug: shape.slug },
@@ -289,4 +301,83 @@ export async function ensurePlatformHeldOrganization(tx, { source, actor, now })
   })
 
   return { organization, created: true }
+}
+
+/**
+ * Whether a web address is the one a platform-held organisation is given, or
+ * that address made unique (`the-desi-events-k3m9`) because another
+ * organisation already had it.
+ *
+ * @param {string} slug The organisation's web address now.
+ * @param {string} wanted The one {@link PLATFORM_HELD_ORGANIZATIONS} gives it.
+ * @returns {boolean} True when it needs no change.
+ */
+export function isPlatformHeldSlug(slug, wanted) {
+  if (slug === wanted) return true
+  if (typeof slug !== 'string' || !slug.startsWith(`${wanted}-`)) return false
+
+  return /^[0-9a-z]{4,8}$/u.test(slug.slice(wanted.length + 1))
+}
+
+/**
+ * Bring an existing platform-held organisation to the name, web address and
+ * description its source is given now, in the caller's transaction.
+ * Idempotent: an organisation already up to date is returned as it is, with
+ * nothing written.
+ *
+ * Nobody else writes these three columns of the platform-held organisation
+ * (it has no members, and no route edits it), so what
+ * {@link PLATFORM_HELD_ORGANIZATIONS} says is the whole truth about them. A web
+ * address another organisation has taken in the meantime is made unique, as
+ * when it is created. Audited `organization.platform_held_updated` with the
+ * names of the columns it changed and the new web address; never the old
+ * values.
+ *
+ * @param {object} tx A transaction client.
+ * @param {object} existing The organisation as read.
+ * @param {object} options Inputs.
+ * @param {'SULEKHA'} options.source The import source.
+ * @param {{id: string}} options.actor The importing administrator.
+ * @returns {Promise<object>} The organisation, as it is now.
+ */
+export async function bringPlatformHeldUpToDate(tx, existing, { source, actor }) {
+  const shape = PLATFORM_HELD_ORGANIZATIONS[source]
+
+  if (!shape) throw new TypeError(`No platform-held organisation is defined for ${source}.`)
+
+  let slug = existing.slug
+
+  if (!isPlatformHeldSlug(existing.slug, shape.slug)) {
+    const taken = await tx.organization.findUnique({
+      where: { slug: shape.slug },
+      select: { id: true },
+    })
+
+    slug = taken && taken.id !== existing.id ? disambiguateSlug(shape.slug) : shape.slug
+  }
+
+  const fields = [
+    existing.description !== shape.description && 'description',
+    existing.name !== shape.name && 'name',
+    slug !== existing.slug && 'slug',
+  ].filter(Boolean)
+
+  if (fields.length === 0) return existing
+
+  // The three columns written as one literal, so the one-writer scan
+  // (tests/security-regression.test.js) reads every column this sets.
+  const organization = await tx.organization.update({
+    where: { id: existing.id },
+    data: { name: shape.name, slug, description: shape.description },
+  })
+
+  await recordAudit(tx, {
+    action: AUDIT_ACTIONS.ORGANIZATION_PLATFORM_HELD_UPDATED,
+    entityType: 'Organization',
+    entityId: organization.id,
+    actorId: actor.id,
+    metadata: { source, fields, slug: organization.slug },
+  })
+
+  return organization
 }

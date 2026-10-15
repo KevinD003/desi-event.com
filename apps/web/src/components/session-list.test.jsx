@@ -185,15 +185,14 @@ describe('the list of nights', () => {
   })
 })
 
-describe('the nights of an event copied from its Sulekha listing', () => {
+describe('the nights of an event imported from an organiser’s listing', () => {
   it('shows only the start of a night whose end the listing did not give', () => {
     render(
       <SessionList
         sessions={[night({ doorsOpenAt: null, endTimeListed: false })]}
         eventSlug="raga-night"
-        buyable={false}
+        buyable
         now={NOW}
-        soldOn="Sulekha"
       />,
     )
 
@@ -203,19 +202,19 @@ describe('the nights of an event copied from its Sulekha listing', () => {
     expect(within(nights).queryByText('Ends')).not.toBeInTheDocument()
   })
 
-  it('says the tickets are on Sulekha rather than on sale, and still says a night is cancelled', () => {
+  it('reads like any other night: “On sale” here, never “Tickets on another site”, and still says a night is cancelled', () => {
     render(
       <SessionList
         sessions={[night(), night({ id: 'snnightthree', label: 'Night 3', status: 'CANCELLED' })]}
         eventSlug="raga-night"
-        buyable={false}
+        buyable
         now={NOW}
-        soldOn="Sulekha"
+        soldElsewhere
       />,
     )
 
-    expect(screen.getByText('Tickets on Sulekha')).toBeInTheDocument()
+    expect(screen.getByText('On sale')).toBeInTheDocument()
     expect(screen.getByText('Cancelled')).toBeInTheDocument()
-    expect(screen.queryByText('On sale')).not.toBeInTheDocument()
+    expect(screen.queryByText(/another site/iu)).not.toBeInTheDocument()
   })
 })

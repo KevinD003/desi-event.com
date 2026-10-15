@@ -620,7 +620,7 @@ export default async function ReviewEventPage({ params }) {
 
             <p className="mt-3 text-sm text-ink-muted">
               {noEditor
-                ? 'Your reason is kept on the event’s record. Nobody runs this event on The Desi Events, so it goes to nobody.'
+                ? 'Your reason is kept on the event’s record. The organisation holding this event has no members, so it goes to nobody.'
                 : 'Your reason goes to the organiser. Your name does not: they are negotiating with the platform, not with you.'}
             </p>
           </section>

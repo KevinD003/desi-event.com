@@ -35,6 +35,10 @@ import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib
 /** Currencies a tier may be priced in, with the catalogue's own first. */
 const CURRENCIES = Object.freeze(['USD', 'CAD', 'GBP', 'INR', 'AUD'])
 
+/** What "How many" adds for a tier whose quantity is an allowance an import set. */
+export const ALLOWANCE_HINT =
+  'The import set this as an allowance, since the listing gave no quantity; change it at any time. Buyers are never shown how many are left of it.'
+
 /**
  * @typedef {object} TierFormProps
  * @property {'create'|'edit'} kind Whether this adds a tier or changes one.
@@ -48,6 +52,7 @@ const CURRENCIES = Object.freeze(['USD', 'CAD', 'GBP', 'INR', 'AUD'])
  * @property {Function} onSubmit Called with the body to send; for an edit, only what changed.
  * @property {Function} [onCancel] Called when the person backs out of an edit.
  * @property {string} idPrefix Distinguishes this form's field ids from another's on the page.
+ * @property {boolean} [allowance] Whether the tier's quantity is an allowance an import set (`quantityIsAllowance`).
  */
 
 /**
@@ -68,6 +73,7 @@ export function TierForm({
   onSubmit,
   onCancel = null,
   idPrefix,
+  allowance = false,
 }) {
   const [values, setValues] = useState(initial)
   const [shown, setShown] = useState([])
@@ -299,11 +305,11 @@ export function TierForm({
             label="How many"
             id={id('quantityTotal')}
             required
-            description={
+            description={`${
               mode === 'live' && usage
                 ? `At least ${usage.sold + usage.held}: ${usage.sold} sold and ${usage.held} in baskets.`
                 : 'How many of this ticket type there are.'
-            }
+            }${allowance ? ` ${ALLOWANCE_HINT}` : ''}`}
             {...described('quantityTotal')}
           >
             <Input

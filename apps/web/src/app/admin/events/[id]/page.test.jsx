@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('next/navigation', () => ({
@@ -126,14 +126,14 @@ describe('one event, for the team at The Desi Events', () => {
     expect(said).toHaveTextContent(
       'A published event comes back published, at the same web address.',
     )
-    expect(said).not.toHaveTextContent(/Sulekha/u)
+    expect(said).not.toHaveTextContent(/imported from the source listing|sulekha/iu)
   })
 
-  it('says a published import only comes off the site, and comes back with its organiser and link', async () => {
+  it('says a published import comes back with its organiser, and promises no ticket link to another site', async () => {
     api.getOrganizerEvent.mockResolvedValue({
       ...EVENT,
       status: 'PUBLISHED',
-      organization: { name: 'Sulekha Events' },
+      organization: { name: 'The Desi Events' },
       importedFrom: {
         sourceName: 'Sulekha',
         presentedBy: 'Toronto Garba Collective',
@@ -148,7 +148,10 @@ describe('one event, for the team at The Desi Events', () => {
 
     expect(screen.getByRole('button', { name: 'Delete this event…' })).toBeInTheDocument()
     expect(screen.getByTestId('deletion-reversible')).toHaveTextContent(
-      'This event was copied from Sulekha, and its tickets are sold there, not here, so deleting it only takes it off the site. Restoring it brings it back with Toronto Garba Collective named as its organiser, and its “Buy tickets on Sulekha” link as it was.',
+      'This event was imported from its organiser’s listing. Restoring it brings it back with Toronto Garba Collective named as its organiser.',
+    )
+    expect(screen.getByTestId('deletion-reversible')).not.toHaveTextContent(
+      /another site|Buy tickets|only takes it off/u,
     )
   })
 
@@ -335,7 +338,7 @@ describe('one event, for the team at The Desi Events', () => {
     expect(api.getOrganizerEvent).not.toHaveBeenCalled()
   })
 
-  it('offers to move an event copied from Sulekha to an organisation, to an account that imports', async () => {
+  it('offers to move an imported event to an organisation, to an account that imports', async () => {
     readSession.mockResolvedValue({
       ...ADMIN,
       capabilities: [...ADMIN.capabilities, 'event:import'],
@@ -343,7 +346,7 @@ describe('one event, for the team at The Desi Events', () => {
     api.getOrganizerEvent.mockResolvedValue({
       ...EVENT,
       status: 'REVIEW_PENDING',
-      organization: { name: 'Sulekha Events' },
+      organization: { name: 'The Desi Events' },
       importedFrom: {
         sourceName: 'Sulekha',
         presentedBy: 'Raga Nights Houston',
@@ -356,8 +359,15 @@ describe('one event, for the team at The Desi Events', () => {
 
     await renderPage()
 
-    expect(screen.getByRole('heading', { name: 'Copied from Sulekha' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Imported from a listing' })).toBeInTheDocument()
     expect(screen.getByText(/presented by Raga Nights Houston/u)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /Its tickets are sold here, with simulated payment, and can be reserved on WhatsApp\. Change its ticket types and their allowances in an editing session\./u,
+      ),
+    ).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/another site|Open the source listing/u)
+    expect(document.body.textContent).not.toMatch(/sulekha/iu)
     expect(screen.getByRole('button', { name: 'Move to an organisation…' })).toBeInTheDocument()
   })
 
@@ -369,7 +379,7 @@ describe('one event, for the team at The Desi Events', () => {
     api.getOrganizerEvent.mockResolvedValue({
       ...EVENT,
       status: 'REVIEW_PENDING',
-      organization: { name: 'Sulekha Events' },
+      organization: { name: 'The Desi Events' },
       importedFrom: {
         sourceName: 'Sulekha',
         presentedBy: null,
@@ -383,13 +393,15 @@ describe('one event, for the team at The Desi Events', () => {
     await renderPage()
 
     expect(
-      screen.getByText(/copied from its Sulekha listing, which names no organiser/u),
+      within(screen.getByRole('region', { name: 'Imported from a listing' })).getByText(
+        /imported from its organiser’s listing, which names no organiser/u,
+      ),
     ).toBeVisible()
     expect(document.body.textContent).not.toMatch(/presented by (null|undefined)/u)
     expect(screen.getByRole('button', { name: 'Move to an organisation…' })).toBeInTheDocument()
   })
 
-  it('says where an imported event went, and that its Sulekha link is off, when a move sent the page back to itself', async () => {
+  it('says where an imported event went, and that its organisation now runs it, when a move sent the page back to itself', async () => {
     readSession.mockResolvedValue({
       ...ADMIN,
       capabilities: [...ADMIN.capabilities, 'event:import'],
@@ -415,10 +427,11 @@ describe('one event, for the team at The Desi Events', () => {
     expect(moved).toHaveLength(1)
     expect(moved[0]).toHaveAttribute('aria-live', 'polite')
     expect(moved[0]).toHaveTextContent(
-      'Moved to Raga Nights Houston. Its Sulekha ticket link is off until an administrator approves the organiser’s own address.',
+      'Moved to Raga Nights Houston. Its organisation now runs it, and it is no longer shown as an imported listing.',
     )
+    expect(moved[0]).not.toHaveTextContent(/Buy tickets/u)
     // The event is no longer held for an import, so no move is offered.
-    expect(screen.queryByRole('heading', { name: 'Copied from Sulekha' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Imported from a listing' })).toBeNull()
   })
 
   it('says nothing was moved without the flag, or while the event is still held for an import', async () => {
@@ -440,7 +453,7 @@ describe('one event, for the team at The Desi Events', () => {
     api.getOrganizerEvent.mockResolvedValue({
       ...EVENT,
       status: 'PUBLISHED',
-      organization: { name: 'Sulekha Events' },
+      organization: { name: 'The Desi Events' },
       importedFrom: {
         sourceName: 'Sulekha',
         presentedBy: 'Raga Nights Houston',
@@ -459,7 +472,7 @@ describe('one event, for the team at The Desi Events', () => {
     )
 
     expect(screen.queryByText(/Moved to/u)).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Copied from Sulekha' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Imported from a listing' })).toBeInTheDocument()
   })
 
   it('offers no move for an event not held for an import, or to an account that does not import', async () => {
@@ -593,6 +606,30 @@ describe('the booking fee and payment (SPEC3 §12.3, SPEC3-XI §12.3)', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Save booking fee' })).toBeNull()
+  })
+
+  it('lets an administrator set an imported event’s booking fee like any other’s, whatever an older API says of where it is sold', async () => {
+    readSession.mockResolvedValue(TERMS_ADMIN)
+    getPaymentTerms.mockResolvedValue(view({ soldOnSource: true }))
+    api.getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      status: 'ON_SALE',
+      organization: { name: 'The Desi Events' },
+      importedFrom: {
+        sourceName: 'Sulekha',
+        presentedBy: 'Raga Nights Houston',
+        listedOn: '2026-09-30',
+        prices: [],
+        priceListed: false,
+        ticketsOnSource: false,
+      },
+    })
+
+    await renderPage()
+
+    expect(screen.getByRole('heading', { name: 'Booking fee and payment' })).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/sold on another site|no booking fee here/u)
+    expect(screen.getByRole('button', { name: 'Save booking fee' })).toBeInTheDocument()
   })
 
   it('takes the cheapest paid public tier for the example, and none when nothing is paid', () => {

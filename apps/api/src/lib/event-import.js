@@ -1,57 +1,77 @@
 /**
  * Importing listed events onto The Desi Events (SPEC2-XI area I): planning a file,
- * applying the plan, copying its pictures, approving and publishing what was
- * imported, and moving an imported event to an organiser's own organisation.
+ * applying the plan, approving, publishing and selling what was imported, and
+ * moving an imported event to an organiser's own organisation.
  *
  * ## Where imported events live
  *
- * In one platform-held organisation per source ("Sulekha Events",
+ * In one platform-held organisation per source ("The Desi Events",
  * `Organization.platformHeldSource = 'SULEKHA'`), created VERIFIED the first
  * time an import is applied, with no members: the database refuses any
  * (`desi_platform_held_has_no_members`). Each event names the organiser who
- * presents it, keeps the prices the listing gave on its import record, and has
- * no ticket type: tickets are sold on the listing's own page, which its
- * website link opens once an administrator approves it here.
+ * presents it and keeps the prices the listing gave on its import record.
+ *
+ * ## Sold here, and nothing goes to the source (2026-10-15)
+ *
+ * The owner asked that nothing links, redirects or connects to the site the
+ * listings came from, and that visitors buy tickets on The Desi Events (and may
+ * reserve them on WhatsApp, which the web page offers). So:
+ *
+ * - **No address, no request.** A file carries no web address
+ *   (`lib/import-dataset.js`), an imported event is given no website link, and
+ *   nothing is fetched: this module makes no outbound request (a source scan
+ *   holds `apps/api/src` to none at all).
+ * - **Each listed price is a ticket type** ({@link syncListingTiers}): general
+ *   admission, priced as listed in the event's currency (USD at a venue in the
+ *   United States, CAD in Canada), an allowance of 100 tickets
+ *   (`quantityIsAllowance`, which no page shows as tickets left), 1 to 10 per
+ *   order, keyed to its price (`importKey`). A price the listing marked sold
+ *   out is made CLOSED. On approval the event is published and its tiers go on
+ *   sale from then until it starts ({@link openImportedSales}).
+ * - **A re-import never touches a tier that has been sold, ordered or held.**
+ *   A tier with none of that takes the listing's price (and is closed when the
+ *   listing marks it sold out); a new price is a new tier, not on sale until an
+ *   administrator approves it here; a tier the listing no longer gives is
+ *   removed. Its allowance and name, as an administrator set them, stay.
  *
  * ## What a run does, and in what order
  *
- * 1. **Preview** reads the uploaded file (`lib/import-dataset.js`), plans it
- *    against the database and stores the run, PREVIEWED for an hour. Nothing
- *    else is written.
+ * 1. **Preview** reads the uploaded file, plans it against the database and
+ *    stores the run, PREVIEWED for an hour. Nothing else is written.
  * 2. **Apply** works the plan out again, refuses one that has changed since the
  *    administrator read it, moves the run PREVIEWED → APPLIED with a
  *    compare-and-set (a second apply of the same run is refused), then writes
  *    each listing in a transaction of its own: its venue, the event as a DRAFT,
- *    its one night, its import record and its pictures' rows, then the move
- *    into review. Then pictures are copied, four at a time, within a time
- *    budget a web request can wait for.
- * 3. **Approve** approves, publishes and switches on the Sulekha link, one
- *    transaction per event, for events this run wrote only.
+ *    its one night, its ticket types, its import record, then the move into
+ *    review.
+ * 3. **Approve** approves, publishes and opens sales, one transaction per
+ *    event, for events this run wrote only.
  *
  * ## The import's own moves
  *
- * The lifecycle table gives DRAFT → REVIEW_PENDING, REVIEW_PENDING → DRAFT and
- * APPROVED → PUBLISHED to the organiser, and Rule L refuses a platform
- * administrator them. An imported event has no organiser here, so the import
- * makes those three moves itself ({@link importMove}), as deletion does its
- * own: the move must be in the table, its gates are run, it is written with
- * the lifecycle's own stamps and a moderation action, and audited
- * `event.<status>` with `authority: 'PLATFORM', via: 'IMPORT'`. Only for an
- * event with an import record in a platform-held organisation. Approval
+ * The lifecycle table gives DRAFT → REVIEW_PENDING, REVIEW_PENDING → DRAFT,
+ * APPROVED → PUBLISHED and PUBLISHED → ON_SALE to the organiser, and Rule L
+ * refuses a platform administrator them. An imported event has no organiser
+ * here, so the import makes those moves itself ({@link importMove}), as
+ * deletion does its own: the move must be in the table, its gates are run, it
+ * is written with the lifecycle's own stamps and a moderation action, and
+ * audited `event.<status>` with `authority: 'PLATFORM', via: 'IMPORT'`. Only
+ * for an event with an import record in a platform-held organisation. Approval
  * itself is a moderator's move and goes through `transitionEvent`, which the
  * administrator is entitled to (`moderation:review`), with the review
  * exemption for the platform's own import (`lib/review-independence.js`).
  *
  * ## What is never made up
  *
- * No quantity, availability, end time or price is invented and shown. A night
+ * No availability, end time or price is invented and shown. The allowance is a
+ * quantity the database needs; it is marked as one and never shown. A night
  * the listing gives no end for stores start plus three hours, because the
  * column is NOT NULL, flagged `endTimeListed = false`, and no public surface
  * shows it.
  *
- * Only this module writes `EventImportRun`, `EventImportItem` and
- * `EventImportImage` (and, with `lib/organization-provisioning.js`,
- * `platformHeldSource`).
+ * Only this module writes `EventImportRun` and `EventImportItem` (and, with
+ * `lib/organization-provisioning.js`, `platformHeldSource`), and only it writes
+ * `TicketType.importKey`.
  *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc
  * namepath.
@@ -61,10 +81,10 @@
 
 import { ACTORS, PUBLICLY_VISIBLE_STATUSES, findTransition } from '@desi-event/schemas/lifecycle'
 import { EVENT_CONTENT_LIMITS } from '@desi-event/schemas/event-content'
-import { normaliseWebsiteUrl } from '@desi-event/schemas/website'
+import { IMPORT_TIER_DEFAULTS } from '@desi-event/schemas/imports'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
-import { authorChange } from './event-authoring.js'
+import { authorChange, tierRemovable, tierUsage } from './event-authoring.js'
 import {
   gateProblems,
   lifecycleStamps,
@@ -72,11 +92,7 @@ import {
   transitionEvent,
 } from './event-lifecycle.js'
 import { classifyChanges, materialChangeWork } from './event-material-change.js'
-import {
-  approveImportedMedia,
-  approvePendingEventMedia,
-  storeImportedImage,
-} from './event-media.js'
+import { approvePendingEventMedia } from './event-media.js'
 import {
   conflict,
   databaseRefusal,
@@ -86,11 +102,16 @@ import {
   unprocessable,
 } from './errors.js'
 import { disambiguateSlug, slugify } from './identifiers.js'
-import { canonicalDigest, importInvalid, parseImportDataset, planImport } from './import-dataset.js'
-import { TOO_SMALL_FOR_COVER_NOTE, fetchImportImage } from './import-images.js'
+import {
+  canonicalDigest,
+  importInvalid,
+  listingTiers,
+  parseImportDataset,
+  planImport,
+} from './import-dataset.js'
+import { lockTicketTypes } from './inventory.js'
 import { equalsIgnoringCase, likeLiteral } from './like-pattern.js'
 import { ensurePlatformHeldOrganization, isUniqueViolation } from './organization-provisioning.js'
-import { assertIndependentReviewer } from './review-independence.js'
 import {
   LOCK_WAIT_MS,
   TRANSACTION_BUDGETS,
@@ -98,35 +119,31 @@ import {
   budgetedTransaction,
   isBudgetRefusal,
 } from './transaction-budget.js'
-import { applyWebsiteChange, decideWebsiteRedirect } from './website-redirect.js'
+import { decideWebsiteRedirect } from './website-redirect.js'
 
 /** How long a previewed plan may be applied, in milliseconds. */
 export const IMPORT_RUN_TTL_MS = 60 * 60_000
 
-/** Pictures copied at once. */
-export const IMPORT_IMAGE_CONCURRENCY = 4
-
-/** Pictures one copying pass tries at most. */
-export const IMPORT_IMAGE_RUN_LIMIT = 200
-
-/** The whole copying pass within a web request, in milliseconds. */
-export const IMPORT_IMAGE_BUDGET_MS = 60_000
-
 /** How long a night the listing gives no end for is planned to last. */
 export const ESTIMATED_DURATION_MS = 3 * 3_600_000
 
-/** The venue provenance an import writes. */
-export const IMPORT_VENUE_PROVENANCE = Object.freeze({ SULEKHA: 'import:sulekha' })
+/**
+ * The venue provenance an import writes. It names no site (2026-10-15):
+ * migration `20261015100000_imported_events_sold_here` moved the venues an
+ * import wrote before to it.
+ */
+export const IMPORT_VENUE_PROVENANCE = Object.freeze({ SULEKHA: 'import:listing' })
 
-/** The reason the Sulekha link is switched on with (SPEC2-XI O10). */
-export const IMPORT_REDIRECT_REASON =
-  'Tickets for this event are sold on its Sulekha page, which this link opens.'
-
-/** The terms an imported event is listed with (SPEC2-XI I-C). */
+/**
+ * The terms an imported event is listed with (SPEC2-XI I-C). Its tickets are
+ * sold on The Desi Events (2026-10-15); a cancelled event's paid orders are
+ * refunded here, as any event's are (`lib/event-cancellation.js`).
+ */
 export const IMPORT_POLICIES = Object.freeze({
-  entry: 'Entry is run by the organiser. Check the Sulekha listing for their rules.',
+  entry:
+    'Entry is run by the organiser who presents this event. Bring the ticket you bought on The Desi Events.',
   refund:
-    "Tickets for this event are sold on Sulekha, not on The Desi Events. Refunds follow Sulekha's and the organiser's terms.",
+    'Tickets for this event are sold on The Desi Events. If the event is cancelled, every ticket bought here is refunded. For anything else, contact The Desi Events before the event.',
   conduct: "The organiser's and the venue's rules apply.",
 })
 
@@ -135,9 +152,6 @@ const UPDATABLE_DRAFTS = new Set(['DRAFT', 'CHANGES_REQUIRED', 'REVIEW_PENDING']
 
 /** Statuses a listing whose content has not changed is sent for review from. */
 const RESUBMITTABLE = new Set(['DRAFT', 'CHANGES_REQUIRED'])
-
-/** A picture's role, as the database names it. */
-const IMAGE_ROLES = Object.freeze({ cover: 'COVER', gallery: 'GALLERY' })
 
 /**
  * The run as administrators read it, with who made and applied it.
@@ -387,30 +401,117 @@ async function freeSlug(tx, title) {
 }
 
 /**
- * Write a listing's pictures as the import's rows: a new address waits to be
- * copied; one already known keeps its state and takes the listing's role,
- * description and order.
+ * Write a listing's prices as the event's ticket types (2026-10-15): one per
+ * price ({@link listingTiers}), keyed by `importKey`, in the caller's
+ * transaction, which holds the event's row.
+ *
+ * - A price with no tier yet becomes one: general admission, priced as listed
+ *   in the event's currency, an allowance of 100 (`quantityIsAllowance`), 1 to
+ *   10 per order, `CLOSED` when the listing marked it sold out and otherwise a
+ *   `DRAFT`, which approval puts on sale ({@link openImportedSales}).
+ * - A tier that has been sold, ordered or held (`tierUsage`, read under the
+ *   tiers' row locks) is never changed.
+ * - A tier with none of that takes the listing's price, its currency and its
+ *   place in the list, and is closed when the listing marks it sold out; its
+ *   name, allowance and status otherwise stay as an administrator left them. A
+ *   draft event's tier also goes back to `DRAFT` when the listing no longer
+ *   marks it sold out (nobody can have opened it).
+ * - A tier the listing no longer gives, with none of that, is removed.
+ *
+ * Tiers nobody imported (`importKey` null) are never touched.
  *
  * @param {object} tx A transaction client.
- * @param {string} itemId The import record.
- * @param {object} listing The parsed listing.
- * @returns {Promise<void>} Resolves when written.
+ * @param {object} options Inputs.
+ * @param {string} options.eventId The event.
+ * @param {object} options.listing The parsed listing.
+ * @param {boolean} options.posted Whether the event is posted (a live edit).
+ * @param {Date} options.now The moment.
+ * @returns {Promise<{created: number, updated: number, kept: number, removed: number}>} What was done.
  */
-async function writeImageRows(tx, itemId, listing) {
-  for (const [position, image] of listing.images.entries()) {
-    await tx.eventImportImage.upsert({
-      where: { itemId_url: { itemId, url: image.url } },
-      create: {
-        itemId,
-        url: image.url,
-        role: IMAGE_ROLES[image.role],
-        alt: image.alt,
-        position,
-        status: 'WAITING',
+export async function syncListingTiers(tx, { eventId, listing, posted, now }) {
+  const wanted = listingTiers(listing)
+  const found = await tx.ticketType.findMany({
+    where: { eventId, importKey: { not: null } },
+    select: { id: true },
+  })
+
+  // Under each tier's own lock, then read again, as the tier editor does
+  // (`routes/event-authoring.js`): a hold locks only its tier, never the
+  // event, so without this one could land between the usage read below and a
+  // write, and the write would reprice or close a tier a buyer holds. A hold
+  // that comes after waits for this transaction and sees the tier as written.
+  await lockTicketTypes(
+    tx,
+    found.map((tier) => tier.id),
+  )
+
+  const existing = await tx.ticketType.findMany({
+    where: { eventId, importKey: { not: null } },
+  })
+  const usage = await tierUsage(tx, existing, { now })
+  const byKey = new Map(existing.map((tier) => [tier.importKey, tier]))
+  const tally = { created: 0, updated: 0, kept: 0, removed: 0 }
+
+  for (const tier of wanted) {
+    const current = byKey.get(tier.key)
+
+    byKey.delete(tier.key)
+
+    if (!current) {
+      await tx.ticketType.create({
+        data: {
+          eventId,
+          name: tier.name,
+          priceCents: tier.priceCents,
+          currency: tier.currency,
+          quantityTotal: IMPORT_TIER_DEFAULTS.quantityTotal,
+          quantityIsAllowance: true,
+          minPerOrder: IMPORT_TIER_DEFAULTS.minPerOrder,
+          maxPerOrder: IMPORT_TIER_DEFAULTS.maxPerOrder,
+          status: tier.soldOut ? 'CLOSED' : 'DRAFT',
+          visibility: 'PUBLIC',
+          sortOrder: tier.sortOrder,
+          importKey: tier.key,
+        },
+      })
+      tally.created += 1
+      continue
+    }
+
+    if (!tierRemovable(usage.get(current.id))) {
+      tally.kept += 1
+      continue
+    }
+
+    const status = tier.soldOut
+      ? 'CLOSED'
+      : !posted && current.status === 'CLOSED'
+        ? 'DRAFT'
+        : current.status
+
+    await tx.ticketType.update({
+      where: { id: current.id },
+      data: {
+        priceCents: tier.priceCents,
+        currency: tier.currency,
+        sortOrder: tier.sortOrder,
+        status,
       },
-      update: { role: IMAGE_ROLES[image.role], alt: image.alt, position },
     })
+    tally.updated += 1
   }
+
+  for (const gone of byKey.values()) {
+    if (!tierRemovable(usage.get(gone.id))) {
+      tally.kept += 1
+      continue
+    }
+
+    await tx.ticketType.delete({ where: { id: gone.id } })
+    tally.removed += 1
+  }
+
+  return tally
 }
 
 /**
@@ -420,7 +521,7 @@ async function writeImageRows(tx, itemId, listing) {
  * @param {string} [what] What the move did.
  * @returns {string} The note.
  */
-function importNote(run, what = 'Imported from Sulekha') {
+function importNote(run, what = 'Imported from its listing') {
   return `${what}, run ${run.id}.`
 }
 
@@ -545,7 +646,7 @@ export const RUN_DATASET_BYTES = 2 * 1024 * 1024
  * How many bytes the text form of a `jsonb` value takes, which is what the
  * run's CHECK measures. PostgreSQL writes `", "` between members and `": "`
  * after each key, so the stored text is longer than `JSON.stringify`'s by
- * about one byte per key and per member (some 3% on the Sulekha file).
+ * about one byte per key and per member (some 3% on the North America file).
  * Strings and numbers are written as `JSON.stringify` writes them: both
  * escape the same characters and keep other characters as UTF-8.
  *
@@ -704,7 +805,7 @@ async function platformHeldOrganization(prisma, { source, actor, now }) {
 }
 
 /**
- * Create a listing's event, night, import record and picture rows, then send
+ * Create a listing's event, night, ticket types and import record, then send
  * it for review. In one transaction.
  *
  * @param {object} tx A transaction client.
@@ -722,7 +823,6 @@ async function createImported(tx, context, listing) {
   const times = listingTimes(listing)
   const content = listingContent(listing)
   const policies = listingPolicies(listing)
-  const websiteUrl = normaliseWebsiteUrl(listing.ticketUrl)
 
   const event = await tx.event.create({
     data: {
@@ -744,11 +844,8 @@ async function createImported(tx, context, listing) {
       faq: content.faq,
       dressCode: content.dressCode,
       directions: content.directions,
-      // An address waits for an administrator, as any new event's does; the
-      // approval switches the link on for it.
-      websiteUrl,
-      websiteDecisionPending: true,
-      websiteSubmittedAt: now,
+      // No website link: nothing on The Desi Events points at the site the
+      // listing came from (2026-10-15). Its tickets are its ticket types.
       publishedAt: null,
       status: 'DRAFT',
     },
@@ -766,11 +863,12 @@ async function createImported(tx, context, listing) {
     },
   })
 
-  const item = await tx.eventImportItem.create({
+  await syncListingTiers(tx, { eventId: event.id, listing, posted: false, now })
+
+  await tx.eventImportItem.create({
     data: {
       source: run.source,
       sourceId: listing.sourceId,
-      sourceUrl: listing.sourceUrl,
       eventId: event.id,
       lastRunId: run.id,
       importedById: actor.id,
@@ -784,8 +882,6 @@ async function createImported(tx, context, listing) {
     },
     select: { id: true },
   })
-
-  await writeImageRows(tx, item.id, listing)
 
   await importMove(tx, {
     eventId: event.id,
@@ -849,8 +945,9 @@ function rowChanged() {
 /**
  * Update an imported draft from its listing and send it for review again. An
  * event waiting for review is withdrawn to a draft first, in the same
- * transaction. Pictures the listing no longer names are removed from the
- * draft with their rows.
+ * transaction. Its ticket types are matched to the listing's prices
+ * ({@link syncListingTiers}). Its website address is left as it is: the import
+ * never sets one.
  *
  * @param {object} tx A transaction client.
  * @param {object} context The run's context.
@@ -859,7 +956,7 @@ function rowChanged() {
  * @returns {Promise<string>} The event's id.
  */
 async function updateImportedDraft(tx, context, listing, row) {
-  const { run, actor, now, via, storage } = context
+  const { run, actor, now, via } = context
   const { item, event } = await lockedImport(tx, row, run)
 
   if (!UPDATABLE_DRAFTS.has(event.status)) throw rowChanged()
@@ -869,7 +966,7 @@ async function updateImportedDraft(tx, context, listing, row) {
       eventId: event.id,
       to: 'DRAFT',
       actor,
-      note: importNote(run, 'Withdrawn to update it from its Sulekha listing'),
+      note: importNote(run, 'Withdrawn to update it from its source listing'),
       importRunId: run.id,
       via,
     })
@@ -883,11 +980,6 @@ async function updateImportedDraft(tx, context, listing, row) {
   const times = listingTimes(listing)
   const content = listingContent(listing)
   const policies = listingPolicies(listing)
-  const website = await applyWebsiteChange(tx, {
-    eventId: event.id,
-    nextUrl: normaliseWebsiteUrl(listing.ticketUrl),
-    now,
-  })
 
   await tx.event.update({
     where: { id: event.id },
@@ -907,23 +999,19 @@ async function updateImportedDraft(tx, context, listing, row) {
       faq: content.faq,
       dressCode: content.dressCode,
       directions: content.directions,
-      websiteUrl: website.websiteUrl,
-      websiteDecisionPending: website.websiteDecisionPending,
-      websiteSubmittedAt: website.websiteSubmittedAt,
       revision: { increment: 1 },
     },
   })
 
   await writeNight(tx, event, times, listing)
+  await syncListingTiers(tx, { eventId: event.id, listing, posted: false, now })
   await writeItem(tx, item.id, context, listing)
-  await dropUnlistedPictures(tx, storage, item.id, listing)
-  await writeImageRows(tx, item.id, listing)
 
   await importMove(tx, {
     eventId: event.id,
     to: 'REVIEW_PENDING',
     actor,
-    note: importNote(run, 'Updated from its Sulekha listing'),
+    note: importNote(run, 'Updated from its source listing'),
     importRunId: run.id,
     via,
   })
@@ -984,7 +1072,6 @@ async function writeItem(tx, itemId, context, listing) {
     data: {
       lastRunId: context.run.id,
       lastSyncedAt: context.now,
-      sourceUrl: listing.sourceUrl,
       scrapedAt: new Date(listing.scrapedAt),
       presentedBy: listing.presentedBy,
       prices: listingPrices(listing),
@@ -992,41 +1079,6 @@ async function writeItem(tx, itemId, context, listing) {
       importNotes: listing.importNotes,
     },
   })
-}
-
-/**
- * Remove, from a draft, the pictures its listing no longer names: their rows,
- * and what was stored for them while it is still waiting for approval.
- *
- * @param {object} tx A transaction client.
- * @param {object} storage The `MediaStorage` adapter.
- * @param {string} itemId The import record.
- * @param {object} listing The parsed listing.
- * @returns {Promise<void>} Resolves when done.
- */
-async function dropUnlistedPictures(tx, storage, itemId, listing) {
-  const listed = new Set(listing.images.map((image) => image.url))
-  const rows = await tx.eventImportImage.findMany({
-    where: { itemId },
-    select: { id: true, url: true, mediaAssetId: true },
-  })
-  const unlisted = rows.filter((row) => !listed.has(row.url))
-
-  for (const row of unlisted) {
-    if (row.mediaAssetId) {
-      const asset = await tx.mediaAsset.findUnique({
-        where: { id: row.mediaAssetId },
-        select: { id: true, storageKey: true, moderationStatus: true },
-      })
-
-      if (asset && asset.moderationStatus === 'PENDING') {
-        await storage.remove(tx, asset.storageKey)
-        await tx.mediaAsset.deleteMany({ where: { id: asset.id, moderationStatus: 'PENDING' } })
-      }
-    }
-
-    await tx.eventImportImage.deleteMany({ where: { id: row.id } })
-  }
 }
 
 /**
@@ -1062,9 +1114,10 @@ async function confirmUnchanged(tx, context, listing, row) {
 /**
  * Update a posted event from its listing, as a live edit by the team at The
  * Desi Events (`authorChange` under the import's authority): the date, the place and
- * the terms change with a change notice for ticket holders; the website
- * address change waits for an administrator as any does. New pictures are
- * added waiting for approval; pictures already public are left.
+ * the terms change with a change notice for ticket holders. Its ticket types
+ * follow the listing's prices without touching one that has been sold,
+ * ordered or held ({@link syncListingTiers}); a new one waits, not on sale,
+ * for "Approve and publish". Its website address is left as it is.
  *
  * @param {object} prisma The Prisma client.
  * @param {object} context The run's context.
@@ -1104,8 +1157,9 @@ async function updatePosted(prisma, context, listing, row) {
   const times = listingTimes(listing)
   const content = listingContent(listing)
   const policies = listingPolicies(listing)
-  const reason = `Updated from its Sulekha listing by the team at The Desi Events, run ${run.id}.`
+  const reason = `Updated from its source listing by the team at The Desi Events, run ${run.id}.`
   let material = []
+  let tiers = null
 
   await authorChange(prisma, {
     event,
@@ -1113,7 +1167,13 @@ async function updatePosted(prisma, context, listing, row) {
     actor,
     authority,
     action: 'event.updated',
-    metadata: () => ({ via: 'import', importRunId: run.id, sourceId: listing.sourceId, material }),
+    metadata: () => ({
+      via: 'import',
+      importRunId: run.id,
+      sourceId: listing.sourceId,
+      material,
+      ticketTypes: tiers,
+    }),
     write: async (tx) => {
       const venueId = await venueFor(tx, {
         organizationId: event.organizationId,
@@ -1130,12 +1190,6 @@ async function updatePosted(prisma, context, listing, row) {
       const changes = classifyChanges(event, patch)
 
       material = changes.material
-
-      const website = await applyWebsiteChange(tx, {
-        eventId: event.id,
-        nextUrl: normaliseWebsiteUrl(listing.ticketUrl),
-        now,
-      })
 
       await tx.event.update({
         where: { id: event.id },
@@ -1155,13 +1209,11 @@ async function updatePosted(prisma, context, listing, row) {
           faq: content.faq,
           dressCode: content.dressCode,
           directions: content.directions,
-          websiteUrl: website.websiteUrl,
-          websiteDecisionPending: website.websiteDecisionPending,
-          websiteSubmittedAt: website.websiteSubmittedAt,
         },
       })
 
       await writeNight(tx, event, times, listing)
+      tiers = await syncListingTiers(tx, { eventId: event.id, listing, posted: true, now })
 
       if (material.length > 0) {
         await materialChangeWork(tx, {
@@ -1176,7 +1228,6 @@ async function updatePosted(prisma, context, listing, row) {
       }
 
       await writeItem(tx, event.importItem.id, context, listing)
-      await writeImageRows(tx, event.importItem.id, listing)
 
       await recordAudit(tx, {
         action: AUDIT_ACTIONS.EVENT_IMPORTED,
@@ -1203,36 +1254,21 @@ async function updatePosted(prisma, context, listing, row) {
  * read (409 `IMPORT_PLAN_CHANGED`); the run moves PREVIEWED → APPLIED once
  * (409 `IMPORT_RUN_APPLIED`), within its hour (409 `IMPORT_RUN_EXPIRED`). Then
  * each listing is written in a transaction of its own; one that fails is
- * reported in the summary and the rest go on. Then the pictures are copied.
+ * reported in the summary and the rest go on. Nothing is fetched.
  *
  * @param {object} prisma The Prisma client.
- * @param {object} storage The `MediaStorage` adapter.
  * @param {object} options Inputs.
  * @param {object} options.run The run row.
  * @param {{id: string}} options.actor The administrator.
  * @param {string} options.planDigest The digest of the plan the administrator read.
  * @param {string[]} [options.updateFromSource] Posted listings to update; never from the command line.
  * @param {'web'|'cli'} options.via Where it came from.
- * @param {object} options.env The parsed API environment, for the pictures.
  * @param {Date} [options.now] The moment.
- * @param {number} [options.imageBudgetMs] How long copying pictures may take; `Infinity` from the command line.
- * @param {Function} [options.fetchImage] The picture fetcher; `fetchImportImage` by default.
  * @param {object} [options.log] A logger.
- * @returns {Promise<{run: object, results: object[], pictures: object}>} The run after, what each listing did and what copying did.
+ * @returns {Promise<{results: object[]}>} What each listing did.
  */
-export async function applyImport(prisma, storage, options) {
-  const {
-    run,
-    actor,
-    planDigest,
-    updateFromSource = [],
-    via,
-    env,
-    now = new Date(),
-    imageBudgetMs = IMPORT_IMAGE_BUDGET_MS,
-    fetchImage,
-    log,
-  } = options
+export async function applyImport(prisma, options) {
+  const { run, actor, planDigest, updateFromSource = [], via, now = new Date(), log } = options
 
   if (via === 'cli' && updateFromSource.length > 0) {
     throw new TypeError('The command line never updates a posted event.')
@@ -1255,9 +1291,11 @@ export async function applyImport(prisma, storage, options) {
 
   if (unknown.length > 0) {
     throw unprocessable(
-      'Only a posted event whose Sulekha listing changed can be updated from Sulekha.',
+      'Only a posted event whose source listing changed can be updated from it.',
       {
-        problems: unknown.map((sourceId) => `Listing ${sourceId} cannot be updated from Sulekha.`),
+        problems: unknown.map(
+          (sourceId) => `Listing ${sourceId} cannot be updated from its source listing.`,
+        ),
       },
     )
   }
@@ -1284,7 +1322,7 @@ export async function applyImport(prisma, storage, options) {
     actor,
     now,
   })
-  const context = { run, organization, actor, now, via, storage }
+  const context = { run, organization, actor, now, via }
   const listings = new Map(dataset.events.map((listing) => [listing.sourceId, listing]))
   const chosen = new Set(updateFromSource)
   const results = []
@@ -1355,17 +1393,7 @@ export async function applyImport(prisma, storage, options) {
     })
   })
 
-  const pictures = await fetchRunImages(prisma, storage, {
-    run,
-    actor,
-    env,
-    now,
-    budgetMs: imageBudgetMs,
-    fetchImage,
-    log,
-  })
-
-  return { results, pictures }
+  return { results }
 }
 
 /**
@@ -1428,266 +1456,8 @@ function planChanged() {
 }
 
 // ---------------------------------------------------------------------------
-// Pictures
+// Approve, publish and open sales
 // ---------------------------------------------------------------------------
-
-/**
- * Copy a run's pictures that are waiting or failed: four at a time, at most
- * {@link IMPORT_IMAGE_RUN_LIMIT}, within `budgetMs`. A picture not reached when
- * the time runs out stays waiting. Each one copied is stored waiting for
- * approval ({@link storeImportedImage}); each failure is recorded with its
- * code. Only pictures of events this run last wrote, still held by the
- * platform-held organisation and not deleted.
- *
- * @param {object} prisma The Prisma client.
- * @param {object} storage The `MediaStorage` adapter.
- * @param {object} options Inputs.
- * @param {object} options.run The run.
- * @param {{id: string}} options.actor The administrator.
- * @param {string[]|null} [options.eventIds] Only these events' pictures.
- * @param {object} options.env The parsed API environment.
- * @param {Date} [options.now] The moment.
- * @param {number} [options.budgetMs] How long the whole pass may take.
- * @param {Function} [options.fetchImage] The fetcher, `(url, {timeoutMs}) => result`.
- * @param {object} [options.log] A logger.
- * @returns {Promise<{tried: number, stored: number, failed: number, waiting: number}>} What happened.
- */
-export async function fetchRunImages(prisma, storage, options) {
-  const {
-    run,
-    actor,
-    eventIds = null,
-    env,
-    budgetMs = IMPORT_IMAGE_BUDGET_MS,
-    fetchImage,
-    log,
-  } = options
-  const fetcher =
-    fetchImage ??
-    ((url, { timeoutMs }) =>
-      fetchImportImage(url, {
-        source: env?.IMPORT_IMAGE_SOURCE ?? 'network',
-        fixtureDir: env?.IMPORT_IMAGE_FIXTURE_DIR,
-        nodeEnv: env?.NODE_ENV,
-        timeoutMs,
-        log,
-      }))
-
-  const queue = await prisma.eventImportImage.findMany({
-    where: {
-      status: { in: ['WAITING', 'FAILED'] },
-      item: {
-        lastRunId: run.id,
-        reassignedAt: null,
-        ...(eventIds ? { eventId: { in: eventIds } } : {}),
-      },
-    },
-    include: {
-      item: {
-        select: {
-          eventId: true,
-          event: {
-            select: {
-              status: true,
-              organization: { select: { platformHeldSource: true } },
-            },
-          },
-        },
-      },
-    },
-    orderBy: [{ itemId: 'asc' }, { position: 'asc' }],
-    take: IMPORT_IMAGE_RUN_LIMIT,
-  })
-  const eligible = queue.filter(
-    (image) =>
-      image.item?.event &&
-      image.item.event.status !== 'DELETED' &&
-      image.item.event.organization?.platformHeldSource,
-  )
-  const started = Date.now()
-  const deadline = Number.isFinite(budgetMs) ? started + budgetMs : Infinity
-  const tally = { tried: 0, stored: 0, failed: 0 }
-  let next = 0
-
-  /**
-   * One worker: takes pictures off the queue until it is empty or the time
-   * is up.
-   *
-   * @returns {Promise<void>} Resolves when done.
-   */
-  async function work() {
-    while (next < eligible.length) {
-      const left = deadline - Date.now()
-
-      if (left <= 0) return
-
-      const image = eligible[next]
-
-      next += 1
-      tally.tried += 1
-
-      const timeoutMs = Math.max(1_000, Math.min(10_000, left))
-      const fetched = await fetcher(image.url, { timeoutMs })
-      const triedAt = new Date()
-
-      if (!fetched?.ok) {
-        if (await markFailed(prisma, image, fetched?.code ?? 'NETWORK_UNAVAILABLE', triedAt)) {
-          tally.failed += 1
-        }
-        continue
-      }
-
-      const stored = await storeImportedImage(prisma, storage, {
-        event: { id: image.item.eventId },
-        image,
-        bytes: fetched.bytes,
-        contentType: fetched.contentType,
-        actor,
-        now: triedAt,
-        // Another pass over this run's pictures can be copying at the same
-        // time (a command-line apply, a web apply whose request was
-        // abandoned, a second "Retry pictures"). The picture is recorded only
-        // while it is still waiting or failed; the pass that finds it copied
-        // already rolls back its own copy, bytes and revision bump, so one
-        // listed picture is never stored twice.
-        onStored: async (tx, asset) => {
-          const recorded = await tx.eventImportImage.updateMany({
-            where: { id: image.id, status: { in: COPYABLE_IMAGE_STATUSES } },
-            data: {
-              status: 'STORED',
-              failureCode: null,
-              attempts: { increment: 1 },
-              lastTriedAt: triedAt,
-              mediaAssetId: asset.id,
-            },
-          })
-
-          if (recorded.count !== 1) throw new ImageAlreadyCopied()
-        },
-      }).catch((error) => {
-        if (error instanceof ImageAlreadyCopied) return { ok: false, copiedElsewhere: true }
-
-        const refusal = rowRefusal(error)
-
-        if (!refusal) throw error
-
-        return { ok: false, code: refusal.code }
-      })
-
-      if (stored.ok) {
-        tally.stored += 1
-      } else if (
-        !stored.copiedElsewhere &&
-        (await markFailed(prisma, image, stored.code, triedAt))
-      ) {
-        tally.failed += 1
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: IMPORT_IMAGE_CONCURRENCY }, () => work()))
-
-  const waiting = await prisma.eventImportImage.count({
-    where: { status: 'WAITING', item: { lastRunId: run.id, reassignedAt: null } },
-  })
-
-  return { ...tally, waiting }
-}
-
-/** The statuses a picture is copied from. */
-const COPYABLE_IMAGE_STATUSES = Object.freeze(['WAITING', 'FAILED'])
-
-/** Thrown inside a picture's transaction when another pass copied it first. */
-class ImageAlreadyCopied extends Error {
-  constructor() {
-    super('Another pass over this run copied the picture first.')
-    this.name = 'ImageAlreadyCopied'
-  }
-}
-
-/**
- * Record why a picture was not copied, unless another pass copied it since.
- *
- * @param {object} prisma The Prisma client.
- * @param {object} image The picture's row.
- * @param {string} code The failure code.
- * @param {Date} triedAt When it was tried.
- * @returns {Promise<boolean>} Whether it was recorded.
- */
-async function markFailed(prisma, image, code, triedAt) {
-  const marked = await prisma.eventImportImage.updateMany({
-    where: { id: image.id, status: { in: COPYABLE_IMAGE_STATUSES } },
-    data: {
-      status: 'FAILED',
-      failureCode: String(code).slice(0, 100),
-      attempts: { increment: 1 },
-      lastTriedAt: triedAt,
-    },
-  })
-
-  return marked.count === 1
-}
-
-/**
- * "Retry pictures": copy again the run's waiting and failed pictures, or only
- * those of the events named. Audited `event_import.images_retried`.
- *
- * @param {object} prisma The Prisma client.
- * @param {object} storage The `MediaStorage` adapter.
- * @param {object} options Inputs.
- * @param {object} options.run The run.
- * @param {{id: string}} options.actor The administrator.
- * @param {string[]|null} [options.eventIds] Only these events; each must be this run's.
- * @param {object} options.env The parsed API environment.
- * @param {Date} [options.now] The moment.
- * @param {Function} [options.fetchImage] The fetcher.
- * @param {object} [options.log] A logger.
- * @returns {Promise<object>} What copying did.
- * @throws {Error} 409 `NOT_EDITABLE` for a run not applied; 409 `NOT_IN_RUN` for an event the run did not write.
- */
-export async function retryRunImages(prisma, storage, options) {
-  const { run, actor, eventIds = null, now = new Date() } = options
-
-  if (run.status !== 'APPLIED') {
-    throw httpError(409, 'NOT_EDITABLE', 'Pictures are copied once a plan has been applied.')
-  }
-
-  if (eventIds) await assertInRun(prisma, run, eventIds)
-
-  const pictures = await fetchRunImages(prisma, storage, { ...options, now })
-
-  await budgetedTransaction(prisma, IMPORT_STEP_BUDGET, (tx) =>
-    recordAudit(tx, {
-      action: AUDIT_ACTIONS.EVENT_IMPORT_IMAGES_RETRIED,
-      entityType: 'EventImportRun',
-      entityId: run.id,
-      actorId: actor.id,
-      metadata: { ...pictures, events: eventIds ? eventIds.length : null },
-    }),
-  )
-
-  return pictures
-}
-
-/**
- * Refuse an event this run did not last write.
- *
- * @param {object} db A Prisma client or transaction client.
- * @param {object} run The run.
- * @param {string[]} eventIds The events.
- * @returns {Promise<void>} Resolves when every one is the run's.
- * @throws {Error} 409 `NOT_IN_RUN`.
- */
-async function assertInRun(db, run, eventIds) {
-  const items = await db.eventImportItem.findMany({
-    where: { eventId: { in: eventIds }, lastRunId: run.id },
-    select: { eventId: true },
-  })
-  const mine = new Set(items.map((item) => item.eventId))
-  const others = eventIds.filter((id) => !mine.has(id))
-
-  if (others.length > 0) throw notInRun()
-}
 
 /**
  * @returns {Error} 409 `NOT_IN_RUN`.
@@ -1696,25 +1466,22 @@ function notInRun() {
   return httpError(
     409,
     'NOT_IN_RUN',
-    'This event was not imported by this run, so it cannot be approved or retried from here.',
+    'This event was not imported by this run, so it cannot be approved from here.',
   )
 }
-
-// ---------------------------------------------------------------------------
-// Approve and publish
-// ---------------------------------------------------------------------------
 
 /**
  * "Approve and publish" (SPEC2-XI I-C): one transaction per event, each
  * refusal reported for its event. Each must be an event this run last wrote,
  * still in the platform-held organisation; then by its status:
  *
- * - REVIEW_PENDING: approved through `transitionEvent` (its waiting pictures
- *   with it), published by the import's own move, and its Sulekha link
- *   switched on, all in the approval's transaction, at the revision the page
- *   showed.
- * - APPROVED (a moderator approved it): published and switched on.
- * - Posted: its waiting imported pictures are approved; nothing else changes.
+ * - REVIEW_PENDING: approved through `transitionEvent`, published by the
+ *   import's own move and put on sale ({@link openImportedSales}), all in the
+ *   approval's transaction, at the revision the page showed.
+ * - APPROVED (a moderator approved it): published and put on sale.
+ * - Posted: its imported tiers not yet on sale are put on sale, and a
+ *   PUBLISHED event moves to ON_SALE (`SALES_OPENED`); one with nothing to put
+ *   on sale is refused `NOT_EDITABLE`.
  *
  * @param {object} prisma The Prisma client.
  * @param {object} options Inputs.
@@ -1740,7 +1507,7 @@ export async function approveImported(prisma, { run, items, actor, now = new Dat
         outcome: 'REFUSED',
         status: null,
         revision: null,
-        picturesApproved: 0,
+        ticketTypesOnSale: 0,
         ...refusal,
       })
     }
@@ -1771,9 +1538,7 @@ async function approvableItem(db, run, eventId) {
           id: true,
           status: true,
           revision: true,
-          websiteUrl: true,
-          websiteRedirectEnabled: true,
-          websiteDecidedUrl: true,
+          startsAt: true,
           organizationId: true,
           organization: { select: { platformHeldSource: true } },
         },
@@ -1805,14 +1570,69 @@ function staleRevision(expected, current) {
   return httpError(
     409,
     'STALE_REVISION',
-    'This event changed after you opened the page (a picture may have been copied). Reload to review it as it is now. Nothing was decided.',
+    'This event changed after you opened the page. Reload to review it as it is now. Nothing was decided.',
     { expectedRevision: expected, currentRevision: current },
   )
 }
 
+/** The statuses whose imported tiers {@link openImportedSales} may put on sale. */
+const SALES_OPENABLE = new Set(['PUBLISHED', 'ON_SALE', 'SALES_PAUSED', 'SOLD_OUT'])
+
 /**
- * Publish an approved import and switch its Sulekha link on, in the caller's
- * transaction; then stamp who approved it.
+ * Put an imported event on sale, in the caller's transaction, which holds the
+ * event's row: each tier the import made that is still a `DRAFT` goes
+ * `ON_SALE`, from now until the event starts (a tier it made `CLOSED`, sold out
+ * on the listing, stays closed), and a PUBLISHED event moves to ON_SALE by the
+ * import's own move, through the lifecycle's gates. An event that starts
+ * within the minute, or has nothing to put on sale, is left as it is.
+ *
+ * @param {object} tx A transaction client.
+ * @param {object} options Inputs.
+ * @param {object} options.run The run.
+ * @param {string} options.eventId The event.
+ * @param {object} options.actor The administrator.
+ * @param {Date} options.now The moment.
+ * @returns {Promise<{opened: number, onSale: number}>} How many tiers this put on sale, and how many are on sale now.
+ */
+async function openImportedSales(tx, { run, eventId, actor, now }) {
+  const event = await tx.event.findUnique({
+    where: { id: eventId },
+    select: { id: true, status: true, startsAt: true },
+  })
+
+  if (!event || !SALES_OPENABLE.has(event.status)) return { opened: 0, onSale: 0 }
+
+  const startsAt = new Date(event.startsAt)
+  let opened = 0
+
+  if (startsAt.getTime() - now.getTime() > 60_000) {
+    const { count } = await tx.ticketType.updateMany({
+      where: { eventId, importKey: { not: null }, status: 'DRAFT' },
+      data: { status: 'ON_SALE', salesStartAt: now, salesEndAt: startsAt },
+    })
+
+    opened = count
+  }
+
+  const onSale = await tx.ticketType.count({ where: { eventId, status: 'ON_SALE' } })
+
+  if (onSale > 0 && event.status === 'PUBLISHED') {
+    await importMove(tx, {
+      eventId,
+      to: 'ON_SALE',
+      actor,
+      note: importNote(run, 'Sales opened by the team at The Desi Events'),
+      importRunId: run.id,
+      via: 'web',
+    })
+  }
+
+  return { opened, onSale }
+}
+
+/**
+ * Publish an approved import and put it on sale, in the caller's transaction;
+ * then stamp who approved it.
  *
  * @param {object} tx A transaction client.
  * @param {object} options Inputs.
@@ -1821,10 +1641,10 @@ function staleRevision(expected, current) {
  * @param {object} options.actor The administrator.
  * @param {Date} options.now The moment.
  * @param {{id: string|null, at: Date}} options.approval Who approved it, and when.
- * @returns {Promise<object>} The event after.
+ * @returns {Promise<object>} `{ event, onSale }`: the event after, and how many of its tiers are on sale.
  */
 async function publishImported(tx, { run, eventId, actor, now, approval }) {
-  const published = await importMove(tx, {
+  await importMove(tx, {
     eventId,
     to: 'PUBLISHED',
     actor,
@@ -1833,30 +1653,14 @@ async function publishImported(tx, { run, eventId, actor, now, approval }) {
     via: 'web',
   })
 
-  // Another administrator may already have switched the link on for this
-  // address from the website-links list; then there is nothing to decide.
-  const alreadyOn =
-    published.websiteRedirectEnabled === true &&
-    published.websiteDecidedUrl !== null &&
-    published.websiteDecidedUrl === published.websiteUrl
-
-  if (!alreadyOn) {
-    await decideWebsiteRedirect(tx, {
-      eventId,
-      enabled: true,
-      reason: IMPORT_REDIRECT_REASON,
-      seenUrl: published.websiteUrl,
-      actor,
-      now,
-    })
-  }
+  const { onSale } = await openImportedSales(tx, { run, eventId, actor, now })
 
   await tx.eventImportItem.update({
     where: { eventId },
     data: { approvedById: approval.id, approvedAt: approval.at },
   })
 
-  return tx.event.findUnique({ where: { id: eventId } })
+  return { event: await tx.event.findUnique({ where: { id: eventId } }), onSale }
 }
 
 /**
@@ -1878,31 +1682,33 @@ async function approveOne(prisma, { run, item, actor, now }) {
 
   if (event.status === 'REVIEW_PENDING') {
     const loaded = await loadForTransition(prisma, event.id)
-    let picturesApproved = 0
+    let onSale = 0
 
     const updated = await transitionEvent(prisma, {
       event: loaded,
       to: 'APPROVED',
       actor,
-      // The approval, its pictures, the publication and the link: one row's
+      // The approval, the publication and the opening of sales: one event's
       // worth of work, behind whatever holds the event's row.
       transactionOptions: budgetOptions(TRANSACTION_BUDGETS.ROW),
       lockWaitMs: LOCK_WAIT_MS,
       onCommit: async (tx, decided) => {
-        // The status write holds the row: no picture lands between this check
-        // and the commit, and every stored picture bumps the revision.
+        // The status write holds the row: nothing lands between this check
+        // and the commit.
         if (decided.revision !== item.revision) throw staleRevision(item.revision, decided.revision)
 
         await approvableItem(tx, run, event.id)
-        picturesApproved = await approvePendingEventMedia(tx, decided, actor)
+        await approvePendingEventMedia(tx, decided, actor)
 
-        await publishImported(tx, {
+        const published = await publishImported(tx, {
           run,
           eventId: event.id,
           actor,
           now,
           approval: { id: actor.id, at: now },
         })
+
+        onSale = published.onSale
 
         return { auditMetadata: { via: 'import', importRunId: run.id } }
       },
@@ -1918,7 +1724,7 @@ async function approveOne(prisma, { run, item, actor, now }) {
       outcome: 'PUBLISHED',
       status: after.status,
       revision: after.revision,
-      picturesApproved,
+      ticketTypesOnSale: onSale,
       code: null,
       message: null,
     }
@@ -1950,23 +1756,37 @@ async function approveOne(prisma, { run, item, actor, now }) {
           approval: { id: decision?.actorId ?? actor.id, at: decision?.createdAt ?? now },
         })
 
-        return { outcome: 'PUBLISHED', event: published, picturesApproved: 0 }
+        return { outcome: 'PUBLISHED', event: published.event, onSale: published.onSale }
       }
 
-      if (!PUBLICLY_VISIBLE_STATUSES.has(locked.event.status)) throw notApprovable(locked.event)
+      if (!SALES_OPENABLE.has(locked.event.status)) throw notApprovable(locked.event)
 
-      // Approving pictures is a review decision: the reviewer must be
-      // independent of the event, or be the importer of the platform's own
-      // import (SPEC2-XI O5).
-      await assertIndependentReviewer(tx, {
-        actor,
-        organizationId: locked.event.organizationId,
+      const before = locked.event.status
+      const { opened, onSale } = await openImportedSales(tx, {
+        run,
         eventId: event.id,
+        actor,
+        now,
+      })
+      const moved = await tx.event.findUnique({ where: { id: event.id } })
+
+      if (opened === 0 && moved.status === before) throw notApprovable(locked.event)
+
+      await recordAudit(tx, {
+        action: AUDIT_ACTIONS.EVENT_IMPORT_SALES_OPENED,
+        entityType: 'Event',
+        entityId: event.id,
+        actorId: actor.id,
+        metadata: {
+          importRunId: run.id,
+          ticketTypesOpened: opened,
+          ticketTypesOnSale: onSale,
+          from: before,
+          to: moved.status,
+        },
       })
 
-      const picturesApproved = await approveImportedMedia(tx, { eventId: event.id, actor, now })
-
-      return { outcome: 'PICTURES_APPROVED', event: locked.event, picturesApproved }
+      return { outcome: 'SALES_OPENED', event: moved, onSale }
     })
 
     return {
@@ -1974,7 +1794,7 @@ async function approveOne(prisma, { run, item, actor, now }) {
       outcome: after.outcome,
       status: after.event.status,
       revision: after.event.revision,
-      picturesApproved: after.picturesApproved,
+      ticketTypesOnSale: after.onSale,
       code: null,
       message: null,
     }
@@ -1984,7 +1804,8 @@ async function approveOne(prisma, { run, item, actor, now }) {
 }
 
 /**
- * The refusal for an event in a status an approval does nothing for.
+ * The refusal for an event in a status an approval does nothing for, or a
+ * posted one with no imported ticket type left to put on sale.
  *
  * @param {{status: string}} event The event.
  * @returns {Error} 409 `NOT_EDITABLE`.
@@ -1993,7 +1814,9 @@ function notApprovable(event) {
   return httpError(
     409,
     'NOT_EDITABLE',
-    `This event is ${event.status}, so there is nothing here to approve or publish.`,
+    PUBLICLY_VISIBLE_STATUSES.has(event.status)
+      ? `This event is ${event.status}, and none of its imported ticket types is waiting to go on sale, so there is nothing here to approve.`
+      : `This event is ${event.status}, so there is nothing here to approve or publish.`,
     { status: event.status },
   )
 }
@@ -2003,21 +1826,21 @@ function notApprovable(event) {
 // ---------------------------------------------------------------------------
 
 /**
- * The reason the Sulekha link is switched off with when an event moves.
+ * The reason the website link is switched off with when an event moves.
  *
  * @param {string} name The organisation's name.
  * @returns {string} The reason.
  */
 export function reassignLinkReason(name) {
-  return `Moved to ${name}. The Sulekha ticket link is off until an administrator approves the organiser's own address.`
+  return `Moved to ${name}. Its website link is off until an administrator approves the organiser's own address.`
 }
 
 /**
  * Move an imported event to an organiser's own organisation (SPEC2-XI I-F),
  * in one transaction that locks the event first: the event and its venue move
  * (the venue is copied when another event uses it), the move is stamped on the
- * import record, the Sulekha link is switched off when it is on, and it is
- * audited. Its status, pictures and slug are unchanged.
+ * import record, the website link is switched off when it is on, and it is
+ * audited. Its status, ticket types, sales, pictures and slug are unchanged.
  *
  * @param {object} prisma The Prisma client.
  * @param {object} options Inputs.
@@ -2294,46 +2117,16 @@ export async function toRunView(prisma, run, now) {
           status: true,
           revision: true,
           organization: { select: { name: true } },
+          ticketTypes: { where: { importKey: { not: null } }, select: { status: true } },
         },
-      },
-      images: {
-        orderBy: { position: 'asc' },
-        include: { mediaAsset: { select: { id: true, moderationStatus: true, kind: true } } },
       },
     },
   })
   const bySource = new Map(items.map((item) => [item.sourceId, item]))
-  const pictures = { total: 0, stored: 0, failed: 0, waiting: 0 }
 
   const rows = plan.map((row) => {
     const item = bySource.get(row.sourceId) ?? null
-    const images = (item?.images ?? []).map((image) => ({
-      id: image.id,
-      url: image.url,
-      role: image.role,
-      alt: image.alt,
-      position: image.position,
-      status: image.status,
-      failureCode: image.failureCode ?? null,
-      attempts: image.attempts,
-      lastTriedAt: image.lastTriedAt ?? null,
-      mediaId: image.mediaAsset?.id ?? null,
-      mediaStatus: image.mediaAsset?.moderationStatus ?? null,
-      // A cover the sanitiser found too small was stored in the gallery.
-      note:
-        image.role === 'COVER' && image.mediaAsset?.kind === 'EVENT_GALLERY'
-          ? TOO_SMALL_FOR_COVER_NOTE
-          : null,
-    }))
-
-    if (item?.lastRunId === run.id) {
-      for (const image of images) {
-        pictures.total += 1
-        if (image.status === 'STORED') pictures.stored += 1
-        else if (image.status === 'FAILED') pictures.failed += 1
-        else pictures.waiting += 1
-      }
-    }
+    const tiers = item?.event?.ticketTypes ?? []
 
     return {
       sourceId: row.sourceId,
@@ -2343,8 +2136,10 @@ export async function toRunView(prisma, run, now) {
       action: row.action,
       problem: row.problem ?? null,
       importNotes: row.importNotes ?? [],
-      imageCount: row.imageCount ?? 0,
       priceCount: row.priceCount ?? 0,
+      // A plan stored before ticket types were made from prices has neither.
+      soldOutCount: row.soldOutCount ?? 0,
+      currency: typeof row.currency === 'string' ? row.currency : null,
       endTimeListed: row.endTimeListed !== false,
       updatable: Boolean(row.updatable),
       resubmit: Boolean(row.resubmit),
@@ -2362,9 +2157,12 @@ export async function toRunView(prisma, run, now) {
             importedByName: item.importedBy?.displayName ?? null,
             approvedAt: item.approvedAt ?? null,
             approvedByName: item.approvedBy?.displayName ?? null,
+            ticketTypes: {
+              imported: tiers.length,
+              onSale: tiers.filter((tier) => tier.status === 'ON_SALE').length,
+            },
           }
         : null,
-      pictures: images,
     }
   })
 
@@ -2372,6 +2170,5 @@ export async function toRunView(prisma, run, now) {
     ...toRunSummary(run, now),
     planDigest: run.planDigest,
     rows,
-    pictures,
   }
 }

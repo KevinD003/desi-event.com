@@ -39,7 +39,8 @@ import { paymentTermsRefusal } from './errors.js'
 /**
  * Whether buyers may pay the ticket price at the door for this event now
  * (SPEC3 DV2, without the basket's own condition): the switch is on, the event
- * is bookable, it is not online and it is not sold on its listing's own site.
+ * is bookable, it is not online and it is not held by the platform-held
+ * organisation (an imported event: nobody takes money at its door).
  *
  * @param {object} event An event with its `venuePaymentEnabled`, `status`, `isOnline` and, when loaded, `organization.platformHeldSource`.
  * @returns {boolean} True when the choice is offered.
