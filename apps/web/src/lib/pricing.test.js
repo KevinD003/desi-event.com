@@ -102,6 +102,14 @@ describe('formatPrice', () => {
   it('says Free rather than showing a zero amount', () => {
     expect(formatPrice(0, 'CAD')).toBe('Free')
   })
+
+  it('never writes Canadian or Australian dollars as a bare $, which reads as US dollars here', () => {
+    expect(formatPrice(2500, 'CAD')).toBe('CA$25.00')
+    expect(formatPrice(2500, 'cad')).toBe('CA$25.00')
+    expect(formatAmount(0, 'CAD')).toBe('CA$0.00')
+    expect(formatPrice(4000, 'AUD')).toBe('A$40.00')
+    expect(formatPrice(2500, 'USD')).toBe('$25.00')
+  })
 })
 
 describe('formatAmount', () => {

@@ -20,6 +20,7 @@
  */
 
 import Link from 'next/link'
+import { IMPORT_LIMITS } from '@desi-event/schemas/imports'
 
 import { ReadRefusal, RefusalNotice } from '../../../../components/read-refusal.jsx'
 import { Badge } from '../../../../components/ui.jsx'
@@ -175,6 +176,7 @@ export default async function ImportRunPage({ params }) {
       <ImportRunPlan
         run={withoutSourceAddresses(run)}
         canApprove={sessionCan(session, 'moderation:review')}
+        approveLimit={IMPORT_LIMITS.approveItems}
       />
     </div>
   )

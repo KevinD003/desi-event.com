@@ -1212,6 +1212,74 @@ describe('an event copied from its Sulekha listing', () => {
     expect(data.offers).toBeUndefined()
     expect(data).not.toHaveProperty('endDate')
   })
+
+  it('shows a listing in Canada in its own zone, with a Canadian address and its prices in CA$', async () => {
+    const toronto = {
+      ...imported,
+      timezone: 'America/Toronto',
+      // 7:30 PM in Toronto on 7 November 2026 (EST, −05:00).
+      startsAt: '2026-11-08T00:30:00.000Z',
+      endsAt: '2026-11-08T03:30:00.000Z',
+      venue: {
+        name: 'Harbourfront Hall',
+        slug: null,
+        addressLine1: '235 Queens Quay W',
+        city: 'Toronto',
+        region: 'ON',
+        postalCode: 'M5J 2G8',
+        country: 'CA',
+      },
+      sessions: [
+        {
+          ...imported.sessions[0],
+          startsAt: '2026-11-08T00:30:00.000Z',
+          endsAt: '2026-11-08T03:30:00.000Z',
+          timezone: 'America/Toronto',
+        },
+      ],
+      importedFrom: {
+        ...imported.importedFrom,
+        presentedBy: 'Toronto Garba Collective',
+        prices: [
+          { name: 'Adult', priceCents: 3000, currency: 'CAD' },
+          { name: 'Child', priceCents: 0, currency: 'CAD' },
+        ],
+      },
+    }
+    const { container } = await renderEvent(toronto)
+
+    const facts = screen.getByRole('list', { name: 'Event details' })
+
+    expect(within(facts).getByText('7:30 PM EST')).toBeInTheDocument()
+    expect(within(facts).getByText('Toronto, ON')).toBeInTheDocument()
+
+    const address = container.querySelector('address')
+
+    expect([...address.querySelectorAll('span')].map((line) => line.textContent)).toEqual([
+      '235 Queens Quay W',
+      'Toronto, ON M5J 2G8',
+      'Canada',
+    ])
+
+    const tickets = screen.getByRole('complementary', { name: 'Tickets' })
+
+    expect(
+      within(tickets).getByText(
+        'As listed on Sulekha on 30 September 2026: Adult CA$30.00, Child Free.',
+      ),
+    ).toBeInTheDocument()
+    expect(within(tickets).getByRole('link', { name: 'Buy tickets on Sulekha' })).toHaveAttribute(
+      'href',
+      '/events/qawwali-under-the-banyan/website',
+    )
+    // No bare "$30.00", which on this site reads as US dollars.
+    expect(container.textContent).not.toMatch(/(?<!CA)\$30\.00/u)
+    expect(structuredData(container).location.address).toMatchObject({
+      addressRegion: 'ON',
+      postalCode: 'M5J 2G8',
+      addressCountry: 'CA',
+    })
+  })
 })
 
 describe('paying at the venue (SPEC3 §12.2)', () => {

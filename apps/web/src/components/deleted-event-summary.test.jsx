@@ -109,6 +109,38 @@ describe('DeletedEventSummary', () => {
     })
   })
 
+  it('tells the team at The Desi Events, above Restore, that a deleted import goes back live at any time', () => {
+    render(
+      <DeletedEventSummary
+        event={{
+          ...deleted({ outcome: 'REMOVE', statusBefore: 'PUBLISHED', restoreTo: 'PUBLISHED' }),
+          slug: 'toronto-garba-night',
+          importedFrom: { presentedBy: 'Toronto Garba Collective', ticketsOnSource: true },
+        }}
+        mayRestore
+      />,
+    )
+
+    const said = screen.getByTestId('restore-sentences')
+
+    expect(said).toHaveTextContent(
+      'Nothing about this event was erased: you can put it back on the site at any time with “Restore…”, giving a reason.',
+    )
+    expect(said).toHaveTextContent(
+      'It comes back at the same web address, /events/toronto-garba-night.',
+    )
+    expect(said).toHaveTextContent(
+      'It is still presented by Toronto Garba Collective, and its “Buy tickets on Sulekha” link comes back as it was.',
+    )
+    expect(screen.getByRole('button', { name: 'Restore…' })).toBeVisible()
+  })
+
+  it('tells an organiser nothing of how to restore it themselves', () => {
+    render(<DeletedEventSummary event={deleted()} />)
+
+    expect(screen.queryByTestId('restore-sentences')).not.toBeInTheDocument()
+  })
+
   it('says where the refunds stand, from what is still owed, and links the refund queue for finance', () => {
     render(
       <DeletedEventSummary

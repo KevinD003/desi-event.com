@@ -28,11 +28,11 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://127.0.0.1:3000'
 export const metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'The Desi Events — garba and dandiya nights across the USA, ticketed properly',
+    default: 'The Desi Events — garba and dandiya nights across the USA and Canada',
     template: '%s · The Desi Events',
   },
   description:
-    'Find Navratri garba and dandiya nights, beginner garba classes and Navratri melas across the USA — Edison, Queens, Houston, Chicago, the Bay Area, Atlanta and more — with every price shown in US dollars with its fee.',
+    'Find Navratri garba and dandiya nights, beginner garba classes and Navratri melas across the USA and Canada — Edison, Queens, Houston, Chicago, the Bay Area, Atlanta and more. Tickets sold here are priced in US dollars with their fee shown; events listed on Sulekha show Sulekha’s own prices.',
   applicationName: 'The Desi Events',
   keywords: [
     'garba tickets',
@@ -47,7 +47,7 @@ export const metadata = {
     type: 'website',
     siteName: 'The Desi Events',
     locale: 'en_US',
-    title: 'The Desi Events — garba and dandiya nights across the USA',
+    title: 'The Desi Events — garba and dandiya nights across the USA and Canada',
     description:
       'Nine nights of garba in Edison, dandiya to a live dhol in Houston, a glow night in Santa Clara and a mela in Queens. All in one place, priced in dollars.',
     images: [SHARE_IMAGE],
@@ -55,7 +55,7 @@ export const metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'The Desi Events',
-    description: 'Garba and dandiya nights across the USA, ticketed properly.',
+    description: 'Garba and dandiya nights across the USA and Canada, in one place.',
     images: [SHARE_IMAGE],
   },
   robots: { index: true, follow: true },

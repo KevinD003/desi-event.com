@@ -15,6 +15,12 @@
  *     EVENT_PUBLISH window), once it is applied. Each event waiting for
  *     review, approved by a moderator, or published with pictures waiting has
  *     a box; the answer is reported event by event in a polite live region.
+ *     A run of hundreds of listings is not ticked box by box: "Tick all {n}
+ *     shown" ticks every such event at once, or the first {limit} of them when
+ *     there are more, since one request approves at most `approveLimit`
+ *     (`IMPORT_LIMITS.approveItems`). Once those are published the page is
+ *     read again, so the same button ticks the next ones. More boxes ticked
+ *     by hand than one request takes are refused before anything is sent.
  *   - **"Retry pictures"** (`POST …/images/retry`, the MODERATION window),
  *     once it is applied and some pictures are waiting or were not copied.
  *
@@ -110,6 +116,8 @@ function PictureLine({ picture, index }) {
  * @typedef {object} ImportRunPlanProps
  * @property {object} run The run, as the server page read it, without picture addresses.
  * @property {boolean} canApprove Whether this session may approve (the server page asked).
+ * @property {number} [approveLimit] The most events one approval request names
+ *   (`IMPORT_LIMITS.approveItems`, which the server page passes).
  */
 
 /**
@@ -118,7 +126,7 @@ function PictureLine({ picture, index }) {
  * @param {ImportRunPlanProps} props Component props.
  * @returns {JSX.Element} The plan.
  */
-export function ImportRunPlan({ run, canApprove }) {
+export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
   const router = useRouter()
   const id = useId()
   const focusAfterRender = useFocusAfterRender()
@@ -136,6 +144,8 @@ export function ImportRunPlan({ run, canApprove }) {
   const toWrite = writtenCount(run.rows, updateFromSource)
   const approvableRows = applied ? run.rows.filter(approvable) : []
   const picked = approvableRows.filter((row) => chosen.includes(row.event.id))
+  const nextBatch = approvableRows.slice(0, approveLimit)
+  const tooMany = picked.length > approveLimit
   const retryable = applied && run.pictures.failed + run.pictures.waiting > 0
   const titles = new Map(
     run.rows.filter((row) => row.event).map((row) => [row.event.id, row.title]),
@@ -476,17 +486,56 @@ export function ImportRunPlan({ run, canApprove }) {
           )
         ) : null}
 
+        {applied && canApprove && approvableRows.length > 1 ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11"
+            disabled={busy !== null || stepUp !== null}
+            onClick={() => setChosen(nextBatch.map((row) => row.event.id))}
+          >
+            {approvableRows.length > approveLimit
+              ? `Tick the first ${approveLimit} of ${approvableRows.length} shown`
+              : `Tick all ${approvableRows.length} shown`}
+          </Button>
+        ) : null}
+
+        {applied && canApprove && chosen.length > 0 ? (
+          <Button
+            type="button"
+            variant="ghost"
+            className="min-h-11"
+            disabled={busy !== null || stepUp !== null}
+            onClick={() => setChosen([])}
+          >
+            Untick all
+          </Button>
+        ) : null}
+
         {applied && canApprove && approvableRows.length > 0 ? (
           <Button
             type="button"
             className="min-h-11"
-            disabled={busy !== null || stepUp !== null || picked.length === 0}
+            disabled={busy !== null || stepUp !== null || picked.length === 0 || tooMany}
+            aria-describedby={tooMany ? `${id}-too-many` : undefined}
             onClick={() => void send('approve')}
           >
             {busy === 'approve'
               ? 'Approving…'
               : `Approve and publish ${picked.length} ${picked.length === 1 ? 'event' : 'events'}`}
           </Button>
+        ) : null}
+
+        {applied && canApprove && approvableRows.length > approveLimit ? (
+          <p className="w-full text-sm text-ink-muted">
+            {`${approvableRows.length} events are waiting to be approved here. One approval takes at most ${approveLimit}: tick the first ${approveLimit}, approve and publish them, then tick the next ones the same way.`}
+          </p>
+        ) : null}
+
+        {tooMany ? (
+          <p id={`${id}-too-many`} className="w-full text-sm font-medium text-status-danger">
+            {`${picked.length} events are ticked, and one approval takes at most ${approveLimit}. Untick ${picked.length - approveLimit}, or use “Untick all” and tick the first ${approveLimit}.`}
+          </p>
         ) : null}
 
         {applied && !canApprove ? (

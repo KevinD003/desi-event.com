@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { IMPORT_LIMITS } from '@desi-event/schemas/imports'
 
 vi.mock('../../../../lib/imports-api.js', () => ({ getImportRun: vi.fn() }))
 vi.mock('../../../../lib/session.js', () => ({ readSession: vi.fn() }))
@@ -114,6 +115,41 @@ describe('one import', () => {
       screen.getByText(/1 pictures are still waiting: use Retry pictures\./u),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Retry pictures' })).toBeInTheDocument()
+  })
+
+  it('lets the administrator tick as many events as one approval takes, IMPORT_LIMITS.approveItems', async () => {
+    const [template] = run().rows
+    const rows = Array.from({ length: IMPORT_LIMITS.approveItems + 1 }, (_, index) => ({
+      ...template,
+      sourceId: String(500000 + index),
+      title: `Listing ${index + 1}`,
+      pictures: [],
+      event: {
+        id: `cevent${String(index).padStart(19, '0')}`,
+        title: `Listing ${index + 1}`,
+        slug: `listing-${index + 1}`,
+        status: 'REVIEW_PENDING',
+        revision: 2,
+        inThisRun: true,
+        reassigned: false,
+        organizationName: 'Sulekha Events',
+        importedByName: 'Anil Rao',
+        approvedAt: null,
+        approvedByName: null,
+      },
+    }))
+
+    getImportRun.mockResolvedValue({
+      run: run({ rows, eventCount: rows.length }),
+      picturesWaiting: 0,
+    })
+    await renderPage()
+
+    expect(
+      screen.getByRole('button', {
+        name: `Tick the first ${IMPORT_LIMITS.approveItems} of ${rows.length} shown`,
+      }),
+    ).toBeInTheDocument()
   })
 
   it('never puts a Sulekha picture address in the page', async () => {

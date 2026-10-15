@@ -4,6 +4,8 @@
  * may be told), why, and what deleting it did.
  *
  * Only the team at The Desi Events restores; the organiser is told to ask them.
+ * The team is told above "Restore…" that nothing was erased, that it can be
+ * restored at any time, and what it comes back as, at which address.
  * The controls it offers come in as booleans the server page worked out: this
  * component names no capability.
  *
@@ -25,6 +27,7 @@ import {
   deletedByReading,
   deletedRefundSentences,
   deletionOutcomeReading,
+  restoreSentences,
   slugReleased,
 } from '../lib/event-control.js'
 import { statusReading } from '../lib/event-status.js'
@@ -127,7 +130,14 @@ export function DeletedEventSummary({
       ) : null}
 
       {mayRestore ? (
-        <RestoreEventDialog event={event} />
+        <div className="space-y-3">
+          <div data-testid="restore-sentences" className="space-y-1 text-sm text-ink">
+            {restoreSentences(event).map((sentence) => (
+              <p key={sentence}>{sentence}</p>
+            ))}
+          </div>
+          <RestoreEventDialog event={event} />
+        </div>
       ) : slugReleased(event) ? (
         // Never public, so its address was freed when it was deleted and the
         // placeholder it holds now is no address anybody has seen.

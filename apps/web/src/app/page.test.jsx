@@ -224,6 +224,20 @@ describe('the home page', () => {
     expect(container.textContent).toMatch(/US sales tax is not calculated in this demo/)
   })
 
+  it('lists events across the USA and Canada, and says only tickets sold here are in US dollars', async () => {
+    const container = await draw()
+    const text = container.textContent.replace(/\s+/g, ' ')
+
+    expect(text).toContain('Garba & dandiya nights · across the USA and Canada')
+    expect(text).toContain(
+      'Garba, dandiya and raas nights from Edison to Santa Clara. Tickets sold here are priced in US dollars, and the booking fee is shown before you reach checkout.',
+    )
+    expect(text).toContain(
+      'Tickets sold here are priced in US dollars. US sales tax is not calculated in this demo, so checkout shows it as $0.00.',
+    )
+    expect(text).not.toMatch(/Prices are in US dollars/)
+  })
+
   it('points organisers at the workspace and at accepting an invitation, and says events are reviewed', async () => {
     const container = await draw()
 

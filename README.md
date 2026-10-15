@@ -103,7 +103,7 @@ desi-event.com
 
 | Layer                    | Choice                        | Version                     |
 | ------------------------ | ----------------------------- | --------------------------- |
-| Runtime                  | Node.js                       | 22.22.2 (`.nvmrc`)          |
+| Runtime                  | Node.js                       | 22.23.3 (`.nvmrc`)          |
 | Package manager          | pnpm                          | 10.33.0                     |
 | Monorepo tasks           | Turborepo                     | 2.10.12                     |
 | API framework            | Fastify                       | 5.12.4                      |
@@ -121,9 +121,12 @@ desi-event.com
 
 ## Prerequisites
 
-- **Node.js 22.22.2** — the exact version is in `.nvmrc`; `nvm use` picks it up.
+- **Node.js 22.23.3** — the exact version is in `.nvmrc`; `nvm use` picks it up.
   `.npmrc` sets `engine-strict=true`, so an unsupported runtime fails at
-  install rather than at runtime.
+  install rather than at runtime. `engines` asks for 22.23.3 or later because
+  event times are read through Node's own time-zone data, and only that data
+  (tzdata 2026c) knows British Columbia and Alberta keep one offset all year;
+  older Node prints their winter times an hour early.
 - **pnpm 10.33.0** — pinned in `packageManager`. `corepack enable` installs it.
 - **PostgreSQL 16+** — listening on `127.0.0.1:5432`.
 - **Redis 7+** — listening on `127.0.0.1:6379`.
@@ -144,7 +147,7 @@ createdb -O desi desi_event_test   # used by the integration tests
 git clone <repository-url> desi-event.com
 cd desi-event.com
 
-nvm use                    # Node 22.22.2, from .nvmrc
+nvm use                    # Node 22.23.3, from .nvmrc
 corepack enable            # pnpm 10.33.0, from packageManager
 pnpm install
 
@@ -181,18 +184,30 @@ it reads the root `.env` itself — but the rest need the export.
 
 ## Importing the Sulekha events
 
-The seed does not import anything. The 45 Texas events copied from Sulekha.com
-listings (collected on 29–30 September 2026) are in
-`packages/db/data/imports/sulekha-texas-2026.json`, and are loaded after
-seeding by an account that holds `event:import` (a platform administrator or
-super administrator):
+The seed does not import anything. Two files of events copied from Sulekha.com
+listings are in `packages/db/data/imports/`:
+
+- `sulekha-texas-2026.json`: 45 Texas events, collected on 29–30 September
+  2026, dated 2 October to 22 November 2026.
+- `sulekha-north-america-2026.json`: 294 events in 23 US states, DC and 3
+  Canadian provinces, from the owner's own Sulekha export of 397 listings,
+  curated on 15 October 2026, dated 15 October 2026 to 7 May 2027.
+
+They are loaded after seeding by an account that holds `event:import` (a
+platform administrator or super administrator):
 
 ```bash
-pnpm import:events packages/db/data/imports/sulekha-texas-2026.json \
+pnpm import:events packages/db/data/imports/sulekha-north-america-2026.json \
   --as platform-admin@desi-event.example            # plan only; writes the run
-pnpm import:events packages/db/data/imports/sulekha-texas-2026.json \
+pnpm import:events packages/db/data/imports/sulekha-north-america-2026.json \
   --as platform-admin@desi-event.example --apply    # import into review
 ```
+
+The two files share ten listings (all in Texas). Importing both is safe: each
+listing is imported once, by its Sulekha id, and the second file plans those
+ten as updates of the drafts the first one wrote (or leaves a posted one as it
+is unless "Update from Sulekha" is ticked). Each of the ten carries a note
+saying how the newer export differs.
 
 The file can also be uploaded at `/admin/imports`, which shows the same plan.
 Applying writes each event as a draft waiting for review and copies its
@@ -200,9 +215,16 @@ pictures. Approving and publishing is done only in the browser, at
 `/admin/imports`, with a second factor; the command line never approves and
 never changes an event that is already posted.
 
-- **Events already past are skipped.** Every event in the file falls between
-  2 October and 22 November 2026, so after 22 November 2026 the file imports
-  nothing.
+- **Events already past are skipped.** The Texas file imports nothing after
+  22 November 2026; the North America file nothing after 7 May 2027.
+- **What the North America file left out, and why.** Of the 397 listings in
+  the export, 51 Sulekha marks Ended, 7 Cancelled, and 45 more were dated
+  before 15 October 2026; none were duplicates. Sold Out, Selling Fast and
+  Open Soon events are kept, with that status in a note for the administrator
+  only. The export gives no collection time, so 15 October 2026 00:00 UTC
+  stands for it. Prices at the 30 Canadian venues are imported in Canadian
+  dollars: where Sulekha shows a plain `$`, that is an assumption, said in
+  each event's note. ADR 0015's addendum lists every curation rule.
 - **Pictures need direct outbound HTTPS to `usimg.sulekha.io`.** The importer
   copies each picture itself and uses no proxy, deliberately, so that it can
   check the address it connects to. A machine that reaches the internet only

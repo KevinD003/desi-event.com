@@ -174,7 +174,11 @@ administrator into a member-less "Sulekha Events" organisation, reviewed and
 approved by that administrator (the one exception to reviewer independence),
 shown with Sulekha's prices and a "Buy tickets on Sulekha" link, never sold
 here, and copied with their pictures by one locked-down fetcher. The owner's
-statement that they own Sulekha.com is recorded there as their statement.
+statement that they own Sulekha.com is recorded there as their statement. Its
+addendum of 2026-10-15 adds a second file under the same rules: 294 events in
+the United States and Canada from the owner's own Sulekha export, with each
+venue's time zone, Canadian prices in CAD (an assumption where Sulekha shows a
+plain `$`, noted on each event), and ten listings shared with the Texas file.
 
 ### 0016 — Per-event booking fee and referral codes
 

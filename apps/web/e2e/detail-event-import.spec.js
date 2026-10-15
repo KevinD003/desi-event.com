@@ -45,6 +45,14 @@ import { confirmStepUp, stepUpPrompt, waitOutCredentialBudget } from './support/
  *   - **I3** The same file again plans the published events as kept or
  *     unchanged; "Update from Sulekha" on the one whose time moved copies the
  *     new time onto its public page, with a change notice.
+ *   - **I3a** The administrator takes a published import off the site from
+ *     its danger zone, which says first that a restore puts it back at any
+ *     time: its page and its Sulekha link answer 404. From "Taken off the
+ *     site (deleted)", narrowed to "Copied from Sulekha", "Restore…" puts it
+ *     back live at the same address, presented by its organiser, its "Buy
+ *     tickets on Sulekha" link sending buyers to the listing again. It is
+ *     taken off and put back once more, through the API, and comes back the
+ *     same way.
  *   - **I4** The administrator moves a published import to Import Gamma (the
  *     dialog says the organisation is not asked first). Its Sulekha link is
  *     off afterwards and its page no longer offers "Buy tickets on Sulekha";
@@ -899,6 +907,178 @@ test.describe.serial('importing the Sulekha events', () => {
 
     await expect(second).toContainText('Published, updated: 1')
     await expect(second).toContainText('Unchanged: 2')
+  })
+
+  test('I3a: an administrator takes a published import off the site and puts it back live, again and again', async ({
+    browser,
+    visitor,
+  }) => {
+    test.setTimeout(240_000)
+
+    const admin = await windowFor(browser, 'admin')
+    const { garba } = names().listings
+    const event = (await importedEvents(ids().tag))[garba.sourceId].event
+    const ticketUrl = listing('garba').ticketUrl
+
+    // Live, with its Sulekha link, before anything is done.
+    expect(event.status).toBe('PUBLISHED')
+    expect(
+      (await visitor.request.get(`/events/${event.slug}/website`, { maxRedirects: 0 })).status(),
+    ).toBe(302)
+
+    // The danger zone says, before the dialog, that deleting can be undone.
+    await admin.goto(`/admin/events/${event.id}`)
+
+    const zone = admin.locator('#delete-event')
+
+    await expect(zone.getByRole('heading', { name: 'Danger zone' })).toBeVisible()
+    await expect(zone).toContainText(
+      'Deleting erases nothing: the event is kept, and you can put it back on the site at any time with “Restore…”, here or under “Taken off the site (deleted)” in All events, giving a reason.',
+    )
+    await expect(zone).toContainText(
+      `This event was copied from Sulekha, and its tickets are sold there, not here, so deleting it only takes it off the site. Restoring it brings it back with ${garba.presentedBy} named as its organiser, and its “Buy tickets on Sulekha” link as it was.`,
+    )
+
+    const opener = zone.getByRole('button', { name: 'Delete this event…', exact: true })
+
+    await hydrated(opener)
+    await opener.click()
+
+    const dialog = admin.getByRole('region', { name: `Delete “${event.title}”` })
+
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Reading what deleting would do…')).toHaveCount(0)
+    await expect(dialog).toContainText('Nobody has bought a ticket to this event.')
+    await dialog
+      .getByLabel(/^Why is this event being deleted\?/u)
+      .fill('Taken off the site while the organiser confirms the date.')
+    await dialog.getByLabel(/^Type the event’s web address/u).fill(event.slug)
+    await pressThroughStepUp(
+      admin,
+      () => dialog.getByRole('button', { name: 'Delete this event', exact: true }).click(),
+      postTo(`/api/v1/events/${event.id}/delete`),
+    )
+    await expect(dialog.getByText('Deleted', { exact: true })).toBeVisible()
+
+    // Off the site: its page and its Sulekha link answer as nothing there.
+    await visitor.goto(`/events/${event.slug}`)
+    await expect(visitor.getByTestId('not-found-view')).toBeVisible()
+    expect(
+      (await visitor.request.get(`/events/${event.slug}/website`, { maxRedirects: 0 })).status(),
+    ).toBe(404)
+
+    // The list says where it went, and that it can be put back.
+    await dialog.getByRole('link', { name: 'Back to all events', exact: true }).click()
+    await expect(admin).toHaveURL(/\/admin\/events\?deleted=1$/u)
+    await expect(
+      admin.getByText(
+        'Event deleted: it is off the site. It can be put back at any time from “Taken off the site (deleted)”, with “Restore…”.',
+        { exact: true },
+      ),
+    ).toBeVisible()
+
+    // Found among the events taken off the site that were copied from Sulekha.
+    await admin.getByRole('link', { name: 'Taken off the site (deleted)', exact: true }).click()
+    await expect(admin).toHaveURL(/\/admin\/events\?deleted=only$/u)
+    await admin.getByRole('link', { name: 'Copied from Sulekha', exact: true }).click()
+    await expect(admin).toHaveURL(/\/admin\/events\?deleted=only&imported=only$/u)
+    await expect(
+      admin.getByText(/^These events were taken off the site\. Nothing about them was erased/u),
+    ).toBeVisible()
+
+    const listed = admin.getByRole('row').filter({ hasText: event.title })
+
+    await expect(listed).toContainText('Restores as published')
+    await listed.getByRole('link', { name: /^Restore…/u }).click()
+    await expect(admin).toHaveURL(new RegExp(`/admin/events/${event.id}#restore-event$`, 'u'))
+    await expect(admin.getByTestId('restore-sentences')).toContainText(
+      `It comes back at the same web address, /events/${event.slug}.`,
+    )
+
+    const restoreOpener = admin.getByRole('button', { name: 'Restore…', exact: true })
+
+    await hydrated(restoreOpener)
+    await restoreOpener.click()
+
+    const restore = admin.getByRole('region', { name: `Restore “${event.title}”` })
+
+    await restore
+      .getByLabel(/^Why is this event being restored\?/u)
+      .fill('The organiser confirmed the date; back on the site.')
+    await pressThroughStepUp(
+      admin,
+      () => restore.getByRole('button', { name: 'Restore this event', exact: true }).click(),
+      postTo(`/api/v1/platform/events/${event.id}/restore`),
+    )
+    await expect(admin).toHaveURL(new RegExp(`/admin/events/${event.id}\\?restored=1$`, 'u'))
+    await expect(admin.getByRole('status').filter({ hasText: 'Event restored' })).toHaveText(
+      'Event restored: Published.',
+    )
+
+    /**
+     * The public page and the link are as they were before it came off.
+     *
+     * @returns {Promise<void>} Resolves once checked.
+     */
+    async function liveAgain() {
+      await visitor.goto(`/events/${event.slug}`)
+      await expect(visitor.getByRole('heading', { level: 1, name: garba.title })).toBeVisible()
+      await expect(visitor.getByText(`Presented by ${garba.presentedBy}`)).toBeVisible()
+      await expect(
+        visitor
+          .locator('#tickets')
+          .getByRole('link', { name: 'Buy tickets on Sulekha', exact: true }),
+      ).toHaveAttribute('href', `/events/${event.slug}/website`)
+
+      const redirect = await visitor.request.get(`/events/${event.slug}/website`, {
+        maxRedirects: 0,
+      })
+
+      expect(redirect.status()).toBe(302)
+      expect(redirect.headers().location).toBe(ticketUrl)
+
+      const standing = (await importedEvents(ids().tag))[garba.sourceId].event
+
+      expect(standing).toMatchObject({
+        status: 'PUBLISHED',
+        slug: event.slug,
+        websiteRedirectEnabled: true,
+        websiteDecidedUrl: ticketUrl,
+      })
+    }
+
+    await liveAgain()
+
+    // And once more, through the API the screens use: off, then back.
+    const before = await eventStanding(event.id)
+    const off = await callThroughStepUp(admin, 'POST', `/api/v1/events/${event.id}/delete`, {
+      revision: before.revision,
+      reason: 'Taken off the site again while the venue is confirmed.',
+      confirmSlug: event.slug,
+      expectedOutcome: 'REMOVE',
+    })
+
+    expect(off.status, off.text).toBe(200)
+    await visitor.goto(`/events/${event.slug}`)
+    await expect(visitor.getByTestId('not-found-view')).toBeVisible()
+
+    const deletedRevision = (await eventStanding(event.id)).revision
+    const back = await callThroughStepUp(
+      admin,
+      'POST',
+      `/api/v1/platform/events/${event.id}/restore`,
+      { revision: deletedRevision, reason: 'The venue is confirmed; back on the site.' },
+    )
+
+    expect(back.status, back.text).toBe(200)
+    expect(back.data).toMatchObject({ status: 'PUBLISHED', slug: event.slug })
+    await liveAgain()
+
+    const deletions = await auditRows(event.id, 'event.deleted')
+    const restores = await auditRows(event.id, 'event.restored')
+
+    expect(deletions).toHaveLength(2)
+    expect(restores).toHaveLength(2)
   })
 
   test('I4: moving an imported event to an organiser’s organisation turns its Sulekha link off, and its owner runs it', async ({

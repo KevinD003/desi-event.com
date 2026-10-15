@@ -6,7 +6,14 @@ vi.mock('../../../lib/session.js', () => ({ readSession: vi.fn() }))
 
 const { listPlatformEvents } = await import('../../../lib/organizer-api.js')
 const { readSession } = await import('../../../lib/session.js')
-const { default: AdminEventsPage, NOT_FOR_THIS_ACCOUNT, readFilters } = await import('./page.jsx')
+const {
+  default: AdminEventsPage,
+  DELETED_STATUS,
+  INTRODUCTION,
+  NOT_FOR_THIS_ACCOUNT,
+  RESTORE_NOTE,
+  readFilters,
+} = await import('./page.jsx')
 
 /** A platform administrator's session. */
 const ADMIN = {
@@ -110,7 +117,11 @@ describe('All events', () => {
 
     await renderPage({ deleted: 'only' })
 
-    expect(screen.getByRole('link', { name: 'Deleted' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: 'Taken off the site (deleted)' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    expect(screen.getByText(RESTORE_NOTE)).toBeInTheDocument()
     expect(screen.getByText('Restores as sales paused')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Open its record/ })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Restore…/ })).toHaveAttribute(
@@ -178,10 +189,76 @@ describe('All events', () => {
     )
   })
 
-  it('says, politely, that an event was just deleted', async () => {
+  it('says, politely, that an event was just deleted, and that it can be put back', async () => {
     await renderPage({ deleted: '1' })
 
-    expect(screen.getByText('Event deleted.')).toHaveAttribute('aria-live', 'polite')
+    expect(screen.getByText(DELETED_STATUS)).toHaveAttribute('aria-live', 'polite')
+    expect(DELETED_STATUS).toBe(
+      'Event deleted: it is off the site. It can be put back at any time from “Taken off the site (deleted)”, with “Restore…”.',
+    )
+  })
+
+  it('says plainly that deleting takes an event off the site and a restore puts it back, any time', async () => {
+    await renderPage()
+
+    expect(screen.getByText(INTRODUCTION)).toBeInTheDocument()
+    expect(INTRODUCTION).toMatch(
+      /to delete it, which takes it off the site; or, once it is deleted, to restore it, which puts it back\. Deleting erases nothing, so a deleted event can be restored at any time\./u,
+    )
+    // The way to the deleted events is one link away, from the default list.
+    expect(screen.getByRole('link', { name: 'Taken off the site (deleted)' })).toHaveAttribute(
+      'href',
+      '/admin/events?deleted=only',
+    )
+    // The note about restoring is for the list of deleted events.
+    expect(screen.queryByText(RESTORE_NOTE)).not.toBeInTheDocument()
+    expect(RESTORE_NOTE).toMatch(/choose “Restore…” on a row to put that event back, at any time/u)
+    expect(RESTORE_NOTE).toMatch(/A published event comes back published, at the same web address/u)
+  })
+
+  it('narrows the list to events copied from Sulekha, deleted ones included, keeping the other filters', async () => {
+    listPlatformEvents.mockResolvedValue({
+      events: [
+        row({
+          imported: true,
+          status: 'DELETED',
+          deletion: {
+            deletedAt: '2026-10-01T10:00:00.000Z',
+            outcome: 'REMOVE',
+            authority: 'PLATFORM',
+            statusBefore: 'PUBLISHED',
+            restoreTo: 'PUBLISHED',
+          },
+        }),
+      ],
+      pagination: null,
+    })
+
+    await renderPage({ deleted: 'only', imported: 'only' })
+
+    expect(listPlatformEvents.mock.calls[0][0]).toMatchObject({
+      deleted: 'only',
+      imported: 'only',
+    })
+    expect(screen.getByRole('link', { name: 'Copied from Sulekha' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    expect(screen.getByRole('link', { name: 'From every source' })).toHaveAttribute(
+      'href',
+      '/admin/events?deleted=only',
+    )
+    expect(screen.getByRole('link', { name: 'Current events' })).toHaveAttribute(
+      'href',
+      '/admin/events?imported=only',
+    )
+    expect(screen.getByText('Imported')).toBeInTheDocument()
+    expect(screen.getByText('Restores as published')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Restore…/ })).toHaveAttribute(
+      'href',
+      '/admin/events/cevent0000000000000000001#restore-event',
+    )
+    expect(readFilters({ imported: 'bogus' }).imported).toBeUndefined()
   })
 
   it('refuses an account that does not edit events as the team at The Desi Events, and asks nothing', async () => {

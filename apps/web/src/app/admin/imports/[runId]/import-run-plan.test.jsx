@@ -387,6 +387,125 @@ describe('an applied plan', () => {
   })
 })
 
+describe('a run of many listings', () => {
+  /**
+   * An applied run whose every row wrote an event waiting for review.
+   *
+   * @param {number} count How many.
+   * @returns {object} The run.
+   */
+  const many = (count) =>
+    run({
+      status: 'APPLIED',
+      eventCount: count,
+      rows: Array.from({ length: count }, (_, index) => {
+        const n = String(index + 1).padStart(3, '0')
+
+        return row({
+          sourceId: `40${n}`,
+          title: `Listing ${n}`,
+          event: written({
+            id: `cevent0000000000000000${n}`,
+            title: `Listing ${n}`,
+            revision: index + 1,
+          }),
+        })
+      }),
+    })
+
+  it('ticks every event shown at once, and approves them in one request', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { results: [] } }))
+    render(<ImportRunPlan run={many(3)} canApprove approveLimit={100} />)
+
+    await user.click(screen.getByRole('button', { name: 'Tick all 3 shown' }))
+
+    for (const n of ['001', '002', '003']) {
+      expect(screen.getByRole('checkbox', { name: `Approve “Listing ${n}”` })).toBeChecked()
+    }
+
+    await user.click(screen.getByRole('button', { name: 'Approve and publish 3 events' }))
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      items: [
+        { eventId: 'cevent0000000000000000001', revision: 1 },
+        { eventId: 'cevent0000000000000000002', revision: 2 },
+        { eventId: 'cevent0000000000000000003', revision: 3 },
+      ],
+    })
+  })
+
+  it('unticks them all again', async () => {
+    const user = userEvent.setup()
+
+    render(<ImportRunPlan run={many(3)} canApprove approveLimit={100} />)
+
+    expect(screen.queryByRole('button', { name: 'Untick all' })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Tick all 3 shown' }))
+    await user.click(screen.getByRole('button', { name: 'Untick all' }))
+
+    expect(screen.getByRole('checkbox', { name: 'Approve “Listing 001”' })).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Approve and publish 0 events' })).toBeDisabled()
+  })
+
+  it('ticks no more than one request takes, and says how the rest are approved', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { results: [] } }))
+    render(<ImportRunPlan run={many(5)} canApprove approveLimit={2} />)
+
+    expect(
+      screen.getByText(
+        '5 events are waiting to be approved here. One approval takes at most 2: tick the first 2, approve and publish them, then tick the next ones the same way.',
+      ),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Tick the first 2 of 5 shown' }))
+
+    expect(screen.getByRole('checkbox', { name: 'Approve “Listing 001”' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Approve “Listing 002”' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Approve “Listing 003”' })).not.toBeChecked()
+
+    await user.click(screen.getByRole('button', { name: 'Approve and publish 2 events' }))
+
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body).items).toHaveLength(2)
+    // The page is read again, so what was published is no longer offered.
+    expect(refresh).toHaveBeenCalled()
+  })
+
+  it('refuses, before sending, more boxes ticked by hand than one request takes', async () => {
+    const user = userEvent.setup()
+
+    render(<ImportRunPlan run={many(3)} canApprove approveLimit={2} />)
+
+    for (const n of ['001', '002', '003']) {
+      await user.click(screen.getByRole('checkbox', { name: `Approve “Listing ${n}”` }))
+    }
+
+    const button = screen.getByRole('button', { name: 'Approve and publish 3 events' })
+
+    expect(button).toBeDisabled()
+    expect(button).toHaveAccessibleDescription(
+      '3 events are ticked, and one approval takes at most 2. Untick 1, or use “Untick all” and tick the first 2.',
+    )
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('offers no bulk tick to an account without review rights, nor for a single event', () => {
+    const { unmount } = render(<ImportRunPlan run={many(3)} canApprove={false} />)
+
+    expect(screen.queryByRole('button', { name: /^Tick /u })).toBeNull()
+    unmount()
+
+    render(<ImportRunPlan run={many(1)} canApprove />)
+    expect(screen.queryByRole('button', { name: /^Tick /u })).toBeNull()
+    expect(screen.getByRole('checkbox', { name: 'Approve “Listing 001”' })).toBeInTheDocument()
+  })
+})
+
 describe('approvable', () => {
   it('takes a published event only while one of its pictures waits for approval', () => {
     const published = written({ status: 'PUBLISHED' })

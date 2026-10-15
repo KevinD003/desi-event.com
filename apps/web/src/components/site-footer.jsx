@@ -131,8 +131,8 @@ export function SiteFooter() {
               <BrandLogo variant="dark" className="h-14 w-auto" />
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-6 text-ink-inverse-muted">
-              Tickets for garba, dandiya and Navratri nights across the USA, with every price shown
-              in US dollars alongside its booking fee.
+              Garba, dandiya and Navratri nights across the USA and Canada. Tickets sold here are
+              priced in US dollars alongside their booking fee.
             </p>
           </div>
 

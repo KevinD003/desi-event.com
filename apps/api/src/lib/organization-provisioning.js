@@ -199,7 +199,9 @@ export const PLATFORM_HELD_ORGANIZATIONS = Object.freeze({
     slug: 'sulekha-events',
     description:
       'Events listed on Sulekha.com and shown on The Desi Events by its team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
-    // The listings imported are Texas events.
+    // The organisation's own zone, for its reports. Each imported event and its
+    // venue keep the zone the listing gives (America/Toronto for a Toronto
+    // listing), and every page shows its times in that zone.
     timezone: 'America/Chicago',
   }),
 })
