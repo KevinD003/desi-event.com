@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest'
 
-import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
+import { computeOrderTotals } from '@desi-event/pricing'
+
+import {
+  bearer,
+  createTestApp,
+  feeConfig,
+  holdHeaders,
+  signIn,
+  stepUp,
+  taxRateBps,
+} from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
+import { reservedWorld } from './helpers/reserved-world.js'
+import { EVENT_SUMMARY_SELECT, toEventSummary } from '../src/lib/presenters.js'
+import { resolveSearchTerms, searchTerms } from '../src/routes/events.js'
 
 /**
  * Fetch the event list and return the parsed body.
@@ -20,6 +33,16 @@ async function list(app, query = '', headers = {}) {
 
   expect(response.statusCode).toBe(200)
   return response.json()
+}
+
+/**
+ * The two numeric fee terms, without the currency.
+ *
+ * @param {{percentageBps: number, flatCents: number}} terms A fee configuration.
+ * @returns {{percentageBps: number, flatCents: number}} The terms.
+ */
+function pick({ percentageBps, flatCents }) {
+  return { percentageBps, flatCents }
 }
 
 describe('what a public event page says about its organiser, finding NF-14', () => {
@@ -58,21 +81,45 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'ageRestriction',
       'artists',
       'category',
-      'coverImageUrl',
+      // The approved cover and gallery: public by the moderator's decision,
+      // and absent until one is made.
+      'coverImage',
       'createdAt',
       'description',
+      // The event page's own content, public because the organiser chose to
+      // publish it. The contact is the one typed into the public contact
+      // fields, never the private `contactEmail` (NF-14, asserted below).
+      'directions',
+      'dressCode',
       'endsAt',
+      'faq',
+      // The booking fee is part of the price; see `feeTerms` in the schema.
+      'feeTerms',
+      'gallery',
       'id',
+      // Where an imported event is listed and its prices there (SPEC2-XI
+      // §5.I-E); null for an organiser's own event, as here.
+      'importedFrom',
       'isOnline',
       'languages',
-      'onlineUrl',
+      // No `onlineUrl`: an online event's joining link is its ticket holders'
+      // (`onlineJoinUrl` on the ticket) and its organiser's, never a
+      // stranger's. The key itself is absent from the public payload.
       'organization',
       'organizationId',
+      'performers',
       'policies',
       'previousStartsAt',
+      'publicEmail',
+      'publicPhone',
       'publishedAt',
       'revision',
+      'runningOrder',
+      // The event's nights, with their labels, times and sales windows.
+      'sessions',
       'slug',
+      'socialLinks',
+      'sponsors',
       'startsAt',
       'status',
       'summary',
@@ -82,7 +129,17 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'updatedAt',
       'venue',
       'venueId',
+      // Whether buyers may pay the ticket price at the door now, and nothing
+      // else about the switch (SPEC3 §9.2, §11.3): an anonymous reader never
+      // gets the event's `paymentTerms`.
+      'venuePayment',
+      // Where "Visit the organiser's website" goes, as a host, or null. Never
+      // the address: no `websiteUrl` and no `websiteRedirect` (the switch, with
+      // the deciding administrator's name) for a stranger; both keys absent.
+      'websiteLink',
     ])
+    expect(response.json().data).not.toHaveProperty('websiteUrl')
+    expect(response.json().data).not.toHaveProperty('websiteRedirect')
 
     await app.close()
   })
@@ -303,6 +360,24 @@ describe('GET /v1/events', () => {
     expect((await list(app, 'q=nothing-matches-this')).data).toHaveLength(0)
   })
 
+  it('needs every word of a search to match, each against the event, its venue, city or organiser', async () => {
+    const { app } = await createTestApp()
+    const [garba] = (await list(app, 'q=garba')).data
+
+    // The city and the organiser are not in the event's own text.
+    const byCity = await list(app, `q=${encodeURIComponent(`garba ${garba.city}`)}`)
+    expect(byCity.data.map((event) => event.slug)).toEqual([garba.slug])
+
+    const byOrganiser = await list(app, `q=${encodeURIComponent(garba.organizationName)}`)
+    expect(byOrganiser.data.map((event) => event.slug)).toContain(garba.slug)
+
+    const byVenue = await list(app, `q=${encodeURIComponent(garba.venueName)}`)
+    expect(byVenue.data.map((event) => event.slug)).toContain(garba.slug)
+
+    // One word that matches nothing sinks the whole search.
+    expect((await list(app, 'q=garba%20nothing-matches-this')).data).toHaveLength(0)
+  })
+
   it('filters by start window and rejects a window that runs backwards', async () => {
     const { app } = await createTestApp()
 
@@ -341,6 +416,35 @@ describe('GET /v1/events', () => {
     expect(second.data[0].slug).not.toBe(first.data[0].slug)
   })
 
+  it('tells the same total from a last page, a page past the end and an empty search', async () => {
+    const { app, prisma } = await createTestApp()
+    const count = prisma.event.count
+    let counted = 0
+
+    prisma.event.count = (args) => {
+      counted += 1
+
+      return count(args)
+    }
+
+    // A page that is not full shows where the list ends; a page past the end
+    // does not, and is counted. Either way the total is the listing's.
+    const last = await list(app, 'page=1&perPage=5')
+    const beyond = await list(app, 'page=2&perPage=5')
+    const nothing = await list(app, 'q=zzzznomatch')
+
+    expect(last.data).toHaveLength(2)
+    expect(last.pagination).toMatchObject({ total: 2, totalPages: 1, hasNextPage: false })
+    expect(beyond.data).toEqual([])
+    expect(beyond.pagination).toMatchObject({ total: 2, totalPages: 1, hasNextPage: false })
+    expect(nothing.data).toEqual([])
+    expect(nothing.pagination).toMatchObject({ total: 0, hasNextPage: false })
+    // Only the page past the end needed a count of its own.
+    expect(counted).toBe(1)
+
+    await app.close()
+  })
+
   it('sorts by the requested key', async () => {
     const { app } = await createTestApp()
 
@@ -351,6 +455,19 @@ describe('GET /v1/events', () => {
       descending.data.map((event) => event.slug).reverse(),
     )
     expect((await list(app, 'sort=title:asc')).data[0].title).toBe('Classical Dance Masterclass')
+  })
+
+  it.each([
+    ['a NUL in the search', 'q=gar%00ba'],
+    ['a NUL in the city', 'city=Edi%00son'],
+    ['a tab in the search', 'q=gar%09ba'],
+    ['a C1 control in the search', 'q=gar%C2%85ba'],
+  ])('answers 400 for %s, which PostgreSQL would refuse as a 500', async (_label, query) => {
+    const { app } = await createTestApp()
+    const response = await app.inject({ method: 'GET', url: `/v1/events?${query}` })
+
+    expect(response.statusCode, response.body).toBe(400)
+    expect(response.json().error.code).toBe('VALIDATION_ERROR')
   })
 
   it('rejects an unknown sort key and an oversized page', async () => {
@@ -379,9 +496,501 @@ describe('GET /v1/events', () => {
       soldOut: false,
     })
   })
+
+  it('does not call a seated show sold out from its quantity columns', async () => {
+    // A seated tier's stock is its seats. Its quantity is zero by design, and
+    // reading it made every seated-only show "Sold out" from the day it was
+    // announced. The summary says nothing rather than something false.
+    const { app, prisma, ids } = await createTestApp()
+    const tiers = await prisma.ticketType.findMany({ where: { eventId: ids.publishedEvent.id } })
+
+    for (const tier of tiers) {
+      await prisma.ticketType.update({
+        where: { id: tier.id },
+        data: { reserved: true, quantityTotal: 0, quantitySold: 0 },
+      })
+    }
+
+    const [card] = (await list(app, 'q=garba')).data
+
+    expect(card).not.toHaveProperty('soldOut')
+    expect(card).not.toHaveProperty('salesOpen')
+
+    const { data: event } = (
+      await app.inject({ method: 'GET', url: `/v1/events/${ids.publishedEvent.slug}` })
+    ).json()
+
+    // And the page is told which tiers are seated, so it can say so.
+    expect(event.ticketTypes.every((tier) => tier.reserved === true)).toBe(true)
+  })
+
+  it('says a card is on sale only when a ticket could be bought now', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    expect((await list(app, 'q=garba')).data[0].salesOpen).toBe(true)
+
+    // Paused by the organiser: still listed, with the words to say so, and
+    // not on sale.
+    await prisma.event.update({
+      where: { id: ids.publishedEvent.id },
+      data: { status: 'SALES_PAUSED' },
+    })
+
+    const [paused] = (await list(app, 'q=garba')).data
+
+    expect(paused.status).toBe('SALES_PAUSED')
+    expect(paused.salesOpen).toBe(false)
+  })
+
+  it('quotes a card’s starting price as exactly what checkout charges for one ticket', async () => {
+    // Not recomputed here: an order is placed, and the card's number is held to
+    // what the order came to. A second implementation in the test would agree
+    // with a second implementation in the presenter and prove nothing.
+    const { app, ids } = await createTestApp()
+
+    const [card] = (await list(app, 'q=garba')).data
+
+    const hold = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/holds',
+        payload: { ticketTypeId: ids.generalAdmission.id, quantity: 1 },
+      })
+    ).json().data
+
+    const placed = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      headers: holdHeaders(hold),
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: 'priya@example.com',
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+        holdIds: [hold.id],
+      },
+    })
+
+    expect(placed.statusCode).toBe(201)
+
+    const charged = placed.json().data
+
+    expect(charged.subtotalCents).toBe(card.minPriceCents)
+    expect(card.minTotalCents).toBe(charged.totalCents)
+    // All-in means more than the face value whenever there is a fee.
+    expect(card.minTotalCents).toBeGreaterThan(card.minPriceCents)
+  })
+})
+
+/**
+ * A whole event row, as `include: {venue, organization, ticketTypes, media}`
+ * returned it: every column, the long and private ones included.
+ *
+ * @param {object} [overrides] Fields to change.
+ * @returns {object} The row.
+ */
+function wholeEventRow(overrides = {}) {
+  const startsAt = new Date('2031-11-07T00:30:00.000Z')
+  const tier = (fields) => ({
+    eventId: 'cevent0000000000000000001',
+    description: 'A long tier description nobody puts on a card.',
+    minPerOrder: 1,
+    maxPerOrder: 10,
+    sortOrder: 0,
+    createdAt: new Date('2031-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2031-01-01T00:00:00.000Z'),
+    eventSessionId: null,
+    priceZoneId: null,
+    complimentary: false,
+    refundedQuantity: 0,
+    refundedCents: 0,
+    visibility: 'PUBLIC',
+    reserved: false,
+    salesStartAt: null,
+    salesEndAt: null,
+    ...fields,
+  })
+
+  return {
+    id: 'cevent0000000000000000001',
+    organizationId: 'corg00000000000000000001',
+    venueId: 'cvenue000000000000000001',
+    title: 'Navratri Garba Night',
+    slug: 'navratri-garba-night',
+    summary: 'Nine nights of garba.',
+    description: 'A description far longer than any card.'.repeat(50),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    startsAt,
+    endsAt: new Date(startsAt.getTime() + 4 * 3_600_000),
+    timezone: 'America/Chicago',
+    isOnline: false,
+    onlineUrl: 'https://meet.example.com/private-room',
+    languages: ['Gujarati'],
+    publishedAt: new Date('2031-01-02T00:00:00.000Z'),
+    createdAt: new Date('2031-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2031-01-02T00:00:00.000Z'),
+    revision: 7,
+    ageRestriction: null,
+    accessibility: null,
+    artists: ['Falguni'],
+    policies: null,
+    contactEmail: 'private-contact@example.com',
+    reviewSubmittedAt: null,
+    moderationNote: 'A note for the organiser only.',
+    cancelledAt: null,
+    cancellationReason: null,
+    postponedAt: null,
+    previousStartsAt: null,
+    salesOpenedAt: new Date('2031-01-03T00:00:00.000Z'),
+    faq: [{ question: 'Parking?', answer: 'Yes.' }],
+    performers: [{ name: 'Falguni', role: null, bio: null }],
+    runningOrder: null,
+    sponsors: null,
+    socialLinks: null,
+    dressCode: 'Chaniya choli',
+    directions: 'Gate 3.',
+    publicContactEmail: 'hello@example.com',
+    publicContactPhone: null,
+    venue: {
+      id: 'cvenue000000000000000001',
+      name: 'Garba Ground',
+      slug: 'garba-ground',
+      addressLine1: '1 Main Street',
+      addressLine2: null,
+      city: 'Houston',
+      region: 'TX',
+      postalCode: '77001',
+      country: 'US',
+      description: 'A long venue description.',
+      timezone: 'America/Chicago',
+      directions: 'Park at the back.',
+      policies: null,
+      accessibility: null,
+      organizationId: 'corg00000000000000000001',
+    },
+    organization: {
+      id: 'corg00000000000000000001',
+      name: 'Rangoli Collective',
+      slug: 'rangoli-collective',
+      description: 'An organiser.',
+      contactEmail: 'account@example.com',
+      payoutCurrency: 'USD',
+      verified: true,
+      verificationStatus: 'VERIFIED',
+    },
+    ticketTypes: [
+      tier({
+        id: 'ctier0000000000000000001',
+        name: 'General',
+        priceCents: 2_500,
+        currency: 'USD',
+        quantityTotal: 100,
+        quantitySold: 40,
+        status: 'ON_SALE',
+      }),
+      // Cheaper, but a guest list: never the card's price.
+      tier({
+        id: 'ctier0000000000000000002',
+        name: 'Guest list',
+        priceCents: 0,
+        currency: 'USD',
+        quantityTotal: 20,
+        quantitySold: 0,
+        status: 'ON_SALE',
+        visibility: 'HIDDEN',
+      }),
+      // Not on sale until next year.
+      tier({
+        id: 'ctier0000000000000000003',
+        name: 'Late',
+        priceCents: 3_500,
+        currency: 'USD',
+        quantityTotal: 50,
+        quantitySold: 0,
+        status: 'ON_SALE',
+        salesStartAt: new Date('2099-01-01T00:00:00.000Z'),
+      }),
+      // Seated: its stock is its seats, not its quantity columns.
+      tier({
+        id: 'ctier0000000000000000004',
+        name: 'Stalls',
+        priceCents: 4_000,
+        currency: 'USD',
+        quantityTotal: 0,
+        quantitySold: 0,
+        status: 'ON_SALE',
+        reserved: true,
+      }),
+    ],
+    media: [
+      {
+        id: 'cmedia000000000000000001',
+        kind: 'EVENT_COVER',
+        position: null,
+        altText: 'Dancers in a circle',
+        width: 1600,
+        height: 900,
+        contentType: 'image/jpeg',
+        moderationStatus: 'APPROVED',
+        scanStatus: 'CLEAN',
+        sanitisedAt: new Date('2031-01-02T00:00:00.000Z'),
+        createdAt: new Date('2031-01-02T00:00:00.000Z'),
+      },
+    ],
+    ...overrides,
+  }
+}
+
+/**
+ * Keep only what a Prisma `select` names, the way Prisma answers one.
+ *
+ * @param {object} row A whole row.
+ * @param {object} select The select.
+ * @returns {object} The row as the select would load it.
+ */
+function projected(row, select) {
+  const out = {}
+
+  for (const [key, spec] of Object.entries(select)) {
+    if (!spec) continue
+
+    const value = row[key]
+
+    if (spec === true || value == null) {
+      out[key] = value ?? null
+      continue
+    }
+
+    out[key] = Array.isArray(value)
+      ? value.map((child) => projected(child, spec.select))
+      : projected(value, spec.select)
+  }
+
+  return out
+}
+
+/**
+ * Every path a select loads, as `venue.city` or `ticketTypes[].status`.
+ *
+ * @param {object} select The select.
+ * @param {string} [prefix] The path so far.
+ * @returns {Set<string>} The paths.
+ */
+function selectedPaths(select, prefix = '') {
+  const paths = new Set()
+
+  for (const [key, spec] of Object.entries(select)) {
+    if (!spec) continue
+
+    const path = `${prefix}${key}`
+    paths.add(path)
+
+    if (spec !== true) {
+      const many = key === 'ticketTypes' || key === 'media'
+      for (const nested of selectedPaths(spec.select, `${path}${many ? '[]' : ''}.`)) {
+        paths.add(nested)
+      }
+    }
+  }
+
+  return paths
+}
+
+/**
+ * Wrap a row so that every field read from it, at any depth, is recorded.
+ *
+ * @param {unknown} value The row, or a value inside it.
+ * @param {string} path Where it sits in the row.
+ * @param {Set<string>} reads Collects the paths read.
+ * @returns {unknown} The value, wrapped when it is an object.
+ */
+function watched(value, path, reads) {
+  if (value === null || typeof value !== 'object' || value instanceof Date) return value
+
+  return new Proxy(value, {
+    get(target, key, receiver) {
+      const result = Reflect.get(target, key, receiver)
+
+      if (typeof key === 'symbol') return result
+
+      if (Array.isArray(target)) {
+        return /^\d+$/.test(key) ? watched(result, `${path}[]`, reads) : result
+      }
+
+      const next = path ? `${path}.${key}` : key
+      reads.add(next)
+
+      return watched(result, next, reads)
+    },
+  })
+}
+
+describe('a listing card reads the columns it shows, and no others', () => {
+  const now = new Date('2031-06-01T12:00:00.000Z')
+  const options = { feeConfigFor: () => feeConfig('USD'), now }
+  const variants = [
+    wholeEventRow(),
+    wholeEventRow({ venue: null, venueId: null, isOnline: true, media: [] }),
+    wholeEventRow({ status: 'SALES_PAUSED' }),
+    wholeEventRow({
+      ticketTypes: wholeEventRow().ticketTypes.map((tier) => ({
+        ...tier,
+        quantitySold: tier.quantityTotal,
+      })),
+    }),
+    wholeEventRow({ ticketTypes: [] }),
+  ]
+
+  it('finds every field the summary reads in EVENT_SUMMARY_SELECT', () => {
+    // Read tracking rather than a list kept by hand: a field the presenter
+    // starts reading and the select does not load fails here, not on a card.
+    const allowed = selectedPaths(EVENT_SUMMARY_SELECT)
+    const reads = new Set()
+
+    for (const row of variants) {
+      toEventSummary(watched(row, '', reads), options)
+      toEventSummary(watched(row, '', reads))
+    }
+
+    expect([...reads].filter((path) => !allowed.has(path))).toEqual([])
+  })
+
+  it('gives the same card from the selected columns as from the whole row', () => {
+    for (const row of variants) {
+      expect(toEventSummary(projected(row, EVENT_SUMMARY_SELECT), options)).toEqual(
+        toEventSummary(row, options),
+      )
+      expect(toEventSummary(projected(row, EVENT_SUMMARY_SELECT))).toEqual(toEventSummary(row))
+    }
+  })
+
+  it('loads none of the long or private columns a card never shows', () => {
+    const loaded = selectedPaths(EVENT_SUMMARY_SELECT)
+
+    for (const path of [
+      'description',
+      'contactEmail',
+      'moderationNote',
+      'onlineUrl',
+      'faq',
+      'performers',
+      'runningOrder',
+      'sponsors',
+      'socialLinks',
+      'publicContactEmail',
+      'venue.description',
+      'venue.addressLine1',
+      'organization.contactEmail',
+      'organization.payoutCurrency',
+      'ticketTypes[].description',
+    ]) {
+      expect(loaded.has(path), path).toBe(false)
+    }
+  })
+
+  it('is what GET /v1/events and the review queue ask the database for', async () => {
+    const { app, prisma } = await createTestApp()
+    const asked = []
+    const findMany = prisma.event.findMany
+
+    prisma.event.findMany = (args) => {
+      asked.push(args)
+
+      return findMany(args)
+    }
+
+    await list(app, 'q=garba')
+    await app.inject({
+      method: 'GET',
+      url: '/v1/moderation/events',
+      headers: bearer(await signIn(app, 'maya@desi-event.example')),
+    })
+
+    const listings = asked.filter((args) => args?.select === EVENT_SUMMARY_SELECT)
+
+    expect(listings).toHaveLength(2)
+    expect(listings.every((args) => args.include === undefined)).toBe(true)
+
+    await app.close()
+  })
+})
+
+describe('searchTerms', () => {
+  it('splits a search into distinct words, however they were spaced or cased', () => {
+    expect(searchTerms('Garba   HOUSTON garba')).toEqual(['garba', 'houston'])
+  })
+
+  it('has nothing to add for an empty search', () => {
+    expect(searchTerms(undefined)).toEqual([])
+    expect(searchTerms('')).toEqual([])
+  })
+
+  it('resolves each word to its venues and organisers, and gives up listing past a thousand', async () => {
+    const rows = (count) => Array.from({ length: count }, (_, index) => ({ id: `id${index}` }))
+    const prisma = {
+      venue: { findMany: async () => rows(1001) },
+      organization: { findMany: async () => rows(2) },
+    }
+
+    const [resolved] = await resolveSearchTerms(prisma, 'hall')
+
+    // Too many venues to list: that word filters through the relation instead.
+    expect(resolved).toEqual({ term: 'hall', venueIds: null, organizationIds: ['id0', 'id1'] })
+    expect(await resolveSearchTerms(prisma, undefined)).toEqual([])
+  })
+
+  it('stops at eight words, so one request cannot add unbounded conditions', () => {
+    const words = Array.from({ length: 12 }, (_, index) => `w${index}`)
+
+    expect(searchTerms(words.join(' '))).toEqual(words.slice(0, 8))
+  })
 })
 
 describe('GET /v1/events/:slug', () => {
+  it('publishes the fee terms checkout charges with, and they price an order exactly', async () => {
+    const { app, ids } = await createTestApp()
+
+    const { data: event } = (
+      await app.inject({ method: 'GET', url: `/v1/events/${ids.publishedEvent.slug}` })
+    ).json()
+
+    const terms = event.feeTerms.find((entry) => entry.currency === 'INR')
+
+    expect(terms).toEqual({ currency: 'INR', ...pick(feeConfig('INR')) })
+
+    // Priced with those terms and the venue's tax, one General Admission
+    // ticket comes to what the order is charged.
+    const quote = computeOrderTotals({
+      items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1, unitPriceCents: 150_000 }],
+      feeConfig: { ...terms },
+      taxRateBps: taxRateBps('IN'),
+      currency: 'INR',
+    })
+
+    const hold = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/holds',
+        payload: { ticketTypeId: ids.generalAdmission.id, quantity: 1 },
+      })
+    ).json().data
+    const placed = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      headers: holdHeaders(hold),
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: 'priya@example.com',
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+        holdIds: [hold.id],
+      },
+    })
+
+    expect(placed.json().data.totalCents).toBe(quote.totalCents)
+  })
+
   it('returns an event with its venue, organisation and tiers', async () => {
     const { app } = await createTestApp()
 
@@ -708,5 +1317,244 @@ describe('caller-supplied input never surfaces as a server fault', () => {
     expect(response.json().error.message).toMatch(/no such venue/i)
 
     await app.close()
+  })
+})
+
+describe('GET /v1/events/:slug: the online joining link and the nights', () => {
+  it('never gives an anonymous caller an online event’s joining link', async () => {
+    const { app, ids } = await createTestApp()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.onlineEvent.slug}`,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.isOnline).toBe(true)
+    expect(response.json().data).not.toHaveProperty('onlineUrl')
+    // Not under any other key either.
+    expect(response.body).not.toContain(ids.onlineEvent.onlineUrl)
+
+    await app.close()
+  })
+
+  it('does not give it to a signed-in buyer who holds no ticket either', async () => {
+    const { app, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.onlineEvent.slug}`,
+      headers,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).not.toContain(ids.onlineEvent.onlineUrl)
+
+    await app.close()
+  })
+
+  it('still gives the organiser’s own team the link, for the editor', async () => {
+    const { app, ids } = await createTestApp()
+    // The online event belongs to the other organisation, whose owner this is.
+    const headers = bearer(await signIn(app, 'rival@dhol.example'))
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.onlineEvent.slug}`,
+      headers,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.onlineUrl).toBe(ids.onlineEvent.onlineUrl)
+
+    // A member of a different organisation is a stranger here.
+    const outsider = bearer(await signIn(app, 'arun@rangoli.example'))
+    const refused = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.onlineEvent.slug}`,
+      headers: outsider,
+    })
+    expect(refused.body).not.toContain(ids.onlineEvent.onlineUrl)
+
+    await app.close()
+  })
+
+  it('lists the nights soonest first, with their labels, doors and zone; tiers name theirs', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const first = prisma._store.eventSession.find((row) => row.eventId === ids.publishedEvent.id)
+    const second = {
+      ...first,
+      id: 'ckseconds0000000000000000',
+      label: 'Night 1',
+      startsAt: minutesFromNow(60 * 24 * 5),
+      endsAt: minutesFromNow(60 * 24 * 5 + 240),
+      doorsOpenAt: minutesFromNow(60 * 24 * 5 - 30),
+      timezone: 'America/Chicago',
+      sortOrder: 0,
+    }
+    prisma._store.eventSession.push(second)
+    first.label = '  Night 2  '
+    first.sortOrder = 1
+
+    await prisma.ticketType.update({
+      where: { id: ids.vip.id },
+      data: { eventSessionId: second.id },
+    })
+
+    const response = await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+
+    expect(response.statusCode).toBe(200)
+
+    const { sessions, ticketTypes } = response.json().data
+    expect(sessions.map((session) => session.id)).toEqual([second.id, first.id])
+    expect(sessions[0]).toEqual({
+      id: second.id,
+      label: 'Night 1',
+      startsAt: second.startsAt.toISOString(),
+      endsAt: second.endsAt.toISOString(),
+      doorsOpenAt: second.doorsOpenAt.toISOString(),
+      timezone: 'America/Chicago',
+      status: 'SCHEDULED',
+      salesStartAt: null,
+      salesEndAt: null,
+      hasSeatMap: false,
+      seatsAvailable: null,
+      // An organiser's night lists its end; only an imported one may not.
+      endTimeListed: true,
+    })
+    // A label is trimmed, never padded out to the page.
+    expect(sessions[1].label).toBe('Night 2')
+
+    const vip = ticketTypes.find((tier) => tier.id === ids.vip.id)
+    const general = ticketTypes.find((tier) => tier.id === ids.generalAdmission.id)
+    expect(vip.eventSessionId).toBe(second.id)
+    expect(general.eventSessionId ?? null).toBeNull()
+
+    await app.close()
+  })
+
+  it('counts a seated night’s free seats that a tier sells, and no others', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const session = prisma._store.eventSession.find((row) => row.eventId === ids.publishedEvent.id)
+    session.venueMapVersionId = 'ckmapversion0000000000000'
+    session.capacity = null
+
+    const seat = (status, ticketTypeId) => ({
+      id: `ckseat${Math.random().toString(36).slice(2, 12).padEnd(19, '0')}`,
+      eventSessionId: session.id,
+      seatId: `cksid${Math.random().toString(36).slice(2, 12).padEnd(20, '0')}`,
+      ticketTypeId,
+      status,
+    })
+
+    prisma._store.eventSeat.push(
+      seat('AVAILABLE', ids.generalAdmission.id),
+      seat('AVAILABLE', ids.generalAdmission.id),
+      seat('AVAILABLE', null),
+      seat('SOLD', ids.generalAdmission.id),
+    )
+
+    const response = await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+    const [night] = response.json().data.sessions
+
+    expect(night).toMatchObject({ hasSeatMap: true, seatsAvailable: 2 })
+
+    await app.close()
+  })
+})
+
+describe('GET /v1/events/:slug, for a night sold by zone', () => {
+  /**
+   * Read the event page's payload.
+   *
+   * @param {object} world From `reservedWorld`.
+   * @param {object} [headers] Request headers.
+   * @returns {Promise<object>} The event's `data`.
+   */
+  async function page(world, headers = {}) {
+    const response = await world.app.inject({
+      method: 'GET',
+      url: `/v1/events/${world.ids.publishedEvent.slug}`,
+      headers,
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    return response.json().data
+  }
+
+  it('gives each zone’s tier its own free seats, so a sold-out zone reads sold out', async () => {
+    const world = await reservedWorld({
+      statuses: { A1: 'SOLD', A2: 'SOLD', A3: 'HELD' },
+    })
+
+    const data = await page(world)
+    const night = data.sessions.find((session) => session.id === world.sessionId)
+    const front = data.ticketTypes.find((tier) => tier.id === world.frontTier.id)
+    const back = data.ticketTypes.find((tier) => tier.id === world.backTier.id)
+
+    expect(front).toMatchObject({ availableQuantity: 0, isSoldOut: true })
+    expect(back).toMatchObject({ availableQuantity: 3, isSoldOut: false })
+    expect(night).toMatchObject({ hasSeatMap: true, seatsAvailable: 3 })
+
+    // General admission is still counted where it always was, not here.
+    const general = data.ticketTypes.find((tier) => tier.id === world.ids.generalAdmission.id)
+    expect(general).not.toHaveProperty('availableQuantity')
+
+    await world.app.close()
+  })
+
+  it('counts no seat of a draft or hidden tier for a stranger, and names neither', async () => {
+    const world = await reservedWorld({
+      front: { status: 'DRAFT' },
+      back: { visibility: 'HIDDEN' },
+    })
+
+    const data = await page(world)
+    const night = data.sessions.find((session) => session.id === world.sessionId)
+
+    // The seat map offers this stranger nothing, and the page says the same.
+    expect(night).toMatchObject({ hasSeatMap: true, seatsAvailable: 0 })
+    expect(data.ticketTypes.map((tier) => tier.id)).not.toContain(world.frontTier.id)
+    expect(data.ticketTypes.map((tier) => tier.id)).not.toContain(world.backTier.id)
+
+    const map = await world.app.inject({
+      method: 'GET',
+      url: `/v1/sessions/${world.sessionId}/seats`,
+    })
+    expect(map.json().data.counts.available).toBe(night.seatsAvailable)
+
+    // The organiser is shown both tiers, each with its own seats.
+    const headers = bearer(await signIn(world.app, 'arun@rangoli.example'))
+    const inside = await page(world, headers)
+    expect(inside.ticketTypes.find((tier) => tier.id === world.frontTier.id)).toMatchObject({
+      availableQuantity: 3,
+    })
+    expect(inside.ticketTypes.find((tier) => tier.id === world.backTier.id)).toMatchObject({
+      availableQuantity: 3,
+    })
+
+    await world.app.close()
+  })
+
+  it('leaves a tier outside its sales window out of the night’s count, without calling it sold out', async () => {
+    const world = await reservedWorld({ back: { salesStartAt: minutesFromNow(60) } })
+
+    const data = await page(world)
+    const night = data.sessions.find((session) => session.id === world.sessionId)
+    const back = data.ticketTypes.find((tier) => tier.id === world.backTier.id)
+
+    // Only the Front seats can be had now; the Back tier still has its three.
+    expect(night.seatsAvailable).toBe(3)
+    expect(back).toMatchObject({ availableQuantity: 3, isSoldOut: false })
+
+    const map = await world.app.inject({
+      method: 'GET',
+      url: `/v1/sessions/${world.sessionId}/seats`,
+    })
+    expect(map.json().data.counts.available).toBe(night.seatsAvailable)
+
+    await world.app.close()
   })
 })

@@ -30,6 +30,10 @@ import { DEFAULT_QUEUE_PREFIX, QUEUE_FOR_JOB, jobOptionsFor } from './queues.js'
  * also keeps a rehearsal's count queries off the same tables the site is
  * serving from, which is the whole reason it is a background job.
  *
+ * The traffic roll-up is pinned to 1 as well. Its lease already serialises runs
+ * across every process, so a second copy here would only wait for the lease
+ * and give up; one per process is plenty.
+ *
  * The rest are I/O-bound on things that parallelise fine — an SMTP round trip,
  * a short transaction, an index write.
  *
@@ -40,6 +44,7 @@ import { DEFAULT_QUEUE_PREFIX, QUEUE_FOR_JOB, jobOptionsFor } from './queues.js'
 export function concurrencyFor(queueName, configured) {
   if (queueName === QUEUE_NAMES.HOLDS) return 1
   if (queueName === QUEUE_NAMES.RETENTION) return 1
+  if (queueName === QUEUE_NAMES.ANALYTICS) return 1
   return Math.max(1, configured)
 }
 

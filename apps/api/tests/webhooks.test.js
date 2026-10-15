@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 
 import { PAYMENT_MODES, signPayload } from '@desi-event/providers'
 
+import { applyPaymentSucceeded, lateCaptureLedgerKey } from '../src/lib/webhook-handlers.js'
 import { makeWorld } from './helpers/fixtures.js'
 import { createTestApp } from './helpers/app.js'
 import { cuid } from './helpers/prisma-stub.js'
@@ -372,6 +373,107 @@ describe('out-of-order arrivals', () => {
 
     await app.close()
   })
+
+  it('opens a PROVIDER_MISMATCH task for money taken on a cancelled order, not order.paid', async () => {
+    const { app, prisma, orderId, paymentId } = await createWebhookApp({
+      order: { status: 'CANCELLED' },
+    })
+
+    const response = await deliver(app, intentEvent('payment_intent.succeeded'))
+
+    expect(response.statusCode).toBe(200)
+
+    // The money was taken, so somebody has to give it back: a task, scoped to
+    // the organisation, saying so.
+    const tasks = prisma._store.reconciliationTask.filter((row) => row.paymentId === paymentId)
+
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({
+      kind: 'PROVIDER_MISMATCH',
+      state: 'OPEN',
+      orderId,
+      localState: { orderStatus: 'CANCELLED', paymentStatus: 'SUCCEEDED' },
+    })
+    expect(tasks[0].organizationId).toBeTruthy()
+    expect(tasks[0].lastError).toMatch(/refund it from the order/i)
+
+    const actions = prisma._store.auditLog
+      .filter((row) => row.entityId === paymentId)
+      .map((row) => row.action)
+
+    expect(actions).toContain('payment.succeeded_after_close')
+    expect(actions).not.toContain('order.paid')
+
+    // A second delivery of the same success finds the payment settled and
+    // opens nothing more.
+    await deliver(app, intentEvent('payment_intent.succeeded'))
+
+    expect(
+      prisma._store.reconciliationTask.filter((row) => row.paymentId === paymentId),
+    ).toHaveLength(1)
+
+    await app.close()
+  })
+
+  it('records money taken on a cancelled order as owed back to the buyer, not to the organiser', async () => {
+    const { app, prisma, paymentId } = await createWebhookApp({ order: { status: 'CANCELLED' } })
+
+    await deliver(app, intentEvent('payment_intent.succeeded'))
+
+    // No ORDER_PAID: nobody was credited. The capture is on the processor and
+    // owed back through refund clearing, which the refund then pays.
+    const batches = prisma._store.ledgerBatch.filter((row) => row.paymentId === paymentId)
+
+    expect(batches.map((batch) => batch.kind)).toEqual(['REFUND'])
+    expect(batches[0].idempotencyKey).toBe(lateCaptureLedgerKey(paymentId))
+
+    const payment = prisma._store.payment.find((row) => row.id === paymentId)
+    const accounts = new Map(prisma._store.ledgerAccount.map((row) => [row.id, row.code]))
+    const entries = prisma._store.ledgerEntry
+      .filter((row) => row.batchId === batches[0].id)
+      .map((row) => [accounts.get(row.accountId), row.direction, row.amountCents])
+
+    expect(entries).toEqual([
+      ['processor_clearing', 'DEBIT', payment.amountCents],
+      ['refund_clearing', 'CREDIT', payment.amountCents],
+    ])
+
+    // Delivered again, it posts nothing more.
+    await deliver(app, intentEvent('payment_intent.succeeded'))
+
+    expect(prisma._store.ledgerBatch.filter((row) => row.paymentId === paymentId)).toHaveLength(1)
+
+    await app.close()
+  })
+
+  it('records the success, the task and the audit together or not at all', async () => {
+    const { app, prisma, paymentId } = await createWebhookApp({ order: { status: 'CANCELLED' } })
+    const payment = prisma._store.payment.find((row) => row.id === paymentId)
+    const create = prisma.reconciliationTask.create
+    const context = { payment, intent: { status: 'succeeded' }, webhookEventId: 'evt_atomic' }
+
+    // The task cannot be written the first time.
+    prisma.reconciliationTask.create = async () => {
+      throw new Error('the database went away')
+    }
+
+    await expect(applyPaymentSucceeded(prisma, context)).rejects.toThrow(/went away/)
+
+    // Nothing stuck: were the payment left SUCCEEDED, the retry would find it
+    // settled, say so, and the money on the closed order would never reach a
+    // task.
+    expect(prisma._store.payment.find((row) => row.id === paymentId).status).toBe('PENDING')
+
+    prisma.reconciliationTask.create = create
+
+    await applyPaymentSucceeded(prisma, context)
+
+    expect(
+      prisma._store.reconciliationTask.filter((row) => row.paymentId === paymentId),
+    ).toHaveLength(1)
+
+    await app.close()
+  })
 })
 
 describe('drift', () => {
@@ -506,7 +608,10 @@ describe('what a stored payload carries', () => {
     expect(serialised).not.toContain('priya@example.com')
     expect(serialised).not.toContain('Priya Sharma')
     expect(serialised).not.toContain('12 Example Road')
-    expect(serialised).not.toContain('4242')
+    // As a JSON string, quoted: the bare digits can occur inside the event's
+    // `created` epoch seconds (1791424204 does), which says nothing about cards.
+    expect(serialised).not.toContain('"4242"')
+    expect(serialised).not.toContain('"last4"')
 
     await app.close()
   })

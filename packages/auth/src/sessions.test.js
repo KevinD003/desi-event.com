@@ -61,6 +61,22 @@ describe('sessionPolicyFor', () => {
     })
   })
 
+  it('names every platform staff role as privileged, the platform administrator included', () => {
+    expect([...PRIVILEGED_PLATFORM_ROLES].sort()).toEqual(
+      ['ADMIN', 'FINANCE_ADMIN', 'MODERATOR', 'SUPER_ADMIN', 'SUPPORT'].sort(),
+    )
+  })
+
+  it('makes a platform administrator with no membership set up a second factor', () => {
+    // ADMIN approves events and invites organisers: its session is as short,
+    // and as guarded, as any other platform staff role's.
+    expect(sessionPolicyFor({ role: 'ADMIN', memberships: [] })).toEqual({
+      privileged: true,
+      lifetimes: SESSION_LIFETIMES.privileged,
+      mfaRequired: true,
+    })
+  })
+
   it.each(['ATTENDEE', 'ORGANIZER'])(
     'does not treat the platform role %s as privileged',
     (role) => {
@@ -282,6 +298,9 @@ describe('revokesSiblings', () => {
     'PASSWORD_RESET',
     'MFA_CHANGED',
     'ACCOUNT_SUSPENDED',
+    // Finding NF-10: a role gained or lost. A session from before the change
+    // carries the old lifetime and second-factor state.
+    'ROLE_CHANGED',
   ])('ends every other session after %s', (reason) => {
     // The three that are easy to forget are the ones that matter: a session
     // established with the old password must stop working when the password
@@ -326,6 +345,46 @@ describe('step-up policies', () => {
     expect(STEP_UP_POLICIES.CREDENTIAL).toBe(2 * 60 * 1000)
     expect(STEP_UP_POLICIES.SECURITY_ROLE).toBe(2 * 60 * 1000)
     expect(STEP_UP_POLICIES.PRIVACY_ERASURE).toBe(2 * 60 * 1000)
+    expect(STEP_UP_POLICIES.MEMBER_EMAIL_VIEW).toBe(10 * 60 * 1000)
+    expect(STEP_UP_POLICIES.PROMO_ACTION).toBe(10 * 60 * 1000)
+    expect(STEP_UP_POLICIES.PAYMENT_TERMS).toBe(10 * 60 * 1000)
+  })
+
+  it('names a payment-terms policy for booking fees, paying at the venue and referral codes (SPEC3 §4.2)', () => {
+    expect(STEP_UP_POLICY_NAMES).toContain('PAYMENT_TERMS')
+    expect(stepUpWindowFor('PAYMENT_TERMS')).toBe(10 * 60 * 1000)
+    // Ten minutes, like a discount going live, and no longer than reading money.
+    expect(STEP_UP_POLICIES.PAYMENT_TERMS).toBe(STEP_UP_POLICIES.PROMO_ACTION)
+    expect(STEP_UP_POLICIES.PAYMENT_TERMS).toBeLessThan(STEP_UP_POLICIES.FINANCE_VIEW)
+
+    const now = new Date('2026-10-09T12:00:00Z')
+    const stale = { mfaSatisfiedAt: new Date(now.getTime() - 11 * 60 * 1000) }
+    const fresh = { mfaSatisfiedAt: new Date(now.getTime() - 9 * 60 * 1000) }
+
+    expect(stepUpSatisfied(stale, { now, windowMs: stepUpWindowFor('PAYMENT_TERMS') })).toBe(false)
+    expect(stepUpSatisfied(fresh, { now, windowMs: stepUpWindowFor('PAYMENT_TERMS') })).toBe(true)
+  })
+
+  it('names the promo policy so a discount going live asks for a recent factor', () => {
+    expect(stepUpWindowFor('PROMO_ACTION')).toBe(10 * 60 * 1000)
+    expect(STEP_UP_POLICIES.PROMO_ACTION).toBeLessThan(STEP_UP_POLICIES.FINANCE_VIEW)
+  })
+
+  it('shows colleagues’ addresses for less time than the finance view, and names it separately', () => {
+    // A read of third parties' personal data, so no longer than reading money.
+    expect(STEP_UP_POLICIES.MEMBER_EMAIL_VIEW).toBeLessThan(STEP_UP_POLICIES.FINANCE_VIEW)
+    expect(stepUpWindowFor('MEMBER_EMAIL_VIEW')).toBe(10 * 60 * 1000)
+
+    const now = new Date('2026-03-01T12:00:00Z')
+    const stale = { mfaSatisfiedAt: new Date(now.getTime() - 11 * 60 * 1000) }
+    const fresh = { mfaSatisfiedAt: new Date(now.getTime() - 9 * 60 * 1000) }
+
+    expect(stepUpSatisfied(stale, { now, windowMs: stepUpWindowFor('MEMBER_EMAIL_VIEW') })).toBe(
+      false,
+    )
+    expect(stepUpSatisfied(fresh, { now, windowMs: stepUpWindowFor('MEMBER_EMAIL_VIEW') })).toBe(
+      true,
+    )
   })
 
   it('gives an irreversible redaction no wider a window than any reversible action', () => {

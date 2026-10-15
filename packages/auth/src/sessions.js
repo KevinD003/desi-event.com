@@ -143,6 +143,36 @@ export const STEP_UP_POLICIES = Object.freeze({
    * particular subject.
    */
   PRIVACY_ERASURE: 2 * 60 * 1000,
+  /**
+   * Reading colleagues' full email addresses on a team list.
+   *
+   * Ten minutes. It is a read, like the finance view, but of personal data
+   * about third parties, and a roster of addresses is the most useful thing on
+   * a team page to whoever has picked up a session left open. Long enough to
+   * work through the page, short enough that a session walked away from stops
+   * showing them. Without it the list is still served, with no addresses.
+   */
+  MEMBER_EMAIL_VIEW: 10 * 60 * 1000,
+  /**
+   * Making a discount live — creating or resuming a promo code — changes what
+   * buyers pay.
+   *
+   * Ten minutes, like publishing: an organiser setting up a campaign works
+   * through several codes in a sitting, and a code is not a money movement by
+   * itself. Pausing or deleting one only reduces what is on offer, so those
+   * need no fresh factor.
+   */
+  PROMO_ACTION: 10 * 60 * 1000,
+  /**
+   * Changing what buyers pay for an event, or how they may pay: an event's
+   * booking fee, its pay-at-the-venue switch and limit, and referral codes that
+   * waive the fee.
+   *
+   * Ten minutes, like publishing and promo codes: an administrator works
+   * through several events in a sitting. Switching a referral code off only
+   * reduces what is on offer and needs none.
+   */
+  PAYMENT_TERMS: 10 * 60 * 1000,
 })
 
 /** Every policy name, for contract validation. */
@@ -175,6 +205,10 @@ export function stepUpWindowFor(policy) {
  * Platform roles whose sessions get the short lifetime and require a second
  * factor.
  *
+ * `ADMIN`, the platform administrator, is here because it reviews events,
+ * pictures and organisations and invites organisers: what it approves goes
+ * public, and whom it invites can post events.
+ *
  * Membership in an organisation is handled separately — see
  * {@link sessionPolicyFor} — because an organiser's authority comes from a
  * membership rather than from a platform role.
@@ -185,6 +219,7 @@ export const PRIVILEGED_PLATFORM_ROLES = new Set([
   'SUPPORT',
   'MODERATOR',
   'FINANCE_ADMIN',
+  'ADMIN',
   'SUPER_ADMIN',
 ])
 
@@ -334,6 +369,16 @@ export const REVOCATION_REASONS = Object.freeze({
    * `revokesSiblings` promises for every other caller.
    */
   PRIVACY_REDACTION: 'privacy_redaction',
+  /**
+   * The account gained or lost a role: a platform role changed, a membership
+   * was granted directly, ownership was handed to it, or it joined or created
+   * an organisation — finding NF-10.
+   *
+   * In {@link REVOKE_ALL_REASONS}: a session opened before the change carries
+   * the lifetime and the second-factor state of the account as it was, and a
+   * secret captured then must not inherit what the account holds now.
+   */
+  ROLE_CHANGED: 'role_changed',
 })
 
 /**
@@ -353,6 +398,7 @@ export const REVOKE_ALL_REASONS = Object.freeze([
   REVOCATION_REASONS.PASSWORD_RESET,
   REVOCATION_REASONS.MFA_CHANGED,
   REVOCATION_REASONS.ACCOUNT_SUSPENDED,
+  REVOCATION_REASONS.ROLE_CHANGED,
 ])
 
 /**

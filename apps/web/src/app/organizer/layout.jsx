@@ -9,19 +9,30 @@
  * forged cookie gets the same answer as no cookie. What this layout decides is
  * only whether to render; every action inside is authorised again by the API.
  *
+ * Until Phase 4 a session was all it asked for, so an attendee who typed this
+ * address was shown "Your events" listing the whole public catalogue. It now
+ * admits a session holding any organiser capability in any organisation (see
+ * `lib/areas.js`), and refuses everybody else with a sentence that says who
+ * can help.
+ *
  * @module app/organizer/layout
  */
 
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
-import { readSession } from '../../lib/session.js'
+import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
+import { enterArea } from '../../lib/area-gate.js'
+import { getOrganizerEvent } from '../../lib/organizer-api.js'
+import {
+  editsAsPlatform,
+  organizerEventIdFromPath,
+  platformEditorRedirect,
+} from '../../lib/platform-editor.js'
+import { requestPath } from '../../lib/request-path.js'
 
 export const dynamic = 'force-dynamic'
 
-export const metadata = {
-  robots: { index: false, follow: false },
-}
+export const metadata = { robots: { index: false, follow: false } }
 
 /**
  * @typedef {object} OrganizerLayoutProps
@@ -29,45 +40,35 @@ export const metadata = {
  */
 
 /**
- * The organiser shell.
+ * The organizer shell: the workspace rail around the page, or the area's refusal.
  *
  * @param {OrganizerLayoutProps} props Component props.
  * @returns {Promise<JSX.Element>} The rendered shell.
  */
 export default async function OrganizerLayout({ children }) {
-  const session = await readSession()
+  const { session, admitted } = await enterArea('organizer')
 
-  if (!session) redirect('/sign-in?next=/organizer/events')
+  // The Desi Events team edits an organisation's event in its own editor, in an
+  // editing session opened with a reason, never in the organiser's (SPEC2-XI
+  // O9). Here, in the area's own layout, so the redirect is a real one: no
+  // page under the loading boundary may call `redirect()`. A layout does not
+  // run again when somebody moves between the area's pages in the browser, so
+  // the events list links such a reader to the platform's editor and the
+  // organiser's editor page shows them the way there itself.
+  const eventId = editsAsPlatform(session) ? organizerEventIdFromPath(await requestPath()) : null
+
+  if (eventId) {
+    const event = await getOrganizerEvent(eventId).catch(() => null)
+    const elsewhere = platformEditorRedirect(session, event)
+
+    if (elsewhere) redirect(elsewhere)
+  }
+
+  if (!admitted) return <AreaRefusal area="organizer" />
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-200 pb-4">
-        <nav aria-label="Organiser">
-          <ul className="flex flex-wrap items-center gap-4 text-sm">
-            <li>
-              <Link
-                href="/organizer/events"
-                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
-              >
-                Events
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/organizer/venues"
-                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
-              >
-                Venues
-              </Link>
-            </li>
-          </ul>
-        </nav>
-        <p className="text-sm text-slate-600">
-          Signed in as <span className="font-medium">{session.user?.displayName}</span>
-        </p>
-      </div>
-
-      <div className="mt-8">{children}</div>
-    </div>
+    <WorkspaceShell session={session} area="organizer">
+      {children}
+    </WorkspaceShell>
   )
 }

@@ -31,6 +31,17 @@ would send the cookie anyway.
 **Rate limiting** is global, with a tighter per-route limit on the auth
 endpoints and on team invitations — the two surfaces where guessing pays.
 
+_Updated 2026-09-29._ More surfaces now have their own budget: team invitations,
+reissued codes and acceptances (10 a minute per account), organisation creation
+(5 attempts an hour and 3 organisations a day per account), door lookups and
+admissions, single and group (120 a minute), pass and group-pass retrieval (30 a
+minute), checkout quotes (30 a minute per account), checkouts that name a promo
+code (30 a minute per account, or per address for a guest), picture uploads (20 per ten
+minutes, counted before the body is read) and picture reads (their own budget).
+The keys are per account where a session exists, because every browser request
+reaches the API through one same-origin proxy address. The table is in
+`docs/api.md` ("Rate limits").
+
 ---
 
 ## Multi-factor authentication
@@ -182,6 +193,136 @@ Finding NF-10. Granting or removing a role, changing a password, enrolling or
 removing a factor — each rotates or revokes the affected sessions, so a
 privilege that was taken away is taken away from the tab that already has it.
 
+_Extended 2026-09-29._ Every route that can grant or move a role now does the
+same, through `apps/api/src/lib/privilege-change.js` and a new revocation
+reason, `ROLE_CHANGED`, which ends every session:
+
+- **Authority gained by the caller** — creating an organisation (the creator
+  becomes OWNER) or accepting a team invitation: every _other_ session of
+  theirs ends, the current one is shortened to the new role's lifetime, and a
+  cookie session gets a new secret. A privileged role then needs a verified
+  second factor before any guarded route answers (NF-12).
+- **Authority changed for somebody else** — a platform role change, a direct
+  membership grant, being handed ownership: every session of theirs ends,
+  inside the transaction that made the change.
+
+### An organisation always has an owner
+
+Four routes can take OWNER away from somebody: a role change, a removal, an
+ownership transfer and the platform's direct grant. Each locks every owner
+membership of the organisation `FOR UPDATE`, ordered by id, and then the target
+row, and only then counts owners and re-reads the target
+(`apps/api/src/lib/memberships.js`). Under READ COMMITTED, two demotions of two
+different owners would otherwise each count two and both proceed, leaving none.
+`apps/api/tests/platform-roles-integration.test.js` races them against real
+PostgreSQL: two owners demoting each other, a removal or demotion waiting on a
+transfer, a transfer whose heir is removed while it waits, and two grants to one
+newcomer.
+
+### Platform roles
+
+Six platform roles — `ATTENDEE`, `ORGANIZER`, `SUPPORT`, `MODERATOR`,
+`FINANCE_ADMIN`, `SUPER_ADMIN` — changed only by a super administrator
+(`platform:admin`) through `POST /v1/platform/users/:id/role`:
+
+- a second factor confirmed within `SECURITY_ROLE` (two minutes) and a written
+  reason, recorded on the audit row;
+- never the caller's own account (403), because promoting yourself is the
+  attack and demoting yourself is how a platform ends up with nobody at the top;
+- every super administrator is locked and the caller's role re-read before the
+  change, so two administrators demoting each other at once cannot both
+  succeed, and a change that would leave none is 422 `LAST_SUPER_ADMIN`;
+- every session of the target ends in the same transaction.
+
+The account search is a POST, so an email address never reaches an access log
+or a browser history; it answers `no-store` and carries no credential, hash or
+factor. The direct membership grant follows the same rules and refuses a
+suspended account. The role tables stay on the server: the bundle scan forbids
+`PLATFORM_ROLE_CAPABILITIES`, `ORG_ROLE_GRANTS` and `platform:admin` in any
+browser artefact.
+
+A platform `SUPER_ADMIN` may also admit at any event's door, recorded as its
+own authority on the event's audit trail; every other platform role is refused
+at the door and audited (ADR 0007, `docs/CHECK_IN.md`).
+
+### An organisation anybody can create
+
+`POST /v1/organizations` is open to any signed-in account, because a new
+organisation starts `UNVERIFIED` and cannot publish or be paid until a
+moderator verifies it. The request body has no field for verification state,
+badge, suspension, payout currency, contact address, owner or creator — the
+schema names five fields and strips every other key before the handler sees
+it, the server sets the rest, and a contract test refuses the verification and
+suspension keys in any request schema. It is limited per account (5 attempts an hour, 3 organisations a day,
+the second counted with the creator's user row locked).
+
+### Colleagues' addresses on the team list
+
+`GET /v1/organizations/:id/members` needs `organization:view_members`, which
+VIEWER holds and every organisation role but SCANNER inherits. Until the
+Phase 4 work it returned every member's and every invitee's full address to all
+of them, including VIEWER and STAFF sessions that need no second factor. The
+server now decides, and the response schema enforces, one of two shapes:
+
+| Caller                                     | `emailVisibility` | What each entry carries                      |
+| ------------------------------------------ | ----------------- | -------------------------------------------- |
+| OWNER, ADMIN, MANAGER (hold `team:invite`) | `FULL`            | `email`                                      |
+| Platform `SUPER_ADMIN`                     | `FULL`            | `email` — unscoped capabilities, MFA-gated   |
+| VIEWER, STAFF, EVENT_MANAGER, FINANCE      | `MASKED`          | `emailMasked` (must contain `*`), no `email` |
+| SCANNER                                    | —                 | 403: no `organization:view_members`          |
+| A member of another organisation           | —                 | 403                                          |
+
+The masked shape has no `email` key at all, so an address a presenter left in
+is stripped by the serializer; and `emailMasked` must contain a `*`, so a full
+address put in its place is a serialization failure rather than a leak. The
+forwarded-invitation refusal on `POST /v1/invitations/accept` names the
+invited address masked, where it used to name it in full. Door responses carry
+no address of any kind.
+
+_Corrected 2026-09-23, first Phase 4 commit. The table and paragraph above are
+left as written; they described the rule after Phase 3._ The masked form kept
+the first and last characters of the local part and one `*` for each of the
+rest, so it gave away the local part's length and both its ends. The owner
+asked for it to go. The list now has three shapes, and none of the two without
+addresses carries any part of one:
+
+| Caller                                                                      | `emailVisibility`  | What each entry carries                       |
+| --------------------------------------------------------------------------- | ------------------ | --------------------------------------------- |
+| OWNER, ADMIN: `team:role_manage` through their own membership, stepped up   | `FULL`             | `email`                                       |
+| The same, with no second factor confirmed in the `MEMBER_EMAIL_VIEW` window | `STEP_UP_REQUIRED` | no address field                              |
+| MANAGER, EVENT_MANAGER, FINANCE, STAFF, VIEWER                              | `HIDDEN`           | no address field                              |
+| Platform `SUPER_ADMIN` who is not a member                                  | `HIDDEN`           | no address field: this is not an audited path |
+| SCANNER; a member of another organisation                                   | —                  | 403                                           |
+
+- **Step-up.** `MEMBER_EMAIL_VIEW` is ten minutes. Signing in with a second
+  factor counts. A `STEP_UP_REQUIRED` list is still the list, without
+  addresses; a step-up and a second request show them.
+- **Names.** On the two shapes without addresses, an address in a display name
+  or an inviter's name is replaced with `Hidden email`, and the schema refuses
+  one that gets through.
+- **The forwarded invitation.** The refusal names no part of the address now.
+- **Transfers.** A recipient is `••••@example.com` to the parties: four bullets,
+  whatever the local part, so two recipients at one domain read the same. An
+  organiser reading the ticket gets `Hidden email`. The schema accepts nothing
+  else.
+- **The operations queue.** No recipient in any form. An address in a stored
+  error is replaced, and the schema refuses one that gets through.
+- **Orders.** An organisation reading an order (`order:view`, VIEWER and up) no
+  longer gets the buyer's address. The buyer's own reads do.
+- **The door.** An address typed as a name reaches the door as `Hidden email`.
+- **Audit rows.** A transfer's audit rows no longer copy the recipient's
+  address. Audit rows are immutable and outside what a privacy redaction
+  rewrites, so an address there outlived its erasure. Rows written before this
+  change still hold one.
+- **Logs.** The logger redacts `email`, `toEmail`, `buyerEmail` and
+  `recipient`. The worker's email job keeps the recipient out of its log line,
+  its result and its errors.
+- **Payment metadata.** Identifiers only. It carried the buyer's address, which
+  the adapters' own rule forbids.
+- **Sign-in.** The form posts. It has named fields and no method, so a press
+  before the page's script arrived would have put the address and the password
+  in the URL.
+
 ---
 
 ## What leaves the server
@@ -218,6 +359,9 @@ quietly deleted:
   address coming back. Retargeted at `maskRecipient`: if the masking function
   ever reached the browser, the raw address must have reached it first. The
   masked value is asserted at runtime instead, where a value can be read.
+  _Updated 2026-09-23:_ `maskRecipient` no longer exists. The needle is now
+  `transferRecipient`, which replaced it, and `maskRecipient` stays a needle so
+  the old masker cannot come back unnoticed.
 
 The rule that survives both: **a needle is removed only when it cannot express
 its property, and only with a replacement that can.** Neither was deleted to
@@ -241,6 +385,9 @@ protection when `status` can hold a whole charge.
 
 **Log redaction** is path-based (`packages/logger/src/redaction.js`) and covers
 secrets, tokens, credentials, authorization headers and provider payloads.
+_Updated 2026-09-29:_ it also covers `invitationCode`, `groupCode`, `codeHash`,
+`promoCode`, and the guest names `attendees`, `attendeeName` and
+`attendeeNames`.
 
 ---
 
@@ -276,6 +423,40 @@ its event and its transfer history and carries no credential, no digest and no
 token; three browser cases assert the markup contains none of the three names
 they go by.
 
+_Corrected 2026-09-23, Phase 3 closure audit. The paragraph above is left as
+written; it described Phase 2._ Since Phase 3 (`739cc58`), one screen does
+render a pass. The holder's ticket page draws it as a QR code, and only when
+the holder presses **Show my entry pass**. The drawing comes from
+`GET /v1/tickets/:id/pass`. It answers the holder alone, gives anyone else a
+404, and is `private, no-store`.
+
+- The component keeps the drawing and never the credential text. It drops the
+  drawing on **Hide pass**, when the page is hidden, on `pagehide`, and when
+  the page is left.
+- The page tells the holder that anybody holding the code, a screenshot
+  included, can use it to get in once. It claims no way of preventing a
+  screenshot.
+- `GET /v1/tickets/:id` itself still carries no credential, digest or token
+  (`ticket-lifecycle.test.js`). The ticket page's markup still carries none of
+  `credentialHash`, `credentialVersion` or `ticket-pass-v1`
+  (`detail-transfers.spec.js`). The drawing arrives only from the pass
+  endpoint, after the press.
+- No end-to-end spec shows a real pass where a screenshot, trace or video
+  could keep it. Either the spec file turns all three off, or the case answers
+  the pass request itself. `apps/web/src/lib/e2e-pass-hygiene.test.js`
+  enforces this.
+
+**A group pass is built the same way, and kept apart.** One QR (`G1.` and an
+HMAC under the purpose `group-pass-v1`) and one printed code (`DEG-` and twelve
+characters under `group-pass-code-v1`) admit every ticket on an order that its
+buyer still holds. Only their SHA-256 digests are stored, a CHECK refuses
+anything else, and a version bump replaces both. The route that draws it
+answers the order's buyer alone — every other caller, an organiser and a
+platform administrator included, gets the same 404 — and is `no-store` and
+rate-limited. **The stated limit:** a screenshot of a group pass admits every
+live ticket the buyer still holds on that order, once each, until it is
+replaced; a ticket handed on leaves the group.
+
 **A transfer invitation is a bearer secret and is treated as one.** It is
 delivered out of band, never in a response, and the screen that accepts it takes
 it as a pasted value in a password field. The accept route reads no query
@@ -286,18 +467,130 @@ refusal of an invitation reads identically, whether it expired, was withdrawn,
 was already used or never existed; telling them apart tells whoever is feeding
 in guesses which of their guesses was real.
 
+_Corrected 2026-09-29._ "Never in a response" was written for a delivery
+provider this build never had. The next section is the rule now.
+
+---
+
+## Show-once codes
+
+A team invitation and a ticket offer each mint a single-use code. With no
+delivery provider (`DELIVERY_MODE=MANUAL`, this build), the code is returned to
+whoever issued it, **once** (ADR 0008):
+
+- in the 201 that minted it only, as `data.delivery.invitationCode`, with
+  `cache-control: no-store, private` and `pragma: no-cache`, which the web
+  proxy forwards;
+- stored only as a SHA-256 digest, so it cannot be shown again to anybody —
+  a lost team code is replaced by reissuing (which withdraws the old one in the
+  same transaction), a lost transfer code by withdrawing the offer;
+- never logged (`invitationCode` is on both logger redaction lists), never in
+  an audit row (`deliveryMode` is recorded instead), never in the notification
+  outbox, never in a URL;
+- 43 url-safe characters, pinned by `invitationCodeSchema`, so no other value
+  can travel under that name;
+- drawn by one component, `one-time-code-panel.jsx`, from React state only —
+  never `localStorage`, `sessionStorage` or a link — and dropped when the
+  issuer says they have handed it over. An end-to-end spec that reaches one
+  must turn screenshots, traces and video off (`e2e-code-hygiene.test.js`).
+
+Naming `DELIVERY_MODE=EMAIL` with no provider **refuses to boot**, rather than
+minting codes nobody can receive. (Updated 2026-10-06, ADR 0011: `EMAIL` with an
+SMTP server now sends the code instead of returning it, and an organiser
+invitation is a third code of the same kind; see "SMTP" below.)
+
+The recipient must be signed in at the invited address, and every code is
+single-use, expires (14 days for a team invitation, 72 hours for a ticket
+offer) and can be withdrawn.
+
+**The stated limit.** No address is ever confirmed by email (and in `MANUAL`
+mode nothing is emailed at all), so registering an address is not proof of
+owning it. Somebody who obtains a code and registers the invited
+address before its owner does can use it. The issuer is told to pass the code
+on privately; every acceptance is audited; an owner can remove a member who
+should not be there. A deployment with a delivery provider (`EMAIL`) removes
+the issuer as a holder of the secret but, without address confirmation, not
+this.
+
+---
+
+## Promo codes
+
+A promo code is a bearer discount. Making one, or resuming a paused one,
+needs `promo:manage` in the organisation and a second factor within
+`PROMO_ACTION` (ten minutes); pausing and deleting only reduce what is on offer
+and need neither step-up. Audit rows never record a code's text, and the logger
+redacts `promoCode`.
+
+Trying codes is bounded, not prevented: the checkout quote is signed-in only and
+allows 30 quotes a minute per account. The charge is the other place a code can be
+tried — `POST /v1/orders` takes guests, refuses an unknown code and moves the total
+for a known one before anything is written — so a checkout that names a code draws
+on a budget of the same size, per account or, for a guest, per address (a hold
+token is no key: anybody can mint another). A checkout with no code is never
+counted. A code that does not exist and a code for
+another event both answer `UNKNOWN`; a code that exists for the event but has
+ended, not started, been paused or been used up says so, so that a buyer can act
+on it — which also tells somebody guessing that the code exists. Redemption is
+counted server-side under a row lock, so a code with one use left gives one
+discount however many buyers race for it.
+
+---
+
+## Uploaded pictures
+
+An organiser's cover and gallery pictures are the one place a stranger's file
+becomes part of a public page. The pipeline is in [MEDIA.md](MEDIA.md); this
+is the threat model it answers.
+
+| Threat                                                                                                      | Control                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Script in a picture.** An SVG, or HTML, renamed `cover.png`                                               | The type is sniffed from the bytes; only JPEG, PNG and WebP are accepted (415 otherwise). A body declared as anything but a picture type or `application/octet-stream` — JSON and plain text included — is 415 before it is read. No SVG anywhere: the optimiser has `dangerouslyAllowSVG: false`. Served with `nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`, so even a picture opened directly is inert                                                                                      |
+| **Polyglots.** A valid picture that is also a ZIP, an HTML page or a script, via trailing data or a comment | Each file is rebuilt from an allow-list of structures; comments, unknown segments and chunks, and anything after the end marker are not copied. A JPEG's JFIF segment is rebuilt from its fixed fields, so bytes after them are not copied either. The rebuilt file is sniffed again                                                                                                                                                                                                                                 |
+| **Location and identity in metadata.** EXIF GPS, camera serials, XMP, IPTC, embedded thumbnails             | Not copied, and that includes a thumbnail inside a JFIF or JFXX segment, which can still show what a crop removed. A JPEG's orientation is rebuilt as a new EXIF segment holding that one tag. Pinned by a round-trip test that stores a camera JPEG with GPS and reads back bytes without it                                                                                                                                                                                                                        |
+| **Decompression and dimension bombs**                                                                       | 10 MiB body cap, enforced while reading; 8,000 pixels a side and 40 megapixels, read from the header; no pixel data is ever decompressed on the server                                                                                                                                                                                                                                                                                                                                                               |
+| **Parser bugs**                                                                                             | The sanitisers are small, pure JavaScript, bounds-checked, and refuse what they do not understand; a seeded fuzz test feeds them 500 mutated files and accepts only a clean refusal or a valid output                                                                                                                                                                                                                                                                                                                |
+| **Resource exhaustion**                                                                                     | Authorisation, status, gallery room and quota are checked in an `onRequest` gate before the body is read; 20 uploads per ten minutes per person; 1 GiB per organisation; the proxy buffers at most one picture and refuses a larger body itself                                                                                                                                                                                                                                                                      |
+| **A private picture leaking through a cache.** A draft's cover, or one taken down                           | Only an approved, sanitised picture of a publicly visible event is served `public`; everything else is `private, no-store`, and 404 to anybody who may not see it. A public picture read with the session cookie is `private, max-age=86400`, because that reply can carry a rotated session cookie; a refusal, a missing picture's included, is `no-store` with no entity tag. The optimiser fetches without cookies, so it can only cache public pictures. The social card fetches anonymously for the same reason |
+| **Existence probing.** Guessing picture ids for unannounced events                                          | A picture the caller may not see is 404, identical to one that does not exist; ids are CUIDs; the listing route answers 404 too                                                                                                                                                                                                                                                                                                                                                                                      |
+| **Pointing the server at a third party.** SSRF through an image URL                                         | There is no image URL any more: `coverImageUrl` was dropped, and a request carrying it is 400. The optimiser allows no remote host and only `/api/v1/media/**` with no query                                                                                                                                                                                                                                                                                                                                         |
+| **Storage keys**                                                                                            | Never on the wire, never in a browser bundle (`scan-browser-bundle.mjs` forbids `storageKey`), never in an audit row                                                                                                                                                                                                                                                                                                                                                                                                 |
+
+What remains, stated rather than implied:
+
+- **No antivirus engine.** The check is structural. A moderator reviews every
+  picture before it is public.
+- **No pixel re-encoding.** A decoder flaw in a viewer's browser triggered by
+  valid pixel data is not prevented by rebuilding the container around it.
+- **A taken-down picture can linger in caches** that fetched it publicly, for
+  up to the 24 hours it was served with. There is no purge.
+
 ---
 
 ## Transport and headers
 
-Helmet, with CSP: `default-src 'self'`, `base-uri 'self'`,
+The API registers Helmet, with CSP: `default-src 'self'`, `base-uri 'self'`,
 `frame-ancestors 'none'`, `object-src 'none'`.
 
 **Two directives are weaker than they should be, and are recorded rather than
 glossed:** `script-src` and `style-src` both permit `'unsafe-inline'`, because
-Next.js's App Router emits inline bootstrap and style. Closing them needs a
-nonce threaded through the framework's document, which is real work and is not
-done. Written here so nobody reads "CSP is configured" as "CSP is strict".
+the bundled Swagger UI at `/docs` is built that way. The API otherwise answers
+JSON, which no browser runs. Written here so nobody reads "CSP is configured"
+as "CSP is strict".
+
+**The web app's pages are served with no Content-Security-Policy at all.**
+Helmet's policy is on the API's responses, not on the pages Next.js renders,
+and a nonce-based policy for them is not built. So nothing the organiser types
+may reach a page as markup. React escapes text; the one place the web app
+writes raw markup is the JSON-LD block on the event and venue pages, which goes
+through `serializeJsonLd` (`apps/web/src/lib/json-ld.js`). `JSON.stringify`
+leaves `<` alone, so a title, a performer's name, a night's label or a venue's
+name holding `</script><script>…` used to close the block and run as every
+visitor, with their CSRF cookie in reach. `serializeJsonLd` writes `<`, `>`,
+`&`, U+2028 and U+2029 as `\uXXXX` escapes, which leave the JSON a search
+engine reads unchanged. `json-ld.test.js` fails the build when any other source
+file writes raw markup or opens a script element, and both pages have a test
+that renders a hostile payload to HTML and parses it back.
 
 CORS is an explicit origin list with `credentials: false`.
 
@@ -358,13 +651,14 @@ controls, not a monitored service.
 
 ## Key rotation
 
-| Secret                | Rotating it                                                                                                                  |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `AUTH_SECRET`         | Invalidates every session and **every outstanding ticket pass**, because passes are derived from it. Not a routine operation |
-| Ticket credential     | Per ticket, by bumping `credentialVersion`. This is the routine one, and a transfer does it automatically                    |
-| Stripe API keys       | Replace the environment variables and restart; the boot gate re-validates the whole set and refuses a mixed one              |
-| Stripe webhook secret | Same. A secret key with no webhook secret refuses to boot                                                                    |
-| Session cookie secret | Derived from `AUTH_SECRET` by HKDF with its own purpose label, so it cannot be produced by code deriving another purpose     |
+| Secret                | Rotating it                                                                                                                                                             |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_SECRET`         | Invalidates every session and **every outstanding ticket pass**, because passes are derived from it. Not a routine operation                                            |
+| Ticket credential     | Per ticket, by bumping `credentialVersion`. This is the routine one, and a transfer does it automatically                                                               |
+| Group pass            | Per order, by the buyer replacing it (`POST /v1/orders/:reference/group-pass/rotate`), which bumps its version. `AUTH_SECRET` rotation invalidates every group pass too |
+| Stripe API keys       | Replace the environment variables and restart; the boot gate re-validates the whole set and refuses a mixed one                                                         |
+| Stripe webhook secret | Same. A secret key with no webhook secret refuses to boot                                                                                                               |
+| Session cookie secret | Derived from `AUTH_SECRET` by HKDF with its own purpose label, so it cannot be produced by code deriving another purpose                                                |
 
 Purpose separation is the load-bearing part: every derived key names its
 purpose, and changing a purpose label invalidates exactly that use and nothing
@@ -477,3 +771,304 @@ It is recorded here rather than fixed because payment mode is a protected area
 under this phase's authorisation. The repair would be to re-apply the gate to
 the override rather than replace the result with it, correct or delete the
 comment, and add the missing invariant to `payment-kill-switch.test.js`.
+
+---
+
+## Invite-only organisers, the website link and visit counting — 2026-10-06
+
+Recorded from SPEC2 §9. The decisions are ADRs 0010–0013.
+
+### Organiser invitations
+
+- The code exists only in the `MANUAL` 201 body, in the administrator's page
+  state until "handed over", in the recipient's password field, or in the SMTP
+  message. It is never in a URL, a log, an audit row or an outbox row. Only its
+  digest is stored.
+- **Email ownership is not verified.** Whoever registers the invited address
+  first and obtains the code can accept it. Mitigations: the code is
+  single-use, bound to the address, expires after fourteen days, can be
+  withdrawn, and every acceptance is audited with its inviter; the issuing
+  screen tells the administrator to hand it over privately.
+- Staff accounts cannot be invited or accept (422 / 403 `STAFF_ACCOUNT`).
+- `organizer:invite`, `website_redirect:manage` and `analytics:view_all` are
+  forbidden literals in browser bundles, like `platform:admin`; client
+  components receive booleans (`browser-bundle.js`, `scan-browser-bundle.mjs`).
+
+### Alias accounts
+
+An ADMIN can invite a second address of their own, run an organisation from it,
+and approve its events from the first account; reviewer independence cannot see
+through this. Every acceptance is audited with its inviter, so a super
+administrator can list the organisations created from each administrator's
+invitations (the invitations list, status ACCEPTED, and the audit log).
+
+### The review gate
+
+`desi_event_status_requires_review` refuses any move into a public status that
+did not come through APPROVED (or a platform restore). Approval names the
+revision reviewed. A reviewer who belongs to the organisation is refused
+`CONFLICT_OF_INTEREST`, the submitter `SELF_REVIEW`. Three source scans in
+`apps/api/tests/security-regression.test.js` pin every path to "public" in
+`apps/*/src`.
+
+### SMTP
+
+- TLS is required in production (`SMTP_SECURE` or `SMTP_REQUIRE_TLS`, refused at
+  boot otherwise); certificate checks stay on.
+- Credentials are redacted by the logger (`SMTP_PASSWORD`, `smtpPassword`,
+  nodemailer's `auth.pass`), and nodemailer's own logger and debug output are
+  off, because an SMTP transcript contains the message.
+- A failed send withdraws what it issued (503 `DELIVERY_FAILED`).
+- At most three codes a day reach one address, and a sender may email at most
+  five ticket transfers an hour. The address's codes are counted inside the
+  transaction that writes the new one, under a transaction-scoped advisory lock
+  on the lower-cased address, so requests to one address that arrive together
+  are counted one after another and cannot pass the cap between them.
+- Sender-written text is quoted and marked as the sender's.
+
+### Visit counting and the traffic trust chain
+
+- The API believes `x-desi-client-address` only from
+  `TRAFFIC_TRUSTED_FORWARDERS` (loopback by default). **The API port must not be
+  publicly reachable** where loopback is trusted, or anybody could send the
+  header.
+- With `TRAFFIC_TRUSTED_PROXY_HOPS=0` behind a proxy, every visitor looks like
+  the proxy, and a visitor talking to the web server directly can choose the
+  address the code is made from. Dedupe and the per-visitor, per-event and
+  per-process caps bound the effect, and the copy says the figures are a guide.
+  The web server logs a warning in production when the hops are 0.
+- No address, browser string or account is stored; the day's secret is deleted
+  when the day ends. Only `lib/traffic.js` and `@desi-event/db/traffic-rollup`
+  read or write raw visit rows (a source scan).
+
+### Outbound links and the website redirect
+
+- No open redirect: the destination is only ever the decided address of a
+  publicly visible event, re-validated when decided, when read and before the 302.
+- The same 404 for every refusal; 302 with `no-store, private`; prefetch and
+  prerender answered 503 without a lookup; `HEAD` 405.
+- Only `lib/website-redirect.js` writes the switch (a source scan). An INSERT
+  could create an ON row; only seeds do, and the importer goes through
+  `decideWebsiteRedirect`.
+- Every decision is audited with the administrator, the reason and the address
+  seen, under a MODERATION step-up.
+
+---
+
+## Full control of posted events and the Sulekha import — 2026-10-06
+
+Recorded from SPEC2-XI §10. The decisions are ADRs 0014 and 0015.
+
+### Money
+
+- Every refund that deletion, night cancellation or event cancellation causes
+  goes through `requestRefund`'s reservation, under the order CHECK and
+  `desi_refund_within_order_total`. A retry reserves again.
+- A disputed payment is never refunded here (409 `PAYMENT_DISPUTED`; left to
+  finance).
+- Provider calls happen outside transactions.
+- A whole-remainder refund returns exactly what is left of each part (face
+  value, fee, tax).
+- No caller chooses an amount, an order or a recipient: an administrator's
+  deletion refunds are whole-order.
+- **A late payment is never lost.** A success on a closed order opens a
+  reconciliation task (`payment.succeeded_after_close`).
+
+### Platform editing
+
+- A reason, an MFA step-up, a sitting of at most 60 minutes bound to one browser
+  session, and a fresh second factor every ten minutes of writes.
+- The re-check reads the sitting `FOR SHARE` inside every write, and every write
+  is audited with the sitting and the reason.
+- Membership is read first: `ALL_CAPABILITIES` never silently edits another
+  organisation's event.
+- **Stated limit:** a non-member SUPER_ADMIN keeps the lifecycle moves
+  (publish, sales, postpone, cancel, reschedule) without a sitting. Each is
+  audited and shown as "by the team at The Desi Events".
+- `event:platform_edit`, `event:platform_delete` and `event:import` are
+  forbidden literals in browser bundles.
+
+### Deletion
+
+- The typed web address is checked on the server; the outcome is pinned by the
+  request; the revision is compared; an EVENT_CANCEL step-up is required.
+- Refused while a payment is in flight, including a success not yet applied.
+- The lock order is Event, tiers, sessions, so deletion cannot deadlock with
+  checkout or authoring.
+- Tickets are withdrawn in the same transaction, and the door refuses DELETED
+  events and CANCELLED nights.
+- Restore is platform-only, lands on-sale events paused, and is guarded by one
+  SQL function (`desi_event_restore_target`) used by two triggers.
+
+### Pictures
+
+An unreviewed image is never public, and the uploader never approves their own
+(403 `SELF_REVIEW`). The one exception is imported pictures, approved together
+with their event by the administrator who reviewed the run.
+
+### Import SSRF
+
+- One code-level host allow-list (`usimg.sulekha.io`); https on 443 only.
+- Every resolved address must be public (IPv6: global unicast only, minus the
+  tunnelling and documentation ranges), and the connection is pinned to the
+  validated address; the pinned lookup answers Node 22's `all: true` form too.
+- Its own `https.Agent`, never the global one, so no proxy setting reroutes it;
+  certificate checks stay on. The importing machine needs direct HTTPS egress
+  to the one host.
+- Every redirect hop is validated and pinned afresh; at most two; none leaves
+  the list; a 10 second timeout; a 10 MiB cap; identity encoding only; a type
+  check, then the upload sanitiser.
+- Only `lib/import-images.js` may make outbound requests from `apps/api/src`
+  (a source scan).
+- The fixtures source (`IMPORT_IMAGE_SOURCE=fixtures`) is refused in production,
+  and its file name cannot leave its directory.
+- `sourceUrl` and `ticketUrl` in an uploaded file must be on
+  `events.sulekha.com`, checked at run time.
+
+### Review independence for imports
+
+- The exemption covers only imported events and pictures of an organisation
+  with `platformHeldSource`. That organisation can have no members (a trigger)
+  and no team invitations.
+- Approval still needs `moderation:review`, an EVENT_PUBLISH step-up and the
+  revision the administrator saw; every stored picture bumps the revision, so a
+  picture the administrator did not see cannot ride along.
+- The approve route accepts only imported events of that run in a platform-held
+  organisation, so it can never publish an organiser's own event.
+- A platform-held event cannot get ticket types or open sales
+  (`SOLD_ON_SOURCE`), so no money is taken for an organisation with no payout
+  account.
+- Who imported and who approved are both stored and audited. Reassignment ends
+  the exemption.
+
+### Imported data
+
+- Stored credential-free: the dataset validator refuses email and phone
+  patterns.
+- Public pages never carry Sulekha picture addresses.
+- The outbound Sulekha link goes only through the website switch and its
+  tracked redirect.
+
+### Free text
+
+Reasons typed when deleting, restoring, cancelling a night, opening a platform
+editing sitting or reassigning are stored as typed and are not redacted by the
+privacy process — on the event and night (`deletionReason`,
+`cancellationReason`), its history, the sitting, the change notice, the import
+record and audit metadata, on every refund a deletion or a night's
+cancellation asks for (`Refund.reasonNote`), and in the notice queued for each
+buyer (`NotificationOutbox.payload.reason`), which the message templates print
+(not emailed by this build's in-memory provider; a real mail provider would
+send it to every buyer). See
+[PRIVACY_AND_RETENTION.md](PRIVACY_AND_RETENTION.md#free-text-reasons--2026-10-06).
+Every such form says: "Shown with the event's history. Do not include
+anybody's personal details."
+
+## Booking fees, referral codes and paying at the venue — 2026-10-09
+
+ADRs 0016 and 0017.
+
+### Referral codes are bearer codes
+
+Stored in plain text, as promo codes are (ADR 0016 §4), and kept out of every
+place a promo code's text is kept out of: no route takes a code in its path or
+query; responses carrying one name the field `referralCode`, never `code`, and
+only `referral_code:manage` responses carry it; `referralCode` is in both of the
+logger's redaction lists; the `err` serialiser drops PostgreSQL's `detail` from
+an error's `cause`, `meta` and driver-adapter chain, which could quote a failing
+row; audit metadata records a label only as `labelSet` / `labelChanged`; no
+outbox payload carries a code; nothing stores one in the browser; the browser
+journeys turn screenshots, traces and video off. Buyers send a code only in the
+bodies of `orders.quote` and `orders.create`, signed in.
+
+### Guessing, and the two residuals (DR10)
+
+Every reason a code does not apply answers the same `NOT_ACCEPTED`, after the
+same queries. The control is a budget of wrong guesses only: 10 per 10 minutes
+per account, 30 per 10 minutes per address (an HMAC of the address with a
+process key), and, when no address is known, one shared bucket of 300 per 10
+minutes that is never skipped.
+
+- **Timing.** A guesser could still tell that a code exists, and applies to
+  them, from a lock wait at the charge. The budget is what bounds it.
+- **The shared bucket with no proxy named.** A production web server with
+  `TRAFFIC_TRUSTED_PROXY_HOPS` 0 (or unset or unusable) forwards **no** address
+  on checkouts, because without a named proxy the last `X-Forwarded-For` entry
+  is one the browser chose. Every wrong code then counts in `referral:shared`,
+  which one guesser can fill for everybody naming a code for ten minutes. A
+  deployment behind a proxy or load balancer must set the hops to match it;
+  with hops ≥ 1 the entry the nearest named proxy appended is forwarded, as for
+  visit counting.
+
+### Conflict of interest
+
+- An administrator holding any membership in an event's organisation cannot
+  change its booking fee or pay-at-the-venue switch.
+- An administrator cannot refund the booking fee of their own order, by account
+  or as a guest with their own address, nor of an order on an event of an
+  organisation they belong to.
+- A referral code's maker cannot use it.
+- Unpaid tickets are cancelled on the actor's own membership first: an
+  administrator whose membership in the organisation lacks `order:refund` is
+  refused rather than allowed through platform authority.
+
+The first, second and fourth are a 403 `CONFLICT_OF_INTEREST`; a maker naming
+their own code gets the same `NOT_ACCEPTED` as any code that does not apply
+(`apps/api/src/lib/referral-codes.js`, `applies()`), so the answer does not say
+the code exists (DR10, ADR 0016 §5). Each is tested.
+
+### Capabilities and step-up
+
+Four platform-only capabilities join the platform administrator's allow-list,
+now fourteen and still checked at load: `payment_terms:manage`,
+`referral_code:manage`, `platform_fee:refund` (also FINANCE_ADMIN) and
+`venue_booking:cancel`. A new step-up policy, `PAYMENT_TERMS` (ten minutes),
+covers the fee, the switch and referral codes, except switching a code off; the
+booking-fee refund and cancelling unpaid tickets use `FINANCE_ACTION`, and the
+two reports of bookings and payments at the venue `FINANCE_VIEW`. All four
+capability literals are forbidden in browser bundles; client components get
+booleans. Every new route answers `no-store`.
+
+### Source scans
+
+`security-regression.test.js` holds the writers of every new column to their one
+module (`docs/DATA_MODEL.md`, "Booking fees, referral codes and paying at the
+venue"), including the one decrement of `quantitySold`; no `NOT_BUILT` stub
+literal survives under `apps/api/src`; no `returnReferralUse(` exists and only
+`settleReferralUsesIfEnded` gives uses back; the referral modules pass no code
+or label to an audit or a log call; settlement locks its tiers before its order;
+the worker's ticket issuer refuses pay-at-the-venue orders.
+
+Widened on 2026-10-13 after the guards review:
+
+- **Logs.** No log call in the API, the worker or the packages names a referral
+  value or hands over a whole request body, and each log call in the modules
+  where a buyer's code arrives (`routes/orders.js`, `lib/checkout-pricing.js`,
+  `lib/checkout.js`, `plugins/rate-limit.js`) is pinned key by key.
+- **Audit and outbox.** `order.paid`'s metadata and every queued notice's
+  payload are pinned key by key, so a code's text under a new name fails the
+  scan.
+- **At run time.** `show-once-logging.test.js` sends refused codes (one nobody
+  made, one switched off, one for another event; as typed, lower-cased and
+  padded) through the quote and the charge and finds none in the logs. After a
+  card order, a pay-at-the-venue booking and the event's cancellation, it finds
+  a code's text and label in no table but the code's own row.
+- **Browser.** `browser-bundle.test.js` keeps a code out of local and session
+  storage, IndexedDB, the Cookie Store, the Cache API and cookies written or
+  appended from script. In the modules that hold a code, it also checks every
+  address-bar write (the History API, the router, `location`): none may name a
+  code, and each one is listed.
+- **End-to-end specs.** `e2e-code-hygiene.test.js` refuses a code-shaped
+  literal that a spec types, presses or sends, however it gets there. Any spec
+  that mentions a referral must turn screenshots, traces and video off; the
+  limitations page's titles are the one exception.
+
+### Free text
+
+Reasons for a booking fee, a pay-at-the-venue change, a booking-fee refund, a
+referral code switched off and a cancellation of unpaid tickets, and referral
+codes' labels, are stored as typed like the reasons above, and are not redacted
+(`docs/PRIVACY_AND_RETENTION.md`). The cancellation's reason is shown to the
+buyer (their order page) and to each holder of a cancelled ticket (its wallet
+card and page, `venuePayment.cancelled.reason`, without the name of who wrote
+it); the forms say so.

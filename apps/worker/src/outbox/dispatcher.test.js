@@ -9,6 +9,25 @@
  * With `REQUIRE_DATABASE` set — which `db:verify:fresh` and CI both do — an
  * unreachable database fails rather than skips.
  *
+ * ## Only this suite's messages
+ *
+ * The database is shared. `pnpm verify:tests:fresh` and `pnpm test:coverage`
+ * run every package's tests at once against one `TEST_DATABASE_URL`, and CI
+ * runs both, one after the other, on the same database. The API suite writes
+ * outbox messages that are due at once — refund, cancellation and change
+ * notices — and leaves hundreds of them behind. A claim here takes the oldest
+ * due message in the table, so this suite used to take the API's messages
+ * instead of its own (eight cases failed whenever the two overlapped, or the
+ * API had run first), and its clean-up drains sent the API's messages while
+ * the API suite was still reading them.
+ *
+ * So the dispatcher is handed {@link outbox}: the same client, with every
+ * outbox read and write the dispatcher makes narrowed to the messages this run
+ * wrote. The dispatcher's own code and SQL are unchanged; nothing it does can
+ * reach a row another suite wrote, and no assertion below is weaker for it —
+ * "the queue is empty" now means this suite's part of it, which is the only
+ * part a shared database lets it own.
+ *
  * @module @desi-event/worker/outbox/dispatcher.test
  */
 
@@ -61,6 +80,33 @@ if (!reachable) {
 
 /** A suffix unique to this run, so two runs cannot collide. */
 const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`
+
+/** How every message this run writes begins its business event. */
+const MINE = `event.cancelled:evt-${RUN}-`
+
+/** The dispatcher's outbox queries that pick rows by condition rather than by id. */
+const SCOPED = Object.freeze(['findFirst', 'findMany', 'updateMany', 'count'])
+
+/**
+ * The client the dispatcher is handed: `prisma`, with every outbox query in
+ * {@link SCOPED} narrowed to this run's messages. See the module comment.
+ *
+ * @type {object}
+ */
+const outbox = prisma.$extends({
+  query: {
+    notificationOutbox: Object.fromEntries(
+      SCOPED.map((operation) => [
+        operation,
+        ({ args, query }) =>
+          query({
+            ...args,
+            where: { AND: [args?.where ?? {}, { businessEvent: { startsWith: MINE } }] },
+          }),
+      ]),
+    ),
+  },
+})
 
 let sequence = 0
 
@@ -134,12 +180,12 @@ when()('claiming', () => {
   it('takes a lease naming the worker that holds it', async () => {
     // Drained first, because this database is not reset between runs and a
     // leftover row from a previous one would be claimed instead of this one.
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage()
     const now = new Date()
 
-    const claimed = await claimOne(prisma, { workerId: `worker-a-${RUN}`, now })
+    const claimed = await claimOne(outbox, { workerId: `worker-a-${RUN}`, now })
 
     expect(claimed).not.toBeNull()
     expect(claimed.id).toBe(queued.id)
@@ -152,14 +198,14 @@ when()('claiming', () => {
   it('hands one message to exactly one of two workers racing for it', async () => {
     // Clear the field first, so the two claims below can only be contending
     // for the row this test wrote.
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage()
     const now = new Date()
 
     const results = await Promise.all([
-      claimOne(prisma, { workerId: `race-a-${RUN}`, now }),
-      claimOne(prisma, { workerId: `race-b-${RUN}`, now }),
+      claimOne(outbox, { workerId: `race-a-${RUN}`, now }),
+      claimOne(outbox, { workerId: `race-b-${RUN}`, now }),
     ])
 
     const winners = results.filter(Boolean).filter((row) => row.id === queued.id)
@@ -173,22 +219,22 @@ when()('claiming', () => {
   })
 
   it('does not offer a message that is not due yet', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const future = await queueMessage({ scheduledFor: new Date(Date.now() + 3_600_000) })
-    const claimed = await claimOne(prisma, { workerId: `early-${RUN}`, now: new Date() })
+    const claimed = await claimOne(outbox, { workerId: `early-${RUN}`, now: new Date() })
 
     expect(claimed?.id).not.toBe(future.id)
   })
 
   it('recovers a message whose lease lapsed, without calling it a failure', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage()
 
-    await claimOne(prisma, { workerId: `dead-${RUN}`, now: new Date(), leaseMs: -1000 })
+    await claimOne(outbox, { workerId: `dead-${RUN}`, now: new Date(), leaseMs: -1000 })
 
-    const recovered = await claimOne(prisma, { workerId: `alive-${RUN}`, now: new Date() })
+    const recovered = await claimOne(outbox, { workerId: `alive-${RUN}`, now: new Date() })
 
     expect(recovered.id).toBe(queued.id)
     expect(recovered.leaseOwner).toBe(`alive-${RUN}`)
@@ -196,6 +242,53 @@ when()('claiming', () => {
     // failure, and neither is recorded as one.
     expect(recovered.attempts).toBe(2)
     expect(recovered.failureCategory).toBeNull()
+  })
+
+  it('leaves a message another suite wrote alone, even one due before its own', async () => {
+    // What the API suite leaves in the shared database: a notice that has been
+    // due for a while. Oldest first is how a claim picks, so a claim that could
+    // see it would take it.
+    const theirs = await prisma.notificationOutbox.create({
+      data: {
+        template: 'event.cancelled',
+        channel: 'EMAIL',
+        recipient: `api-suite-${RUN}@desi-event.example`,
+        payload: { eventTitle: 'Another suite’s event', orderReference: `DE-API-${RUN}` },
+        businessEvent: `event.cancelled:api-${RUN}`,
+        dedupeKey: dedupeKeyFor({
+          businessEvent: `event.cancelled:api-${RUN}`,
+          recipient: `api-suite-${RUN}@desi-event.example`,
+          channel: 'EMAIL',
+        }),
+        scheduledFor: new Date(Date.now() - 86_400_000),
+        suppressible: false,
+      },
+    })
+
+    try {
+      await drainOutbox({
+        prisma: outbox,
+        providers: recordingProvider(),
+        workerId: `drain-${RUN}`,
+      })
+
+      const queued = await queueMessage()
+      const claimed = await claimOne(outbox, { workerId: `own-${RUN}`, now: new Date() })
+
+      expect(claimed.id).toBe(queued.id)
+
+      const untouched = await prisma.notificationOutbox.findUnique({ where: { id: theirs.id } })
+
+      expect(untouched.status).toBe(OUTBOX_STATES.QUEUED)
+      expect(untouched.attempts).toBe(0)
+      expect(untouched.leaseOwner).toBeNull()
+    } finally {
+      // Not left due behind this suite for whatever drains the database next.
+      await prisma.notificationOutbox.update({
+        where: { id: theirs.id },
+        data: { status: OUTBOX_STATES.CANCELLED },
+      })
+    }
   })
 
   it('refuses a duplicate of a message already queued', async () => {
@@ -217,12 +310,12 @@ when()('claiming', () => {
 
 when()('sending', () => {
   it('records the send and clears the lease', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage()
     const providers = recordingProvider()
 
-    const result = await dispatchOne({ prisma, providers, workerId: `send-${RUN}` })
+    const result = await dispatchOne({ prisma: outbox, providers, workerId: `send-${RUN}` })
 
     expect(result).toMatchObject({ claimed: true, sent: true, id: queued.id })
 
@@ -236,12 +329,12 @@ when()('sending', () => {
   })
 
   it('hands the provider a rendered message and its dedupe key', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage()
     const providers = recordingProvider()
 
-    await dispatchOne({ prisma, providers, workerId: `render-${RUN}` })
+    await dispatchOne({ prisma: outbox, providers, workerId: `render-${RUN}` })
 
     expect(providers.sent).toHaveLength(1)
     expect(providers.sent[0].to).toBe(queued.recipient)
@@ -252,22 +345,22 @@ when()('sending', () => {
   })
 
   it('says it is a mock, in the subject, where it cannot be scrolled past', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     await queueMessage()
     const providers = recordingProvider()
 
-    await dispatchOne({ prisma, providers, workerId: `demo-${RUN}` })
+    await dispatchOne({ prisma: outbox, providers, workerId: `demo-${RUN}` })
 
     expect(providers.sent[0].subject).toMatch(/\[.*\]/)
     expect(providers.sent[0].text.toLowerCase()).toContain('no money')
   })
 
   it('does nothing when the queue is empty', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const result = await dispatchOne({
-      prisma,
+      prisma: outbox,
       providers: recordingProvider(),
       workerId: `idle-${RUN}`,
     })
@@ -278,7 +371,7 @@ when()('sending', () => {
 
 when()('failing', () => {
   it('schedules a retry for a transient failure', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage()
     const providers = recordingProvider({
@@ -287,7 +380,7 @@ when()('failing', () => {
       }),
     })
 
-    const result = await dispatchOne({ prisma, providers, workerId: `transient-${RUN}` })
+    const result = await dispatchOne({ prisma: outbox, providers, workerId: `transient-${RUN}` })
 
     expect(result.status).toBe(OUTBOX_STATES.RETRY_SCHEDULED)
 
@@ -300,7 +393,7 @@ when()('failing', () => {
   })
 
   it('dead-letters a permanent failure without burning the attempts', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage()
     const providers = recordingProvider({
@@ -311,7 +404,7 @@ when()('failing', () => {
       ),
     })
 
-    await dispatchOne({ prisma, providers, workerId: `permanent-${RUN}` })
+    await dispatchOne({ prisma: outbox, providers, workerId: `permanent-${RUN}` })
 
     const after = await prisma.notificationOutbox.findUnique({ where: { id: queued.id } })
 
@@ -321,11 +414,15 @@ when()('failing', () => {
   })
 
   it('dead-letters a template nothing can render', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage({ template: 'event.imaginary' })
 
-    await dispatchOne({ prisma, providers: recordingProvider(), workerId: `unknown-${RUN}` })
+    await dispatchOne({
+      prisma: outbox,
+      providers: recordingProvider(),
+      workerId: `unknown-${RUN}`,
+    })
 
     const after = await prisma.notificationOutbox.findUnique({ where: { id: queued.id } })
 
@@ -334,7 +431,7 @@ when()('failing', () => {
   })
 
   it('dead-letters a transient failure once the attempts are spent', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage({ maxAttempts: 1 })
     const providers = recordingProvider({
@@ -343,7 +440,7 @@ when()('failing', () => {
       }),
     })
 
-    await dispatchOne({ prisma, providers, workerId: `spent-${RUN}` })
+    await dispatchOne({ prisma: outbox, providers, workerId: `spent-${RUN}` })
 
     const after = await prisma.notificationOutbox.findUnique({ where: { id: queued.id } })
 
@@ -351,7 +448,7 @@ when()('failing', () => {
   })
 
   it('keeps no address in the recorded error', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage()
     const providers = recordingProvider({
@@ -362,7 +459,7 @@ when()('failing', () => {
       ),
     })
 
-    await dispatchOne({ prisma, providers, workerId: `redact-${RUN}` })
+    await dispatchOne({ prisma: outbox, providers, workerId: `redact-${RUN}` })
 
     const after = await prisma.notificationOutbox.findUnique({ where: { id: queued.id } })
 
@@ -374,15 +471,15 @@ when()('failing', () => {
 
 when()('a worker whose lease was taken', () => {
   it('cannot record a send over the new owner', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage()
 
-    const mine = await claimOne(prisma, { workerId: `slow-${RUN}`, now: new Date(), leaseMs: -1 })
+    const mine = await claimOne(outbox, { workerId: `slow-${RUN}`, now: new Date(), leaseMs: -1 })
 
-    await claimOne(prisma, { workerId: `fast-${RUN}`, now: new Date() })
+    await claimOne(outbox, { workerId: `fast-${RUN}`, now: new Date() })
 
-    const applied = await recordSent(prisma, {
+    const applied = await recordSent(outbox, {
       row: mine,
       workerId: `slow-${RUN}`,
       providerMessageId: 'msg-late',
@@ -398,14 +495,14 @@ when()('a worker whose lease was taken', () => {
   })
 
   it('cannot record a failure over the new owner either', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     const queued = await queueMessage()
-    const mine = await claimOne(prisma, { workerId: `slow2-${RUN}`, now: new Date(), leaseMs: -1 })
+    const mine = await claimOne(outbox, { workerId: `slow2-${RUN}`, now: new Date(), leaseMs: -1 })
 
-    await claimOne(prisma, { workerId: `fast2-${RUN}`, now: new Date() })
+    await claimOne(outbox, { workerId: `fast2-${RUN}`, now: new Date() })
 
-    const { applied } = await recordFailure(prisma, {
+    const { applied } = await recordFailure(outbox, {
       row: mine,
       workerId: `slow2-${RUN}`,
       error: new Error('too late'),
@@ -421,27 +518,27 @@ when()('a worker whose lease was taken', () => {
 
 when()('draining', () => {
   it('sends everything that is due and then stops', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     await queueMessage()
     await queueMessage()
     await queueMessage()
 
     const providers = recordingProvider()
-    const summary = await drainOutbox({ prisma, providers, workerId: `batch-${RUN}` })
+    const summary = await drainOutbox({ prisma: outbox, providers, workerId: `batch-${RUN}` })
 
     expect(summary).toEqual({ claimed: 3, sent: 3, failed: 0 })
     expect(providers.sent).toHaveLength(3)
   })
 
   it('stops at the limit rather than running forever behind a backlog', async () => {
-    await drainOutbox({ prisma, providers: recordingProvider(), workerId: `drain-${RUN}` })
+    await drainOutbox({ prisma: outbox, providers: recordingProvider(), workerId: `drain-${RUN}` })
 
     await queueMessage()
     await queueMessage()
 
     const summary = await drainOutbox({
-      prisma,
+      prisma: outbox,
       providers: recordingProvider(),
       workerId: `limited-${RUN}`,
       limit: 1,

@@ -6,7 +6,8 @@
  * reconciliation item shows both sides of its evidence and no provider payload,
  * that a refund screen never asks for a card and offers only the step its state
  * allows, and that offering a ticket creates a real pending transfer whose
- * recipient is masked and whose invitation never reaches a web address.
+ * recipient is shown by its domain alone and whose invitation never reaches a
+ * web address.
  *
  * Four specs, one config. Four Playwright configs would mean four API processes
  * and four Next servers on a two-core runner, which is the failure mode the
@@ -17,9 +18,14 @@
  * @module playwright.detail.config
  */
 
+import os from 'node:os'
+import path from 'node:path'
+
 import { defineConfig, devices } from '@playwright/test'
 
 import { preinstalledChromium } from './e2e/support/chromium.js'
+import { API_SERVER_COMMAND, E2E_DATABASE_URL } from './e2e/support/e2e-database.mjs'
+import { nextDevServer, withDevRoutes } from './e2e/support/next-dev.mjs'
 
 /** Ports distinct from every other suite's, so nothing collides. */
 const apiPort = Number(process.env.DETAIL_E2E_API_PORT ?? 4440)
@@ -28,18 +34,14 @@ const webPort = Number(process.env.DETAIL_E2E_WEB_PORT ?? 3440)
 const baseURL = `http://127.0.0.1:${webPort}`
 const executablePath = preinstalledChromium()
 
-/** The database these journeys write to. Disposable by construction. */
-const databaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  'postgresql://desi:desi@127.0.0.1:5432/desi_event_test?schema=public'
-
 export default defineConfig({
   testDir: './e2e',
   // Seeded once and signed in once for the whole run. Credential endpoints keep
   // a budget of ten requests a minute that a deployment deliberately cannot
   // widen, and four specs each signing two accounts in is sixteen — correctly
   // refused. See `e2e/support/detail-global-setup.mjs`.
-  globalSetup: './e2e/support/detail-global-setup.mjs',
+  // The route proof first (`next-dev.mjs`), then the seed and the sign-ins.
+  globalSetup: withDevRoutes('./e2e/support/detail-global-setup.mjs'),
   globalTeardown: './e2e/support/detail-global-teardown.mjs',
   timeout: 90_000,
   expect: { timeout: 15_000 },
@@ -67,7 +69,8 @@ export default defineConfig({
 
   webServer: [
     {
-      command: 'node src/server.js',
+      // Migrates the browser suites' database first, creating it when it is missing.
+      command: API_SERVER_COMMAND,
       cwd: new URL('../api', import.meta.url).pathname,
       url: `http://127.0.0.1:${apiPort}/health`,
       reuseExistingServer: false,
@@ -79,7 +82,8 @@ export default defineConfig({
         LOG_LEVEL: 'error',
         API_PORT: String(apiPort),
         API_HOST: '127.0.0.1',
-        DATABASE_URL: databaseUrl,
+        // The browser suites' own database, never the unit suites' (`e2e-database.mjs`).
+        DATABASE_URL: E2E_DATABASE_URL,
         REDIS_URL: process.env.REDIS_URL ?? 'redis://127.0.0.1:6379',
         JWT_SECRET: 'e2e-only-secret-that-is-long-enough-32-chars',
         AUTH_SECRET: 'e2e-only-auth-secret-that-is-long-enough-32',
@@ -92,16 +96,25 @@ export default defineConfig({
         // the default budget, correctly. The limit is not disabled and the
         // default is not changed.
         RATE_LIMIT_MAX: '20000',
+        // Every window in these specs reaches the API from one address with
+        // one device's browser, so to visit counting they are one visitor,
+        // whose beacons the default of sixty a minute would refuse in a busy
+        // minute (SPEC2 §3.5). Refused beacons change no figure a spec reads
+        // — the visitor spec's own window has an agent of its own — but a
+        // 429 in the log reads like a fault. The ceiling is raised, not
+        // removed.
+        TRAFFIC_BEACON_MAX_PER_MINUTE: '600',
+        // The import journeys copy their listings' pictures from a directory,
+        // never from Sulekha's host (SPEC2-XI §5.I-D, §9 row 12): a temporary
+        // copy of `e2e/fixtures/import-images`, which `seed-import.mjs` makes
+        // afresh on every run, so nothing under `e2e/fixtures` is written.
+        // `IMPORT_PICTURE_DIR` there is the same expression.
+        IMPORT_IMAGE_SOURCE: 'fixtures',
+        IMPORT_IMAGE_FIXTURE_DIR: path.join(os.tmpdir(), 'desi-event-e2e-import-images'),
       },
     },
-    {
-      command: `npx next dev --port ${webPort}`,
-      url: baseURL,
-      reuseExistingServer: false,
-      timeout: 180_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: { NEXT_PUBLIC_API_URL: `http://127.0.0.1:${apiPort}` },
-    },
+    // Through the one helper that proves its routes before any test runs
+    // (e2e/support/next-dev.mjs); `pnpm ci:check` refuses any other way.
+    nextDevServer({ port: webPort, env: { NEXT_PUBLIC_API_URL: `http://127.0.0.1:${apiPort}` } }),
   ],
 })

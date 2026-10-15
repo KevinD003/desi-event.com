@@ -8,18 +8,27 @@
 
 import { cn } from './cn.js'
 
-/** Classes every control shares: layout, border, typography and focus ring. */
+/**
+ * Classes every control shares: layout, border, typography and focus ring.
+ *
+ * At least 44px tall, the site's touch target. The text is 16px on a phone,
+ * because iOS zooms the page into any field set smaller when it is focused,
+ * and 14px from the `sm` breakpoint up. The focus indicator is an outline, not
+ * a box-shadow ring, so it survives forced-colours mode.
+ */
 export const CONTROL_BASE_CLASSES =
-  'block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 shadow-sm ' +
-  'placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-offset-1 ' +
-  'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500'
+  'block w-full min-h-11 rounded-control border bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm ' +
+  'transition-colors duration-(--duration-fast) ease-standard ' +
+  'placeholder:text-ink-subtle focus:outline-2 focus:outline-offset-2 ' +
+  'disabled:cursor-not-allowed disabled:bg-surface-subtle disabled:text-ink-subtle'
 
 /** Border and focus ring colours for a control in its valid state. */
 export const CONTROL_VALID_CLASSES =
-  'border-slate-300 focus:border-marigold-500 focus:ring-marigold-500'
+  'border-line-strong hover:border-ink-subtle focus:border-focus focus:outline-focus'
 
 /** Border and focus ring colours for a control that failed validation. */
-export const CONTROL_INVALID_CLASSES = 'border-rose-500 focus:border-rose-600 focus:ring-rose-500'
+export const CONTROL_INVALID_CLASSES =
+  'border-status-danger focus:border-status-danger focus:outline-status-danger'
 
 /**
  * Build the class name for a native form control.

@@ -47,6 +47,10 @@
 
 import { stepUpSatisfied, stepUpWindowFor } from '@desi-event/auth'
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
+import {
+  CARD_PLACEMENT_LABELS,
+  TRAFFIC_SOURCE_LABELS,
+} from '@desi-event/schemas/traffic-vocabulary'
 
 import { organizerAnalytics } from '../lib/analytics.js'
 import { csvFilename, toCsv } from '../lib/csv.js'
@@ -89,6 +93,88 @@ function withoutValues(sales) {
 }
 
 /**
+ * Each visit total in words, in the order an export lists them.
+ *
+ * @type {ReadonlyArray<Array<string>>}
+ */
+const VISIT_TOTAL_LABELS = Object.freeze([
+  ['views', 'Page views'],
+  ['visitors', 'Visitors'],
+  ['anonymousViews', 'Page views without a visitor code'],
+  ['cardClicks', 'Event card clicks'],
+  ['ticketClicks', 'Ticket clicks'],
+  ['seatClicks', 'Seat clicks'],
+  ['ticketClickVisitors', 'Visitors who chose tickets or seats'],
+  ['websiteRedirects', 'Visits to the organiser’s website'],
+  ['websiteRedirectVisitors', 'Visitors sent to the organiser’s website'],
+])
+
+/**
+ * The rows an export carries for visits: counts in `quantity` only, and never
+ * a visitor code, a digest or a referring site.
+ *
+ * @param {object} traffic The payload's `traffic` branch.
+ * @returns {Array<object>} Rows ready for {@link EXPORT_COLUMNS}.
+ */
+function trafficRows(traffic) {
+  const rows = [
+    {
+      section: 'About',
+      label: 'Visits counted',
+      code: 'UTC',
+      note: `Whole UTC days; robots, the organisation’s own team and staff at The Desi Events are not counted; brought up to date at ${
+        traffic.updatedAt ? new Date(traffic.updatedAt).toISOString() : 'never'
+      }${traffic.includesDemonstration ? '; includes demonstration figures written by the development seed, which are not counted visits' : ''}`,
+    },
+  ]
+
+  for (const [code, label] of VISIT_TOTAL_LABELS) {
+    rows.push({ section: 'Visits', label, code, quantity: traffic.totals[code] })
+  }
+
+  for (const { source, views } of traffic.sources) {
+    rows.push({
+      section: 'Visit sources',
+      label: TRAFFIC_SOURCE_LABELS[source],
+      code: source,
+      quantity: views,
+    })
+  }
+
+  for (const { placement, clicks } of traffic.cardPlacements) {
+    rows.push({
+      section: 'Card clicks by place',
+      label: CARD_PLACEMENT_LABELS[placement],
+      code: placement,
+      quantity: clicks,
+    })
+  }
+
+  for (const day of traffic.byDay) {
+    rows.push({
+      section: 'Visits by day',
+      label: day.day,
+      code: 'views',
+      quantity: day.views,
+      note: `${day.visitors} visitors, ${day.ticketClicks + day.seatClicks} ticket and seat clicks, ${day.websiteRedirects} website visits, ${day.ordersPaid} orders paid on this day`,
+    })
+  }
+
+  rows.push({
+    section: 'Conversion',
+    label: 'Paid orders per 100 visitors',
+    code: 'percent',
+    quantity: null,
+    note:
+      traffic.conversion.visitorToOrderPercent === null
+        ? 'No visitors counted'
+        : `${traffic.conversion.visitorToOrderPercent}%`,
+  })
+
+  return rows
+}
+
+/**
  * Turn an analytics payload into the rows an export carries.
  *
  * Every row names its section, so a spreadsheet of forty rows from six
@@ -118,6 +204,7 @@ function exportRows(view) {
           ? 'Omitted: this account holds finance:view but has not confirmed a second factor recently enough'
           : 'Omitted: this account does not hold finance:view in this organisation',
     },
+    ...trafficRows(view.traffic),
   ]
 
   if (view.moneyVisible && view.money) {
@@ -181,7 +268,9 @@ function exportRows(view) {
         quantity: group.quantity,
         amountCents: group.lineValueCents,
         currency: group.currency,
-        note: `${group.refundedQuantity} refunded`,
+        // Places cancelled unpaid went back to stock and are not in the
+        // quantity (SPEC3-XI §9.10); the note says how many.
+        note: `${group.refundedQuantity} refunded, ${group.cancelledQuantity ?? 0} cancelled unpaid`,
       })
     }
   }
@@ -230,7 +319,58 @@ function exportRows(view) {
   }
 
   for (const missing of view.funnel.missing) {
-    rows.push({ section: 'Funnel', label: 'Not recorded', note: missing })
+    rows.push({ section: 'Funnel', label: 'Not counted', note: missing })
+  }
+
+  // Paying at the venue (SPEC3 §9.10), in the screen's own words, when the
+  // scope has any of it.
+  const bookedUnpaid = view.funnel.atVenue?.bookedUnpaid ?? 0
+  const venue = view.venuePayments ?? null
+
+  if (bookedUnpaid > 0) {
+    rows.push({
+      section: 'Paying at the venue',
+      label: 'Orders waiting for payment at the door',
+      code: 'bookedUnpaid',
+      quantity: bookedUnpaid,
+      note: `${bookedUnpaid} orders booked to pay at the venue are waiting for payment at the door and are not counted as paid.`,
+    })
+  }
+
+  if (venue && (venue.ticketsUnpaid > 0 || venue.paidAtDoorCents > 0)) {
+    rows.push({
+      section: 'Paying at the venue',
+      label: 'Tickets booked to pay at the venue, not paid',
+      code: 'ticketsUnpaid',
+      quantity: venue.ticketsUnpaid,
+      amountCents: venue.unpaidCents,
+      currency: view.currency,
+      note: 'Tickets booked to pay at the venue are in the ticket counts.',
+    })
+    rows.push({
+      section: 'Paying at the venue',
+      label: 'Paid at the door',
+      code: 'paidAtDoor',
+      amountCents: venue.paidAtDoorCents,
+      currency: view.currency,
+      note: 'What is paid at the door is taken by the organiser and is not in the money figures, which come from the ledger.',
+    })
+  }
+
+  // Unpaid tickets cancelled (SPEC3-XI §9.10): freed, which is not the same
+  // as back on sale, so the row says freed.
+  const cancelled = venue?.cancelledUnpaidTickets ?? 0
+
+  if (cancelled > 0) {
+    const one = cancelled === 1
+
+    rows.push({
+      section: 'Paying at the venue',
+      label: 'Unpaid tickets cancelled',
+      code: 'cancelledUnpaidTickets',
+      quantity: cancelled,
+      note: `${cancelled} unpaid ${one ? 'ticket' : 'tickets'} booked to pay at the venue ${one ? 'was' : 'were'} cancelled, and ${one ? 'its place was' : 'their places were'} freed.`,
+    })
   }
 
   return rows
@@ -268,20 +408,30 @@ export function registerAnalyticsRoutes(app, { prisma, providers }) {
     const moneyVisible = moneyWithheld === null
     const mock = providers.payments.name === 'in-memory-payments'
 
-    const analytics = await organizerAnalytics(prisma, {
-      organizationId,
-      currency,
-      eventId: eventId ?? null,
-      eventSessionId: eventSessionId ?? null,
-      from: from ? new Date(from) : null,
-      to: to ? new Date(to) : null,
-      now: new Date(),
-    })
+    const [analytics, organization] = await Promise.all([
+      organizerAnalytics(prisma, {
+        organizationId,
+        currency,
+        eventId: eventId ?? null,
+        eventSessionId: eventSessionId ?? null,
+        from: from ? new Date(from) : null,
+        to: to ? new Date(to) : null,
+        now: new Date(),
+        // Passed to the website link's switch state. The deciding
+        // administrator's name is shown to the organisation as well (SPEC2 D6),
+        // so the state reads the same for every reader today.
+        administrator: can(request.actor, CAPABILITIES.WEBSITE_REDIRECT_MANAGE),
+      }),
+      // Named in the payload so a platform administrator reading somebody
+      // else's figures can see whose they are.
+      prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } }),
+    ])
 
-    const { money, sales, ...rest } = analytics
+    const { money, sales, venuePayments, ...rest } = analytics
 
     return {
       organizationId,
+      organizationName: organization?.name ?? null,
       currency,
       eventId: eventId ?? null,
       eventSessionId: eventSessionId ?? null,
@@ -308,6 +458,9 @@ export function registerAnalyticsRoutes(app, { prisma, providers }) {
           }
         : null,
       ...rest,
+      // What is owed and taken at the door is money too, though never the
+      // platform's: withheld with the money figures (SPEC3 §9.10).
+      venuePayments: moneyVisible ? venuePayments : undefined,
     }
   }
 

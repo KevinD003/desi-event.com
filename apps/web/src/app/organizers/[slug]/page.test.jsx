@@ -143,7 +143,7 @@ describe('the organiser page', () => {
     expect(time.textContent).toMatch(/8:00 pm/i)
   })
 
-  it('says so plainly when there is nothing on sale', async () => {
+  it('says so plainly when nothing upcoming is listed', async () => {
     loadOrganizerBySlug.mockResolvedValue({
       organizer: organizer({ upcomingEvents: [] }),
       usedFallback: false,
@@ -152,22 +152,26 @@ describe('the organiser page', () => {
     render(await OrganizerPage(route))
 
     expect(
-      within(screen.getByRole('region', { name: 'Upcoming events' })).getByText(/nothing on sale/i),
+      within(screen.getByRole('region', { name: 'Upcoming events' })).getByText(
+        /has no upcoming events listed/i,
+      ),
     ).toBeInTheDocument()
   })
 
-  it('publishes the refund policy, and says the order snapshot governs', async () => {
+  it('publishes the refund policy, and says it is the current text, not a copy kept per order', async () => {
+    // It used to say the policy "attached to your order at the moment you
+    // paid" governs. No order keeps one: `Order.policySnapshot` is never
+    // written. So the page says what is true.
     render(await OrganizerPage(route))
 
     const refunds = screen.getByRole('region', { name: 'Refunds' })
 
     expect(within(refunds).getByText(/full refund up to the interval/i)).toBeInTheDocument()
-    expect(
-      within(refunds).getByText(/A later edit does not change what you agreed to/),
-    ).toBeInTheDocument()
+    expect(within(refunds).getByText(/This is the policy as it reads now/)).toBeInTheDocument()
+    expect(refunds.textContent).not.toMatch(/attached to your order|snapshot/i)
   })
 
-  it('falls back to the checkout terms when no policy is published', async () => {
+  it('says so when no policy is published, and promises no terms at checkout', async () => {
     loadOrganizerBySlug.mockResolvedValue({
       organizer: organizer({ refundPolicy: null }),
       usedFallback: false,
@@ -176,6 +180,17 @@ describe('the organiser page', () => {
     render(await OrganizerPage(route))
 
     expect(screen.getByText(/has not published a refund policy/i)).toBeInTheDocument()
+  })
+
+  it('promises no support desk and no email, and names the one way to reach them', async () => {
+    const { container } = render(await OrganizerPage(route))
+
+    const contact = screen.getByRole('region', { name: 'Contact' })
+
+    expect(contact.textContent).toMatch(/does not pass messages between buyers and organisers/)
+    expect(container.textContent).not.toMatch(
+      /The Desi Events support|confirmation email|reply address/i,
+    )
   })
 
   it('never puts an organiser email address on the page', async () => {

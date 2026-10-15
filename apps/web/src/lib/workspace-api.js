@@ -1,0 +1,496 @@
+/**
+ * Server-side reads for the team, notification, refund, reconciliation and
+ * organiser invitation lists.
+ *
+ * Built on `callApi` from `./organizer-api.js`, and for the same reason it
+ * gives: **nothing here falls back**. A list of team members, messages or
+ * refunds that was not the real list would invite somebody to act on fiction,
+ * so every helper throws what `callApi` threw — `status`, `code` and
+ * `retryAfterSeconds` intact — and the page draws the refusal.
+ *
+ * ## Why the query strings are built here
+ *
+ * Every list takes filters a person chose in a GET form, and every one of those
+ * values came from the address bar. Each helper copies only the fields its
+ * endpoint's query schema names (`packages/schemas/src/requests.js`), encodes
+ * them with `URLSearchParams`, and leaves out anything empty. A page cannot
+ * widen a request by passing an extra key through, and an organisation id is
+ * never spliced into a path unencoded.
+ *
+ * ## The small pure helpers at the bottom
+ *
+ * `readPage`, `listHref`, `isPastTheEnd`, `formatInstant`, `STATUS_TONE_CLASSES`
+ * and `PAGER_LINK_CLASSES` are used by the same list pages to read their page
+ * number, build their pagination links, tell an empty list from a page past its
+ * end, print their times, colour a status word and size their page links. They are pure, and live here
+ * rather than in a component because the pages that use them are server
+ * components and nothing that imports this module may reach a browser:
+ * `callApi` reads the request's cookies.
+ *
+ * @module lib/workspace-api
+ */
+
+import { callApi } from './organizer-api.js'
+import { formatInstantIn } from './format.js'
+
+/** The page size the four lists ask for. The API's ceiling is 100. */
+export const LIST_PAGE_SIZE = 50
+
+/** The events a door-scope picker offers: the API's largest page. */
+const EVENT_PICKER_SIZE = 100
+
+/**
+ * A query string from the named fields of an options object.
+ *
+ * Empty strings, null and undefined are left out, so an unset filter is absent
+ * from the request rather than sent as `status=`.
+ *
+ * @param {object} options What the caller passed.
+ * @param {ReadonlyArray<string>} keys The fields this endpoint accepts.
+ * @returns {string} `?a=1&b=2`, or the empty string.
+ */
+function queryFrom(options, keys) {
+  const query = new URLSearchParams()
+
+  for (const key of keys) {
+    const value = options?.[key]
+
+    if (value === undefined || value === null || value === '') continue
+
+    query.set(key, String(value))
+  }
+
+  const text = query.toString()
+
+  return text ? `?${text}` : ''
+}
+
+/**
+ * The team of one organisation: members, open invitations, and the roles the
+ * caller may grant.
+ *
+ * `GET /v1/organizations/:id/members`. The server decides `emailVisibility`
+ * (`FULL`, `STEP_UP_REQUIRED` or `HIDDEN`) and the shape follows from it; this
+ * returns the payload as it came.
+ *
+ * @param {string} organizationId Whose team.
+ * @returns {Promise<{emailVisibility: string, members: object[], invitations: object[], assignableRoles: string[]}>} The team.
+ */
+export async function getTeam(organizationId) {
+  const body = await callApi(`/v1/organizations/${encodeURIComponent(organizationId)}/members`)
+
+  return body.data
+}
+
+/**
+ * An organisation's profile, as its members read it.
+ *
+ * `GET /v1/organizations/:id`: name, slug for the public page, time zone, legal
+ * name, verification state and whether it may publish and be paid.
+ *
+ * @param {string} organizationId Which organisation.
+ * @returns {Promise<object>} The profile.
+ */
+export async function getOrganizationProfile(organizationId) {
+  const body = await callApi(`/v1/organizations/${encodeURIComponent(organizationId)}`)
+
+  return body.data
+}
+
+/**
+ * An organisation's verification state and its whole history.
+ *
+ * `GET /v1/organizations/:id/verification`.
+ *
+ * @param {string} organizationId Which organisation.
+ * @returns {Promise<object>} The state.
+ */
+export async function getVerification(organizationId) {
+  const body = await callApi(`/v1/organizations/${encodeURIComponent(organizationId)}/verification`)
+
+  return body.data
+}
+
+/**
+ * The moderators' verification queue.
+ *
+ * `GET /v1/moderation/organizations`. Platform staff only.
+ *
+ * @param {object} [options] Filters.
+ * @param {string} [options.status] One verification state; the API opens on PENDING.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] Page size.
+ * @returns {Promise<{organizations: object[], pagination: object|null}>} The queue.
+ */
+export async function getVerificationQueue(options = {}) {
+  const suffix = queryFrom(options, ['status', 'page', 'perPage'])
+  const body = await callApi(`/v1/moderation/organizations${suffix}`)
+
+  return { organizations: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * One organisation as a moderator reads it before deciding.
+ *
+ * `GET /v1/moderation/organizations/:id`.
+ *
+ * @param {string} organizationId Which organisation.
+ * @returns {Promise<{organization: object, verification: object, memberCount: number, eventCount: number}>} The review.
+ */
+export async function getVerificationReview(organizationId) {
+  const body = await callApi(`/v1/moderation/organizations/${encodeURIComponent(organizationId)}`)
+
+  return body.data
+}
+
+/**
+ * One organisation's events for the door-scope picker: the hundred that start
+ * latest, in date order.
+ *
+ * `GET /v1/events?organizationId=…&perPage=100&sort=startsAt:desc`, the API's
+ * largest page, turned back into date order before it is returned.
+ *
+ * Latest first rather than soonest first because a member of the organisation
+ * sees every event it has ever had — drafts, past and cancelled included — and
+ * soonest first would fill the hundred with the oldest of them. An organisation
+ * with more than a hundred events would then have no way to name an upcoming
+ * one. Asked latest first, the hundred are the upcoming ones and the most
+ * recent past ones, which are the ones a door scope is chosen for; what is left
+ * out is the oldest, and `pagination.total` says how many there are in all so
+ * the picker can say so. (Not `startsAfter`: that filters on the start time, and
+ * would leave out a festival that began on Monday and is still running.)
+ *
+ * @param {string} organizationId Whose events.
+ * @returns {Promise<{events: object[], pagination: object|null}>} The events, earliest first, and the API's counters.
+ */
+export async function listOrganizationEvents(organizationId) {
+  const query = new URLSearchParams({
+    organizationId,
+    perPage: String(EVENT_PICKER_SIZE),
+    sort: 'startsAt:desc',
+  })
+  const body = await callApi(`/v1/events?${query.toString()}`)
+
+  return { events: [...(body.data ?? [])].reverse(), pagination: body.pagination ?? null }
+}
+
+/**
+ * The notification outbox, as operations sees it.
+ *
+ * `GET /v1/operations/notifications`. Platform-scoped: the API asks
+ * `reconciliation:manage`, and there is no organisation to pass.
+ *
+ * @param {object} [options] Filters.
+ * @param {string} [options.status] One outbox status.
+ * @param {string} [options.template] One template name.
+ * @param {string} [options.failureCategory] `PERMANENT` or `TRANSIENT`.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] Page size.
+ * @returns {Promise<{messages: object[], pagination: object|null}>} The queue.
+ */
+export async function listNotifications(options = {}) {
+  const suffix = queryFrom(options, ['status', 'template', 'failureCategory', 'page', 'perPage'])
+  const body = await callApi(`/v1/operations/notifications${suffix}`)
+
+  return { messages: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * One outbox message, redacted by the API.
+ *
+ * @param {string} id Which message.
+ * @returns {Promise<object>} The message.
+ */
+export async function getNotification(id) {
+  const body = await callApi(`/v1/operations/notifications/${encodeURIComponent(id)}`)
+
+  return body.data
+}
+
+/**
+ * Every refund of one organisation, in any status.
+ *
+ * `GET /v1/refunds`. `organizationId` is required by the API — it is where the
+ * `finance:view` check is scoped — and therefore required here; a helper that
+ * quietly dropped it would turn an organisation question into a refusal at the
+ * first call site that forgot.
+ *
+ * @param {object} options Filters.
+ * @param {string} options.organizationId Whose refunds.
+ * @param {string} [options.status] One refund status.
+ * @param {string} [options.orderReference] One order.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] Page size.
+ * @returns {Promise<{refunds: object[], pagination: object|null}>} The refunds.
+ * @throws {TypeError} When no organisation is named.
+ */
+export async function listRefunds(options) {
+  if (!options?.organizationId) {
+    throw new TypeError('listRefunds needs an organisation: the API scopes refunds by it.')
+  }
+
+  const suffix = queryFrom(options, [
+    'organizationId',
+    'status',
+    'orderReference',
+    'page',
+    'perPage',
+  ])
+  const body = await callApi(`/v1/refunds${suffix}`)
+
+  return { refunds: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * The reconciliation queue, in any state.
+ *
+ * `GET /v1/operations/reconciliation`. With `organizationId` the API asks
+ * `finance:view` there and answers that organisation's items; without one it
+ * asks the platform capability and answers everything.
+ *
+ * `reference` is deliberately not accepted. It matches payment, order and
+ * refund ids and provider references, and a filter the list page offered for
+ * it would put those identifiers into the address bar.
+ *
+ * @param {object} [options] Filters.
+ * @param {string} [options.organizationId] One organisation, or none for the platform view.
+ * @param {string} [options.state] One state.
+ * @param {string} [options.kind] One kind.
+ * @param {string} [options.aging] `AGING` or `OVERDUE`.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] Page size.
+ * @returns {Promise<{tasks: object[], pagination: object|null}>} The queue.
+ */
+export async function listReconciliationTasks(options = {}) {
+  const suffix = queryFrom(options, ['organizationId', 'state', 'kind', 'aging', 'page', 'perPage'])
+  const body = await callApi(`/v1/operations/reconciliation${suffix}`)
+
+  return { tasks: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * The Desi Events team's organiser invitations, newest first.
+ *
+ * `GET /v1/platform/organizer-invitations`. Platform administrators and super
+ * administrators (`organizer:invite`). `q` searches organisation names only:
+ * an email address in a query string is written to access logs, so the API
+ * offers no way to search by one, and neither does this. The answer carries
+ * addresses and notes and is `no-store`; it is never cached here either.
+ *
+ * @param {object} [options] Filters.
+ * @param {string} [options.status] `PENDING` (the API's default), `ACCEPTED`, `REVOKED`, `EXPIRED` or `ALL`.
+ * @param {string} [options.q] Part of an organisation's name.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] Page size; the API's ceiling is 50.
+ * @returns {Promise<{invitations: object[], pagination: object|null, deliveryMode: 'MANUAL'|'EMAIL'|null}>} The list, and how codes go out.
+ */
+export async function getOrganizerInvitations(options = {}) {
+  const suffix = queryFrom(options, ['status', 'q', 'page', 'perPage'])
+  const body = await callApi(`/v1/platform/organizer-invitations${suffix}`)
+  const mode = body.meta?.deliveryMode
+
+  return {
+    invitations: body.data ?? [],
+    pagination: body.pagination ?? null,
+    deliveryMode: mode === 'EMAIL' || mode === 'MANUAL' ? mode : null,
+  }
+}
+
+// --- Booking fees, referral codes and booking-fee refunds (SPEC3 §11.1) ------
+//
+// The Desi Events team's reads. A referral code's text comes back in these
+// bodies only (`referralCode`), and never goes into a request's address: the
+// list is filtered by status, maker and event, never by text.
+
+/**
+ * An event's booking fee and pay-at-the-venue setting, with their history.
+ *
+ * `GET /v1/platform/events/:id/payment-terms`.
+ *
+ * @param {string} eventId The event.
+ * @param {object} [options] Options.
+ * @param {string} [options.before] An instant: only changes before it.
+ * @returns {Promise<object>} The admin view's `data`.
+ */
+export async function getPaymentTerms(eventId, options = {}) {
+  const suffix = queryFrom(options, ['before'])
+  const body = await callApi(
+    `/v1/platform/events/${encodeURIComponent(eventId)}/payment-terms${suffix}`,
+  )
+
+  return body.data
+}
+
+/**
+ * A page of referral codes, newest first.
+ *
+ * `GET /v1/platform/referral-codes`. Filtered by status, the administrator who
+ * made them and an event they work for; never by their text.
+ *
+ * @param {object} [options] Filters.
+ * @param {string} [options.status] `ON`, `OFF`, `EXPIRED` or `USED_UP`.
+ * @param {string} [options.creatorId] The administrator who made them.
+ * @param {string} [options.eventId] An event they work for.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] Page size; the API's ceiling is 50.
+ * @returns {Promise<{codes: object[], pagination: object|null}>} The page.
+ */
+export async function listReferralCodes(options = {}) {
+  const suffix = queryFrom(options, ['status', 'creatorId', 'eventId', 'page', 'perPage'])
+  const body = await callApi(`/v1/platform/referral-codes${suffix}`)
+
+  return { codes: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * What each administrator's referral codes came to.
+ *
+ * `GET /v1/platform/referral-codes/by-administrator`.
+ *
+ * @returns {Promise<object[]>} One row per administrator, and one for a former one.
+ */
+export async function referralCodesByAdministrator() {
+  const body = await callApi('/v1/platform/referral-codes/by-administrator')
+
+  return body.data ?? []
+}
+
+/**
+ * One referral code and a page of the orders that used it.
+ *
+ * `GET /v1/platform/referral-codes/:id`.
+ *
+ * @param {string} id The code's id.
+ * @param {object} [options] Options.
+ * @param {number} [options.page] Which page of its uses.
+ * @returns {Promise<{code: object, pagination: object|null}>} The code, with `uses`.
+ */
+export async function getReferralCode(id, options = {}) {
+  const suffix = queryFrom(options, ['page'])
+  const body = await callApi(`/v1/platform/referral-codes/${encodeURIComponent(id)}${suffix}`)
+
+  return { code: body.data, pagination: body.pagination ?? null }
+}
+
+/**
+ * One order's booking-fee figures, before refunding that fee by hand.
+ *
+ * `GET /v1/platform/orders/:reference/fee`. An order reference is not a
+ * credential; it goes in the path as it does for `orders.get`.
+ *
+ * @param {string} reference The order reference.
+ * @returns {Promise<object>} The preview's `data`.
+ */
+export async function getPlatformFeePreview(reference) {
+  const body = await callApi(`/v1/platform/orders/${encodeURIComponent(reference)}/fee`)
+
+  return body.data
+}
+
+/**
+ * A page number from the address bar, or 1.
+ *
+ * @param {unknown} value The raw `page` parameter.
+ * @returns {number} A whole number from 1 to 10,000, the API's ceiling.
+ */
+export function readPage(value) {
+  const number = Number(value)
+
+  if (!Number.isInteger(number) || number < 1) return 1
+
+  return Math.min(number, 10_000)
+}
+
+/**
+ * A list page's own address, with its filters.
+ *
+ * For pagination links, which must keep every filter the person chose.
+ * Empty values are left out; `page` is left out when it is 1.
+ *
+ * @param {string} path The page's path, beginning `/`.
+ * @param {Record<string, string|number|null|undefined>} params The filters and the page.
+ * @returns {string} The address.
+ */
+export function listHref(path, params) {
+  const query = new URLSearchParams()
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue
+    if (key === 'page' && Number(value) === 1) continue
+
+    query.set(key, String(value))
+  }
+
+  const text = query.toString()
+
+  return text ? `${path}?${text}` : path
+}
+
+/**
+ * Whether a list page came back empty only because it is past the end.
+ *
+ * A page number in the address can outlive its list: bookmarked, typed, or a
+ * "Next page" link followed after the list shrank. The API then answers with
+ * no rows and the list's real `total`, and a page that drew its "nothing here"
+ * state would be saying something false about the whole list.
+ *
+ * @param {number} shown How many rows the page has.
+ * @param {object|null} pagination The API's counters, when it sent them.
+ * @param {number} page The page that was asked for.
+ * @returns {boolean} True when the page is empty and the list may not be.
+ */
+export function isPastTheEnd(shown, pagination, page) {
+  if (shown > 0) return false
+  if (Number.isInteger(pagination?.total)) return pagination.total > 0
+
+  // No counters to go by: an empty first page is an empty list, and an empty
+  // later page says nothing about the pages before it.
+  return page > 1
+}
+
+/**
+ * The classes for a list's page links: "Previous page", "Next page", "Go to
+ * the first page".
+ *
+ * Bordered and padded to a 44-pixel target, like the events listing's pager,
+ * rather than bare underlined text a thumb has to hunt for.
+ *
+ * @type {string}
+ */
+export const PAGER_LINK_CLASSES =
+  'inline-flex min-h-11 items-center rounded-lg border border-line-strong bg-surface-raised px-4 py-2 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none'
+
+/**
+ * An instant as a person reads it, in UTC and saying so — or, for a record an
+ * event keeps, in the event's zone and saying which.
+ *
+ * UTC rather than the server's zone, because a server's zone is an accident of
+ * where it runs; the `time` element these are printed in carries the exact
+ * instant for anything that wants it. A page about one event passes that
+ * event's zone, so the time reads as the event's door kept it.
+ *
+ * @param {string|null|undefined} value An ISO-8601 instant.
+ * @param {string} [timeZone] IANA zone; UTC when absent.
+ * @returns {string|null} "Sep 23, 2026, 2:05 PM UTC", or null for no instant.
+ */
+export function formatInstant(value, timeZone = 'UTC') {
+  return formatInstantIn(value, timeZone)
+}
+
+/**
+ * The classes for a status word, per tone.
+ *
+ * Written out whole so Tailwind finds every one of them, and in status tokens
+ * only. A status is always drawn as a word *and* a tone: colour alone tells a
+ * colour-blind reader nothing, which is WCAG 1.4.1.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const STATUS_TONE_CLASSES = Object.freeze({
+  success: 'border-status-success/25 bg-status-success-soft text-status-success',
+  pending: 'border-status-pending/30 bg-status-pending-soft text-status-pending',
+  warning: 'border-status-warning/30 bg-status-warning-soft text-status-warning',
+  danger: 'border-status-danger/25 bg-status-danger-soft text-status-danger',
+  info: 'border-status-info/25 bg-status-info-soft text-status-info',
+  neutral: 'border-line-strong bg-status-neutral-soft text-status-neutral',
+})

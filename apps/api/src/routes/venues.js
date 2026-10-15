@@ -34,6 +34,7 @@ import {
 } from '../lib/venue-maps.js'
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { slugify, disambiguateSlug } from '../lib/identifiers.js'
+import { equalsIgnoringCase, likeLiteral } from '../lib/like-pattern.js'
 import { defineRoute } from '../lib/register.js'
 
 /** How many events the public venue page lists. */
@@ -219,10 +220,13 @@ export function registerVenueRoutes(app, { prisma }) {
         OR: visible,
         // A merged-away row is not a venue you can choose any more.
         mergedIntoVenueId: null,
-        ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}),
-        ...(region ? { region: { equals: region, mode: 'insensitive' } } : {}),
+        // Each of these runs as a LIKE pattern, so what the caller typed is
+        // escaped first: `San_Jose` must not find `SanXJose`, nor `%` every
+        // city there is.
+        ...(city ? { city: equalsIgnoringCase(city) } : {}),
+        ...(region ? { region: equalsIgnoringCase(region) } : {}),
         ...(country ? { country } : {}),
-        ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
+        ...(q ? { name: { contains: likeLiteral(q), mode: 'insensitive' } } : {}),
       }
 
       const [rows, total] = await Promise.all([

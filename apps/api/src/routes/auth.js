@@ -85,6 +85,25 @@ function isUniqueViolation(error) {
 }
 
 /**
+ * What `auth.forgotPassword` answers, for every address.
+ *
+ * Honest in every configuration: reset links carry a token, a credential never
+ * goes in a URL, and so they are not emailed even when show-once codes are.
+ *
+ * @type {string}
+ */
+export const FORGOT_PASSWORD_SENTENCE =
+  'If that address has an account, a password reset has been started. This site does not email reset links, so it cannot reach you from here: see the limitations page.'
+
+/**
+ * What `auth.resendVerification` answers, for every address.
+ *
+ * @type {string}
+ */
+export const RESEND_VERIFICATION_SENTENCE =
+  'If that address needs confirming, a confirmation has been started. This site does not email confirmation links: see the limitations page.'
+
+/**
  * The uniform body for every request that must not reveal whether an account
  * exists.
  *
@@ -103,7 +122,7 @@ function accepted(message) {
  * @param {object} deps.prisma The Prisma client.
  * @param {object} deps.env The parsed API environment.
  * @param {{max?: number, timeWindow?: string|number}} [deps.authLimit] Overrides for the credential-endpoint rate limit.
- * @param {function(object): Promise<void>} [deps.deliver] Where an issued link is sent. Defaults to logging it, which is what a credential-free deployment can honestly do.
+ * @param {function(object): Promise<void>} [deps.deliver] Where an issued link is sent: only a hook injected into `buildApp`, never the SMTP mailer. Defaults to logging it, which is what a deployment that does not email links can honestly do.
  * @returns {void} Nothing.
  */
 export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
@@ -146,10 +165,13 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
   /**
    * Hand a single-use link to whoever is going to deliver it.
    *
-   * With no mail provider configured, this logs that a link was issued — the
-   * secret itself at debug level in development only, so a developer can follow
-   * the flow, and never in production. Phase 2's notification outbox replaces the
-   * default; the seam is here so that no route has to know which.
+   * Confirmation and password-reset links are not emailed in any mode — not
+   * even when `DELIVERY_MODE=EMAIL` sends show-once codes — because each is a
+   * link carrying a token, and a credential never goes in a URL. Only a hook a
+   * caller injects into `buildApp` (the tests) receives them. Otherwise this
+   * logs that a link was issued — the secret itself at debug level in
+   * development only, so a developer can follow the flow, and never in
+   * production.
    *
    * @param {object} message What was issued.
    * @returns {Promise<void>} Resolves once delivery has been handed off.
@@ -590,6 +612,9 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
             mfaRequired: policy.mfaRequired,
             mfaEnrolled: factors.length > 0,
           },
+          // How show-once codes reach people here, so a screen can say whether
+          // the code is shown to whoever issues it or emailed to the address.
+          deliveryMode: app.deliveryMode ?? 'MANUAL',
         },
       }
     },
@@ -639,9 +664,7 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
         'verification requested',
       )
 
-      return accepted(
-        'If that address needs verifying, a link is on its way. Check your inbox and your spam folder.',
-      )
+      return accepted(RESEND_VERIFICATION_SENTENCE)
     },
   })
 
@@ -664,9 +687,7 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
         })
       }
 
-      return accepted(
-        'If that address has an account, a reset link is on its way. The link expires in thirty minutes.',
-      )
+      return accepted(FORGOT_PASSWORD_SENTENCE)
     },
   })
 
@@ -944,7 +965,7 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
           uri: totpUri({
             secret,
             account: request.currentUser.email,
-            issuer: 'Desi-Event',
+            issuer: 'The Desi Events',
           }),
           digits: TOTP_PARAMETERS.digits,
           periodSeconds: TOTP_PARAMETERS.stepSeconds,

@@ -12,6 +12,14 @@
     "./lifecycle": "./src/lifecycle.js",
     "./payments": "./src/payments.js",
     "./connect": "./src/connect.js",
+    "./media": "./src/media.js",
+    "./event-content": "./src/event-content.js",
+    "./website": "./src/website.js",
+    "./traffic-vocabulary": "./src/traffic-vocabulary.js",
+    "./code-letters": "./src/code-letters.js",
+    "./event-control": "./src/event-control.js",
+    "./imports": "./src/imports.js",
+    "./payment-terms": "./src/payment-terms.js",
     "./package.json": "./package.json"
   },
   "files": [

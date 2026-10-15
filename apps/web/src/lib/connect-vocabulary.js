@@ -30,7 +30,7 @@ import { CONNECT_ACTIONS, connectStateDisclaimer } from '@desi-event/schemas/con
  * @type {Readonly<Record<string, string>>}
  */
 export const CONNECT_STATE_LABELS = Object.freeze({
-  NOT_STARTED: 'Not simulated yet',
+  NOT_STARTED: 'Simulated setup not started',
   IN_PROGRESS: 'Simulated setup under way',
   REQUIREMENTS_DUE: 'Simulated outstanding requirement',
   COMPLETE: 'Final simulated step reached',

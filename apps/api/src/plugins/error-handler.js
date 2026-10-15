@@ -49,6 +49,23 @@ export async function registerErrorHandler(app, { nodeEnv }) {
       )
     }
 
+    // When the caller may try again: what `tooManyRequests` was told to say
+    // for a 429, and, for a 503 from a transaction that ran out of time, what
+    // the service or the error normalisation said (`lib/transaction-budget.js`,
+    // `isOutOfTime`). Only for those two statuses, and only a whole number of
+    // seconds, which is the form the header takes.
+    const retryAfter =
+      normalised.retryAfterSeconds ??
+      /** @type {{retryAfterSeconds?: unknown}} */ (error)?.retryAfterSeconds
+
+    if (
+      (normalised.statusCode === 429 || normalised.statusCode === 503) &&
+      Number.isInteger(retryAfter) &&
+      retryAfter > 0
+    ) {
+      reply.header('retry-after', String(retryAfter))
+    }
+
     reply
       .code(normalised.statusCode)
       .type('application/json; charset=utf-8')

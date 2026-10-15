@@ -23,10 +23,12 @@
  * @module app/privacy/holds/page
  */
 
-import { AsOf, Empty, Failure, Forbidden } from '../../../components/page-state.jsx'
+import { AsOf, Empty, Forbidden } from '../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { TABLE_FRAME } from '../../../components/workspace-kit.jsx'
 import { listPrivacyHolds } from '../../../lib/privacy-api.js'
 import { privacyOrganizations, readSession } from '../../../lib/session.js'
-import { describeRefusal, holdKindLabel, holdStateLabel } from '../../../lib/privacy-vocabulary.js'
+import { holdKindLabel, holdStateLabel } from '../../../lib/privacy-vocabulary.js'
 import { HoldActions } from '../hold-actions.jsx'
 import { StateBadge } from '../state-badge.jsx'
 
@@ -69,7 +71,7 @@ export default async function PrivacyHoldsPage({ searchParams }) {
 
     holds = answer.data ?? []
   } catch (error) {
-    failure = describeRefusal(error)
+    failure = error
   }
 
   const readAt = new Date().toISOString()
@@ -77,8 +79,11 @@ export default async function PrivacyHoldsPage({ searchParams }) {
   return (
     <>
       <header>
-        <h1 className="text-2xl font-bold text-indigo-night-900">Privacy holds</h1>
-        <p className="mt-2 max-w-3xl text-slate-700">
+        <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+          Workspace · Trust and safety
+        </p>
+        <h1 className="mt-2 text-h2 font-semibold text-ink">Privacy holds</h1>
+        <p className="mt-2 max-w-3xl text-ink-muted">
           A hold stops an erasure from running. While one is active, a request against that subject
           is refused and nothing is changed. Releasing a hold is its own recorded decision.
         </p>
@@ -86,7 +91,9 @@ export default async function PrivacyHoldsPage({ searchParams }) {
 
       <HoldActions organizationId={selected.organizationId} />
 
-      {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
+      {failure ? (
+        <ReadRefusal error={failure} what="The privacy holds" action="see the privacy holds" />
+      ) : null}
 
       {holds && holds.length === 0 ? (
         <Empty
@@ -98,13 +105,13 @@ export default async function PrivacyHoldsPage({ searchParams }) {
       {holds && holds.length > 0 ? (
         <>
           <AsOf asOf={readAt} />
-          <div className="mt-4 overflow-x-auto">
+          <div className={`mt-4 ${TABLE_FRAME}`}>
             <table className="w-full min-w-[46rem] border-collapse text-left text-sm">
               <caption className="sr-only">
                 Holds in {selected.organizationName ?? 'this organisation'}
               </caption>
               <thead>
-                <tr className="border-b border-slate-300 text-slate-700">
+                <tr className="border-b border-line-strong text-ink-muted">
                   <th scope="col" className="py-2 pr-4 font-semibold">
                     Subject
                   </th>
@@ -127,16 +134,16 @@ export default async function PrivacyHoldsPage({ searchParams }) {
               </thead>
               <tbody>
                 {holds.map((hold) => (
-                  <tr key={hold.id} className="border-b border-slate-200 align-top">
-                    <td className="py-3 pr-4 font-mono text-xs break-all text-indigo-night-900">
+                  <tr key={hold.id} className="border-b border-line align-top">
+                    <td className="py-3 pr-4 font-mono text-xs break-all text-ink">
                       {hold.subjectId}
                     </td>
-                    <td className="py-3 pr-4 text-slate-700">{holdKindLabel(hold.kind)}</td>
+                    <td className="py-3 pr-4 text-ink-muted">{holdKindLabel(hold.kind)}</td>
                     <td className="py-3 pr-4">
                       <StateBadge state={hold.state} label={holdStateLabel(hold.state)} />
                     </td>
-                    <td className="py-3 pr-4 break-all text-slate-700">{hold.matterReference}</td>
-                    <td className="py-3 pr-4 text-slate-700">
+                    <td className="py-3 pr-4 break-all text-ink-muted">{hold.matterReference}</td>
+                    <td className="py-3 pr-4 text-ink-muted">
                       <time dateTime={hold.placedAt}>{hold.placedAt}</time>
                     </td>
                     <td className="py-3">
@@ -147,7 +154,7 @@ export default async function PrivacyHoldsPage({ searchParams }) {
                           releaseOnly
                         />
                       ) : (
-                        <span className="text-xs text-slate-600">
+                        <span className="text-xs text-ink-muted">
                           {hold.releaseReasonCode ?? 'Released'}
                         </span>
                       )}

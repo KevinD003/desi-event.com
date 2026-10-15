@@ -6,7 +6,7 @@
 
 ## Context
 
-Desi-Event spans a REST API, a server-rendered web application, background
+The Desi Events spans a REST API, a server-rendered web application, background
 workers, and — from Phase 3 — a React Native mobile client. A platform this
 shape can be written in one language or several. The default industry answer
 for a JavaScript monorepo is TypeScript.

@@ -1,6 +1,6 @@
 # Architecture
 
-How Desi-Event is put together, and why. This describes what is in the
+How The Desi Events is put together, and why. This describes what is in the
 repository today; where something is deliberately unfinished it says so.
 
 ## The shape of the system

@@ -347,10 +347,10 @@ document.
 `docs/adr/0003-stripe-connect-charge-model.md` is new. It compares destination
 charges, direct charges and separate charges/transfers against the actual
 business invariant (one order carries tickets from one organiser, structurally),
-chooses destination charges, states plainly that Option C is _not_ chosen because
-flexibility is not a requirement, and lists what the decision does **not** make
-Desi-Event: merchant of record, agent, escrow provider, money transmitter, tax
-remitter, or legal seller.
+chooses destination charges, states plainly that Option C is _not_ chosen
+because flexibility is not a requirement, and lists what the decision does
+**not** make The Desi Events: merchant of record, agent, escrow provider, money
+transmitter, tax remitter, or legal seller.
 
 `docs/adr/0004-plpgsql-in-migrations.md` is also new, and was written because
 writing the traceability matrix exposed an undocumented decision: Phase 2

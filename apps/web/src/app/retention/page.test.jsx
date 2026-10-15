@@ -17,6 +17,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
+// A refused read is drawn by `ReadRefusal`, whose step-up redraws through the
+// router; these tests render outside an app router.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock('../../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
+
 vi.mock('../../lib/privacy-api.js', () => ({ listRetentionSweeps: vi.fn() }))
 
 const { listRetentionSweeps } = await import('../../lib/privacy-api.js')
@@ -100,6 +105,22 @@ describe('the three readings of an empty-looking page', () => {
     await renderPage({ data: [sweep()], pagination: null, notEvaluated: NOT_EVALUATED })
 
     expect(screen.getByTestId('retention-reading')).toHaveTextContent(/nothing was deleted/i)
+  })
+})
+
+describe('what the page says about deletion', () => {
+  it('says the retention job cannot delete, and names the traffic roll-up as the one timed deletion', async () => {
+    await renderPage({ data: [], pagination: null, notEvaluated: NOT_EVALUATED })
+
+    const lead = screen.getByRole('heading', { level: 1, name: 'Retention rehearsals' })
+      .nextElementSibling.textContent
+
+    expect(lead).toMatch(/the retention job has no way to delete/i)
+    expect(lead).toMatch(
+      /The one deletion on a timer in this system is of raw visit records, which the job that adds visits up removes two days after the day they were made, once added up\./,
+    )
+    // SPEC2 §4.N-H: the old blanket claim is false now that the roll-up deletes.
+    expect(lead).not.toMatch(/there is no deletion path in this system/i)
   })
 })
 

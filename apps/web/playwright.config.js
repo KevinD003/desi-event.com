@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 import { preinstalledChromium } from './e2e/support/chromium.js'
+import { nextDevServer, withDevRoutes } from './e2e/support/next-dev.mjs'
 
 /**
  * Port the suite starts the application on.
@@ -17,6 +18,9 @@ const executablePath = preinstalledChromium()
 
 export default defineConfig({
   testDir: './e2e',
+  // Proves `next dev` routes its pages and the API proxy before any test
+  // (`e2e/support/next-dev.mjs`).
+  globalSetup: withDevRoutes(),
   testMatch: '**/*.spec.js',
   // Several suites belong to other configs and must not run here.
   //
@@ -40,6 +44,10 @@ export default defineConfig({
   // in CI against the API this config deliberately does not start — loudly, on
   // their first day, which is the trade this list makes. `detail-*` is a glob
   // rather than four names so the fifth one does not repeat it.
+  //
+  // `pnpm ci:check` now makes the trade unnecessary: it loads every config a CI
+  // browser job runs and refuses a spec collected by none of them or by more
+  // than one (`scripts/lib/spec-collection.mjs`), before any browser starts.
   testIgnore: [
     '**/not-found.spec.js',
     '**/organizer-venue-maps.spec.js',
@@ -72,12 +80,8 @@ export default defineConfig({
   // The API is intentionally not started: these tests exercise the site in the
   // state a visitor gets when the listings service is down, which is the state
   // the fallback catalogue exists for.
-  webServer: {
-    command: `npx next dev --port ${port}`,
-    url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  },
+  //
+  // `next dev`, through the one helper that proves its routes before any test
+  // runs (e2e/support/next-dev.mjs); `pnpm ci:check` refuses any other way.
+  webServer: nextDevServer({ port, reuseExistingServer: !process.env.CI }),
 })

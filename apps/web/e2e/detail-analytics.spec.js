@@ -25,9 +25,28 @@ const COLLECTED_CENTS = 200_000
  */
 const ids = () => world()
 
+/**
+ * The world's ledger currency.
+ *
+ * The page reads one currency at a time and asks for US dollars unless the
+ * address names another. The seeded ledger is in rupees, so every visit here
+ * names them: otherwise a figure never requested would pass for one withheld,
+ * and the viewer and refusal cases below would prove nothing.
+ */
+const LEDGER_CURRENCY = 'INR'
+
+/**
+ * The analytics address for one organisation, in the ledger's currency.
+ *
+ * @param {string} organizationId Whose figures.
+ * @returns {string} A path with its query.
+ */
+const analyticsFor = (organizationId) =>
+  `/analytics?organizationId=${organizationId}&currency=${LEDGER_CURRENCY}`
+
 test.describe('organiser analytics', () => {
   test('reports what the ledger says', async ({ owner }) => {
-    await owner.goto(`/analytics?organizationId=${ids().alphaOrganizationId}`)
+    await owner.goto(analyticsFor(ids().alphaOrganizationId))
     await expect(owner.getByRole('heading', { level: 1 })).toBeVisible()
 
     await expect(owner.getByRole('heading', { name: /money, from the ledger/i })).toBeVisible()
@@ -39,21 +58,49 @@ test.describe('organiser analytics', () => {
     expect(rendered).toMatch(/2,000\.00|2000\.00/u)
   })
 
-  test('names the step it cannot count instead of estimating it', async ({ owner }) => {
-    await owner.goto(`/analytics?organizationId=${ids().alphaOrganizationId}`)
+  test('counts from visit to payment, and names what it does not count', async ({ owner }) => {
+    await owner.goto(analyticsFor(ids().alphaOrganizationId))
 
-    const rendered = await owner.locator('main').innerText()
+    // Visits to event pages are counted now, without cookies or stored
+    // addresses, so the funnel starts at the visitor rather than at a hold —
+    // and every step is a real count over a real table, none estimated.
+    // The section, not the scrolling frame inside it that bears the same name.
+    const funnel = owner
+      .getByRole('region', { name: 'From visit to payment', exact: true })
+      .filter({
+        has: owner.getByRole('heading', { level: 2, name: 'From visit to payment', exact: true }),
+      })
 
-    // Nothing here records a page view, so the step everybody means by
-    // "conversion" does not exist as data. Saying so is the honest answer;
-    // deriving it from order counts would be inventing a metric.
-    expect(rendered.toLowerCase()).toContain('page views')
-    expect(rendered).toMatch(/tickets held/i)
-    expect(rendered).toMatch(/orders paid/i)
+    await expect(funnel).toBeVisible()
+
+    const steps = funnel
+      .getByRole('table', { name: 'From visit to payment' })
+      .getByRole('rowheader')
+
+    await expect(steps).toHaveText([
+      'Visitors',
+      'Visitors who chose tickets or seats',
+      'Tickets held',
+      'Orders started',
+      'Orders paid',
+    ])
+
+    // What is not counted is said, in a list of its own, rather than left to
+    // be guessed from a smaller number: robots first.
+    await expect(funnel.getByRole('heading', { name: 'Not counted', exact: true })).toBeVisible()
+
+    const notCounted = funnel.getByRole('listitem')
+
+    await expect(notCounted).toHaveCount(3)
+    await expect(notCounted.first()).toContainText(/robots/i)
+
+    // The old funnel named page views as the step it could not count. They
+    // are counted now, beside it, so the funnel no longer says so.
+    await expect(funnel).not.toContainText(/page views/iu)
   })
 
   test('says which mode produced the figures', async ({ owner }) => {
-    await owner.goto(`/analytics?organizationId=${ids().alphaOrganizationId}`)
+    await owner.goto(analyticsFor(ids().alphaOrganizationId))
 
     const rendered = await owner.locator('main').innerText()
 
@@ -63,19 +110,19 @@ test.describe('organiser analytics', () => {
   test('keeps the chosen organisation in the address, so the view can be shared', async ({
     owner,
   }) => {
-    await owner.goto(`/analytics?organizationId=${ids().alphaOrganizationId}&currency=INR`)
+    await owner.goto(analyticsFor(ids().alphaOrganizationId))
 
     const url = new URL(owner.url())
 
     expect(url.searchParams.get('organizationId')).toBe(ids().alphaOrganizationId)
-    expect(url.searchParams.get('currency')).toBe('INR')
+    expect(url.searchParams.get('currency')).toBe(LEDGER_CURRENCY)
   })
 
   test('exports a spreadsheet with no buyer, no card and no provider reference', async ({
     owner,
   }) => {
     const response = await owner.request.get(
-      `/api/v1/analytics/export.csv?organizationId=${ids().alphaOrganizationId}&currency=INR`,
+      `/api/v1/analytics/export.csv?organizationId=${ids().alphaOrganizationId}&currency=${LEDGER_CURRENCY}`,
     )
 
     expect(response.status(), await response.text()).toBe(200)
@@ -86,13 +133,22 @@ test.describe('organiser analytics', () => {
 
     expect(header).toBe('Section,Item,Code,Quantity,Amount (minor units),Currency,Note')
 
+    // The visit counts name clicks on an event's card in the listings, which
+    // is not a payment card. Those labels, and only those, are taken out
+    // before the scan, so a payment card's word anywhere else still fails it.
+    const scanned = body
+      .toLowerCase()
+      .replaceAll('event card clicks', '')
+      .replaceAll('card clicks by place', '')
+      .replaceAll('cardclicks', '')
+
     for (const needle of ['holder-', '@attendee.test', 'Ticket Holder', 'mock_', 'card', 'cvc']) {
-      expect(body.toLowerCase(), `the export carries ${needle}`).not.toContain(needle.toLowerCase())
+      expect(scanned, `the export carries ${needle}`).not.toContain(needle.toLowerCase())
     }
   })
 
   test('gives a viewer the counts and does not send them the money', async ({ viewer }) => {
-    await viewer.goto(`/analytics?organizationId=${ids().alphaOrganizationId}`)
+    await viewer.goto(analyticsFor(ids().alphaOrganizationId))
     await expect(viewer.getByRole('heading', { level: 1 })).toBeVisible()
 
     const rendered = await viewer.locator('main').innerText()
@@ -111,7 +167,7 @@ test.describe('organiser analytics', () => {
   })
 
   test('refuses an organisation it was not asked to substitute', async ({ owner }) => {
-    await owner.goto(`/analytics?organizationId=${ids().betaOrganizationId}`)
+    await owner.goto(analyticsFor(ids().betaOrganizationId))
 
     const rendered = await owner.locator('body').innerText()
 

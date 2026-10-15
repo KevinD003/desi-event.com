@@ -104,6 +104,19 @@ const FORBIDDEN = [
       ['TICKET_HOLD_TTL_SECONDS', 'TICKET_HOLD_TTL_SECONDS'],
       ['ALLOW_DEMO_TAX_IN_PRODUCTION', 'ALLOW_DEMO_TAX_IN_PRODUCTION'],
       ['rate-limit budget', 'RATE_LIMIT_MAX'],
+      // The mail server the API emails codes through, and its credentials.
+      ['SMTP_PASSWORD', 'SMTP_PASSWORD'],
+      ['SMTP_HOST', 'SMTP_HOST'],
+      ['SMTP_USER', 'SMTP_USER'],
+      ['SMTP_REQUIRE_TLS', 'SMTP_REQUIRE_TLS'],
+      // Who the API believes about a visitor's address, and how many proxies
+      // the web tier trusts: the trust chain of visit counting.
+      ['TRAFFIC_TRUSTED_FORWARDERS', 'TRAFFIC_TRUSTED_FORWARDERS'],
+      ['TRAFFIC_TRUSTED_PROXY_HOPS', 'TRAFFIC_TRUSTED_PROXY_HOPS'],
+      ['TRAFFIC_BEACON_MAX_PER_MINUTE', 'TRAFFIC_BEACON_MAX_PER_MINUTE'],
+      // Where the importer reads its pictures from (SPEC2-XI §4.5).
+      ['IMPORT_IMAGE_SOURCE', 'IMPORT_IMAGE_SOURCE'],
+      ['IMPORT_IMAGE_FIXTURE_DIR', 'IMPORT_IMAGE_FIXTURE_DIR'],
     ],
   },
   {
@@ -115,6 +128,7 @@ const FORBIDDEN = [
       ['job: issue-tickets', 'issue-tickets'],
       ['notification template: event.changed', 'event.changed:'],
       ['notification template: event.cancelled', 'event.cancelled:'],
+      ['job: roll-up-traffic', 'roll-up-traffic'],
     ],
   },
   {
@@ -132,6 +146,21 @@ const FORBIDDEN = [
       ['capability: payout:manage', 'payout:manage'],
       ['capability: ledger:manage', 'ledger:manage'],
       ['capability: platform:admin', 'platform:admin'],
+      // SPEC2 §0.2: client components are given booleans, never these names.
+      ['capability: organizer:invite', 'organizer:invite'],
+      ['capability: website_redirect:manage', 'website_redirect:manage'],
+      ['capability: analytics:view_all', 'analytics:view_all'],
+      // SPEC2-XI §0.7: full control of posted events and the import.
+      ['capability: event:platform_edit', 'event:platform_edit'],
+      ['capability: event:platform_delete', 'event:platform_delete'],
+      ['capability: event:import', 'event:import'],
+      ['capability: event:delete_unsold', 'event:delete_unsold'],
+      // SPEC3 §0.4 and SPEC3-XI §13: booking fees, referral codes and paying
+      // at the venue. The pages that decide hand their components booleans.
+      ['capability: payment_terms:manage', 'payment_terms:manage'],
+      ['capability: referral_code:manage', 'referral_code:manage'],
+      ['capability: platform_fee:refund', 'platform_fee:refund'],
+      ['capability: venue_booking:cancel', 'venue_booking:cancel'],
       ['step-up policy name on a route', 'capabilityScope'],
     ],
   },
@@ -187,11 +216,14 @@ const FORBIDDEN = [
       // `startTicketTransferRequestSchema`, so a screen that offers a ticket has
       // to name it in the request body, and a scan for the string cannot tell
       // that from the stored address coming back. What it *can* check is that
-      // masking stays a server concern — if `maskRecipient` ever reached the
-      // browser, the raw address would have had to reach it first, which is the
-      // failure the needle is for. The masked value itself is asserted in
-      // `ticket-lifecycle.test.js`, where a runtime value can actually be read.
-      ['transfer recipient masking', 'maskRecipient'],
+      // masking stays a server concern — if `transferRecipient` ever reached
+      // the browser, the raw address would have had to reach it first, which
+      // is the failure the needle is for. It replaced `maskRecipient`, which
+      // stays a needle so the old masker cannot come back unnoticed. The value
+      // itself is asserted in `ticket-lifecycle.test.js`, where a runtime value
+      // can actually be read.
+      ['transfer recipient stand-in', 'transferRecipient'],
+      ['the old recipient masker', 'maskRecipient'],
     ],
   },
   {
@@ -215,6 +247,10 @@ const FORBIDDEN = [
       // secret scanner looks for.
       ['Stripe secret key prefix', new RegExp(['sk', 'live'].join('_'))],
       ['Stripe webhook secret prefix', new RegExp(['whsec', ''].join('_'))],
+      // The mail adapter. The browser never sends mail; a code is shown once
+      // in a response or reaches the recipient's mailbox, nowhere else.
+      ['SMTP adapter', 'createSmtpEmailProvider'],
+      ['nodemailer', 'nodemailer'],
     ],
   },
   {
@@ -266,6 +302,197 @@ const FORBIDDEN = [
       ['load thresholds', 'HEALTH_LIMITS'],
     ],
   },
+  {
+    /*
+     * Event pictures. The browser sees a picture by its asset id and nothing
+     * else: where the bytes are kept is the API's business, and so is the
+     * allow-list that decides what survives an upload. A key in a bundle is a
+     * key somebody will try to fetch by; a sanitiser in a bundle is a
+     * sanitiser somebody will probe offline for what it lets through.
+     */
+    group: 'event picture storage and sanitising (server-only)',
+    markers: [
+      ['media storage key column', 'storageKey'],
+      ['server-side image sanitiser', 'sanitiseImage'],
+    ],
+  },
+  {
+    /*
+     * Feature completion: team invitations, platform roles, the group pass,
+     * pictures, nights, seats and promo codes.
+     *
+     * Not the sniffing of an image's first bytes: `sniffImageType` lives in
+     * `@desi-event/schemas/media`, which the picture editor imports on purpose
+     * to refuse a wrong file before uploading it, and knowing a PNG starts with
+     * its signature helps nobody. What stays on the server is what rebuilds the
+     * bytes and where they are kept. There is no storage variable to name:
+     * pictures are kept in PostgreSQL, behind DATABASE_URL, forbidden above.
+     */
+    group: 'feature completion (server-only)',
+    markers: [
+      // Show-once codes. How a code goes out, and the step that hands it to a
+      // provider or back once, are the server's; a browser is given the code
+      // in one response and nothing about how it was made.
+      ['delivery mode resolver', 'resolveDeliveryMode'],
+      ['show-once code hand-off', 'deliverCode'],
+      ['session revocation after a privilege change', 'revokeAllSessionsOf'],
+      ['session hardening after a privilege gain', 'secureSessionAfterGain'],
+      // The group pass. The purpose strings are half of what a forger would
+      // need, exactly as `ticket-pass-v1` is for a single pass; the door's
+      // preview references are signed with purposes of their own.
+      ['group pass credential purpose', 'group-pass-v1'],
+      ['group pass printed-code purpose', 'group-pass-code-v1'],
+      ['group pass credential deriver', 'mintGroupPassCredential'],
+      ['group pass printed-code deriver', 'mintGroupCode'],
+      ['group pass printed-code digest', 'groupCodeDigest'],
+      ['door preview reference purpose', 'admission-preview-v1'],
+      ['group door preview reference purpose', 'admission-group-preview-v1'],
+      // Platform roles at the door. Which platform role may admit, and the
+      // assertion that holds the policy together, are the server's rule.
+      ['platform door roles', 'PLATFORM_ADMISSION_ROLES'],
+      ['platform roles refused at the door', 'REFUSED_PLATFORM_ADMISSION_ROLES'],
+      ['platform door policy assertion', 'assertPlatformAdmissionPolicy'],
+      ['platform door authority', 'platformAdmissionAuthorityFor'],
+      // Pictures: the per-format rebuilders, where bytes are kept, and the note
+      // the structural check stamps on each one.
+      ['JPEG rebuilder', 'sanitiseJpeg'],
+      ['PNG rebuilder', 'sanitisePng'],
+      ['WebP rebuilder', 'sanitiseWebp'],
+      ['picture byte storage', 'createPostgresMediaStorage'],
+      ['structural check note', 'structural-v1: parsed'],
+      // Checkout. The one pricing function a charge and a quote share, the
+      // session locks, the seat binder, and the budget a promo code is tried
+      // against: a browser that knows the budget knows how fast to guess.
+      ['checkout pricing', 'priceCheckout'],
+      ['session locks', 'lockEventSessions'],
+      ['reserved seat binding', 'bindReservedSeats'],
+      ['promo quote budget', 'DEFAULT_QUOTE_LIMIT'],
+      ['promo quote limiter', 'quoteRateLimit'],
+    ],
+  },
+  {
+    /*
+     * Invite-only organisers and the review gate (SPEC2 §4.P). Which roles post
+     * events, who may review whom, and the database's own refusal are the
+     * server's rules; a screen is told the answer ("roleChoices", a 403) and
+     * never the rule. The letter beside a show-once code is allowed: it is
+     * built by `@desi-event/schemas/code-letters`, which imports nothing.
+     */
+    group: 'organiser onboarding (server-only)',
+    markers: [
+      ['posting-role derivation', 'EVENT_POSTING_ORG_ROLES'],
+      ['owner-grantable roles table', 'OWNER_GRANTABLE_ORG_ROLES'],
+      ['platform administrator bound', 'PLATFORM_ADMINISTRATOR_CAPABILITIES'],
+      ['review independence', 'assertIndependentReviewer'],
+      ['review gate constraint', 'event_public_requires_review'],
+    ],
+  },
+  {
+    /*
+     * Visit counting (SPEC2 §4.N). How a visitor code is made, how repeats are
+     * folded, and where the API learns an address are what somebody gaming the
+     * figures would want to read. The beacon helper in the browser knows the
+     * vocabulary and the path, and nothing else.
+     */
+    group: 'visit counting internals (server-only)',
+    markers: [
+      ['visitor code column', 'visitorHash'],
+      ['repeat-visit digest', 'dedupeKey'],
+      ['forwarded visitor address header', 'x-desi-client-address'],
+      ['visit recorder', 'recordTrafficEvent'],
+      ['per-visitor rate key', 'visitorRateKey'],
+      ['visit roll-up', 'runTrafficRollup'],
+    ],
+  },
+  {
+    /*
+     * The website link (SPEC2 §4.W). The one writer of the switch, and the
+     * server-to-server lookup a browser is refused (the proxy answers 404 for
+     * it); the web route alone asks where a link goes, and re-checks the
+     * answer before it sends anybody there.
+     */
+    group: 'website link decision (server-only)',
+    markers: [
+      ['switch writer', 'decideWebsiteRedirect'],
+      ['server-only lookup path', '/v1/traffic/website-visits'],
+    ],
+  },
+  {
+    /*
+     * Full control of posted events (SPEC2-XI X). Which outcome a deletion
+     * takes, who holds authority over an event, and how a notice withholds a
+     * joining link are the server's rules; a screen is shown the outcome, the
+     * refusal and the notice.
+     */
+    group: 'full control of posted events (server-only)',
+    markers: [
+      ['deletion outcome table', 'classifyDeletion'],
+      ['deletion facts', 'loadDeletionFacts'],
+      ['refunds a deletion asks for', 'refundWhatIsLeft'],
+      ['night cancellation table', 'classifySessionCancellation'],
+      ['authority over an event', 'resolveEventAuthority'],
+      ['sittings ended by a deletion', 'endSittingsOnDeletion'],
+      ['change notice writer', 'recordChangeNotice'],
+      ['change notice withholding', 'withholdNoticeValues'],
+      ['refund driver selection', 'sendableRefundsWhere'],
+    ],
+  },
+  {
+    /*
+     * Importing listed events (SPEC2-XI I). The fetcher is the API's one way
+     * out: the ranges it refuses and how it pins a connection are what
+     * somebody probing it would want to read, and the importer's plan,
+     * exemption and publication are an administrator's request's business.
+     * The import screens are given the plan and the run, never these.
+     */
+    group: 'the import (server-only)',
+    markers: [
+      ['picture fetcher', 'fetchImportImage'],
+      ['public-address check', 'isPublicAddress'],
+      ['pinned lookup', 'pinnedLookup'],
+      ['refused IPv4 ranges', 'REFUSED_IPV4_RANGES'],
+      ['refused IPv6 ranges', 'REFUSED_IPV6_RANGES'],
+      ['picture address check', 'checkImportImageUrl'],
+      ['imported picture sanitiser', 'sanitiseImportedImage'],
+      ["the fetcher's user agent", 'The Desi Events importer'],
+      ['import file reader', 'parseImportDataset'],
+      ['import planner', 'planImport'],
+      ['plan by status', 'PLAN_ACTION_BY_STATUS'],
+      ['platform-held organisation', 'ensurePlatformHeldOrganization'],
+      ['import approval and publication', 'approveImported'],
+      ['import status moves', 'importMove'],
+      ['imported event publication', 'publishImported'],
+      ['imported event reassignment', 'reassignImportedEvent'],
+      ['picture copying pass', 'fetchRunImages'],
+      ['stored-size measure', 'jsonbTextBytes'],
+    ],
+  },
+  {
+    /*
+     * Booking fees, referral codes and paying at the venue (SPEC3, SPEC3-XI).
+     * How a code is judged, drawn, counted and given back, what share of a
+     * booking fee is kept, and how a payment at the door is recorded are the
+     * server's rules; a screen is told whether a code applied, what is due
+     * and what was kept, never the rule. A browser that can name the
+     * evaluator is one somebody will probe for which codes exist.
+     */
+    group: 'booking fees, referral codes and paying at the venue (server-only)',
+    markers: [
+      ['referral code evaluator', 'evaluateReferral'],
+      ['referral code generator', 'generateReferralCode'],
+      ['referral audit metadata', 'referralAuditMetadata'],
+      ['referral use writer', 'consumeReferralUse'],
+      ['referral use returner', 'settleReferralUsesIfEnded'],
+      ['ended-order predicate', 'orderEndedWithoutUse'],
+      ['kept booking-fee share', 'keptShareOf'],
+      ['places put back on sale', 'placesOnSaleOf'],
+      ['unpaid ticket cancellation', 'cancelUnpaidVenueTickets'],
+      ['payment taken at the door', 'recordVenuePayment'],
+      ['the booking fee set per event', 'setEventFee'],
+      ['a refund order’s night lock', 'lockOrderNight'],
+      ['venue-booking advisory lock key', 'venue-booking:'],
+    ],
+  },
 ]
 
 /**
@@ -291,18 +518,31 @@ const REQUIRED = [
   // paths. No client component ever read it: the only capability check in the
   // browser's half of this application is in a Server Component, where it
   // belongs. Requiring it here would be requiring the leak that put it there.
-  ['route path /v1/organizers', '/v1/organizers'],
+  // `/v1/organizers` used to be here, and it is deliberately gone (Phase 4).
+  //
+  // It was present only because the checkout basket, the one client component
+  // that imported the contract client, pulled the whole generated route table
+  // into the browser: every path the API serves. No client component calls
+  // `/v1/organizers`. The basket now posts through the same-origin proxy, the
+  // table no longer ships, and requiring the path would be requiring the table.
   ['route path /v1/venues', '/v1/venues'],
   ['route path /v1/auth/login', '/v1/auth/login'],
   ['route path /v1/venue-map-versions', '/v1/venue-map-versions'],
   ['CSRF double-submit header', 'x-desi-csrf'],
   ['accessibility vocabulary', 'STEP_FREE_ENTRANCE'],
-  // The finance and operations screens are server-rendered, so their route
-  // paths reach the browser only through the client's API base. What must be
-  // present is the export link the finance page renders, because a build that
-  // dropped it would pass every forbidden check above by shipping a screen with
-  // no way to get the data out.
-  ['finance export path', '/v1/finance/export.csv'],
+  // The finance export path used to be here, and is gone for the same reason
+  // (Phase 4). The link is rendered by a Server Component into a page that is
+  // never prerendered, so it is in no file this scan can read; it was found
+  // only in the route table the basket used to ship. That the finance page
+  // offers the export, and that the export answers, is proven where it can be:
+  // `e2e/detail-workspace.spec.js` follows the link and reads the file.
+  //
+  // What a buyer's browser must carry instead: the checkout's two commands and
+  // account creation. A build that dropped them would pass every forbidden
+  // check above by shipping a checkout whose buttons do nothing.
+  ['checkout hold path', '/v1/holds'],
+  ['checkout order path', '/v1/orders'],
+  ['account creation path', '/v1/auth/register'],
   // The same argument for the surfaces added this cycle. Each is a client
   // component that issues a command, so its path must reach the browser — and
   // a build that dropped one would pass every forbidden check above by shipping
@@ -310,6 +550,55 @@ const REQUIRED = [
   ['reconciliation action path', '/v1/operations/reconciliation/'],
   ['refund action path', '/v1/refunds/'],
   ['ticket transfer path', '/v1/ticket-transfers/'],
+  // The door. Both halves must ship: a build with the lookup and no admission
+  // would be a screen that shows who is at the door and can never let them in.
+  ['door lookup path', '/v1/tickets/admission/preview'],
+  ['door admission path', '/v1/tickets/check-in'],
+  // Feature completion, by the same argument: each is a command a client
+  // component issues, so each path has to reach the browser.
+  ['seat picker path (seats and seated holds)', '/v1/sessions/'],
+  ['promo code quote path', '/v1/orders/quote'],
+  ['promo code management path', '/promo-codes'],
+  ['organisation creation path', '/v1/organizations'],
+  ['team invitation path', '/invitations'],
+  ['team invitation acceptance path', '/v1/invitations/accept'],
+  ['picture upload path', '/media?'],
+  ['group pass path', '/group-pass'],
+  ['group door lookup path', '/v1/tickets/admission/group/preview'],
+  ['group door admission path', '/v1/tickets/admission/group/check-in'],
+  ['platform account search path', '/v1/platform/users/search'],
+  // Invite-only organisers: the administrators' invite, withdraw and reissue,
+  // and the recipient's accept. Each is issued by a client component.
+  ['organiser invitation path', '/v1/platform/organizer-invitations'],
+  ['organiser invitation acceptance path', '/v1/organizer-invitations/accept'],
+  // The administrators' website-link switch, posted from the review page.
+  ['website link decision path', '/website-redirect'],
+  // Visit counting: a build without the beacon path counts nothing and would
+  // still pass every check above.
+  ['visit beacon path', '/v1/traffic/beacons'],
+  // Full control of posted events: the commands the delete, night, sitting
+  // and restore dialogs issue.
+  ['deletion refunds path', '/refunds/finish'],
+  ['night cancellation path', '/cancellation'],
+  ['platform event path (sittings, restore)', '/v1/platform/events/'],
+  ['sitting close path', '/edit/close'],
+  // The import screens: upload and plan, apply, approve and retry, and the
+  // reassign dialog's target search and move.
+  ['import run path', '/v1/platform/imports'],
+  ['import picture retry path', '/images/retry'],
+  ['import target search path', '/v1/platform/import-targets'],
+  ['imported event move path', '/reassign'],
+  // Booking fees, referral codes and paying at the venue: the commands the
+  // new client components issue. The cancel dialog lists unpaid bookings and
+  // cancels tickets; the referral code form and switch make and change codes;
+  // the fee refund form previews and refunds a booking fee; the terms panel
+  // sets the fee and the switch under its event's payment terms.
+  ['unpaid ticket cancellation path', '/venue-cancellations'],
+  ['unpaid bookings path', '/venue-bookings'],
+  ['referral code path', '/v1/platform/referral-codes'],
+  ['booking fee refund path', '/fee-refund'],
+  ['platform order path (booking fee)', '/v1/platform/orders/'],
+  ['payment terms path', '/payment-terms'],
 ]
 
 /**

@@ -36,18 +36,26 @@
  * need the venue's zone per row; doing it in UTC and *saying* UTC is honest,
  * and doing it in local time silently would not be.
  *
- * ## What is not here
+ * ## Visits
  *
- * A view-to-purchase conversion funnel. Nothing in this repository records a
- * page view or an anonymous session, so the top of that funnel does not exist
- * and cannot be inferred. What {@link conversionFunnel} reports instead is the
- * part that *is* recorded — holds taken, orders created, orders paid — and it
- * is labelled as that rather than as a funnel with a missing first step.
+ * Visits are counted since migration `20260930130000_event_traffic_analytics`,
+ * first-party and without cookies (`lib/traffic.js`); this module reads their
+ * daily totals through `traffic-report.js`, never the raw rows. The funnel
+ * starts from visitors because they now exist as data, and it names what it
+ * does not count ({@link FUNNEL_NOT_COUNTED}) rather than reading as complete.
  *
  * @module @desi-event/api/lib/analytics
  */
 
 import { financeSummary } from './finance-reporting.js'
+import { dayDate } from './traffic.js'
+import { trafficSummary, trafficWindow } from './traffic-report.js'
+import {
+  BOOKED_UNPAID_ORDER_WHERE,
+  EVENT_STILL_ON_WHERE,
+  PAID_ORDER_WHERE,
+  UNPAID_VENUE_TICKET_WHERE,
+} from './venue-payment-filters.js'
 
 /**
  * Ticket states that mean a ticket exists and has not been given up.
@@ -56,14 +64,16 @@ import { financeSummary } from './finance-reporting.js'
  * ticket that was sold, and excluding them would make "tickets sold" fall
  * during an event.
  *
+ * `TRANSFERRED` is not. A ticket handed on is two rows — the sender's,
+ * now TRANSFERRED, and the recipient's successor — and one sale. Counting
+ * both counted every handed-on ticket twice; it now counts once, as its
+ * successor. The same three states are the database's "live ticket" for a
+ * seat (the partial index `Ticket_eventSeatId_live_key`, ADR 0006) and the
+ * load suite's "no seat sold twice".
+ *
  * @type {ReadonlyArray<string>}
  */
-export const LIVE_TICKET_STATES = Object.freeze([
-  'VALID',
-  'TRANSFER_PENDING',
-  'CHECKED_IN',
-  'TRANSFERRED',
-])
+export const LIVE_TICKET_STATES = Object.freeze(['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'])
 
 /**
  * Ticket states that mean the ticket is gone and why.
@@ -326,6 +336,12 @@ export async function reservedSeatInventory(prisma, params) {
  * Only `PAID` orders are counted. A pending order is a basket, and a cancelled
  * or expired one never happened.
  *
+ * A place booked to pay at the venue and cancelled unpaid went back to stock
+ * (SPEC3-XI §9.10): it is not sold, and counting it would count it twice
+ * once it is sold again. So each line counts `quantity − venueCancelledQuantity`
+ * and its value without those tickets' share, and every group says how many
+ * were cancelled (`cancelledQuantity`).
+ *
  * @param {object} prisma A Prisma client.
  * @param {object} params Inputs, as {@link eventScope} plus a window and currency.
  * @returns {Promise<object>} Four breakdowns, each bounded.
@@ -347,6 +363,7 @@ export async function salesBreakdowns(prisma, params) {
       subtotalCents: true,
       refundedQuantity: true,
       refundedCents: true,
+      venueCancelledQuantity: true,
       ticketType: { select: { id: true, name: true, currency: true } },
       order: {
         select: {
@@ -362,6 +379,25 @@ export async function salesBreakdowns(prisma, params) {
       },
     },
   })
+
+  /**
+   * What a line counts as sold: its tickets, less those cancelled unpaid, and
+   * its value without their share of it.
+   *
+   * @param {object} item An order line as read above.
+   * @returns {{sold: number, value: number, cancelled: number}} The line's figures.
+   */
+  const soldOf = (item) => {
+    const cancelled = Math.min(item.quantity, Math.max(0, item.venueCancelledQuantity ?? 0))
+    const cancelledValue =
+      item.quantity > 0 ? Math.round((item.subtotalCents * cancelled) / item.quantity) : 0
+
+    return {
+      sold: item.quantity - cancelled,
+      value: item.subtotalCents - cancelledValue,
+      cancelled,
+    }
+  }
 
   /**
    * Fold order lines into one grouping.
@@ -388,16 +424,19 @@ export async function salesBreakdowns(prisma, params) {
           lineValueCents: 0,
           refundedQuantity: 0,
           refundedCents: 0,
+          cancelledQuantity: 0,
           ...(shape.extra ?? {}),
         })
       }
 
       const entry = groups.get(key)
+      const line = soldOf(item)
 
-      entry.quantity += item.quantity
-      entry.lineValueCents += item.subtotalCents
+      entry.quantity += line.sold
+      entry.lineValueCents += line.value
       entry.refundedQuantity += item.refundedQuantity
       entry.refundedCents += item.refundedCents
+      entry.cancelledQuantity += line.cancelled
     }
 
     return [...groups.values()]
@@ -423,15 +462,18 @@ export async function salesBreakdowns(prisma, params) {
         lineValueCents: 0,
         refundedQuantity: 0,
         refundedCents: 0,
+        cancelledQuantity: 0,
       })
     }
 
     const entry = byDate.get(key)
+    const line = soldOf(item)
 
-    entry.quantity += item.quantity
-    entry.lineValueCents += item.subtotalCents
+    entry.quantity += line.sold
+    entry.lineValueCents += line.value
     entry.refundedQuantity += item.refundedQuantity
     entry.refundedCents += item.refundedCents
+    entry.cancelledQuantity += line.cancelled
   }
 
   return {
@@ -464,9 +506,12 @@ export async function salesBreakdowns(prisma, params) {
 /**
  * How many of the tickets that exist have come through a door.
  *
- * `CheckIn` rows rather than `Ticket.status === 'CHECKED_IN'`, because the
- * attendance row is the one the unique index protects and the one an organiser
- * would be shown if somebody disputed being let in.
+ * Tickets with a `CheckIn` row rather than `Ticket.status === 'CHECKED_IN'`,
+ * because the attendance row is the one the unique index protects and the one
+ * an organiser would be shown if somebody disputed being let in — and because a
+ * ticket good for every night stays VALID after each night. Tickets, not rows:
+ * a season pass let in on three nights is one ticket that came through, so the
+ * figure can never pass the number of live tickets.
  *
  * @param {object} prisma A Prisma client.
  * @param {object} params Inputs, as {@link eventScope}.
@@ -476,7 +521,7 @@ export async function checkInProgress(prisma, params) {
   const scope = { orderItem: { order: { event: eventScope(params) } } }
 
   const [admitted, live] = await Promise.all([
-    prisma.checkIn.count({ where: { ticket: scope } }),
+    prisma.ticket.count({ where: { ...scope, checkIns: { some: {} } } }),
     prisma.ticket.count({ where: { ...scope, status: { in: [...LIVE_TICKET_STATES] } } }),
   ])
 
@@ -588,42 +633,134 @@ export async function reconciliationExceptions(prisma, { organizationId, now }) 
 }
 
 /**
- * The part of the funnel this repository actually records.
+ * What the funnel does not count, in the order a reader needs it.
  *
- * **There is no view-to-purchase funnel here, and there cannot be one.** Nothing
- * records a page view or an anonymous browsing session, so the step everybody
- * means by "conversion" — people who looked — does not exist as data. Inventing
- * it from order counts would be inventing a metric.
+ * Named rather than omitted: a funnel with silently missing people is a funnel
+ * somebody will read as complete.
  *
- * What is recorded is what somebody did once they committed to something: a
- * hold taken, an order created against it, and an order paid. Three real
- * counts over three real tables, labelled as what they are.
+ * @type {ReadonlyArray<string>}
+ */
+export const FUNNEL_NOT_COUNTED = Object.freeze([
+  'Robots, people whose browser asks not to be tracked, and the organisation’s own team and staff at The Desi Events while signed in are not counted as visitors.',
+  'A visitor is counted once a day for each event, so somebody who comes back on another day is counted again, and an order can come from somebody whose visit was not counted.',
+  'Visitors are counted in whole UTC days, and only from the day this site began counting visits; holds and orders are counted from the exact start of the window, even when that is earlier.',
+])
+
+/**
+ * From visit to payment.
+ *
+ * Five real counts over four real tables: visitors and visitors who chose
+ * tickets or seats (from the daily visit totals, in whole UTC days), tickets
+ * held, orders started and orders paid (created in the window, now paid). It
+ * says what it does not count, because a visit is a weaker fact than a payment
+ * and the two should not be read as one measurement.
  *
  * @param {object} prisma A Prisma client.
- * @param {object} params Inputs, as {@link eventScope} plus a window.
- * @returns {Promise<{steps: Array<{key: string, label: string, count: number}>, missing: Array<string>}>} The funnel and what it cannot show.
+ * @param {object} params Inputs, as {@link eventScope} plus a window and `now`.
+ * @returns {Promise<{steps: Array<{key: string, label: string, count: number}>, missing: Array<string>, atVenue: {bookedUnpaid: number}}>} The funnel, what it does not count, and the bookings paid at the venue still waiting for their payment.
  */
 export async function conversionFunnel(prisma, params) {
   const scope = eventScope(params)
   const window = createdWithin(params)
+  const days = trafficWindow({
+    from: params.from ?? null,
+    to: params.to ?? null,
+    now: params.now ?? new Date(),
+  })
 
-  const [holds, ordersCreated, ordersPaid] = await Promise.all([
+  const [visits, holds, ordersCreated, ordersPaid, bookedUnpaid] = await Promise.all([
+    prisma.trafficDaily.aggregate({
+      where: {
+        event: scope,
+        day: {
+          ...(days.firstDay ? { gte: dayDate(days.firstDay) } : {}),
+          lte: dayDate(days.lastDay),
+        },
+      },
+      _sum: { visitors: true, ticketClickVisitors: true },
+    }),
     prisma.ticketHold.count({ where: { ticketType: { event: scope }, ...window } }),
     prisma.order.count({ where: { event: scope, ...window } }),
-    prisma.order.count({ where: { event: scope, status: 'PAID', ...window } }),
+    // A booking paid at the venue counts as paid once a payment was taken at
+    // the door and none of its standing tickets still waits for one (SPEC3
+    // §9.10); until then it is counted apart, below.
+    prisma.order.count({ where: { event: scope, ...PAID_ORDER_WHERE, ...window } }),
+    prisma.order.count({
+      where: {
+        ...BOOKED_UNPAID_ORDER_WHERE,
+        event: { ...scope, ...EVENT_STILL_ON_WHERE },
+        ...window,
+      },
+    }),
   ])
 
   return {
     steps: [
+      { key: 'visitors', label: 'Visitors', count: Number(visits._sum?.visitors ?? 0) },
+      {
+        key: 'ticketClickVisitors',
+        label: 'Visitors who chose tickets or seats',
+        count: Number(visits._sum?.ticketClickVisitors ?? 0),
+      },
       { key: 'holds', label: 'Tickets held', count: holds },
       { key: 'ordersCreated', label: 'Orders started', count: ordersCreated },
       { key: 'ordersPaid', label: 'Orders paid', count: ordersPaid },
     ],
-    // Named rather than omitted. A funnel with a silently missing first step is
-    // a funnel somebody will read as complete.
-    missing: [
-      'Page views and browsing sessions are not recorded anywhere in this system, so the step before a hold cannot be counted and is not estimated.',
-    ],
+    missing: [...FUNNEL_NOT_COUNTED],
+    // Orders booked to pay at the venue still waiting for a payment at the
+    // door: not in "Orders paid" until it is taken.
+    atVenue: { bookedUnpaid },
+  }
+}
+
+/**
+ * Tickets booked to pay at the venue, in the scope and the currency (SPEC3
+ * §9.10, SPEC3-XI §9.10): those still unpaid and what they owe, what was
+ * taken at the door, and how many unpaid ones were cancelled. Door money is
+ * taken by the organiser: it is never in the money figures, which come from
+ * the ledger, and it is reported here only beside them.
+ *
+ * @param {object} prisma A Prisma client.
+ * @param {object} params Inputs, as {@link eventScope} plus `currency`.
+ * @returns {Promise<{ticketsUnpaid: number, unpaidCents: number, paidAtDoorCents: number, cancelledUnpaidTickets: number}>} The figures.
+ */
+export async function venuePaymentFigures(prisma, params) {
+  const scope = eventScope(params)
+  const { currency } = params
+
+  const [unpaid, taken, cancelledUnpaidTickets] = await Promise.all([
+    prisma.ticket.findMany({
+      where: {
+        ...UNPAID_VENUE_TICKET_WHERE,
+        orderItem: {
+          // A cancelled or deleted event's bookings owe nothing at the door.
+          order: {
+            event: { ...scope, ...EVENT_STILL_ON_WHERE },
+            status: 'PAID',
+            paymentMethod: 'AT_VENUE',
+            currency,
+          },
+        },
+      },
+      select: { venueDueCents: true },
+    }),
+    prisma.venuePayment.aggregate({
+      where: { event: scope, currency },
+      _sum: { amountCents: true },
+    }),
+    prisma.ticket.count({
+      where: {
+        venueCancellationId: { not: null },
+        orderItem: { order: { event: scope, currency } },
+      },
+    }),
+  ])
+
+  return {
+    ticketsUnpaid: unpaid.length,
+    unpaidCents: unpaid.reduce((sum, ticket) => sum + (ticket.venueDueCents ?? 0), 0),
+    paidAtDoorCents: taken._sum?.amountCents ?? 0,
+    cancelledUnpaidTickets,
   }
 }
 
@@ -639,6 +776,8 @@ export async function conversionFunnel(prisma, params) {
  * @param {Date|null} [params.from] Window start, UTC.
  * @param {Date|null} [params.to] Window end, UTC.
  * @param {Date} params.now For ageing.
+ * @param {boolean} [params.administrator] Whether the reader decides on website links
+ *   (`website_redirect:manage`); passed through to `trafficSummary`.
  * @returns {Promise<object>} Money, inventory, attendance and operations.
  */
 export async function organizerAnalytics(prisma, params) {
@@ -659,6 +798,8 @@ export async function organizerAnalytics(prisma, params) {
     notifications,
     exceptions,
     funnel,
+    traffic,
+    venuePayments,
   ] = await Promise.all([
     moneyTotals(prisma, params),
     ticketCounts(prisma, params),
@@ -670,6 +811,8 @@ export async function organizerAnalytics(prisma, params) {
     notificationDelivery(prisma, params),
     reconciliationExceptions(prisma, params),
     conversionFunnel(prisma, params),
+    trafficSummary(prisma, params),
+    venuePaymentFigures(prisma, params),
   ])
 
   return {
@@ -679,9 +822,11 @@ export async function organizerAnalytics(prisma, params) {
     sales,
     checkIns,
     movement,
+    traffic,
     notifications,
     exceptions,
     funnel,
+    venuePayments,
     // Said in the payload rather than assumed by the screen, so an export and a
     // page cannot disagree about which day a sale fell on.
     timeZone: 'UTC',

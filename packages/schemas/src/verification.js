@@ -22,7 +22,15 @@
 import { z } from 'zod'
 
 import { verificationStatusSchema } from './enums.js'
-import { cuidSchema, nonEmptyStringSchema, timestampSchema } from './primitives.js'
+import { organizationProfileSchema } from './organizations.js'
+import {
+  countSchema,
+  cuidSchema,
+  nonEmptyStringSchema,
+  paginationQuerySchema,
+  timestampSchema,
+} from './primitives.js'
+import { paginationMetaSchema } from './responses.js'
 
 /**
  * A moderator's reason, bounded.
@@ -144,3 +152,51 @@ export const publicOrganizerResponseSchema = z.object({ data: publicOrganizerSch
 
 /** Path parameter for the public organiser route. */
 export const organizerSlugParamSchema = z.object({ slug: z.string().min(1).max(120) })
+
+/**
+ * `GET /v1/moderation/organizations` — which queue a moderator is reading.
+ *
+ * `UNVERIFIED` is not a queue: nobody has asked, so there is nothing to
+ * decide. The default is the one a moderator opens the page for.
+ */
+export const verificationQueueQuerySchema = paginationQuerySchema.extend({
+  status: verificationStatusSchema.exclude(['UNVERIFIED']).default('PENDING'),
+})
+
+/**
+ * One organisation in the moderators' queue.
+ *
+ * What a moderator needs to decide who to look at next, and no more: the
+ * contact address is not here, because a queue is read on a shared screen and
+ * a decision does not need it.
+ */
+export const verificationQueueEntrySchema = z.object({
+  organizationId: cuidSchema,
+  name: nonEmptyStringSchema,
+  slug: z.string(),
+  legalName: z.string().nullable(),
+  status: verificationStatusSchema,
+  /** When it last entered this state. Null for a row that predates the column. */
+  submittedAt: timestampSchema.nullable(),
+  createdAt: timestampSchema,
+  /** What the organiser wrote when they last asked. */
+  organiserNote: z.string().max(1000).nullable(),
+  memberCount: countSchema,
+  eventCount: countSchema,
+})
+
+/** `GET /v1/moderation/organizations`. */
+export const verificationQueueResponseSchema = z.object({
+  data: z.array(verificationQueueEntrySchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `GET /v1/moderation/organizations/:id` — everything a decision is made from. */
+export const verificationReviewResponseSchema = z.object({
+  data: z.object({
+    organization: organizationProfileSchema,
+    verification: verificationStateSchema,
+    memberCount: countSchema,
+    eventCount: countSchema,
+  }),
+})

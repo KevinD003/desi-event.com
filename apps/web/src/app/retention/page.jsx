@@ -11,9 +11,12 @@
  *   - **Nothing activates enforcement.** That is a worker environment variable,
  *     set by whoever deploys the worker, and a page that could flip it would be
  *     a page that could switch on a policy nobody has approved.
- *   - **Nothing deletes.** No deletion path exists anywhere in the repository,
+ *   - **Nothing here deletes.** The retention machinery has no deletion path,
  *     and a `DRY_RUN` row claiming a non-zero `affectedCount` is refused by a
- *     database CHECK constraint whatever any code believes.
+ *     database CHECK constraint whatever any code believes. The one deletion
+ *     on a timer in the repository is the traffic roll-up's, of raw visit rows
+ *     it has already added up; it is not a retention class and this page does
+ *     not show it.
  *
  * ## What the screen must keep apart
  *
@@ -57,9 +60,10 @@
 
 import { retentionFailureDescription } from '@desi-event/schemas'
 
-import { AsOf, Failure } from '../../components/page-state.jsx'
+import { AsOf } from '../../components/page-state.jsx'
+import { ReadRefusal } from '../../components/read-refusal.jsx'
+import { TABLE_FRAME } from '../../components/workspace-kit.jsx'
 import { listRetentionSweeps } from '../../lib/privacy-api.js'
-import { describeRefusal } from '../../lib/privacy-vocabulary.js'
 import {
   retentionClassDescription,
   retentionClassLabel,
@@ -146,7 +150,7 @@ export default async function RetentionPage({ searchParams }) {
     // rather than a case it can assume away.
     summary = Array.isArray(answer.summary) ? answer.summary : []
   } catch (error) {
-    failure = describeRefusal(error)
+    failure = error
   }
 
   // Only when the read actually succeeded. `sweeps` is still null after a
@@ -161,32 +165,43 @@ export default async function RetentionPage({ searchParams }) {
   return (
     <>
       <header>
-        <h1 className="text-2xl font-bold text-indigo-night-900">Retention rehearsals</h1>
-        <p className="mt-2 max-w-3xl text-slate-700">
+        <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+          Workspace · Trust and safety
+        </p>
+        <h1 className="mt-2 text-h2 font-semibold text-ink">Retention rehearsals</h1>
+        <p className="mt-2 max-w-3xl text-ink-muted">
           What a retention sweep <em>would</em> reach, if the proposed durations were adopted.
-          Nothing on this page has deleted anything, and nothing on this page can: there is no
-          deletion path in this system, and the database refuses to record a rehearsal that claims
-          to have changed something.
+          Nothing on this page has deleted anything, and nothing on this page can: the retention job
+          has no way to delete, and the database refuses to record a rehearsal that claims to have
+          changed something. The one deletion on a timer in this system is of raw visit records,
+          which the job that adds visits up removes two days after the day they were made, once
+          added up.
         </p>
       </header>
 
       {reading ? (
         <p
-          className="mt-6 rounded-md border border-marigold-300 bg-marigold-50 px-4 py-3 text-sm text-indigo-night-900"
+          className="mt-6 rounded-md border border-accent-line bg-accent-soft px-4 py-3 text-sm text-ink"
           data-testid="retention-reading"
         >
           {reading.sentence}
         </p>
       ) : null}
 
-      {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
+      {failure ? (
+        <ReadRefusal
+          error={failure}
+          what="The retention record"
+          action="see the retention record"
+        />
+      ) : null}
 
       {summary.length > 0 ? (
         <section className="mt-8" aria-labelledby="where-each-class-stands">
-          <h2 id="where-each-class-stands" className="text-lg font-semibold text-indigo-night-900">
+          <h2 id="where-each-class-stands" className="text-xl font-semibold text-ink">
             Where each class stands
           </h2>
-          <p className="mt-2 max-w-3xl text-sm text-slate-700">
+          <p className="mt-2 max-w-3xl text-sm text-ink-muted">
             The most recent run for every evaluated class, whatever this page is filtered to. The
             table below answers what happened recently; this answers whether anything is being
             missed.
@@ -195,14 +210,12 @@ export default async function RetentionPage({ searchParams }) {
             {summary.map((entry) => (
               <li
                 key={entry.retentionClass}
-                className="rounded-card border border-slate-200 bg-slate-50 p-4"
+                className="rounded-card border border-line bg-surface-subtle p-4"
               >
-                <p className="font-medium text-indigo-night-900">
-                  {retentionClassLabel(entry.retentionClass)}
-                </p>
-                <p className="mt-1 text-sm text-slate-700">{standing(entry)}</p>
+                <p className="font-medium text-ink">{retentionClassLabel(entry.retentionClass)}</p>
+                <p className="mt-1 text-sm text-ink-muted">{standing(entry)}</p>
                 {entry.latest ? (
-                  <p className="mt-1 text-xs text-slate-600">
+                  <p className="mt-1 text-xs text-ink-muted">
                     Cut-off {day(entry.latest.olderThan)} — {entry.latest.approval}
                   </p>
                 ) : null}
@@ -215,14 +228,14 @@ export default async function RetentionPage({ searchParams }) {
       {sweeps && sweeps.length > 0 ? (
         <>
           <AsOf asOf={readAt} />
-          <div className="mt-4 overflow-x-auto">
+          <div className={`mt-4 ${TABLE_FRAME}`}>
             <table className="w-full min-w-[52rem] border-collapse text-left text-sm">
               <caption className="sr-only">
                 Retention rehearsals across the platform, newest first. Every duration is proposed
                 and none is approved.
               </caption>
               <thead>
-                <tr className="border-b border-slate-300 text-slate-700">
+                <tr className="border-b border-line-strong text-ink-muted">
                   <th scope="col" className="py-2 pr-4 font-semibold">
                     Class
                   </th>
@@ -245,23 +258,23 @@ export default async function RetentionPage({ searchParams }) {
               </thead>
               <tbody>
                 {sweeps.map((sweep) => (
-                  <tr key={sweep.id} className="border-b border-slate-200 align-top">
-                    <th scope="row" className="py-3 pr-4 font-medium text-indigo-night-900">
+                  <tr key={sweep.id} className="border-b border-line align-top">
+                    <th scope="row" className="py-3 pr-4 font-medium text-ink">
                       {retentionClassLabel(sweep.retentionClass)}
-                      <span className="mt-1 block text-xs font-normal text-slate-600">
+                      <span className="mt-1 block text-xs font-normal text-ink-muted">
                         {retentionClassDescription(sweep.retentionClass)}
                       </span>
-                      <span className="mt-1 block text-xs font-normal text-slate-700">
+                      <span className="mt-1 block text-xs font-normal text-ink-muted">
                         {sweep.approval}
                       </span>
                     </th>
                     <td className="py-3 pr-4">
                       {sweepStateLabel(sweep.state)}
-                      <span className="mt-1 block text-xs text-slate-600">
+                      <span className="mt-1 block text-xs text-ink-muted">
                         {sweepStateDescription(sweep.state)}
                       </span>
                       {sweep.failureCode ? (
-                        <span className="mt-1 block text-xs text-slate-700">
+                        <span className="mt-1 block text-xs text-ink-muted">
                           {retentionFailureDescription(sweep.failureCode)}
                           {/*
                             The code as well as the wording. The wording is what
@@ -269,7 +282,7 @@ export default async function RetentionPage({ searchParams }) {
                             a ticket, and a screen that showed only prose would
                             make them retype an approximation of it.
                           */}
-                          <span className="mt-1 block font-mono text-slate-600">
+                          <span className="mt-1 block font-mono text-ink-muted">
                             {sweep.failureCode}
                           </span>
                         </span>
@@ -286,7 +299,7 @@ export default async function RetentionPage({ searchParams }) {
           </div>
 
           {pagination ? (
-            <p className="mt-4 text-sm text-slate-600">
+            <p className="mt-4 text-sm text-ink-muted">
               Showing {sweeps.length} of {pagination.total ?? sweeps.length}.
             </p>
           ) : null}
@@ -295,22 +308,20 @@ export default async function RetentionPage({ searchParams }) {
 
       {notEvaluated.length > 0 ? (
         <section className="mt-10" aria-labelledby="not-evaluated">
-          <h2 id="not-evaluated" className="text-lg font-semibold text-indigo-night-900">
+          <h2 id="not-evaluated" className="text-xl font-semibold text-ink">
             Not evaluated
           </h2>
-          <p className="mt-2 max-w-3xl text-sm text-slate-700">
+          <p className="mt-2 max-w-3xl text-sm text-ink-muted">
             Named by the policy, but no rehearsal covers them. Listed rather than left out: a class
             that quietly disappeared from the table above would read as one that was swept and found
             empty, which is a different claim.
           </p>
           <ul className="mt-4 space-y-4">
             {notEvaluated.map((entry) => (
-              <li key={entry.retentionClass} className="border-l-2 border-slate-300 pl-4">
-                <p className="font-medium text-indigo-night-900">
-                  {retentionClassLabel(entry.retentionClass)}
-                </p>
-                <p className="mt-1 text-sm text-slate-700">{entry.reason}</p>
-                <p className="mt-1 text-xs text-slate-600">
+              <li key={entry.retentionClass} className="border-l-2 border-line-strong pl-4">
+                <p className="font-medium text-ink">{retentionClassLabel(entry.retentionClass)}</p>
+                <p className="mt-1 text-sm text-ink-muted">{entry.reason}</p>
+                <p className="mt-1 text-xs text-ink-muted">
                   Proposed at {entry.proposedDays} days — {entry.approval}
                 </p>
               </li>

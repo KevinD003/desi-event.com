@@ -68,6 +68,7 @@ const MIRRORS = {
   OrgRole: 'ORG_ROLES',
   VerificationStatus: 'VERIFICATION_STATUSES',
   InvitationStatus: 'INVITATION_STATUSES',
+  InvitationDelivery: 'INVITATION_DELIVERY_MODES',
   MfaFactorType: 'MFA_FACTOR_TYPES',
   AuthTokenPurpose: 'AUTH_TOKEN_PURPOSES',
   EventCategory: 'EVENT_CATEGORIES',
@@ -76,6 +77,7 @@ const MIRRORS = {
   SectionKind: 'SECTION_KINDS',
   EventSeatStatus: 'EVENT_SEAT_STATUSES',
   TicketTypeStatus: 'TICKET_TYPE_STATUSES',
+  TicketTypeVisibility: 'TICKET_TYPE_VISIBILITIES',
   HoldStatus: 'HOLD_STATUSES',
   OrderStatus: 'ORDER_STATUSES',
   TicketStatus: 'TICKET_STATUSES',
@@ -99,6 +101,7 @@ const MIRRORS = {
   ReconciliationKind: 'RECONCILIATION_KINDS',
   MediaModerationStatus: 'MEDIA_MODERATION_STATUSES',
   MediaScanStatus: 'MEDIA_SCAN_STATUSES',
+  MediaKind: 'MEDIA_KINDS',
   PromoType: 'PROMO_TYPES',
   PrivacyRequestReason: 'PRIVACY_REQUEST_REASONS',
   PrivacyRequestState: 'PRIVACY_REQUEST_STATES',
@@ -109,6 +112,22 @@ const MIRRORS = {
   ExportArtifactState: 'EXPORT_ARTIFACT_STATES',
   RetentionSweepMode: 'RETENTION_SWEEP_MODES',
   RetentionSweepState: 'RETENTION_SWEEP_STATES',
+  TrafficEventKind: 'TRAFFIC_EVENT_KIND_VALUES',
+  TrafficPlacement: 'TRAFFIC_PLACEMENTS',
+  TrafficSource: 'TRAFFIC_SOURCES',
+  EventDeletionOutcome: 'EVENT_DELETION_OUTCOMES',
+  EventAuthority: 'EVENT_AUTHORITIES',
+  EventChangeKind: 'EVENT_CHANGE_KINDS',
+  PlatformEditEnd: 'PLATFORM_EDIT_ENDS',
+  EventImportSource: 'EVENT_IMPORT_SOURCES',
+  EventImportRunStatus: 'EVENT_IMPORT_RUN_STATUSES',
+  EventImportImageStatus: 'EVENT_IMPORT_IMAGE_STATUSES',
+  EventImportImageRole: 'EVENT_IMPORT_IMAGE_ROLES',
+  FeeSource: 'FEE_SOURCES',
+  OrderPaymentMethod: 'ORDER_PAYMENT_METHODS',
+  ReferralCodeScope: 'REFERRAL_CODE_SCOPES',
+  VenuePaymentVia: 'VENUE_PAYMENT_VIAS',
+  ReferralUseReturnCause: 'REFERRAL_USE_RETURN_CAUSES',
 }
 
 /**
@@ -127,6 +146,7 @@ const SCHEMAS = {
   ORG_ROLES: 'orgRoleSchema',
   VERIFICATION_STATUSES: 'verificationStatusSchema',
   INVITATION_STATUSES: 'invitationStatusSchema',
+  INVITATION_DELIVERY_MODES: 'invitationDeliveryModeSchema',
   MFA_FACTOR_TYPES: 'mfaFactorTypeSchema',
   AUTH_TOKEN_PURPOSES: 'authTokenPurposeSchema',
   EVENT_CATEGORIES: 'eventCategorySchema',
@@ -135,6 +155,7 @@ const SCHEMAS = {
   SECTION_KINDS: 'sectionKindSchema',
   EVENT_SEAT_STATUSES: 'eventSeatStatusSchema',
   TICKET_TYPE_STATUSES: 'ticketTypeStatusSchema',
+  TICKET_TYPE_VISIBILITIES: 'ticketTypeVisibilitySchema',
   HOLD_STATUSES: 'holdStatusSchema',
   ORDER_STATUSES: 'orderStatusSchema',
   TICKET_STATUSES: 'ticketStatusSchema',
@@ -158,6 +179,7 @@ const SCHEMAS = {
   RECONCILIATION_KINDS: 'reconciliationKindSchema',
   MEDIA_MODERATION_STATUSES: 'mediaModerationStatusSchema',
   MEDIA_SCAN_STATUSES: 'mediaScanStatusSchema',
+  MEDIA_KINDS: 'mediaKindSchema',
   PROMO_TYPES: 'promoTypeSchema',
   PRIVACY_REQUEST_REASONS: 'privacyRequestReasonSchema',
   PRIVACY_REQUEST_STATES: 'privacyRequestStateSchema',
@@ -168,6 +190,22 @@ const SCHEMAS = {
   EXPORT_ARTIFACT_STATES: 'exportArtifactStateSchema',
   RETENTION_SWEEP_MODES: 'retentionSweepModeSchema',
   RETENTION_SWEEP_STATES: 'retentionSweepStateSchema',
+  TRAFFIC_EVENT_KIND_VALUES: 'trafficEventKindSchema',
+  TRAFFIC_PLACEMENTS: 'trafficPlacementSchema',
+  TRAFFIC_SOURCES: 'trafficSourceSchema',
+  EVENT_DELETION_OUTCOMES: 'eventDeletionOutcomeSchema',
+  EVENT_AUTHORITIES: 'eventAuthoritySchema',
+  EVENT_CHANGE_KINDS: 'eventChangeKindSchema',
+  PLATFORM_EDIT_ENDS: 'platformEditEndSchema',
+  EVENT_IMPORT_SOURCES: 'eventImportSourceSchema',
+  EVENT_IMPORT_RUN_STATUSES: 'eventImportRunStatusSchema',
+  EVENT_IMPORT_IMAGE_STATUSES: 'eventImportImageStatusSchema',
+  EVENT_IMPORT_IMAGE_ROLES: 'eventImportImageRoleSchema',
+  FEE_SOURCES: 'feeSourceSchema',
+  ORDER_PAYMENT_METHODS: 'orderPaymentMethodSchema',
+  REFERRAL_CODE_SCOPES: 'referralCodeScopeSchema',
+  VENUE_PAYMENT_VIAS: 'venuePaymentViaSchema',
+  REFERRAL_USE_RETURN_CAUSES: 'referralUseReturnCauseSchema',
 }
 
 const prismaSource = readFileSync(schemaPath, 'utf8')
@@ -253,6 +291,17 @@ describe('the states this guard was written for', () => {
     expect(enums.paymentStatusSchema.safeParse('PENDING').success).toBe(true)
     expect(enums.paymentStatusSchema.safeParse('TIMEOUT').success).toBe(true)
   })
+
+  it('names the platform administrator, ADMIN, just below SUPER_ADMIN', () => {
+    expect(enums.USER_ROLES).toContain('ADMIN')
+    expect(enums.USER_ROLES.indexOf('ADMIN')).toBe(enums.USER_ROLES.indexOf('SUPER_ADMIN') - 1)
+    expect(enums.userRoleSchema.parse('ADMIN')).toBe('ADMIN')
+  })
+
+  it('places a counted visit on a card or the event page, never an organiser page', () => {
+    expect([...enums.TRAFFIC_PLACEMENTS]).toEqual(['HOME', 'LISTING', 'SEARCH', 'EVENT_PAGE'])
+    expect(enums.trafficPlacementSchema.safeParse('ORGANISER_PAGE').success).toBe(false)
+  })
 })
 
 describe('public and private event statuses', () => {
@@ -278,9 +327,18 @@ describe('public and private event statuses', () => {
       'REJECTED',
       'ARCHIVED',
       'CANCELLED',
+      'DELETED',
     ]) {
       expect(enums.PRIVATE_EVENT_STATUSES, `${status} must not be public`).toContain(status)
     }
+  })
+
+  it('names DELETED, private and last, and a sitting that EXPIRED', () => {
+    expect(enums.EVENT_STATUSES.at(-1)).toBe('DELETED')
+    expect(enums.PUBLIC_EVENT_STATUSES).not.toContain('DELETED')
+    expect(enums.eventStatusSchema.parse('DELETED')).toBe('DELETED')
+    expect(enums.PLATFORM_EDIT_ENDS).toContain('EXPIRED')
+    expect(enums.EVENT_IMPORT_SOURCES).toEqual(['SULEKHA'])
   })
 
   it('shows a sold-out or paused show rather than hiding it', () => {

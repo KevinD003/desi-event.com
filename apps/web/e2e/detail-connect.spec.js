@@ -1,3 +1,4 @@
+import { COMPANY_CHANNELS } from './support/company-contact.js'
 import { expect, test, world } from './support/detail-fixtures.mjs'
 import { signIn } from './support/detail-world.mjs'
 
@@ -85,7 +86,7 @@ test.describe('what the screen says before anything has been simulated', () => {
   test('it names the state without printing the enum', async ({ owner }) => {
     await owner.goto('/finance/connect')
 
-    await expect(owner.getByText('Not simulated yet')).toBeVisible()
+    await expect(owner.getByText('Simulated setup not started')).toBeVisible()
     // The raw enum reaching a screen is the failure the vocabulary exists to
     // prevent, so its absence is asserted rather than assumed.
     await expect(owner.getByText('NOT_STARTED')).toBeHidden()
@@ -122,12 +123,22 @@ test.describe('what the screen says before anything has been simulated', () => {
   test('it links nowhere outside this deployment', async ({ owner }) => {
     await owner.goto('/finance/connect')
 
-    const hrefs = await owner
-      .locator('a[href]')
-      .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('href')))
+    const links = await owner.locator('a[href]').evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        href: node.getAttribute('href'),
+        inFooter: Boolean(node.closest('footer')),
+      })),
+    )
+    // The one allowance: the site footer's links to the company's own public
+    // WhatsApp, Facebook and Instagram pages (`support/company-contact.js`),
+    // published by The Desi Events itself and on every page. Exactly those
+    // addresses, and only in the footer; anything else outside this
+    // deployment, on the screen or in the footer, is still refused.
+    const company = new Set(COMPANY_CHANNELS.map((channel) => channel.href))
 
-    for (const href of hrefs) {
+    for (const { href, inFooter } of links) {
       expect(href, `the screen linked to ${href}`).not.toMatch(/stripe\.com/i)
+      if (inFooter && company.has(href)) continue
       expect(href, `the screen linked to ${href}`).not.toMatch(/^https?:\/\//i)
     }
   })
@@ -191,6 +202,13 @@ test.describe('confirming, cancelling and moving the simulation', () => {
     // was never started — which is what this file looks like when the last
     // journey is run on its own rather than after the one above it.
     const off = page.getByRole('button', { name: /simulate switching the setup off/i })
+    const start = page.getByRole('button', { name: /start the simulated setup/i })
+
+    // Asked once the screen has drawn its state, and not before: counting the
+    // buttons while the page is still arriving finds neither, and would send
+    // the setup down the branch for a simulation that was never started.
+    await expect(page.getByRole('heading', { name: 'Payout setup', level: 1 })).toBeVisible()
+    await expect(off.or(start).first()).toBeVisible()
 
     if ((await off.count()) === 0) {
       await page.getByRole('button', { name: /start the simulated setup/i }).click()

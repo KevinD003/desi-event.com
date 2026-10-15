@@ -149,3 +149,19 @@ describe('QuantityStepper', () => {
     )
   })
 })
+
+describe('QuantityStepper targets', () => {
+  it('makes both buttons and the field 44px square, the site’s touch target', () => {
+    render(<QuantityStepper label="General Admission" value={1} max={4} onChange={vi.fn()} />)
+
+    // Asserted on the classes because jsdom applies no stylesheet; the browser
+    // sweep measures the rendered size.
+    for (const name of ['Remove one General Admission', 'Add one General Admission']) {
+      const button = screen.getByRole('button', { name })
+
+      expect(button.className).toContain('h-11')
+      expect(button.className).toContain('w-11')
+    }
+    expect(screen.getByLabelText('Quantity of General Admission').className).toContain('h-11')
+  })
+})

@@ -15,6 +15,7 @@ import { useState } from 'react'
 
 import { Button } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 
 /**
  * @typedef {object} CloneVersionButtonProps
@@ -55,7 +56,7 @@ export function CloneVersionButton({ mapId, versionId }) {
         return
       }
 
-      setError(body?.error?.message ?? 'Could not start a new version.')
+      setError(refusalSentence(response.status, body, 'Could not start a new version.'))
     } catch {
       setError('The ticketing service is not responding. Nothing has been created.')
     } finally {
@@ -69,7 +70,7 @@ export function CloneVersionButton({ mapId, versionId }) {
         {busy ? 'Copying…' : 'New version from this'}
       </Button>
       {error ? (
-        <span role="alert" className="text-xs text-rose-700">
+        <span role="status" className="text-xs text-status-danger">
           {error}
         </span>
       ) : null}

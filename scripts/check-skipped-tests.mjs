@@ -32,123 +32,20 @@
  * @module scripts/check-skipped-tests
  */
 
-import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { casesIn, readAllowlist, readReport, skippedIn } from './lib/vitest-reports.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ALLOWLIST = path.join(HERE, 'skipped-tests-allowlist.json')
 
-/**
- * Read the allow-list, refusing an entry that does not explain itself.
- *
- * @returns {Array<{pattern: string, reason: string}>} The declared exemptions.
- * @throws {Error} When the file is malformed or an entry has no reason.
+/*
+ * The allow-list reader, the case counter and the "did not run" vocabulary live
+ * in ./lib/vitest-reports.mjs, shared with verify-tests-fresh.mjs. Two copies of
+ * the vocabulary is how this checker once matched `pending` for its whole early
+ * life while Vitest wrote `skipped` — see the library's header.
  */
-function readAllowlist() {
-  let parsed
-
-  try {
-    parsed = JSON.parse(readFileSync(ALLOWLIST, 'utf8'))
-  } catch (error) {
-    if (error.code === 'ENOENT') return []
-
-    throw new Error(`${ALLOWLIST} is not readable JSON: ${error.message}`)
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new Error(`${ALLOWLIST} must be an array of { pattern, reason }`)
-  }
-
-  for (const entry of parsed) {
-    if (typeof entry?.pattern !== 'string' || entry.pattern.trim() === '') {
-      throw new Error(`${ALLOWLIST} has an entry with no pattern`)
-    }
-
-    if (typeof entry?.reason !== 'string' || entry.reason.trim().length < 10) {
-      throw new Error(
-        `${ALLOWLIST} entry "${entry.pattern}" has no reason. An exemption nobody explained is one nobody will revisit.`,
-      )
-    }
-  }
-
-  return parsed
-}
-
-/**
- * How many cases actually ran in one report.
- *
- * Zero is a failure, not a pass.
- *
- * A test command that runs nothing prints a green summary and exits zero, and
- * a required check that can pass by running nothing is a required check that
- * will one day pass by running nothing — a renamed directory, a `testMatch`
- * that stopped matching, a filter left on the command line. Counting is the
- * only thing that notices.
- *
- * @param {string} file Path to the report.
- * @returns {number} Cases that passed, failed or were skipped.
- */
-function casesIn(file) {
-  const report = JSON.parse(readFileSync(file, 'utf8'))
-
-  if (typeof report.numTotalTests === 'number') return report.numTotalTests
-
-  let counted = 0
-
-  for (const suite of report.testResults ?? []) {
-    counted += (suite.assertionResults ?? []).length
-  }
-
-  return counted
-}
-
-/**
- * The assertion statuses that mean "this case did not run".
- *
- * Vitest's JSON reporter copies Jest's *shape* but not all of its *vocabulary*.
- * Jest writes `pending` for a skipped case; Vitest writes **`skipped`**. This
- * checker was written to Jest's spelling, so from the day it was added until the
- * day this constant replaced it, it matched a status Vitest never emits — and a
- * status nobody matches is a skip nobody counts.
- *
- * It was not a near miss. The checker reported `0 skipped, 0 undeclared` on a
- * report containing five genuinely skipped cases, and would have reported the
- * same on the run where 156 cases skipped themselves because PostgreSQL was
- * unreachable. The zero-test half of this file worked throughout; only this half
- * was blind.
- *
- * All three spellings are listed rather than only the one this version of Vitest
- * emits. An extra string costs nothing; the wrong one costs a guard that prints
- * OK while looking at nothing.
- *
- * @type {ReadonlyArray<string>}
- */
-const DID_NOT_RUN = Object.freeze(['skipped', 'pending', 'todo'])
-
-/**
- * Every case in one Vitest JSON report that did not run.
- *
- * @param {string} file Path to the report.
- * @returns {Array<{name: string, file: string}>} What was not run.
- */
-function skippedIn(file) {
-  const report = JSON.parse(readFileSync(file, 'utf8'))
-  const skipped = []
-
-  for (const suite of report.testResults ?? []) {
-    for (const assertion of suite.assertionResults ?? []) {
-      if (DID_NOT_RUN.includes(assertion.status)) {
-        skipped.push({
-          name: [...(assertion.ancestorTitles ?? []), assertion.title].join(' > '),
-          file: path.relative(process.cwd(), suite.name ?? file),
-        })
-      }
-    }
-  }
-
-  return skipped
-}
 
 /**
  * Run the check.
@@ -167,7 +64,7 @@ function main() {
   let allowlist
 
   try {
-    allowlist = readAllowlist()
+    allowlist = readAllowlist(ALLOWLIST)
   } catch (error) {
     console.error(`✗ ${error.message}`)
 
@@ -184,9 +81,11 @@ function main() {
     let skipped
 
     try {
-      skipped = skippedIn(report)
+      const parsed = readReport(report)
 
-      const cases = casesIn(report)
+      skipped = skippedIn(parsed, report)
+
+      const cases = casesIn(parsed)
 
       ran += cases
 

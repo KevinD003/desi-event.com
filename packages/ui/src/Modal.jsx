@@ -176,7 +176,7 @@ export function Modal({
       onMouseDown={handleOverlayMouseDown}
       onKeyDown={handleKeyDown}
       className={cn(
-        'fixed inset-0 z-50 flex items-center justify-center bg-indigo-night-950/60 p-4',
+        'fixed inset-0 z-50 flex items-center justify-center bg-surface-inverse/60 p-4',
         overlayClassName,
       )}
     >
@@ -190,7 +190,7 @@ export function Modal({
         tabIndex={-1}
         data-slot="modal"
         className={cn(
-          'flex w-full flex-col gap-4 rounded-card bg-white p-6 shadow-xl focus:outline-none',
+          'flex w-full flex-col gap-4 rounded-card bg-surface-raised p-6 text-ink shadow-dialog focus:outline-none',
           MODAL_SIZES[size] ?? MODAL_SIZES.md,
           className,
         )}
@@ -199,7 +199,7 @@ export function Modal({
         {title || showCloseButton ? (
           <div className="flex items-start justify-between gap-4">
             {title ? (
-              <h2 id={titleId} className="text-lg font-semibold text-slate-900">
+              <h2 id={titleId} className="font-display text-xl font-semibold text-ink">
                 {title}
               </h2>
             ) : (
@@ -209,7 +209,7 @@ export function Modal({
               <button
                 type="button"
                 onClick={onClose}
-                className="-mr-1 -mt-1 rounded p-1 leading-none text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+                className="-mt-1 -mr-2 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors duration-(--duration-fast) ease-standard hover:bg-surface-subtle hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus pointer-coarse:h-11 pointer-coarse:w-11"
               >
                 <span aria-hidden="true">×</span>
                 <span className="sr-only">{closeLabel}</span>
@@ -219,12 +219,12 @@ export function Modal({
         ) : null}
 
         {description ? (
-          <p id={descriptionId} className="text-sm text-slate-600">
+          <p id={descriptionId} className="text-sm text-ink-muted">
             {description}
           </p>
         ) : null}
 
-        <div className="text-sm text-slate-700">{children}</div>
+        <div className="text-sm text-ink-muted">{children}</div>
 
         {footer ? <div className="flex items-center justify-end gap-3">{footer}</div> : null}
       </div>

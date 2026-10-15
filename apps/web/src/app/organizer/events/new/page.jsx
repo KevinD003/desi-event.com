@@ -25,8 +25,11 @@ export default async function NewEventPage() {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-3xl font-bold text-indigo-night-900">Create an event</h1>
-      <p className="mt-2 text-slate-700">
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Workspace · Events
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Create an event</h1>
+      <p className="mt-2 text-ink-muted">
         Five things to start with. Sessions, tickets, seating and policies come next, in an editor
         that saves as you go.
       </p>

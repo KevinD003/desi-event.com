@@ -4,18 +4,32 @@ import userEvent from '@testing-library/user-event'
 import { Alert } from './Alert.jsx'
 
 describe('Alert', () => {
-  it('interrupts the screen reader for failures', () => {
+  it('announces a failure politely: severity alone does not interrupt', () => {
     render(<Alert variant="error">Your card was declined.</Alert>)
 
-    const alert = screen.getByRole('alert')
-    expect(alert).toHaveTextContent('Your card was declined.')
-    expect(alert).toHaveAttribute('aria-live', 'assertive')
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('Your card was declined.')
+    expect(status).toHaveAttribute('aria-live', 'polite')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('interrupts for warnings too', () => {
-    render(<Alert variant="warning">Only three tickets left.</Alert>)
+  it('announces a warning politely too', () => {
+    render(<Alert variant="warning">This device is offline.</Alert>)
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Only three tickets left.')
+    expect(screen.getByRole('status')).toHaveTextContent('This device is offline.')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('interrupts only when the outcome is marked urgent', () => {
+    render(
+      <Alert variant="error" urgent>
+        Already admitted.
+      </Alert>,
+    )
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('Already admitted.')
+    expect(alert).toHaveAttribute('aria-live', 'assertive')
   })
 
   it('stays polite for routine confirmations', () => {
@@ -39,7 +53,7 @@ describe('Alert', () => {
       </Alert>,
     )
 
-    const alert = screen.getByRole('alert')
+    const alert = screen.getByRole('status')
     expect(alert).toHaveTextContent('Payment failed')
     expect(alert).toHaveTextContent('Try another card.')
   })

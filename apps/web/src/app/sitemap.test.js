@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { listEventsQuerySchema, MAX_PER_PAGE } from '@desi-event/schemas'
 
 vi.mock('../lib/api-client.js', () => ({
   getApiClient: vi.fn(),
@@ -7,17 +8,29 @@ vi.mock('../lib/api-client.js', () => ({
 const { getApiClient } = await import('../lib/api-client.js')
 const { default: sitemap } = await import('./sitemap.js')
 
+/** The routes listed whatever the catalogue holds, in the order they are listed. */
+const STATIC = ['/', '/events', '/categories', '/venues', '/organizers', '/limitations', '/contact']
+
 /**
  * A client whose listing endpoint answers with the given pages in order.
+ *
+ * It refuses a query the API would refuse, with the API's own schema: the stub
+ * used to accept any page size, and so passed a sitemap that asked for 200 a
+ * page — which the API answers with a 400, and which left every real sitemap
+ * without a single event.
  *
  * @param {object[][]} pages Each page's `data` array.
  * @returns {object} A stub API client, with `list` recording its arguments.
  */
 function clientReturning(pages) {
-  const list = vi.fn(async ({ page }) => ({
-    data: pages[page - 1] ?? [],
-    pagination: { hasNextPage: page < pages.length },
-  }))
+  const list = vi.fn(async (query) => {
+    const { page } = listEventsQuerySchema.parse(query)
+
+    return {
+      data: pages[page - 1] ?? [],
+      pagination: { hasNextPage: page < pages.length },
+    }
+  })
 
   return { events: { list } }
 }
@@ -32,7 +45,35 @@ describe('the sitemap', () => {
 
     const entries = await sitemap()
 
-    expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(['/', '/events'])
+    expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(STATIC)
+  })
+
+  it('lists the contact page, even when the API cannot be reached', async () => {
+    getApiClient.mockReturnValue({
+      events: {
+        list: vi.fn(async () => {
+          throw new Error('down')
+        }),
+      },
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const contact = (await sitemap()).find((entry) => new URL(entry.url).pathname === '/contact')
+
+    expect(contact).toMatchObject({ changeFrequency: 'monthly', priority: 0.3 })
+    warn.mockRestore()
+  })
+
+  it('asks for no more a page than the listing accepts', async () => {
+    const { PAGE_SIZE } = await import('./sitemap.js')
+    const client = clientReturning([[{ slug: 'one', status: 'PUBLISHED' }]])
+    getApiClient.mockReturnValue(client)
+
+    const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
+
+    expect(PAGE_SIZE).toBeLessThanOrEqual(MAX_PER_PAGE)
+    expect(client.events.list.mock.calls[0][0].perPage).toBe(PAGE_SIZE)
+    expect(paths).toContain('/events/one')
   })
 
   it("asks for the server's public set rather than naming one status", async () => {
@@ -66,7 +107,7 @@ describe('the sitemap', () => {
 
     const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
 
-    expect(paths).toEqual(['/', '/events', '/events/on-sale', '/events/paused', '/events/gone'])
+    expect(paths).toEqual([...STATIC, '/events/on-sale', '/events/paused', '/events/gone'])
   })
 
   it('omits a finished, postponed or cancelled event: a sitemap says what is on', async () => {
@@ -85,7 +126,7 @@ describe('the sitemap', () => {
 
     const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
 
-    expect(paths).toEqual(['/', '/events', '/events/live'])
+    expect(paths).toEqual([...STATIC, '/events/live'])
   })
 
   it('omits a private event even if the API hands one back', async () => {
@@ -109,7 +150,7 @@ describe('the sitemap', () => {
 
     const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
 
-    expect(paths).toEqual(['/', '/events', '/events/live', '/organizers/real'])
+    expect(paths).toEqual([...STATIC, '/events/live', '/organizers/real'])
   })
 
   it('omits an event with no status at all rather than assuming it is public', async () => {
@@ -119,7 +160,7 @@ describe('the sitemap', () => {
 
     const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
 
-    expect(paths).toEqual(['/', '/events'])
+    expect(paths).toEqual(STATIC)
   })
 
   it('lists an organiser page once, however many events they have', async () => {
@@ -181,8 +222,7 @@ describe('the sitemap', () => {
     const entries = await sitemap()
 
     expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual([
-      '/',
-      '/events',
+      ...STATIC,
       '/events/one',
       '/events/two',
     ])
@@ -210,7 +250,7 @@ describe('the sitemap', () => {
 
     const entries = await sitemap()
 
-    expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(['/', '/events'])
+    expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(STATIC)
   })
 
   it('skips a row with no slug rather than emitting a broken URL', async () => {
@@ -222,6 +262,6 @@ describe('the sitemap', () => {
 
     const entries = await sitemap()
 
-    expect(entries).toHaveLength(3)
+    expect(entries).toHaveLength(STATIC.length + 1)
   })
 })

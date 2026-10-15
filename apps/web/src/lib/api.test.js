@@ -7,10 +7,11 @@ import {
   loadCatalogueOverview,
   loadEventBySlug,
   loadEventList,
+  loadSeatMap,
   resetApiClient,
   withTicketTypeAvailability,
 } from './api.js'
-import { SAMPLE_EVENTS } from './sample-data.js'
+import { sampleEventSummaries } from './sample-data.js'
 
 /**
  * Build a client stub whose event reads behave in a chosen way.
@@ -113,7 +114,7 @@ describe('loadEventList', () => {
     expect(result.pagination).toEqual(liveListing.pagination)
   })
 
-  it('sends only the filters that are set, plus the published-events constraint', async () => {
+  it('sends only the filters that are set, and leaves the public statuses to the API', async () => {
     const list = vi.fn().mockResolvedValue(liveListing)
 
     await loadEventList(
@@ -123,7 +124,10 @@ describe('loadEventList', () => {
 
     const [query] = list.mock.calls[0]
 
-    expect(query).toMatchObject({ category: 'COMEDY', page: 2, perPage: 6, status: 'PUBLISHED' })
+    expect(query).toMatchObject({ category: 'COMEDY', page: 2, perPage: 6 })
+    // No status filter: an event on sale, paused or sold out is still listed,
+    // with the words to say which. Asking for PUBLISHED hid every one of them.
+    expect(query).not.toHaveProperty('status')
     expect(query).not.toHaveProperty('city')
     expect(query).not.toHaveProperty('q')
   })
@@ -135,7 +139,10 @@ describe('loadEventList', () => {
 
     expect(result.usedFallback).toBe(true)
     expect(result.events.length).toBeGreaterThan(0)
-    expect(result.pagination.total).toBe(SAMPLE_EVENTS.length)
+    // What the API would list: a postponed, cancelled or finished sample event
+    // has its own page but is not in "what is on".
+    expect(result.pagination.total).toBe(sampleEventSummaries().length)
+    expect(result.events.every((event) => event.status !== 'CANCELLED')).toBe(true)
   })
 
   it('falls back when the API answers with something malformed', async () => {
@@ -155,10 +162,10 @@ describe('loadEventList', () => {
   it('applies the same filters to the fallback catalogue as it asks the API for', async () => {
     const list = vi.fn().mockRejectedValue(new Error('connection refused'))
 
-    const result = await loadEventList({ city: 'London' }, { client: stubClient({ list }) })
+    const result = await loadEventList({ city: 'Edison' }, { client: stubClient({ list }) })
 
     expect(result.events.length).toBeGreaterThan(0)
-    expect(result.events.every((event) => event.city === 'London')).toBe(true)
+    expect(result.events.every((event) => event.city === 'Edison')).toBe(true)
   })
 
   it('paginates the fallback catalogue rather than returning all of it', async () => {
@@ -181,7 +188,7 @@ describe('loadEventList', () => {
     const client = stubClient({ list })
 
     await loadEventList({}, { client })
-    await loadEventList({ city: 'London' }, { client })
+    await loadEventList({ city: 'Edison' }, { client })
 
     expect(console.warn).toHaveBeenCalledTimes(1)
     expect(console.warn.mock.calls[0][0]).toContain('events.list')
@@ -203,12 +210,12 @@ describe('loadEventBySlug', () => {
   it('falls back to the curated event of the same slug', async () => {
     const get = vi.fn().mockRejectedValue(new Error('fetch failed'))
 
-    const result = await loadEventBySlug('qawwali-under-the-banyan', {
+    const result = await loadEventBySlug('navratri-night-one-edison', {
       client: stubClient({ get }),
     })
 
     expect(result.usedFallback).toBe(true)
-    expect(result.event.title).toBe('Qawwali Under the Banyan')
+    expect(result.event.title).toBe('Navratri Night One: Garba Under the Lights')
     expect(result.event.ticketTypes.length).toBeGreaterThan(0)
   })
 
@@ -280,5 +287,94 @@ describe('withTicketTypeAvailability', () => {
 
   it('copes with an event that has no ticket types at all', () => {
     expect(withTicketTypeAvailability({ title: 'Bare' }).ticketTypes).toEqual([])
+  })
+})
+
+describe('loadSeatMap', () => {
+  it('reads a night’s seat map, and never invents one', async () => {
+    const seats = vi.fn().mockResolvedValue({ data: { sessionId: 'snnightonexxx', sections: [] } })
+
+    expect(await loadSeatMap('snnightonexxx', { client: { sessions: { seats } } })).toEqual({
+      sessionId: 'snnightonexxx',
+      sections: [],
+    })
+    expect(seats.mock.calls[0][0]).toEqual({ id: 'snnightonexxx' })
+  })
+
+  it('answers null when the API refuses or is down: no fallback map exists', async () => {
+    const refused = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error('Not found'), { status: 404 }))
+    const empty = vi.fn().mockResolvedValue({ data: null })
+
+    expect(
+      await loadSeatMap('snnightonexxx', { client: { sessions: { seats: refused } } }),
+    ).toBeNull()
+    expect(
+      await loadSeatMap('snnightonexxx', { client: { sessions: { seats: empty } } }),
+    ).toBeNull()
+  })
+})
+
+describe('withTicketTypeAvailability for a seated tier', () => {
+  const night = { id: 'snnightonexxx', hasSeatMap: true, seatsAvailable: 7 }
+  const seated = {
+    id: 'ttseatedxxxxx',
+    reserved: true,
+    eventSessionId: 'snnightonexxx',
+    status: 'ON_SALE',
+    quantityTotal: 0,
+    quantitySold: 0,
+  }
+
+  it('counts its own free seats, as the API sent them, not its quantity columns', () => {
+    const [tier] = withTicketTypeAvailability({
+      sessions: [night],
+      ticketTypes: [{ ...seated, availableQuantity: 4, isSoldOut: false }],
+    }).ticketTypes
+
+    expect(tier).toMatchObject({ availableQuantity: 4, isSoldOut: false })
+  })
+
+  it('never reads the night’s count as its own', () => {
+    // The night has 7 free seats, all in another zone; this tier has none.
+    const [tier] = withTicketTypeAvailability({
+      sessions: [night],
+      ticketTypes: [{ ...seated, availableQuantity: 0, isSoldOut: true }],
+    }).ticketTypes
+
+    expect(tier).toMatchObject({ availableQuantity: 0, isSoldOut: true })
+
+    // And a tier the API did not count gets no number at all, not the night's.
+    const [uncounted] = withTicketTypeAvailability({
+      sessions: [night],
+      ticketTypes: [seated],
+    }).ticketTypes
+
+    expect(uncounted.availableQuantity).toBeNull()
+    expect(uncounted.isSoldOut).toBe(false)
+  })
+
+  it('is sold out when it has no seat left, or it is not on sale', () => {
+    const full = withTicketTypeAvailability({
+      sessions: [night],
+      ticketTypes: [{ ...seated, availableQuantity: 0 }],
+    }).ticketTypes[0]
+    const paused = withTicketTypeAvailability({
+      sessions: [night],
+      ticketTypes: [{ ...seated, status: 'PAUSED', availableQuantity: 5 }],
+    }).ticketTypes[0]
+
+    expect(full).toMatchObject({ availableQuantity: 0, isSoldOut: true })
+    expect(paused).toMatchObject({ availableQuantity: 0, isSoldOut: true })
+  })
+
+  it('falls back to its own columns when its night has no seat map', () => {
+    const [tier] = withTicketTypeAvailability({
+      sessions: [{ ...night, hasSeatMap: false, seatsAvailable: null }],
+      ticketTypes: [seated],
+    }).ticketTypes
+
+    expect(tier).toMatchObject({ availableQuantity: 0, isSoldOut: true })
   })
 })

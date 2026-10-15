@@ -337,6 +337,158 @@ describe('retry safety', () => {
     await app.close()
   })
 
+  it('answers a retry after a timed-out capture with the pending order, never a success', async () => {
+    // The first answer is a 502, and the order is PENDING while somebody finds
+    // out whether the money moved. A retry of that attempt must neither place
+    // a second order nor be told the first one is booked: it is told the
+    // payment is still being checked, and where the order is.
+    const providers = createInMemoryProviderRegistry({
+      payments: { timeoutAmountCents: oneTicketTotal() },
+    })
+    const { app, prisma, ids } = await createTestApp({ providers })
+    const headers = { 'idempotency-key': 'chk_retry_after_timeout' }
+
+    const first = await checkout(app, ids, {}, headers)
+    const reference = prisma._store.order[0].reference
+
+    expect(first.statusCode).toBe(502)
+    expect(first.json().error).toMatchObject({ code: 'PAYMENT_TIMEOUT', orderReference: reference })
+
+    const retry = await checkout(app, ids, {}, headers)
+
+    expect(retry.statusCode).toBe(409)
+    expect(retry.json().error).toMatchObject({ code: 'ORDER_PENDING', orderReference: reference })
+    expect(retry.json().error.message).toContain(reference)
+    expect(retry.json().error.message).toMatch(/please do not pay again/)
+    expect(retry.json()).not.toHaveProperty('data')
+
+    // Still one order, one attempt at the provider, and no tickets.
+    expect(prisma._store.order).toHaveLength(1)
+    expect(prisma._store.order[0].status).toBe('PENDING')
+    expect(prisma._store.payment).toHaveLength(1)
+    expect(prisma._store.ticket).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('tells a buyer in production not to pay again, where every other 5xx is masked', async () => {
+    // Production replaces a 5xx's words with a fixed sentence, so a stack trace
+    // cannot leave. The timeout's sentence is not an internal detail: it is the
+    // one thing the buyer must read, and its code and order are what the site
+    // acts on.
+    const providers = createInMemoryProviderRegistry({
+      payments: { timeoutAmountCents: oneTicketTotal() },
+    })
+    const { app, prisma, ids } = await createTestApp({
+      providers,
+      env: { NODE_ENV: 'production', ALLOW_DEMO_TAX_IN_PRODUCTION: true },
+    })
+
+    const response = await checkout(app, ids, {}, { 'idempotency-key': 'chk_production' })
+
+    expect(response.statusCode).toBe(502)
+    expect(response.json().error).toMatchObject({
+      code: 'PAYMENT_TIMEOUT',
+      orderReference: prisma._store.order[0].reference,
+    })
+    expect(response.json().error.message).toMatch(/please do not pay again/)
+
+    await app.close()
+  })
+
+  it('answers the same retry with the sale once the payment has settled', async () => {
+    const providers = createInMemoryProviderRegistry({
+      payments: { timeoutAmountCents: oneTicketTotal() },
+    })
+    const { app, prisma, ids } = await createTestApp({ providers })
+    const headers = { 'idempotency-key': 'chk_retry_after_settlement' }
+
+    expect((await checkout(app, ids, {}, headers)).statusCode).toBe(502)
+
+    const order = prisma._store.order[0]
+    const payload = {
+      provider: 'in-memory-payments',
+      providerEventId: 'evt_settles_before_retry',
+      eventType: 'payment.succeeded',
+      orderReference: order.reference,
+      providerRef: 'pi_settled_before_retry',
+    }
+    expect((await webhook(app, payload)).statusCode).toBe(200)
+
+    const retry = await checkout(app, ids, {}, headers)
+
+    expect(retry.statusCode).toBe(201)
+    expect(retry.json().data).toMatchObject({ reference: order.reference, status: 'PAID' })
+    expect(prisma._store.order).toHaveLength(1)
+    expect(prisma._store.ticket).toHaveLength(1)
+
+    await app.close()
+  })
+
+  it('answers a retry of a declined attempt with the decline, not with the cancelled order', async () => {
+    const providers = createInMemoryProviderRegistry({
+      payments: { declineAmountCents: oneTicketTotal() },
+    })
+    const { app, prisma, ids } = await createTestApp({ providers })
+    const headers = { 'idempotency-key': 'chk_retry_after_decline' }
+
+    const first = await checkout(app, ids, {}, headers)
+    const retry = await checkout(app, ids, {}, headers)
+
+    expect(first.statusCode).toBe(402)
+    expect(first.json().error.message).toMatch(/nothing was charged/)
+    expect(retry.statusCode).toBe(402)
+    expect(retry.json().error).toMatchObject({
+      code: 'PAYMENT_DECLINED',
+      message: first.json().error.message,
+    })
+    expect(retry.json()).not.toHaveProperty('data')
+
+    // The retry charged nobody: still one cancelled order and one attempt.
+    expect(prisma._store.order.map((order) => order.status)).toEqual(['CANCELLED'])
+    expect(prisma._store.payment).toHaveLength(1)
+
+    await app.close()
+  })
+
+  it('answers two requests with one key that both missed the first read as a retry, not a 500', async () => {
+    // A double submission: both requests read "no order with this key" before
+    // either had written one, so the second meets the first on the key's
+    // unique index. Played here by hiding the first order from the second's
+    // opening read only.
+    const providers = createInMemoryProviderRegistry({
+      payments: { timeoutAmountCents: oneTicketTotal() },
+    })
+    const { app, prisma, ids } = await createTestApp({ providers })
+    const headers = { 'idempotency-key': 'chk_double_submit' }
+
+    expect((await checkout(app, ids, {}, headers)).statusCode).toBe(502)
+
+    const findUnique = prisma.order.findUnique.bind(prisma.order)
+    let hidden = false
+    prisma.order.findUnique = async (args) => {
+      if (!hidden && args?.where?.idempotencyKey) {
+        hidden = true
+        return null
+      }
+
+      return findUnique(args)
+    }
+
+    const second = await checkout(app, ids, {}, headers)
+
+    expect(hidden).toBe(true)
+    expect(second.statusCode).toBe(409)
+    expect(second.json().error).toMatchObject({
+      code: 'ORDER_PENDING',
+      orderReference: prisma._store.order[0].reference,
+    })
+    expect(prisma._store.order).toHaveLength(1)
+    expect(prisma._store.payment).toHaveLength(1)
+
+    await app.close()
+  })
+
   it('treats a checkout without a key as a fresh order', async () => {
     const { app, prisma, ids } = await createTestApp()
 

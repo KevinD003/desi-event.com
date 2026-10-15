@@ -86,10 +86,18 @@ describe('the server matches the contract', () => {
     // read at a glance.
     const nonJson = apiRoutes.filter((route) => route.produces)
 
-    expect(nonJson.map((route) => route.id).sort()).toEqual(['analytics.export', 'finance.export'])
+    expect(nonJson.map((route) => route.id).sort()).toEqual([
+      'analytics.export',
+      'finance.export',
+      'media.get',
+    ])
+
+    // A picture is bytes of the type its own sniffed header names; everything
+    // else that is not JSON is a CSV export.
+    const expected = { 'media.get': 'image/*' }
 
     for (const route of nonJson) {
-      expect(route.produces).toBe('text/csv')
+      expect(route.produces, route.id).toBe(expected[route.id] ?? 'text/csv')
       // Still carries one, because the document describes what a row holds even
       // though the wire format is a file.
       expect(route.response).toBeTruthy()
@@ -130,7 +138,7 @@ describe('the published document', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json()).toEqual(
-      buildOpenApiDocument({ title: 'Desi-Event API', version: '0.1.0' }),
+      buildOpenApiDocument({ title: 'The Desi Events API', version: '0.1.0' }),
     )
 
     await app.close()

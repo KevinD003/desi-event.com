@@ -19,8 +19,10 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input, Select } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 
 /**
  * The accessibility vocabulary, and how each claim reads.
@@ -68,6 +70,7 @@ export function VenueForm({ venue = null, organizations = [] }) {
   const [busy, setBusy] = useState(false)
   const [features, setFeatures] = useState(venue?.accessibility?.features ?? [])
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Create or update.
@@ -97,7 +100,7 @@ export function VenueForm({ venue = null, organizations = [] }) {
       city: text('city'),
       region: text('region'),
       postalCode: text('postalCode'),
-      country: text('country') ?? 'IN',
+      country: text('country') ?? 'US',
       capacity: form.get('capacity') ? Number(form.get('capacity')) : null,
       directions: text('directions'),
       policies: text('policies'),
@@ -123,11 +126,11 @@ export function VenueForm({ venue = null, organizations = [] }) {
         return
       }
 
-      setError(body?.error?.message ?? 'Could not save the venue.')
-      queueMicrotask(() => errorRef.current?.focus())
+      setError(refusalSentence(response.status, body, 'Could not save the venue.'))
+      focusAfterRender(errorRef)
     } catch {
       setError('The ticketing service is not responding. Nothing has been saved.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } finally {
       setBusy(false)
     }
@@ -200,7 +203,7 @@ export function VenueForm({ venue = null, organizations = [] }) {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FormField label="Country" id="country" description="Two-letter code.">
-          <Input id="country" name="country" defaultValue={venue?.country ?? 'IN'} maxLength={2} />
+          <Input id="country" name="country" defaultValue={venue?.country ?? 'US'} maxLength={2} />
         </FormField>
         <FormField label="Capacity" id="capacity">
           <Input
@@ -226,8 +229,8 @@ export function VenueForm({ venue = null, organizations = [] }) {
       </FormField>
 
       <fieldset>
-        <legend className="text-sm font-medium text-slate-700">Accessibility</legend>
-        <p className="mt-1 text-sm text-slate-600">
+        <legend className="text-sm font-medium text-ink-muted">Accessibility</legend>
+        <p className="mt-1 text-sm text-ink-muted">
           Only tick what is true. Somebody will plan a journey around these.
         </p>
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">

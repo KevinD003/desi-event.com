@@ -31,13 +31,13 @@ export function Label({
     <label
       htmlFor={htmlFor}
       data-slot="label"
-      className={cn('text-sm font-medium text-slate-900', className)}
+      className={cn('text-sm font-medium text-ink', className)}
       {...rest}
     >
       {children}
       {required ? (
         <>
-          <span aria-hidden="true" className="ml-0.5 text-rose-600">
+          <span aria-hidden="true" className="ml-0.5 text-status-danger">
             *
           </span>
           <span className="sr-only"> {requiredLabel}</span>

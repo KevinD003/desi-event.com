@@ -1,7 +1,7 @@
 /**
  * Search indexing — deliberately a stub, deliberately real.
  *
- * Desi-Event has no search index yet; event discovery is served by PostgreSQL
+ * The Desi Events has no search index; event discovery is served by PostgreSQL
  * queries. When that stops scaling the answer will be an external index
  * (OpenSearch, Typesense, Meilisearch), and the expensive part of adopting one
  * is never the client library — it is finding every write path that should have

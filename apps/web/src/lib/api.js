@@ -153,7 +153,10 @@ export async function loadEventList(filters = {}, options = {}) {
           page,
           perPage,
           sort: 'startsAt:asc',
-          status: 'PUBLISHED',
+          // No status: the API's own public set applies — published, on sale,
+          // paused and sold out. This asked for PUBLISHED alone, which after
+          // the lifecycle meant an event vanished from discovery the moment
+          // its organiser opened sales.
           ...(category ? { category } : {}),
           ...(city ? { city } : {}),
           ...(q ? { q } : {}),
@@ -168,7 +171,13 @@ export async function loadEventList(filters = {}, options = {}) {
       return { events: response.data, pagination: response.pagination, usedFallback: false }
     },
     () => {
-      const matching = sortByStartDate(filterEvents(sampleEventSummaries(), { category, city, q }))
+      const matching = sortByStartDate(
+        filterEvents(
+          sampleEventSummaries(),
+          { category, city, q },
+          { descriptionOf: (event) => findSampleEvent(event.slug)?.description ?? null },
+        ),
+      )
       const { items, pagination } = paginate(matching, { page, perPage })
 
       return { events: items, pagination, usedFallback: true }
@@ -210,6 +219,31 @@ export async function loadEventBySlug(slug, options = {}) {
     },
     () => ({ event: findSampleEvent(slug), usedFallback: true }),
   )
+}
+
+/**
+ * Load one night's seat map, as anybody may read it.
+ *
+ * No fallback: a map is inventory, and a made-up one would offer seats that do
+ * not exist. A night the API does not answer for, or will not show a stranger,
+ * comes back null and the page says there is nothing to choose from.
+ *
+ * @param {string} sessionId The night.
+ * @param {object} [options] Overrides.
+ * @param {object} [options.client] API client to use; defaults to the shared one.
+ * @returns {Promise<object|null>} The map's `data`, or null.
+ */
+export async function loadSeatMap(sessionId, options = {}) {
+  try {
+    const client = options.client ?? getApiClient()
+    const response = await client.sessions.seats({ id: sessionId }, callOptions())
+
+    return response?.data?.sessionId ? response.data : null
+  } catch (error) {
+    warnOnce('sessions.seats', error)
+
+    return null
+  }
 }
 
 /**
@@ -295,7 +329,7 @@ export async function loadCatalogueOverview(options = {}) {
 
 /** Facet lists used when the API cannot be reached. */
 const FALLBACK_FACETS = Object.freeze({
-  scope: { status: 'PUBLISHED', total: 0 },
+  scope: { status: 'LISTED', total: 0 },
   categories: [],
   cities: [],
   languages: [],
@@ -341,7 +375,7 @@ export async function loadCatalogueFacets(options = {}) {
       return {
         facets: {
           ...FALLBACK_FACETS,
-          scope: { status: 'PUBLISHED', total: events.length },
+          scope: { status: 'LISTED', total: events.length },
           categories: count(events.map((event) => event.category)),
           cities: count(events.map((event) => event.city).filter(Boolean)),
         },
@@ -361,10 +395,28 @@ export async function loadCatalogueFacets(options = {}) {
  * did supply wins.
  *
  * @param {object} event An event with a `ticketTypes` array.
- * @returns {object} The same event with `availableQuantity` and `isSoldOut` present on every tier.
+ * @returns {object} The same event with `availableQuantity` and `isSoldOut` present on every tier; a seated tier whose free seats were not counted gets `availableQuantity: null` rather than a guess.
  */
 export function withTicketTypeAvailability(event) {
+  const sessions = new Map((event?.sessions ?? []).map((session) => [session.id, session]))
+
   const ticketTypes = (event?.ticketTypes ?? []).map((tier) => {
+    // A seated tier's stock is its own free seats, which the API counts per
+    // tier; its quantity columns say nothing about it. Never the night's
+    // count: that is every zone's seats together, and read as one zone's it
+    // called a sold-out zone "Only 6 seats left".
+    const night = tier.reserved ? sessions.get(tier.eventSessionId) : null
+
+    if (night?.hasSeatMap) {
+      if (!Number.isInteger(tier.availableQuantity)) {
+        return { ...tier, availableQuantity: null, isSoldOut: tier.status === 'SOLD_OUT' }
+      }
+
+      const isSoldOut = tier.status !== 'ON_SALE' || tier.availableQuantity === 0
+
+      return { ...tier, availableQuantity: isSoldOut ? 0 : tier.availableQuantity, isSoldOut }
+    }
+
     const remaining = Math.max(0, (tier.quantityTotal ?? 0) - (tier.quantitySold ?? 0))
     const availableQuantity = tier.availableQuantity ?? remaining
     const isSoldOut = tier.isSoldOut ?? (tier.status !== 'ON_SALE' || availableQuantity === 0)

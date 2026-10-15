@@ -19,6 +19,7 @@ const PUBLIC_EXPORTS = [
   'Label',
   'FormField',
   'Alert',
+  'StatusIcon',
   'Spinner',
   'Skeleton',
   'EmptyState',

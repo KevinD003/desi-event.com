@@ -48,10 +48,11 @@
 
 import { EXPORT_ARTIFACT_STATES } from '@desi-event/schemas'
 
-import { AsOf, Empty, Failure, Forbidden } from '../../../components/page-state.jsx'
+import { AsOf, Empty, Forbidden } from '../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { TABLE_FRAME } from '../../../components/workspace-kit.jsx'
 import { listExportArtifacts } from '../../../lib/privacy-api.js'
 import { privacyOrganizations, readSession } from '../../../lib/session.js'
-import { describeRefusal } from '../../../lib/privacy-vocabulary.js'
 import { OrganizationPicker } from '../organization-picker.jsx'
 
 export const dynamic = 'force-dynamic'
@@ -170,7 +171,7 @@ export default async function ExportRegisterPage({ searchParams }) {
     artifacts = answer.data ?? []
     pagination = answer.pagination ?? null
   } catch (error) {
-    failure = describeRefusal(error)
+    failure = error
   }
 
   const readAt = new Date().toISOString()
@@ -178,8 +179,11 @@ export default async function ExportRegisterPage({ searchParams }) {
   return (
     <>
       <header>
-        <h1 className="text-2xl font-bold text-indigo-night-900">Export register</h1>
-        <p className="mt-2 max-w-3xl text-slate-700">
+        <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+          Workspace · Trust and safety
+        </p>
+        <h1 className="mt-2 text-h2 font-semibold text-ink">Export register</h1>
+        <p className="mt-2 max-w-3xl text-ink-muted">
           Which exports this organisation has produced, and whether any of them is known to contain
           a person. It records that an export happened — never what was in it — and there is nothing
           to download here: every export is streamed to whoever asked and nothing is kept.
@@ -198,7 +202,9 @@ export default async function ExportRegisterPage({ searchParams }) {
         extra={{ kind: params.kind }}
       />
 
-      {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
+      {failure ? (
+        <ReadRefusal error={failure} what="The export register" action="see the export register" />
+      ) : null}
 
       {artifacts && artifacts.length === 0 ? (
         <Empty
@@ -210,13 +216,13 @@ export default async function ExportRegisterPage({ searchParams }) {
       {artifacts && artifacts.length > 0 ? (
         <>
           <AsOf asOf={readAt} />
-          <div className="mt-4 overflow-x-auto">
+          <div className={`mt-4 ${TABLE_FRAME}`}>
             <table className="w-full min-w-[54rem] border-collapse text-left text-sm">
               <caption className="sr-only">
                 Exports produced by {selected.organizationName ?? 'this organisation'}, newest first
               </caption>
               <thead>
-                <tr className="border-b border-slate-300 text-slate-700">
+                <tr className="border-b border-line-strong text-ink-muted">
                   <th scope="col" className="py-2 pr-4 font-semibold">
                     Kind
                   </th>
@@ -239,8 +245,8 @@ export default async function ExportRegisterPage({ searchParams }) {
               </thead>
               <tbody>
                 {artifacts.map((artifact) => (
-                  <tr key={artifact.id} className="border-b border-slate-200 align-top">
-                    <th scope="row" className="py-3 pr-4 font-medium text-indigo-night-900">
+                  <tr key={artifact.id} className="border-b border-line align-top">
+                    <th scope="row" className="py-3 pr-4 font-medium text-ink">
                       {artifact.kind}
                     </th>
                     <td className="py-3 pr-4">{stateLabel(artifact.state)}</td>
@@ -257,7 +263,7 @@ export default async function ExportRegisterPage({ searchParams }) {
           </div>
 
           {pagination ? (
-            <p className="mt-4 text-sm text-slate-600">
+            <p className="mt-4 text-sm text-ink-muted">
               Showing {artifacts.length} of {pagination.total ?? artifacts.length}.
             </p>
           ) : null}

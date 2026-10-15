@@ -59,9 +59,9 @@ test.beforeAll(async ({ browser }) => {
   await code.fill(currentCode())
   await page.getByRole('button', { name: 'Sign in' }).click()
 
-  // Sign-in lands on the events list, which is the organiser's front door. The
-  // venue journeys navigate from there.
-  await expect(page).toHaveURL(/\/organizer\/events/)
+  // Sign-in with no `next` lands on the account page (Phase 4; it used to be
+  // the events list). The venue journeys navigate by address from there.
+  await expect(page).toHaveURL(/\/account$/)
 })
 
 test.afterAll(async () => {
@@ -153,7 +153,7 @@ test.describe('2. an organiser authors a valid reserved-seat map', () => {
 
     await page.getByRole('button', { name: 'Save draft' }).click()
 
-    await expect(page.getByRole('status')).toContainText('revision 1')
+    await expect(page.getByRole('status').filter({ hasText: 'revision 1' })).toBeVisible()
   })
 
   test('and can preview it as a buyer will meet it', async () => {
@@ -221,14 +221,14 @@ test.describe('4. an invalid whole-layout save writes nothing', () => {
     await authorLayout(page)
 
     await page.getByRole('button', { name: 'Save draft' }).click()
-    await expect(page.getByRole('status')).toContainText('revision 1')
+    await expect(page.getByRole('status').filter({ hasText: 'revision 1' })).toBeVisible()
 
     // Two seats with the same label: the map cannot mean anything.
     await page.getByRole('button', { name: /A2, row A/ }).click()
     await page.getByLabel('Label', { exact: true }).fill('A1')
 
-    await expect(page.getByRole('alert').filter({ hasText: 'problem' })).toContainText(/problem/)
-    await expect(page.getByRole('alert').filter({ hasText: 'problem' })).toContainText(
+    await expect(page.getByRole('status').filter({ hasText: 'problem' })).toContainText(/problem/)
+    await expect(page.getByRole('status').filter({ hasText: 'problem' })).toContainText(
       /Nothing has been saved/,
     )
 
@@ -243,7 +243,7 @@ test.describe('5. an organiser cannot edit another organisation venue', () => {
   test('is refused, and told why', async () => {
     await page.goto(`/organizer/venues/${seeded.theirVenueId}/maps`)
 
-    await expect(page.getByRole('alert').filter({ hasText: 'Could not load' })).toContainText(
+    await expect(page.getByRole('status').filter({ hasText: 'Could not load' })).toContainText(
       /another organisation/i,
     )
     await expect(page.getByRole('button', { name: 'Create map' })).toHaveCount(0)
@@ -254,7 +254,7 @@ test.describe('6. an organiser can select but not modify a shared venue', () => 
   test('cannot author its maps', async () => {
     await page.goto(`/organizer/venues/${seeded.sharedVenueId}/maps`)
 
-    await expect(page.getByRole('alert').filter({ hasText: 'Could not load' })).toContainText(
+    await expect(page.getByRole('status').filter({ hasText: 'Could not load' })).toContainText(
       /shared between all of them/i,
     )
   })
@@ -274,7 +274,7 @@ test.describe('7, 8, 9, 10. publish, freeze, clone, and history', () => {
     await createMapAndOpen(page, venueId, 'Publishable')
     await authorLayout(page)
     await page.getByRole('button', { name: 'Save draft' }).click()
-    await expect(page.getByRole('status')).toContainText('revision 1')
+    await expect(page.getByRole('status').filter({ hasText: 'revision 1' })).toBeVisible()
 
     // 7. Publish, through the dialog that explains what it costs.
     await page.getByRole('button', { name: 'Publish' }).click()
@@ -337,12 +337,14 @@ test.describe('7, 8, 9, 10. publish, freeze, clone, and history', () => {
 
     await page.getByLabel('Section 1 name').fill('Stalls')
     await page.getByRole('button', { name: 'Save draft' }).click()
-    await expect(page.getByRole('status')).toContainText('revision 1')
+    await expect(page.getByRole('status').filter({ hasText: 'revision 1' })).toBeVisible()
 
     // 10. The published version is still there, still frozen, still version 1.
     await page.goto(`/organizer/venues/${venueId}/maps`)
     await expect(page.getByText('Version 1')).toBeVisible()
-    await expect(page.getByText('Published')).toBeVisible()
+    // The state badge, by the words it is read out with: the draft's own note
+    // ("Not sellable until published.") says "published" too.
+    await expect(page.getByText('State: Published', { exact: true })).toBeVisible()
     await expect(page.getByText('Version 2')).toBeVisible()
     await expect(page.getByText('Draft')).toBeVisible()
   })

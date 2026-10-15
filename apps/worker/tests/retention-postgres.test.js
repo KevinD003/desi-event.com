@@ -50,13 +50,35 @@ import { connectTestDatabase } from './helpers/database.js'
 /** Marks every row this suite creates, so nothing else is ever touched. */
 const TAG = `ret${randomUUID().slice(0, 8)}`
 
-/** A fixed instant, so cut-offs and ids are predictable. */
-const NOW = new Date('2026-09-18T00:00:00.000Z')
+/**
+ * This run's instant: a fixed day moved by a number of whole seconds, under a
+ * year, read from the tag. Cut-offs and ids stay predictable within a run, and
+ * two runs share them only when their tags give the same number of seconds:
+ * about one chance in thirty million.
+ *
+ * The sweep rows' ids are derived from the instant and the class, never from
+ * the tag, so with one fixed instant for every run two runs on one database
+ * wrote, deduplicated against and deleted each other's rows: three at once on
+ * one database failed four times in six ("RetentionSweep_pkey"; "expected 2 to
+ * be 4"), and a run that died before its cleanup left rows the next would
+ * count as its own.
+ */
+const NOW = new Date(
+  Date.parse('2026-09-18T00:00:00.000Z') +
+    (Number.parseInt(TAG.slice('ret'.length), 16) % (365 * 24 * 60 * 60)) * 1000,
+)
 
 /** Comfortably older than every proposed duration. */
 const LONG_AGO = new Date('2020-01-01T00:00:00.000Z')
 
 const { prisma, when } = await connectTestDatabase('the retention PostgreSQL suite')
+
+/** Every sweep row id this run can write: one per class and kind. */
+const OWN_SWEEP_IDS = RETENTION_CLASSES.flatMap((definition) =>
+  Object.values(SWEEP_ROW_KINDS).map((kind) =>
+    sweepRowId({ runInstant: NOW, retentionClass: definition.retentionClass, kind }),
+  ),
+)
 
 /**
  * A digest over the rows this suite created, and nothing else.
@@ -88,7 +110,12 @@ function processor(activated) {
 }
 
 when()('the retention rehearsal against real PostgreSQL', () => {
+  /** Sweep rows carrying this run's ids before it wrote any. */
+  let foundBefore = null
+
   beforeAll(async () => {
+    foundBefore = await prisma.retentionSweep.count({ where: { id: { in: OWN_SWEEP_IDS } } })
+
     // Three login attempts old enough for every proposal to reach.
     await prisma.loginAttempt.createMany({
       data: [1, 2, 3].map((n) => ({
@@ -106,18 +133,14 @@ when()('the retention rehearsal against real PostgreSQL', () => {
     // is possible precisely because the ids are derived rather than generated —
     // the cleanup can name them without reading the table first.
     await prisma.loginAttempt.deleteMany({ where: { emailHash: { startsWith: TAG } } })
-    await prisma.retentionSweep.deleteMany({
-      where: {
-        id: {
-          in: RETENTION_CLASSES.flatMap((definition) =>
-            Object.values(SWEEP_ROW_KINDS).map((kind) =>
-              sweepRowId({ runInstant: NOW, retentionClass: definition.retentionClass, kind }),
-            ),
-          ),
-        },
-      },
-    })
+    await prisma.retentionSweep.deleteMany({ where: { id: { in: OWN_SWEEP_IDS } } })
     await prisma.$disconnect()
+  })
+
+  it('starts with no sweep row of its own, so every row it counts below is one it wrote', () => {
+    // Another run on the same database, or one that died before its cleanup,
+    // must not hand this one rows it would then deduplicate against.
+    expect(foundBefore).toBe(0)
   })
 
   it('counts the rows that are actually there', async () => {

@@ -6,6 +6,15 @@
  * points so that "2.5 %" is the exact integer 250 rather than the inexact float
  * 0.025.
  *
+ * Buyers and organisers call it the booking fee; administrators set it per
+ * event (the platform fee, SPEC3 §3.1). The terms passed in are whichever
+ * applies to the order — an event's own, or the site's default for the order's
+ * currency (`eventFeeConfig` in the API decides) — and the formula is the same
+ * for both. What this computes is the *gross* fee: a referral code then waives
+ * all of it or none of it (`computeOrderTotals`), and nothing here knows
+ * whether the ticket price is paid online or at the door, because the fee is
+ * the same either way.
+ *
  * @module @desi-event/pricing/fees
  */
 

@@ -38,6 +38,8 @@ import {
   submitOutsideTransaction,
 } from '../src/lib/refunds.js'
 import { claimSeats } from '../src/lib/seating.js'
+import { acceptTransfer, mintTransferToken, startTransfer } from '../src/lib/tickets.js'
+import { issueTicketCredential } from '../src/lib/ticket-credentials.js'
 import { assertSeatsCoherent, loadSeatedHoldItems, priceLines } from '../src/lib/seated-checkout.js'
 import { connectTestDatabase } from './helpers/database.js'
 
@@ -803,6 +805,54 @@ when()('a refund racing a ticket transfer', () => {
   })
 })
 
+when()('the pass on a refunded ticket', () => {
+  it('stops resolving, the way a revoked one does', async () => {
+    // The asymmetry this closes. `revokeTicket` has always nulled the digest
+    // and bumped the version, so a revoked ticket's QR matches no row at all.
+    // The refund path wrote only the status, so a refunded ticket kept a
+    // credential that still resolved to its row by digest. Every gate refused
+    // it — `admissionRefusal`, the check-in trigger, the pass route's 409 — so
+    // this was an asymmetry rather than an open door, and it sat in exactly the
+    // place a reader would assume symmetry.
+    //
+    // It matters most for a ticket transferred away before the refund: the
+    // refund allocator selects by order item and status and never reads
+    // ownership, so the row that gets refunded can be the *recipient's*, and
+    // nothing notifies them. Leaving their pass resolvable is the worst version
+    // of that.
+    const world = await buildPaidOrder({ seats: 2 })
+    const line = world.order.items[0]
+    const ticket = await prisma.ticket.findFirst({ where: { orderItemId: line.id } })
+
+    expect(ticket.credentialHash, 'the fixture issued no pass').toBeTruthy()
+
+    const versionBefore = ticket.credentialVersion
+
+    const { refund } = await ask(world, {
+      lines: [{ orderItemId: line.id, quantity: line.quantity }],
+      key: `${RUN}-pass-dies`,
+    })
+
+    await pushThrough(world, refund)
+
+    const after = await prisma.ticket.findUnique({ where: { id: ticket.id } })
+
+    expect(after.status).toBe('REFUNDED')
+    expect(after.credentialHash).toBeNull()
+    // Bumped as well as cleared, so the credential cannot be re-derived to the
+    // same string if the digest is ever restored.
+    expect(after.credentialVersion).toBe(versionBefore + 1)
+
+    // And the scanner's own lookup finds nothing, which is the property that
+    // actually matters at a door.
+    const byDigest = await prisma.ticket.findFirst({
+      where: { credentialHash: ticket.credentialHash },
+    })
+
+    expect(byDigest).toBeNull()
+  })
+})
+
 when()('a refund racing a check-in', () => {
   it('never turns an admitted ticket into a refunded one', async () => {
     const world = await buildPaidOrder({ seats: 2 })
@@ -857,17 +907,36 @@ when()('a refund racing a check-in', () => {
 
     // The door, a moment later. `desi_check_in_ticket_admissible` refuses it in
     // the database rather than trusting the scanner's own read.
+    //
+    // Asserted on the database's own refusal, not on the message text alone.
+    // A Prisma validation error prints a code frame of the calling source, and
+    // the comment above sat in that frame: a bare /admissible/ once matched an
+    // insert Prisma rejected, for a column `CheckIn` does not have, before it
+    // ever reached PostgreSQL. `RAISE EXCEPTION` is SQLSTATE P0001, which
+    // Prisma nests under `meta.driverAdapterError` (see `databaseErrorCode` in
+    // ../src/lib/errors.js), and the message is the one the trigger raises,
+    // word for word.
     await expect(
       prisma.checkIn.create({
         data: {
           id: id('checkin'),
           ticketId: ticket.id,
-          eventId: world.event.id,
           eventSessionId: world.session.id,
           scannedAt: new Date(),
         },
       }),
-    ).rejects.toThrow(/admissible|refunded|revoked/i)
+    ).rejects.toMatchObject({
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: 'P0001',
+            originalMessage: `check-in refused: ticket ${ticket.id} is REFUNDED, which does not admit`,
+          },
+        },
+      },
+    })
+
+    expect(await prisma.checkIn.count({ where: { ticketId: ticket.id } })).toBe(0)
   })
 })
 
@@ -916,5 +985,321 @@ when()('a settlement that fails', () => {
     const retry = await ask(world, { amountCents, key: `${RUN}-declined-retry` })
 
     expect(retry.created).toBe(true)
+  })
+})
+
+/**
+ * A paid general-admission order of one ticket, held by an account, with a
+ * captured intent behind it so a refund can go all the way through.
+ *
+ * @returns {Promise<object>} The world, shaped as {@link buildPaidOrder}'s, plus the people and the ticket.
+ */
+async function buildPaidGeneralAdmission() {
+  const tag = `${RUN}${(sequence += 1).toString(36)}`
+  const startsAt = new Date(Date.now() + 72 * 3_600_000)
+  const person = (label) =>
+    prisma.user.create({
+      data: {
+        id: id(label),
+        email: `${label}-${tag}@refund-ga.example`,
+        displayName: label,
+        passwordHash: 'not-a-hash-this-suite-never-signs-in',
+        role: 'ATTENDEE',
+        emailVerified: true,
+      },
+    })
+  const holder = await person('holder')
+  const recipient = await person('recipient')
+  const organization = await prisma.organization.create({
+    data: {
+      id: id('org'),
+      name: `Refund GA ${tag}`,
+      slug: `refundrace-ga-${tag}`,
+      contactEmail: `refund-ga-${tag}@desi-event.example`,
+    },
+  })
+  const venue = await prisma.venue.create({
+    data: {
+      id: id('venue'),
+      organizationId: organization.id,
+      name: 'Refund GA Hall',
+      slug: `refundrace-ga-venue-${tag}`,
+      addressLine1: '1 Test Road',
+      city: 'Chennai',
+      region: 'TN',
+      postalCode: '600001',
+      country: 'IN',
+      timezone: 'Asia/Kolkata',
+    },
+  })
+  const event = await prisma.event.create({
+    data: {
+      id: id('event'),
+      organizationId: organization.id,
+      venueId: venue.id,
+      title: `Refund GA Night ${tag}`,
+      slug: `refundrace-ga-event-${tag}`,
+      category: 'MUSIC_CONCERT',
+      summary: 'A standing ticket about to be handed on and given back at once.',
+      description: 'Built by the refund concurrency suite.',
+      status: 'PUBLISHED',
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 3_600_000),
+      timezone: 'Asia/Kolkata',
+    },
+  })
+  const ticketType = await prisma.ticketType.create({
+    data: {
+      id: id('tier'),
+      eventId: event.id,
+      name: 'Standing',
+      priceCents: SEAT_PRICE_CENTS,
+      currency: 'INR',
+      quantityTotal: 1,
+      status: 'ON_SALE',
+    },
+  })
+  const intent = payments.createIntent({ amountCents: SEAT_PRICE_CENTS, currency: 'INR' })
+
+  payments.capture(intent.id)
+
+  const order = await prisma.order.create({
+    data: {
+      id: id('order'),
+      reference: `DE-GA${tag.toUpperCase()}`,
+      eventId: event.id,
+      userId: holder.id,
+      buyerEmail: holder.email,
+      buyerName: 'holder',
+      status: 'PAID',
+      currency: 'INR',
+      subtotalCents: SEAT_PRICE_CENTS,
+      totalCents: SEAT_PRICE_CENTS,
+      paidAt: new Date(),
+    },
+  })
+  const payment = await prisma.payment.create({
+    data: {
+      id: id('payment'),
+      orderId: order.id,
+      provider: 'in-memory-payments',
+      providerRef: intent.id,
+      status: 'SUCCEEDED',
+      amountCents: SEAT_PRICE_CENTS,
+      currency: 'INR',
+    },
+  })
+  const line = await prisma.orderItem.create({
+    data: {
+      id: id('line'),
+      orderId: order.id,
+      ticketTypeId: ticketType.id,
+      quantity: 1,
+      unitPriceCents: SEAT_PRICE_CENTS,
+      subtotalCents: SEAT_PRICE_CENTS,
+    },
+  })
+  const ticketId = id('ticket')
+  const { credentialHash } = issueTicketCredential({ secret: SECRET, ticketId, version: 1 })
+  const ticket = await prisma.ticket.create({
+    data: {
+      id: ticketId,
+      orderItemId: line.id,
+      code: `DET-GA${tag.toUpperCase()}`,
+      ownerUserId: holder.id,
+      attendeeName: 'holder',
+      credentialHash,
+      credentialIssuedAt: new Date(),
+      status: 'VALID',
+    },
+  })
+
+  return {
+    organization,
+    event,
+    order: await readOrder(order.id),
+    payment,
+    payments,
+    intent,
+    holder,
+    recipient,
+    ticket,
+  }
+}
+
+/**
+ * Wait until PostgreSQL reports a session blocked by the holder's transaction.
+ *
+ * @param {{pid: number}} holder From {@link holdingOpen}.
+ * @returns {Promise<void>} Resolves once a session is blocked by it.
+ * @throws {Error} After five seconds without one.
+ */
+async function untilBlockedBy(holder) {
+  const deadline = Date.now() + 5_000
+
+  while (Date.now() < deadline) {
+    const [{ waiting }] = await prisma.$queryRaw`
+      SELECT count(*)::int AS waiting FROM pg_stat_activity
+      WHERE datname = current_database() AND ${holder.pid}::int = ANY (pg_blocking_pids(pid))`
+
+    if (waiting > 0) return
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 25)
+    })
+  }
+
+  throw new Error(`No session was blocked by backend ${holder.pid} within five seconds.`)
+}
+
+/**
+ * Run work in a transaction and hold it open, uncommitted, until released.
+ *
+ * @param {function(object): Promise<unknown>} work What the transaction does first.
+ * @returns {Promise<{release: function(): void, done: Promise<unknown>, pid: number}>} Once the work is done.
+ */
+async function holdingOpen(work) {
+  let release
+  const gate = new Promise((resolve) => {
+    release = resolve
+  })
+  let held
+  const heldPromise = new Promise((resolve) => {
+    held = resolve
+  })
+
+  const done = prisma.$transaction(
+    async (tx) => {
+      const [{ pid }] = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`
+      const result = await work(tx)
+
+      held(pid)
+      await gate
+
+      return result
+    },
+    { timeout: 20_000, maxWait: 10_000 },
+  )
+
+  const pid = await Promise.race([heldPromise, done.then(() => heldPromise)])
+
+  return { release, done, pid }
+}
+
+when()('a refund settling while the line’s ticket is being accepted', () => {
+  it('refunds the successor, never nobody', async () => {
+    // The general-admission half of ADR 0005's race. Before the order-line
+    // lock, a settlement reading the line while an acceptance was in flight
+    // saw the predecessor, found it TRANSFERRED by the time it wrote, skipped
+    // it — and returned the money with the recipient's successor still
+    // admitting. Both paths now lock the line first.
+    const world = await buildPaidGeneralAdmission()
+    const line = world.order.items[0]
+    const { tokenHash } = mintTransferToken()
+    const started = await prisma.$transaction((tx) =>
+      startTransfer(tx, {
+        ticket: world.ticket,
+        toEmail: world.recipient.email,
+        fromUserId: world.holder.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 3_600_000),
+        now: new Date(),
+      }),
+    )
+    const pending = await prisma.ticket.findUnique({ where: { id: world.ticket.id } })
+    const { refund } = await ask(world, {
+      lines: [{ orderItemId: line.id, quantity: 1 }],
+      key: `${RUN}-ga-accept-${(sequence += 1).toString(36)}`,
+    })
+
+    const acceptance = await holdingOpen((tx) =>
+      acceptTransfer(tx, {
+        transfer: started.transfer,
+        ticket: pending,
+        recipient: world.recipient,
+        credentialSecret: SECRET,
+        generateTicketCode: () => `DET-GAS${(sequence += 1).toString(36).toUpperCase()}${RUN}`,
+        now: new Date(),
+      }),
+    )
+    const settlement = pushThrough(world, refund)
+
+    await untilBlockedBy(acceptance)
+    acceptance.release()
+
+    const accepted = await acceptance.done
+    const settled = await settlement
+
+    expect(accepted.accepted).toBe(true)
+    expect(settled).toMatchObject({ outcome: REFUND_OUTCOMES.SUCCEEDED, ticketsRevoked: 1 })
+    expect(await prisma.ticket.findUnique({ where: { id: accepted.ticket.id } })).toMatchObject({
+      status: 'REFUNDED',
+      credentialHash: null,
+    })
+    expect(
+      await prisma.ticket.count({
+        where: {
+          orderItemId: line.id,
+          status: { in: ['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'] },
+        },
+      }),
+    ).toBe(0)
+  })
+})
+
+when()('a refund settling while an offer is being started on the line’s ticket', () => {
+  it('refunds the ticket the offer was started on, and leaves nothing admitting', async () => {
+    // The window "a refund racing a ticket transfer" reaches only by chance,
+    // held open so it is reached every time. Starting an offer takes no
+    // order-line lock: it moves the ticket from VALID to TRANSFER_PENDING with
+    // its own conditional update. The settlement reads the line's tickets
+    // while that update is uncommitted, so it sees VALID; its own update then
+    // waits on the row and is re-checked against TRANSFER_PENDING once the
+    // offer commits. Conditioned on the status it read, that update matched
+    // nothing, the ticket was skipped, and the money went back with the ticket
+    // still admitting. Conditioned on the ticket still being refundable, it is
+    // revoked.
+    const world = await buildPaidGeneralAdmission()
+    const line = world.order.items[0]
+    const { tokenHash } = mintTransferToken()
+    const { refund } = await ask(world, {
+      lines: [{ orderItemId: line.id, quantity: 1 }],
+      key: `${RUN}-ga-offer-${(sequence += 1).toString(36)}`,
+    })
+
+    const offer = await holdingOpen((tx) =>
+      startTransfer(tx, {
+        ticket: world.ticket,
+        toEmail: world.recipient.email,
+        fromUserId: world.holder.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 3_600_000),
+        now: new Date(),
+      }),
+    )
+    const settlement = pushThrough(world, refund)
+
+    await untilBlockedBy(offer)
+    offer.release()
+
+    const started = await offer.done
+    const settled = await settlement
+
+    // Both happened, in that order: the offer committed first, and the
+    // settlement that was waiting on it still revoked the ticket.
+    expect(started.started).toBe(true)
+    expect(settled).toMatchObject({ outcome: REFUND_OUTCOMES.SUCCEEDED, ticketsRevoked: 1 })
+    expect(await prisma.ticket.findUnique({ where: { id: world.ticket.id } })).toMatchObject({
+      status: 'REFUNDED',
+      credentialHash: null,
+    })
+    expect(
+      await prisma.ticket.count({
+        where: {
+          orderItemId: line.id,
+          status: { in: ['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'] },
+        },
+      }),
+    ).toBe(0)
   })
 })

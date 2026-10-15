@@ -1,0 +1,656 @@
+/**
+ * Team and roles: who is in an organisation, in which role, admitting to which doors.
+ *
+ * ## Addresses are the server's decision, drawn exactly as it made it
+ *
+ * `GET /v1/organizations/:id/members` answers in one of three shapes, told
+ * apart by `emailVisibility`, and this page draws each one as it is:
+ *
+ *   - `FULL` — an owner or administrator of *this* organisation who confirmed a
+ *     second factor recently. Each address the payload carries is shown.
+ *   - `STEP_UP_REQUIRED` — the same person without the recent confirmation. No
+ *     address, and the step-up is offered in place; once it succeeds the page
+ *     redraws and the server decides again.
+ *   - `HIDDEN` — everybody else who may read the list. No address, no stand-in
+ *     and no hint that one could be revealed.
+ *
+ * The email column exists only under `FULL`, and it reads `email` only then.
+ * An `email` field that arrived under either other shape — a presenter bug, a
+ * proxy that cached the wrong answer — is never read, and a name is passed
+ * through the same address scrubber the API uses before it is drawn. Nothing
+ * is derived from a name.
+ *
+ * ## Inviting, and how the code goes out
+ *
+ * The session (`GET /v1/auth/me`) says how codes go out in this deployment.
+ * When they are not emailed (`MANUAL`, how this site runs unless a mail server
+ * is configured), an invitation's code is returned once, to whoever issued it,
+ * and they hand it over themselves: the invite form (`./invite-form.jsx`)
+ * shows it once in the one-time code panel. When they are emailed (`EMAIL`),
+ * the code goes to the invited address and the inviter never sees it. The page
+ * says which, in the mode it is read in. Each open invitation says how its
+ * code went out, and an invitation issued before codes were shown to anybody
+ * says that nobody ever received one — with "Issue a new code" beside it for a
+ * role the caller may grant.
+ *
+ * ## Roles that create or publish events
+ *
+ * Event manager, manager, administrator and owner are given by the team at
+ * The Desi Events, not from this page: an organiser invitation makes somebody an owner,
+ * and a super administrator may put anybody in any role. So the invite form
+ * offers only the roles that do not post events (`assignableRoles`), and a
+ * member's role can be changed only to one the API lists for that member
+ * (`roleChoices`): somebody who posts events can be moved down, never up, and
+ * nobody can be moved into posting from here. The page says so beside the
+ * invite form.
+ *
+ * ## Ownership
+ *
+ * An owner of this organisation, through their own membership, is offered
+ * handing ownership to another member who already creates events here (the
+ * API refuses anybody else, with `HEIR_MUST_POST_EVENTS`). Nobody else is
+ * offered it, and the API refuses a platform role on this path.
+ *
+ * ## Door scopes, in the API's terms
+ *
+ * Owners and administrators admit to every event of the organisation; managers,
+ * staff and door scanners admit only to the events their scope names, and no
+ * scope admits nobody; every other role does not work a door. See
+ * `./team-vocabulary.js` for where that comes from.
+ *
+ * @module app/organizer/team/page
+ */
+
+import Link from 'next/link'
+import { withoutAddresses } from '@desi-event/schemas'
+
+import { ScrollableTable } from '../../../components/money-figure.jsx'
+import { AsOf, Empty, Forbidden } from '../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { StepUpForRead } from '../../../components/step-up-for-read.jsx'
+import { formatEventDate } from '../../../lib/format.js'
+import { membershipsWith, readSession, sessionCan } from '../../../lib/session.js'
+import { formatInstant, getTeam, listOrganizationEvents } from '../../../lib/workspace-api.js'
+import { InviteForm } from './invite-form.jsx'
+import { InvitationActions, MemberActions, TransferOwnership } from './member-actions.jsx'
+import { TeamAnnouncer } from './team-announcer.jsx'
+import { deliveryLabel, isEventScoped, isOrganizationWide, roleLabel } from './team-vocabulary.js'
+
+export const dynamic = 'force-dynamic'
+
+export const metadata = { title: 'Team and roles', robots: { index: false, follow: false } }
+
+/** What the page says beside the invite form about roles that post events. */
+export const POSTING_ROLES_SENTENCE =
+  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the team at The Desi Events, not from this page. To add somebody who will create events, ask the team at The Desi Events to add them to your organisation.'
+
+/** What the Ownership section says about who can take it. */
+export const HEIR_SENTENCE = 'Ownership can go only to somebody who already creates events here.'
+
+/**
+ * How an invitation's code reaches the person invited, per delivery mode.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const INVITE_DELIVERY_SENTENCES = Object.freeze({
+  MANUAL:
+    'Codes are not emailed from this site. When you invite somebody, their invitation code is shown to you once, and you hand it to them yourself.',
+  EMAIL: 'The code is emailed to that address. You will not see it.',
+})
+
+/** A header cell. */
+const TH = 'border-b border-line-strong px-3 py-2 text-left font-semibold text-ink'
+
+/** A body cell. */
+const TD = 'border-b border-line px-3 py-3 align-top text-ink'
+
+/**
+ * Read one thing, reporting a failure rather than throwing it.
+ *
+ * @param {Function} load What to call.
+ * @returns {Promise<{value: object|null, error: object|null}>} What came back.
+ */
+async function attempt(load) {
+  try {
+    return { value: await load(), error: null }
+  } catch (error) {
+    return { value: null, error }
+  }
+}
+
+/**
+ * A name as this page may draw it.
+ *
+ * Under `FULL` the name is the member's name. Under either other visibility,
+ * anything address-shaped in it is replaced, the way the API replaces it —
+ * so a name that somehow still carried one cannot put back what the list
+ * withholds.
+ *
+ * @param {string|null|undefined} name The name from the payload.
+ * @param {boolean} full Whether this list may show addresses.
+ * @returns {string} The name to draw.
+ */
+function safeName(name, full) {
+  const text = typeof name === 'string' && name.trim() ? name : 'Unnamed member'
+
+  return full ? text : withoutAddresses(text)
+}
+
+/**
+ * What a member's door authority is, in words.
+ *
+ * @param {object} props Component props.
+ * @param {string} props.role The member's role.
+ * @param {string[]} props.scopedEventIds The events their scope names.
+ * @param {Map<string, string>|null} props.titles Event titles by id, or null when unread.
+ * @returns {JSX.Element} The description.
+ */
+function DoorScope({ role, scopedEventIds, titles }) {
+  if (isOrganizationWide(role)) {
+    return <span>Any event of this organisation</span>
+  }
+
+  if (!isEventScoped(role)) {
+    return <span className="text-ink-muted">Does not work a door</span>
+  }
+
+  if (scopedEventIds.length === 0) {
+    return <span className="text-status-warning">Admits nobody: no event named</span>
+  }
+
+  if (!titles) {
+    return (
+      <span>
+        Admits to {scopedEventIds.length} named event{scopedEventIds.length === 1 ? '' : 's'}
+      </span>
+    )
+  }
+
+  const named = scopedEventIds.map((id) => titles.get(id)).filter(Boolean)
+  const unnamed = scopedEventIds.length - named.length
+
+  return (
+    <span>
+      Admits to: {named.join(', ')}
+      {named.length > 0 && unnamed > 0 ? ', and ' : ''}
+      {unnamed > 0
+        ? `${unnamed} ${named.length > 0 ? 'other ' : ''}event${unnamed === 1 ? '' : 's'} this page could not name`
+        : ''}
+    </span>
+  )
+}
+
+/**
+ * What the page says about addresses, per visibility.
+ *
+ * @param {object} props Component props.
+ * @param {string} props.visibility The server's `emailVisibility`.
+ * @returns {JSX.Element} The note, or the step-up.
+ */
+function AddressNotice({ visibility }) {
+  if (visibility === 'FULL') {
+    return (
+      <p className="mt-4 text-sm text-ink-muted">
+        Addresses are shown because you manage this team and confirmed your second factor recently.
+        Nobody else who can read this list sees them.
+      </p>
+    )
+  }
+
+  if (visibility === 'STEP_UP_REQUIRED') {
+    return (
+      <>
+        <p className="mt-4 text-sm text-ink-muted">
+          No addresses are shown. You manage this team, and addresses are shown to you only after a
+          recent confirmation of your second factor.
+        </p>
+        <StepUpForRead action="see team members’ email addresses" />
+      </>
+    )
+  }
+
+  return (
+    <p className="mt-4 text-sm text-ink-muted">
+      Email addresses are shown only to owners and administrators who have confirmed a second factor
+      recently.
+    </p>
+  )
+}
+
+/**
+ * @typedef {object} TeamPageProps
+ * @property {Promise<Record<string, string>>} searchParams The resolved query string.
+ */
+
+/**
+ * The team screen.
+ *
+ * @param {TeamPageProps} props Route props.
+ * @returns {Promise<JSX.Element>} The rendered page.
+ */
+export default async function TeamPage({ searchParams }) {
+  const query = (await searchParams) ?? {}
+  const session = await readSession()
+  const organizations = membershipsWith(session, 'organization:view_members')
+
+  if (organizations.length === 0) {
+    return <Forbidden area="Team" backHref="/organizer" backLabel="Back to the workspace" />
+  }
+
+  const selected =
+    organizations.find((organization) => organization.organizationId === query.organizationId) ??
+    organizations[0]
+  const organizationId = selected.organizationId
+
+  const [team, eventList] = await Promise.all([
+    attempt(() => getTeam(organizationId)),
+    attempt(() => listOrganizationEvents(organizationId)),
+  ])
+
+  // Asked in this organisation, never unscoped: holding a capability in one
+  // organisation is not holding it in another. The API asks again.
+  const mayChangeRoles = sessionCan(session, 'team:role_manage', organizationId)
+  const mayRemove = sessionCan(session, 'team:remove', organizationId)
+  const mayWithdraw = sessionCan(session, 'team:invite', organizationId)
+  const callerRole = selected.role
+  // Held through this session's own membership, never a platform role: the
+  // API hands ownership on only for an owner of this organisation.
+  const ownsHere = membershipsWith(session, 'organization:manage').some(
+    (membership) => membership.organizationId === organizationId,
+  )
+
+  const data = team.value
+  const full = data?.emailVisibility === 'FULL'
+  const assignable = (data?.assignableRoles ?? []).filter((role) => role !== 'OWNER')
+  const deliveryMode =
+    session?.deliveryMode === 'EMAIL' || session?.deliveryMode === 'MANUAL'
+      ? session.deliveryMode
+      : null
+
+  /**
+   * Whether the caller's role reaches a member's, as the API's
+   * `assertMayActOn` decides it: they may grant that role (by capability, so
+   * roles that post events count too), or both are owners. The API lists the
+   * roles this caller may set for each member (`roleChoices`), which is
+   * non-empty exactly when the caller's role reaches the member's and they
+   * manage roles here — and everybody who may remove members here does.
+   *
+   * @param {{role: string, roleChoices?: string[]}} member The member.
+   * @returns {boolean} True when the API would let them act.
+   */
+  const reaches = (member) =>
+    (member.roleChoices ?? []).length > 0 || (member.role === 'OWNER' && callerRole === 'OWNER')
+
+  /**
+   * The roles the API says this caller may set for a member, other than the
+   * one they hold now.
+   *
+   * @param {{role: string, roleChoices?: string[]}} member The member.
+   * @returns {string[]} The other roles on offer.
+   */
+  const otherChoices = (member) =>
+    (member.roleChoices ?? []).filter((role) => role !== 'OWNER' && role !== member.role)
+
+  const events = eventList.value
+    ? eventList.value.events.map((event) => ({
+        id: event.id,
+        title: event.title,
+        when: formatEventDate(event.startsAt, event.timezone ?? 'Asia/Kolkata'),
+      }))
+    : null
+  const titles = events ? new Map(events.map((event) => [event.id, event.title])) : null
+  // Set only when the picker's one page could not hold every event, so the
+  // picker can say how many it leaves out.
+  const eventPagination = eventList.value?.pagination ?? null
+  const eventTotal =
+    eventPagination?.hasNextPage && Number.isInteger(eventPagination.total)
+      ? eventPagination.total
+      : null
+  const actionsColumn = mayChangeRoles || mayRemove
+  const now = Date.now()
+
+  return (
+    <div>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Workspace · Events and venues
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Team and roles</h1>
+      <p className="mt-2 max-w-3xl text-ink-muted">
+        Who is in {selected.organizationName ?? 'this organisation'}, in which role, and which doors
+        they may admit people through. What you can change is decided by your own role here, and the
+        server checks it again whatever this page offers.
+      </p>
+
+      {organizations.length > 1 ? (
+        <nav aria-label="Choose an organisation" className="mt-6">
+          <ul className="flex flex-wrap gap-2">
+            {organizations.map((organization) => {
+              const current = organization.organizationId === organizationId
+
+              return (
+                <li key={organization.organizationId}>
+                  <Link
+                    href={`/organizer/team?organizationId=${encodeURIComponent(organization.organizationId)}`}
+                    aria-current={current ? 'page' : undefined}
+                    className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                      current
+                        ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
+                        : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
+                    }`}
+                  >
+                    {organization.organizationName ?? organization.organizationId}
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
+      ) : null}
+
+      {team.error ? (
+        <ReadRefusal
+          error={team.error}
+          what="This organisation’s team"
+          action="see this team"
+          backHref="/organizer"
+          backLabel="Back to the workspace"
+        />
+      ) : null}
+
+      {data ? (
+        // Keyed by organisation: a code held for one team's invitation is never
+        // shown on another team's page after switching organisation.
+        <TeamAnnouncer key={organizationId}>
+          <AddressNotice visibility={data.emailVisibility} />
+          <AsOf asOf={new Date(now).toISOString()} />
+
+          <section aria-labelledby="members-heading" className="mt-8">
+            <h2 id="members-heading" className="text-xl font-semibold text-ink">
+              Members <span className="font-normal text-ink-muted">({data.members.length})</span>
+            </h2>
+
+            {eventList.error ? (
+              <p className="mt-2 text-sm text-ink-muted">
+                This organisation’s events could not be read, so door scopes are shown as a count
+                and cannot be changed from here just now.
+              </p>
+            ) : null}
+
+            {data.members.length === 0 ? (
+              <Empty
+                title="No members"
+                description="This organisation has no members this account can see."
+              />
+            ) : (
+              <ScrollableTable label="Members">
+                <table className="w-full min-w-[48rem] border-collapse text-sm">
+                  <caption className="sr-only">
+                    Members of {selected.organizationName ?? 'this organisation'}, with their roles
+                    and door scopes
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" className={TH}>
+                        Name
+                      </th>
+                      {full ? (
+                        <th scope="col" className={TH}>
+                          Email
+                        </th>
+                      ) : null}
+                      <th scope="col" className={TH}>
+                        Role
+                      </th>
+                      <th scope="col" className={TH}>
+                        Joined
+                      </th>
+                      <th scope="col" className={TH}>
+                        Door scope
+                      </th>
+                      {actionsColumn ? (
+                        <th scope="col" className={TH}>
+                          Actions
+                        </th>
+                      ) : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.members.map((member) => {
+                      const name = safeName(member.displayName, full)
+                      const offerRoleChange =
+                        mayChangeRoles && !member.self && otherChoices(member).length > 0
+                      const offerRemove = mayRemove && !member.self && reaches(member)
+
+                      return (
+                        <tr key={member.id}>
+                          <th scope="row" className={`${TD} font-medium`}>
+                            {name}
+                            {member.self ? <span className="text-ink-muted"> (you)</span> : null}
+                          </th>
+                          {full ? (
+                            <td className={`${TD} break-all`}>{member.email ?? '—'}</td>
+                          ) : null}
+                          <td className={TD}>{roleLabel(member.role)}</td>
+                          <td className={`${TD} text-ink-muted`}>
+                            <time dateTime={member.joinedAt}>
+                              {formatInstant(member.joinedAt) ?? '—'}
+                            </time>
+                          </td>
+                          <td className={TD}>
+                            <DoorScope
+                              role={member.role}
+                              scopedEventIds={member.scopedEventIds ?? []}
+                              titles={titles}
+                            />
+                          </td>
+                          {actionsColumn ? (
+                            <td className={TD}>
+                              {member.self ? (
+                                <span className="text-ink-muted">
+                                  Your own role and membership are changed by somebody else here.
+                                </span>
+                              ) : offerRoleChange || offerRemove ? (
+                                <MemberActions
+                                  organizationId={organizationId}
+                                  member={{
+                                    id: member.id,
+                                    name,
+                                    role: member.role,
+                                    postsEvents: member.postsEvents === true,
+                                    scopedEventIds: member.scopedEventIds ?? [],
+                                  }}
+                                  roleChoices={member.roleChoices ?? []}
+                                  events={events}
+                                  eventTotal={eventTotal}
+                                  offerRoleChange={offerRoleChange}
+                                  offerRemove={offerRemove}
+                                />
+                              ) : (
+                                <span className="text-ink-muted">
+                                  Your role here cannot change this member’s.
+                                </span>
+                              )}
+                            </td>
+                          ) : null}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </ScrollableTable>
+            )}
+          </section>
+
+          {mayWithdraw && assignable.length > 0 ? (
+            <section aria-labelledby="invite-heading" className="mt-10">
+              <h2 id="invite-heading" className="text-xl font-semibold text-ink">
+                Invite somebody
+              </h2>
+              {deliveryMode ? (
+                <p className="mt-1 max-w-3xl text-sm text-ink-muted">
+                  {INVITE_DELIVERY_SENTENCES[deliveryMode]}
+                </p>
+              ) : null}
+              <InviteForm
+                organizationId={organizationId}
+                assignableRoles={assignable}
+                deliveryMode={deliveryMode}
+              />
+            </section>
+          ) : null}
+
+          {mayWithdraw ? (
+            <p className="mt-4 max-w-3xl text-sm text-ink-muted">{POSTING_ROLES_SENTENCE}</p>
+          ) : null}
+
+          <section aria-labelledby="invitations-heading" className="mt-10">
+            <h2 id="invitations-heading" className="text-xl font-semibold text-ink">
+              Invitations still open{' '}
+              <span className="font-normal text-ink-muted">({data.invitations.length})</span>
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm text-ink-muted">
+              Each one works for the address it was issued to, once. A lost code is replaced by
+              issuing a new one, which stops the old one working.
+            </p>
+
+            {data.invitations.length === 0 ? (
+              <Empty title="No open invitations" description="Nothing is waiting to be accepted." />
+            ) : (
+              <ScrollableTable label="Open invitations">
+                <table className="w-full min-w-[40rem] border-collapse text-sm">
+                  <caption className="sr-only">Invitations waiting to be accepted</caption>
+                  <thead>
+                    <tr>
+                      {full ? (
+                        <th scope="col" className={TH}>
+                          Email
+                        </th>
+                      ) : null}
+                      <th scope="col" className={TH}>
+                        Role
+                      </th>
+                      <th scope="col" className={TH}>
+                        Invited by
+                      </th>
+                      <th scope="col" className={TH}>
+                        Issued
+                      </th>
+                      <th scope="col" className={TH}>
+                        Expires
+                      </th>
+                      <th scope="col" className={TH}>
+                        How the code went out
+                      </th>
+                      {mayWithdraw ? (
+                        <th scope="col" className={TH}>
+                          Actions
+                        </th>
+                      ) : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.invitations.map((invitation) => {
+                      const expired = Date.parse(invitation.expiresAt) <= now
+
+                      return (
+                        <tr key={invitation.id}>
+                          {full ? (
+                            <td className={`${TD} break-all`}>{invitation.email ?? '—'}</td>
+                          ) : null}
+                          <td className={TD}>{roleLabel(invitation.role)}</td>
+                          <td className={TD}>
+                            {invitation.invitedByName
+                              ? safeName(invitation.invitedByName, full)
+                              : 'Not recorded'}
+                          </td>
+                          <td className={`${TD} text-ink-muted`}>
+                            <time dateTime={invitation.createdAt}>
+                              {formatInstant(invitation.createdAt) ?? '—'}
+                            </time>
+                          </td>
+                          <td className={TD}>
+                            <time dateTime={invitation.expiresAt}>
+                              {formatInstant(invitation.expiresAt) ?? '—'}
+                            </time>
+                            {expired ? (
+                              <span className="block text-status-warning">
+                                Expired: it can no longer be accepted.
+                              </span>
+                            ) : null}
+                          </td>
+                          <td
+                            className={`${TD} ${invitation.deliveryMode ? '' : 'text-status-warning'}`}
+                          >
+                            {deliveryLabel(invitation.deliveryMode)}
+                          </td>
+                          {mayWithdraw ? (
+                            <td className={TD}>
+                              <InvitationActions
+                                organizationId={organizationId}
+                                invitation={{ id: invitation.id, role: invitation.role }}
+                                reissuable={assignable.includes(invitation.role)}
+                                recipient={full ? (invitation.email ?? null) : null}
+                                neverDelivered={!invitation.deliveryMode}
+                                deliveryMode={deliveryMode}
+                              />
+                            </td>
+                          ) : null}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </ScrollableTable>
+            )}
+          </section>
+
+          {ownsHere ? (
+            <section aria-labelledby="ownership-heading" className="mt-10">
+              <h2 id="ownership-heading" className="text-xl font-semibold text-ink">
+                Ownership
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm text-ink-muted">
+                You own this organisation. You can hand ownership to another member: they become the
+                owner and you become an administrator, in one step, after you confirm your second
+                factor. {HEIR_SENTENCE}
+              </p>
+              {data.members.filter((member) => !member.self && member.postsEvents === true)
+                .length === 0 ? (
+                <p className="mt-3 text-sm text-ink-muted">
+                  {data.members.some((member) => !member.self)
+                    ? 'Nobody else on this team creates events here, so there is nobody to hand it to.'
+                    : 'Nobody else is on this team, so there is nobody to hand it to.'}
+                </p>
+              ) : (
+                <ul className="mt-4 space-y-3">
+                  {data.members
+                    .filter((member) => !member.self && member.postsEvents === true)
+                    .map((member) => {
+                      const name = safeName(member.displayName, full)
+
+                      return (
+                        <li
+                          key={member.id}
+                          className="flex flex-wrap items-start justify-between gap-3 rounded-card border border-line bg-surface-raised p-4"
+                        >
+                          <p className="text-ink">
+                            <span className="font-medium">{name}</span>
+                            <span className="text-ink-muted"> · {roleLabel(member.role)}</span>
+                          </p>
+                          <TransferOwnership
+                            organizationId={organizationId}
+                            organizationName={selected.organizationName ?? 'this organisation'}
+                            member={{ id: member.id, name }}
+                          />
+                        </li>
+                      )
+                    })}
+                </ul>
+              )}
+            </section>
+          ) : null}
+        </TeamAnnouncer>
+      ) : null}
+    </div>
+  )
+}

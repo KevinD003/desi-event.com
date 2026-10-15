@@ -14,6 +14,77 @@ import { buildRedactOptions } from './redaction.js'
 export const DEFAULT_LOGGER_NAME = 'desi-event'
 
 /**
+ * How many levels below a logged error {@link serializeError} looks for a
+ * `detail` to drop: the error, its `meta`, the driver adapter's error in it,
+ * that error's `cause`, and one more.
+ *
+ * @type {number}
+ */
+export const ERROR_DETAIL_DEPTH = 4
+
+/**
+ * A copy of a value with every `detail` property removed, down to `depth`
+ * levels. Nothing of the original is changed: the error still reaches the
+ * error handler as it was thrown.
+ *
+ * @param {unknown} value A value inside a serialised error.
+ * @param {number} depth How many more levels to walk.
+ * @param {WeakSet<object>} seen Objects already on the path, so a cycle ends.
+ * @returns {unknown} The copy.
+ */
+function withoutDetail(value, depth, seen) {
+  if (value === null || typeof value !== 'object' || depth < 0 || seen.has(value)) return value
+
+  seen.add(value)
+
+  if (Array.isArray(value)) {
+    const items = value.map((item) => withoutDetail(item, depth - 1, seen))
+    seen.delete(value)
+    return items
+  }
+
+  /** @type {Record<string, unknown>} */
+  const copy = {}
+
+  // A nested error keeps what says what went wrong; its message and name are
+  // not enumerable, so they are copied by name.
+  if (value instanceof Error) {
+    copy.name = value.name
+    copy.message = value.message
+  }
+
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'detail') continue
+    copy[key] = withoutDetail(item, depth - 1, seen)
+  }
+
+  seen.delete(value)
+
+  return copy
+}
+
+/**
+ * The `err` serializer: pino's standard one, then every `detail` dropped from
+ * the error's own `cause`, `meta` and `driverAdapterError` chain.
+ *
+ * PostgreSQL's `detail` on a CHECK violation is "Failing row contains (…)":
+ * every column of the refused row, which can be a buyer's name, a referral or
+ * promo code's text, an address. `@prisma/adapter-pg` copies it into the error
+ * it throws (`meta.driverAdapterError.cause.detail`), and the error handler
+ * logs every 5xx whole; redaction works by key on the log object and has no
+ * reason to know `detail`. So the serializer drops it wherever an error
+ * carries it, to {@link ERROR_DETAIL_DEPTH} levels down (SPEC3 §13).
+ *
+ * @param {unknown} err The value logged under `err` or `error`.
+ * @returns {unknown} What is written instead.
+ */
+export function serializeError(err) {
+  const serialized = pino.stdSerializers.err(err)
+
+  return withoutDetail(serialized, ERROR_DETAIL_DEPTH, new WeakSet())
+}
+
+/**
  * A pino logger instance.
  *
  * The shared ESLint preset runs `jsdoc` in strict JSDoc mode, where a
@@ -79,7 +150,7 @@ export function buildLoggerOptions(options = {}) {
   const pinoOptions = {
     level: resolveLevel({ level, env }),
     redact: buildRedactOptions({ extraPaths: redactPaths }),
-    serializers: { err: pino.stdSerializers.err, error: pino.stdSerializers.err },
+    serializers: { err: serializeError, error: serializeError },
   }
 
   if (name !== undefined) pinoOptions.name = name

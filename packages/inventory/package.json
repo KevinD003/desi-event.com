@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.js",
     "./layout": "./src/layout.js",
+    "./seating": "./src/seating.js",
     "./package.json": "./package.json"
   },
   "files": [

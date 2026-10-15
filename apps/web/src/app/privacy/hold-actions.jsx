@@ -31,6 +31,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { useFocusAfterRender } from '../../components/focus-after-render.jsx'
 import { StepUpPrompt } from '../../components/step-up-prompt.jsx'
 import { apiFetch } from '../../lib/api-fetch.js'
 import { HOLD_KINDS, HOLD_RELEASE_REASONS, describeRefusal } from '../../lib/privacy-vocabulary.js'
@@ -62,6 +63,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
   const [restore, setRestore] = useState(false)
   const panelRef = useRef(null)
   const triggerRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   // Restored by effect rather than by holding the node: opening the panel
   // unmounts the trigger, so the element captured on the way in is detached by
@@ -82,7 +84,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
   function start() {
     setOpen(true)
     setRefusal(null)
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -134,14 +136,14 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
       }
 
       setRefusal(describeRefusal({ status: response.status, code: parsed?.error?.code ?? null }))
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefusal({
         title: 'The service is not responding',
         detail: 'Nothing has been recorded.',
         recoverable: true,
       })
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } finally {
       setBusy(false)
     }
@@ -162,8 +164,8 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
           onClick={start}
           className={
             releaseOnly
-              ? 'rounded-sm border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-indigo-night-900 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none'
-              : 'rounded-sm bg-indigo-night-900 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-night-800 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none'
+              ? 'inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-3 text-xs font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none'
+              : 'inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none'
           }
         >
           {releaseOnly ? 'Release' : 'Place a hold'}
@@ -176,19 +178,16 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
           tabIndex={-1}
           role="group"
           aria-labelledby={`hold-heading-${hold?.id ?? 'new'}`}
-          className="mt-3 rounded-card border border-slate-300 bg-white p-4 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <h3
-            id={`hold-heading-${hold?.id ?? 'new'}`}
-            className="font-semibold text-indigo-night-900"
-          >
+          <h3 id={`hold-heading-${hold?.id ?? 'new'}`} className="font-semibold text-ink">
             {releaseOnly ? 'Release this hold' : 'Place a hold'}
           </h3>
 
           {refusal ? (
             <p
-              role="alert"
-              className="mt-3 rounded-card border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900"
+              role="status"
+              className="mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-3 text-sm text-status-danger"
             >
               <span className="font-medium">{refusal.title}.</span> {refusal.detail}
             </p>
@@ -196,17 +195,14 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
 
           {releaseOnly ? (
             <div className="mt-3 flex flex-col gap-1">
-              <label
-                htmlFor={`release-reason-${hold.id}`}
-                className="text-sm font-medium text-indigo-night-900"
-              >
+              <label htmlFor={`release-reason-${hold.id}`} className="text-sm font-medium text-ink">
                 Why it is being released
               </label>
               <select
                 id={`release-reason-${hold.id}`}
                 value={releaseReasonCode}
                 onChange={(event) => setReleaseReasonCode(event.target.value)}
-                className="rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 {HOLD_RELEASE_REASONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -218,7 +214,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
           ) : (
             <>
               <div className="mt-3 flex flex-col gap-1">
-                <label htmlFor="hold-subject" className="text-sm font-medium text-indigo-night-900">
+                <label htmlFor="hold-subject" className="text-sm font-medium text-ink">
                   Subject id
                 </label>
                 <input
@@ -228,19 +224,19 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
                   spellCheck="false"
                   value={subjectId}
                   onChange={(event) => setSubjectId(event.target.value)}
-                  className="rounded-sm border border-slate-300 px-3 py-2 font-mono text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 font-mono text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                 />
               </div>
 
               <div className="mt-3 flex flex-col gap-1">
-                <label htmlFor="hold-kind" className="text-sm font-medium text-indigo-night-900">
+                <label htmlFor="hold-kind" className="text-sm font-medium text-ink">
                   Kind
                 </label>
                 <select
                   id="hold-kind"
                   value={kind}
                   onChange={(event) => setKind(event.target.value)}
-                  className="rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                 >
                   {HOLD_KINDS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -251,10 +247,10 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
               </div>
 
               <div className="mt-3 flex flex-col gap-1">
-                <label htmlFor="hold-matter" className="text-sm font-medium text-indigo-night-900">
+                <label htmlFor="hold-matter" className="text-sm font-medium text-ink">
                   Matter reference
                 </label>
-                <p id="hold-matter-hint" className="text-xs text-slate-600">
+                <p id="hold-matter-hint" className="text-xs text-ink-muted">
                   A reference that points at the matter — a case number, a ticket id. Not a
                   description of it. What the matter is about is personal data about the person this
                   hold blocks, and this is the last place it should be written down.
@@ -267,7 +263,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
                   aria-describedby="hold-matter-hint"
                   value={matterReference}
                   onChange={(event) => setMatterReference(event.target.value)}
-                  className="rounded-sm border border-slate-300 px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                 />
               </div>
             </>
@@ -290,7 +286,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
                 type="button"
                 onClick={send}
                 disabled={busy || !complete}
-                className="rounded-sm bg-indigo-night-900 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-night-800 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? 'Working…' : releaseOnly ? 'Release' : 'Place'}
               </button>
@@ -298,7 +294,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
                 type="button"
                 onClick={dismiss}
                 disabled={busy}
-                className="rounded-sm border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-indigo-night-900 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+                className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 Back
               </button>

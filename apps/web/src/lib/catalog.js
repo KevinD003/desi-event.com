@@ -204,21 +204,24 @@ export function citiesWithEvents(events) {
 /**
  * Whether an event matches a free-text query.
  *
- * Matching is deliberately generous — title, summary, city, venue and organiser
- * all count — because a visitor searching "garba toronto" is describing an
- * event, not naming one.
+ * The same rule `GET /v1/events` applies: every word has to turn up in the
+ * title, summary, description, venue, city or organiser, because a visitor
+ * searching "garba houston" is describing an event, not naming one. Offline
+ * the category's label counts as well; the API has no labels to match.
  *
  * @param {object} event An event summary.
  * @param {string} query Raw search text.
+ * @param {string|null} description The event's description, when known.
  * @returns {boolean} True when the event matches.
  */
-function matchesQuery(event, query) {
+function matchesQuery(event, query, description) {
   const needle = query.trim().toLowerCase()
   if (needle === '') return true
 
   const haystack = [
     event.title,
     event.summary,
+    description,
     event.city,
     event.venueName,
     event.organizationName,
@@ -236,21 +239,24 @@ function matchesQuery(event, query) {
  *
  * This mirrors what `GET /v1/events` does server-side, so the fallback
  * catalogue behaves like the real one: the same filters narrow it the same way.
+ * A summary carries no description, so the caller that has one supplies it.
  *
  * @param {object[]} events Event summaries to filter.
  * @param {object} [filters] Active filters.
  * @param {string} [filters.category] An `EventCategory` enum member.
  * @param {string} [filters.city] Exact city name.
  * @param {string} [filters.q] Free-text query.
+ * @param {object} [options] How to read what a summary leaves out.
+ * @param {Function} [options.descriptionOf] Given an event, its description or `null`.
  * @returns {object[]} The matching events, in input order.
  */
-export function filterEvents(events, filters = {}) {
+export function filterEvents(events, filters = {}, { descriptionOf = () => null } = {}) {
   const { category, city, q } = filters
 
   return (events ?? []).filter((event) => {
     if (category && event.category !== category) return false
     if (city && event.city !== city) return false
-    if (q && !matchesQuery(event, q)) return false
+    if (q && !matchesQuery(event, q, descriptionOf(event))) return false
 
     return true
   })

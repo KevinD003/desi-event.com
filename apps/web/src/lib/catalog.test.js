@@ -111,6 +111,15 @@ describe('filterEvents', () => {
     expect(filterEvents(events, { q: 'garba london' })).toHaveLength(0)
   })
 
+  it('matches a description the caller supplies, as the API matches descriptions', () => {
+    const descriptionOf = (event) =>
+      event.id === 'evtbollytoronto1' ? 'A night of nineties film songs and a live dhol.' : null
+
+    expect(filterEvents(events, { q: 'dhol' })).toHaveLength(0)
+    expect(filterEvents(events, { q: 'dhol' }, { descriptionOf })).toHaveLength(1)
+    expect(filterEvents(events, { q: 'dhol toronto' }, { descriptionOf })).toHaveLength(1)
+  })
+
   it('matches the category label as well as the stored fields', () => {
     expect(filterEvents(events, { q: 'bollywood' })).toHaveLength(1)
   })

@@ -36,7 +36,7 @@ import {
 export const EMAIL_BOUNCE_ADDRESS = 'bounce@desi-event.test'
 
 /** Default sender used when a message omits `from`. */
-export const DEFAULT_EMAIL_FROM = 'no-reply@desi-event.com'
+export const DEFAULT_EMAIL_FROM = 'no-reply@thedesievents.com'
 
 /** Most recipients accepted on a single message, across `to`, `cc` and `bcc`. */
 const MAX_RECIPIENTS = 50
@@ -131,6 +131,93 @@ function parseOptionalAddress(value, field, provider) {
 }
 
 /**
+ * @typedef {object} NormalisedEmailMessage
+ * @property {string} from The sender: the message's own, or the provider default.
+ * @property {string[]} to Recipients, validated, lower-cased and de-duplicated.
+ * @property {string[]} cc Carbon-copy recipients; possibly empty.
+ * @property {string[]} bcc Blind carbon-copy recipients; possibly empty.
+ * @property {(string|undefined)} replyTo Reply-to address, when given.
+ * @property {string} subject The trimmed subject.
+ * @property {(string|null)} text The trimmed plain-text body, or null.
+ * @property {(string|null)} html The trimmed HTML body, or null.
+ * @property {Record<string, unknown>} metadata A frozen copy of the metadata bag.
+ * @property {string[]} bounced Recipients equal to `bounceAddress`; empty when none was given.
+ */
+
+/**
+ * Validate and normalise one outgoing message.
+ *
+ * The rules every email provider applies before it sends anything, so the
+ * in-memory provider and the SMTP adapter refuse exactly the same messages in
+ * exactly the same words: recipients are checked here, at the call site,
+ * rather than discovered as a bounce from a mail server later.
+ *
+ * Nothing here performs I/O, and no error raised here carries the body.
+ *
+ * @param {unknown} message The message as the caller built it.
+ * @param {object} options Inputs.
+ * @param {string} options.name Provider name, attached to any error raised.
+ * @param {string} options.defaultFrom The sender used when the message names none; already validated.
+ * @param {(string|null)} [options.bounceAddress] An address that always fails, for the in-memory provider; null for a real adapter.
+ * @returns {NormalisedEmailMessage} The normalised message.
+ * @throws {ProviderError} `INVALID_MESSAGE` when the message, subject or body is malformed; `INVALID_RECIPIENT` for an unusable address.
+ */
+export function normaliseEmailMessage(message, { name, defaultFrom, bounceAddress = null }) {
+  if (!isPlainObject(message)) {
+    throw new ProviderError(
+      PROVIDER_ERROR_CODES.INVALID_MESSAGE,
+      'send expects a message object with `to`, `subject` and a body',
+      { provider: name, details: { received: message === null ? 'null' : typeof message } },
+    )
+  }
+
+  const to = parseRecipients(message.to, 'to', name, true)
+  const cc = parseRecipients(message.cc, 'cc', name, false)
+  const bcc = parseRecipients(message.bcc, 'bcc', name, false)
+  const from = parseOptionalAddress(message.from, 'from', name) ?? defaultFrom
+  const replyTo = parseOptionalAddress(message.replyTo, 'replyTo', name)
+
+  const subject = requireText(message.subject, 'subject', {
+    code: PROVIDER_ERROR_CODES.INVALID_MESSAGE,
+    provider: name,
+    maxLength: MAX_SUBJECT_LENGTH,
+  })
+
+  const hasText = typeof message.text === 'string' && message.text.trim() !== ''
+  const hasHtml = typeof message.html === 'string' && message.html.trim() !== ''
+  if (!hasText && !hasHtml) {
+    throw new ProviderError(
+      PROVIDER_ERROR_CODES.INVALID_MESSAGE,
+      'Expected the message to carry a non-empty `text` or `html` body',
+      { provider: name, details: { subject } },
+    )
+  }
+
+  const text = hasText
+    ? requireText(message.text, 'text', {
+        code: PROVIDER_ERROR_CODES.INVALID_MESSAGE,
+        provider: name,
+        maxLength: MAX_BODY_LENGTH,
+      })
+    : null
+  const html = hasHtml
+    ? requireText(message.html, 'html', {
+        code: PROVIDER_ERROR_CODES.INVALID_MESSAGE,
+        provider: name,
+        maxLength: MAX_BODY_LENGTH,
+      })
+    : null
+
+  const metadata = normaliseMetadata(message.metadata, PROVIDER_ERROR_CODES.INVALID_MESSAGE, name)
+  const bounced =
+    bounceAddress === null || bounceAddress === undefined
+      ? []
+      : [...to, ...cc, ...bcc].filter((address) => address === bounceAddress)
+
+  return { from, to, cc, bcc, replyTo, subject, text, html, metadata, bounced }
+}
+
+/**
  * @typedef {object} InMemoryEmailProviderOptions
  * @property {string} [name] Adapter name.
  * @property {string} [from] Default sender for messages that omit `from`.
@@ -180,53 +267,22 @@ export function createInMemoryEmailProvider(options = {}) {
    * @throws {ProviderError} `INVALID_MESSAGE` when the message, subject or body is malformed; `INVALID_RECIPIENT` for an unusable address; `SEND_FAILED` when `forceFailure` is set or a recipient is the bounce address.
    */
   function send(message) {
-    if (!isPlainObject(message)) {
-      throw new ProviderError(
-        PROVIDER_ERROR_CODES.INVALID_MESSAGE,
-        'send expects a message object with `to`, `subject` and a body',
-        { provider: name, details: { received: message === null ? 'null' : typeof message } },
-      )
-    }
-
-    const to = parseRecipients(message.to, 'to', name, true)
-    const cc = parseRecipients(message.cc, 'cc', name, false)
-    const bcc = parseRecipients(message.bcc, 'bcc', name, false)
-    const sender = parseOptionalAddress(message.from, 'from', name) ?? normalisedFrom
-    const replyTo = parseOptionalAddress(message.replyTo, 'replyTo', name)
-
-    const subject = requireText(message.subject, 'subject', {
-      code: PROVIDER_ERROR_CODES.INVALID_MESSAGE,
-      provider: name,
-      maxLength: MAX_SUBJECT_LENGTH,
+    const {
+      from: sender,
+      to,
+      cc,
+      bcc,
+      replyTo,
+      subject,
+      text,
+      html,
+      metadata,
+      bounced,
+    } = normaliseEmailMessage(message, {
+      name,
+      defaultFrom: normalisedFrom,
+      bounceAddress: normalisedBounce,
     })
-
-    const hasText = typeof message.text === 'string' && message.text.trim() !== ''
-    const hasHtml = typeof message.html === 'string' && message.html.trim() !== ''
-    if (!hasText && !hasHtml) {
-      throw new ProviderError(
-        PROVIDER_ERROR_CODES.INVALID_MESSAGE,
-        'Expected the message to carry a non-empty `text` or `html` body',
-        { provider: name, details: { subject } },
-      )
-    }
-
-    const text = hasText
-      ? requireText(message.text, 'text', {
-          code: PROVIDER_ERROR_CODES.INVALID_MESSAGE,
-          provider: name,
-          maxLength: MAX_BODY_LENGTH,
-        })
-      : null
-    const html = hasHtml
-      ? requireText(message.html, 'html', {
-          code: PROVIDER_ERROR_CODES.INVALID_MESSAGE,
-          provider: name,
-          maxLength: MAX_BODY_LENGTH,
-        })
-      : null
-
-    const metadata = normaliseMetadata(message.metadata, PROVIDER_ERROR_CODES.INVALID_MESSAGE, name)
-    const bounced = [...to, ...cc, ...bcc].filter((address) => address === normalisedBounce)
 
     if (message.forceFailure === true || bounced.length > 0) {
       throw new ProviderError(

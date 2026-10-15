@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
+import { restoreTarget } from '@desi-event/schemas/lifecycle'
+
+import { CANCELLATION_BUDGET } from '../src/lib/event-cancellation.js'
+import {
+  availableTransitions,
+  loadForTransition,
+  transitionEvent,
+} from '../src/lib/event-lifecycle.js'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
-import { minutesFromNow } from './helpers/fixtures.js'
+import { addRows, deletedEventFixture, makeWorld, minutesFromNow } from './helpers/fixtures.js'
+import { createPrismaStub, cuid } from './helpers/prisma-stub.js'
 
 /**
  * The event lifecycle: what the status column is allowed to mean.
@@ -151,8 +160,9 @@ describe('the publish route is not a status setter, finding NF-18', () => {
 describe('the generic PATCH still cannot move the status', () => {
   it('rejects a status field outright', async () => {
     // This one already held before this cycle, and the test exists so it keeps
-    // holding: `updateEventRequestSchema` omits `status`, so an extra field is
-    // a validation error rather than a silent write.
+    // holding: `updateEventRequestSchema` omits `status`, so it is stripped,
+    // and a body with nothing else in it is an empty update, refused as such
+    // rather than written.
     const { app, ids } = await createTestApp()
     const token = await signIn(app, 'arun@rangoli.example')
 
@@ -172,6 +182,31 @@ describe('the generic PATCH still cannot move the status', () => {
     })
 
     expect(after.json().data.status).toBe('DRAFT')
+
+    await app.close()
+  })
+
+  it('saves the other fields of an update that carries a status, and leaves the status alone', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}`,
+      headers: bearer(token),
+      payload: { title: 'Bollywood Night, Renamed', status: 'PUBLISHED' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data).toMatchObject({
+      title: 'Bollywood Night, Renamed',
+      status: 'DRAFT',
+    })
+
+    const stored = prisma._store.event.find((row) => row.id === ids.draftEvent.id)
+
+    expect(stored).toMatchObject({ title: 'Bollywood Night, Renamed', status: 'DRAFT' })
+    expect(stored.publishedAt ?? null).toBeNull()
 
     await app.close()
   })
@@ -263,7 +298,7 @@ describe('who may make a moderator decision', () => {
       method: 'POST',
       url: `/v1/moderation/events/${ids.reviewPendingEvent.id}/decision`,
       headers: bearer(token),
-      payload: { decision: 'approve' },
+      payload: { decision: 'approve', revision: ids.reviewPendingEvent.revision },
     })
 
     expect(response.statusCode).toBe(403)
@@ -297,7 +332,7 @@ describe('who may make a moderator decision', () => {
       method: 'POST',
       url: `/v1/moderation/events/${ids.reviewPendingEvent.id}/decision`,
       headers,
-      payload: { decision: 'approve' },
+      payload: { decision: 'approve', revision: ids.reviewPendingEvent.revision },
     })
 
     expect(response.statusCode).toBe(200)
@@ -430,8 +465,9 @@ describe('cancellation creates the work it owes, exactly once', () => {
       expect(JSON.stringify(notice.payload)).not.toMatch(/token|secret|card|cvc/i)
     }
 
-    // Nothing claims a refund has happened. REQUESTED is the first state, and
-    // no refund service exists to move it.
+    // Nothing claims a refund has happened. REQUESTED is the first state:
+    // cancellation asks for the refund and calls no provider; finance approves
+    // and sends it.
     for (const refund of prisma._store.refund ?? []) {
       expect(refund.status).toBe('REQUESTED')
       expect(refund.providerRefundId ?? null).toBeNull()
@@ -465,5 +501,232 @@ describe('cancellation creates the work it owes, exactly once', () => {
     expect(second.json().error.message).toMatch(/final state/i)
 
     await app.close()
+  })
+
+  it('is given a transaction budget sized to the orders it reserves refunds for', async () => {
+    // A refund is reserved for every paid order inside the cancellation's one
+    // transaction; Prisma's default of five seconds ran out at a few hundred.
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'owner@rangoli.example')
+    const headers = bearer(token)
+
+    await stepUp(app, 'owner@rangoli.example', headers)
+
+    // Two orders nobody has paid for yet: each is owed a notice.
+    for (const reference of ['DE-BUDGET1', 'DE-BUDGET2']) {
+      prisma._store.order.push({
+        id: cuid(),
+        reference,
+        eventId: ids.publishedEvent.id,
+        eventSessionId: null,
+        userId: null,
+        buyerEmail: `${reference.toLowerCase()}@buyers.example`,
+        buyerName: 'Budget Buyer',
+        status: 'PENDING',
+        currency: 'INR',
+        subtotalCents: 0,
+        discountCents: 0,
+        feesCents: 0,
+        taxCents: 0,
+        totalCents: 0,
+        refundedCents: 0,
+        refundPendingCents: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+    }
+
+    const orders = prisma._store.order.filter(
+      (order) =>
+        order.eventId === ids.publishedEvent.id && ['PENDING', 'PAID'].includes(order.status),
+    ).length
+    const budgets = []
+    const original = prisma.$transaction
+
+    prisma.$transaction = (fn, options) => {
+      budgets.push(options)
+
+      return original(fn, options)
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/cancel`,
+      headers,
+      payload: { reasonCode: 'VENUE_UNAVAILABLE', reason: 'The hall flooded.' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(orders).toBeGreaterThan(0)
+    expect(budgets).toContainEqual({
+      timeout: CANCELLATION_BUDGET.baseMs + CANCELLATION_BUDGET.perOrderMs * orders,
+      maxWait: CANCELLATION_BUDGET.maxWaitMs,
+    })
+
+    await app.close()
+  })
+
+  it('answers 503 and changes nothing when the transaction outruns its budget', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'owner@rangoli.example')
+    const headers = bearer(token)
+
+    await stepUp(app, 'owner@rangoli.example', headers)
+
+    const statusBefore = prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status
+    const expired = Object.assign(
+      new Error('Transaction API error: A query cannot be executed on an expired transaction.'),
+      { code: 'P2028' },
+    )
+    const original = prisma.$transaction
+
+    // What Prisma throws when the interactive transaction's timeout passes
+    // part-way through the work: the next query inside it is refused.
+    prisma.$transaction = (fn, options) =>
+      original(
+        typeof fn === 'function'
+          ? (tx) =>
+              fn(
+                new Proxy(tx, {
+                  get: (target, property) =>
+                    property === 'eventModerationAction'
+                      ? {
+                          ...target.eventModerationAction,
+                          create: async () => {
+                            throw expired
+                          },
+                        }
+                      : target[property],
+                }),
+              )
+          : fn,
+        options,
+      )
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/cancel`,
+      headers,
+      payload: { reasonCode: 'VENUE_UNAVAILABLE', reason: 'The hall flooded.' },
+    })
+
+    expect(response.statusCode, response.body).toBe(503)
+    expect(response.json().error.code).toBe('SERVICE_UNAVAILABLE')
+    expect(response.json().error.message).toMatch(/nothing was changed/)
+    expect(response.body).not.toMatch(/P2028|expired transaction/)
+    expect(prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status).toBe(
+      statusBefore,
+    )
+
+    await app.close()
+  })
+})
+
+describe('deletion and restore are commands of their own, never a transition (SPEC2-XI X-16)', () => {
+  /**
+   * The world's owner, as the lifecycle sees an organisation member.
+   *
+   * @param {object} ids `makeWorld().ids`.
+   * @returns {object} An actor.
+   */
+  function ownerActor(ids) {
+    return {
+      id: ids.owner.id,
+      role: 'USER',
+      memberships: [{ organizationId: ids.organization.id, role: 'OWNER' }],
+    }
+  }
+
+  /**
+   * The world's platform super administrator, with no membership.
+   *
+   * @param {object} ids `makeWorld().ids`.
+   * @returns {object} An actor.
+   */
+  function superAdministrator(ids) {
+    return { id: ids.platformAdmin.id, role: 'SUPER_ADMIN', memberships: [] }
+  }
+
+  it('refuses to move an event into DELETED, for its owner and for a super administrator alike', async () => {
+    // The table names the deletion move so it lists every way out of every
+    // status, but deleting has its own preview, confirmation and audit. A
+    // caller who reached `transitionEvent` with DELETED would skip all three.
+    const { seed, ids } = await makeWorld()
+    const prisma = createPrismaStub(seed)
+    const event = await loadForTransition(prisma, ids.publishedEvent.id)
+
+    for (const actor of [ownerActor(ids), superAdministrator(ids)]) {
+      await expect(transitionEvent(prisma, { event, to: 'DELETED', actor })).rejects.toMatchObject({
+        statusCode: 409,
+        message: expect.stringMatching(/commands of their own/),
+        details: { code: 'ILLEGAL_TRANSITION', from: 'PUBLISHED', to: 'DELETED' },
+      })
+    }
+
+    const after = await prisma.event.findUnique({ where: { id: ids.publishedEvent.id } })
+
+    expect(after.status).toBe('PUBLISHED')
+    expect(after.deletedAt).toBeNull()
+    expect(after.statusBeforeDeletion).toBeNull()
+  })
+
+  it('refuses to restore a deleted event, even to the status a restore would land on', async () => {
+    const { seed, ids } = await makeWorld()
+    const deleted = deletedEventFixture(ids, {
+      authority: 'PLATFORM',
+      deletedBy: ids.platformAdmin,
+    })
+    const prisma = createPrismaStub(addRows(seed, deleted.rows))
+    const event = await loadForTransition(prisma, deleted.event.id)
+    const to = restoreTarget(deleted.event.statusBeforeDeletion)
+
+    await expect(
+      transitionEvent(prisma, { event, to, actor: superAdministrator(ids) }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringMatching(/only the team at The Desi Events restores one/),
+      details: { code: 'ILLEGAL_TRANSITION', from: 'DELETED', to },
+    })
+
+    const after = await prisma.event.findUnique({ where: { id: deleted.event.id } })
+
+    expect(after.status).toBe('DELETED')
+    expect(after.deletedAt).toEqual(deleted.event.deletedAt)
+  })
+
+  it('offers neither move among the transitions it lists', async () => {
+    const { seed, ids } = await makeWorld()
+    const deleted = deletedEventFixture(ids)
+    const prisma = createPrismaStub(addRows(seed, deleted.rows))
+    const published = await loadForTransition(prisma, ids.publishedEvent.id)
+    const gone = await loadForTransition(prisma, deleted.event.id)
+
+    for (const actor of [ownerActor(ids), superAdministrator(ids)]) {
+      const offered = (await availableTransitions(prisma, published, actor)).map((move) => move.to)
+
+      expect(offered.length).toBeGreaterThan(0)
+      expect(offered).not.toContain('DELETED')
+      expect(await availableTransitions(prisma, gone, actor)).toEqual([])
+    }
+  })
+
+  it('still calls CANCELLED a final state, naming no deletion as a way out of it', async () => {
+    const { seed, ids } = await makeWorld()
+    const cancelled = {
+      ...ids.publishedEvent,
+      id: cuid(),
+      slug: 'cancelled-garba-night',
+      status: 'CANCELLED',
+    }
+    const prisma = createPrismaStub(addRows(seed, { event: [cancelled] }))
+    const event = await loadForTransition(prisma, cancelled.id)
+
+    await expect(
+      transitionEvent(prisma, { event, to: 'PUBLISHED', actor: ownerActor(ids) }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'An event that is CANCELLED cannot become PUBLISHED. CANCELLED is a final state.',
+      details: { code: 'ILLEGAL_TRANSITION', available: [] },
+    })
   })
 })

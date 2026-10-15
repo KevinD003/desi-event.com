@@ -202,6 +202,36 @@ export function assertTaxPolicyUsable(
   )
 }
 
+/** The version of the snapshot {@link buildPricingSnapshot} writes. */
+export const PRICING_SNAPSHOT_VERSION = 2
+
+/** What tax may be applied to, by payment method (SPEC3 §6.1). */
+const TAX_TARGETS_BY_METHOD = Object.freeze({
+  CARD: Object.freeze(['TICKETS_AND_FEE']),
+  AT_VENUE: Object.freeze(['BOOKING_FEE', 'NOTHING']),
+})
+
+/**
+ * An amount for the snapshot's fee block: a non-negative integer, or null when
+ * the caller did not say.
+ *
+ * @param {unknown} value The amount.
+ * @param {string} label Field name used in the error message.
+ * @returns {number|null} The amount.
+ * @throws {PricingError} If it is given and not a non-negative integer.
+ */
+function optionalCents(value, label) {
+  if (value === undefined || value === null) return null
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new PricingError(`${label} must be a non-negative integer`, {
+      code: 'INVALID_PRICING_SNAPSHOT',
+      details: { field: label, value },
+    })
+  }
+
+  return value
+}
+
 /**
  * Build the pricing snapshot recorded on an order.
  *
@@ -209,19 +239,70 @@ export function assertTaxPolicyUsable(
  * and the ledger all have to agree. They do that by recomputing from this
  * snapshot rather than from the live tables, which may have moved on.
  *
+ * Version 2 (SPEC3 §5.4) adds how the order is paid, where its fee terms came
+ * from and what they came to, and what the tax was applied to. `feeConfig` and
+ * the policy fields of `tax` are as version 1 wrote them, so a reader of either
+ * version finds them where it always did.
+ *
  * @param {object} params Snapshot inputs.
- * @param {object} params.feeConfig The fee terms applied.
+ * @param {object} params.feeConfig The fee terms applied: `{percentageBps, flatCents, currency}`, and `source`/`settingId` when they came from `eventFeeConfig`.
  * @param {object} params.taxPolicy The resolved tax policy.
  * @param {string} params.currency The order currency.
+ * @param {{source?: string, settingId?: string|null, grossCents?: number, waivedCents?: number, chargedCents?: number}|null} [params.fee] Where the terms came from and the fee they came to; amounts not given are recorded as null.
+ * @param {'CARD'|'AT_VENUE'} [params.paymentMethod] How the ticket price is paid. Defaults to `CARD`.
+ * @param {'TICKETS_AND_FEE'|'BOOKING_FEE'|'NOTHING'} [params.taxAppliedTo] What the tax was charged on. Defaults to `TICKETS_AND_FEE`.
  * @returns {object} A plain object safe to persist as JSON.
+ * @throws {PricingError} `INVALID_PRICING_SNAPSHOT` for a method or tax target that cannot go together.
  */
-export function buildPricingSnapshot({ feeConfig, taxPolicy, currency }) {
+export function buildPricingSnapshot({
+  feeConfig,
+  taxPolicy,
+  currency,
+  fee = null,
+  paymentMethod = 'CARD',
+  taxAppliedTo = 'TICKETS_AND_FEE',
+}) {
+  const targets = TAX_TARGETS_BY_METHOD[paymentMethod]
+
+  if (!targets) {
+    throw new PricingError(`paymentMethod must be CARD or AT_VENUE, received ${paymentMethod}`, {
+      code: 'INVALID_PRICING_SNAPSHOT',
+      details: { field: 'paymentMethod', value: paymentMethod },
+    })
+  }
+  if (!targets.includes(taxAppliedTo)) {
+    throw new PricingError(`a ${paymentMethod} order cannot have tax applied to ${taxAppliedTo}`, {
+      code: 'INVALID_PRICING_SNAPSHOT',
+      details: { field: 'taxAppliedTo', value: taxAppliedTo, paymentMethod },
+    })
+  }
+
+  const source = fee?.source ?? feeConfig.source ?? 'SITE_DEFAULT'
+
+  if (source !== 'SITE_DEFAULT' && source !== 'EVENT') {
+    throw new PricingError(`fee.source must be SITE_DEFAULT or EVENT, received ${source}`, {
+      code: 'INVALID_PRICING_SNAPSHOT',
+      details: { field: 'fee.source', value: source },
+    })
+  }
+
   return {
+    snapshotVersion: PRICING_SNAPSHOT_VERSION,
     currency,
+    paymentMethod,
     feeConfig: {
       percentageBps: feeConfig.percentageBps,
       flatCents: feeConfig.flatCents,
       currency: feeConfig.currency,
+    },
+    fee: {
+      source,
+      settingId: fee?.settingId ?? feeConfig.settingId ?? null,
+      percentageBps: feeConfig.percentageBps,
+      flatCentsPerTicket: feeConfig.flatCents,
+      grossCents: optionalCents(fee?.grossCents, 'fee.grossCents'),
+      waivedCents: optionalCents(fee?.waivedCents, 'fee.waivedCents'),
+      chargedCents: optionalCents(fee?.chargedCents, 'fee.chargedCents'),
     },
     tax: {
       jurisdiction: taxPolicy.jurisdiction,
@@ -231,6 +312,11 @@ export function buildPricingSnapshot({ feeConfig, taxPolicy, currency }) {
       status: taxPolicy.status,
       version: taxPolicy.version,
       resolved: taxPolicy.resolved,
+      applied: taxAppliedTo !== 'NOTHING',
+      appliedTo: taxAppliedTo,
+      // The tickets of a pay-at-the-venue order carry no tax (R1), whatever
+      // is decided about the fee paid online.
+      notAppliedReason: paymentMethod === 'AT_VENUE' ? 'PAID_AT_VENUE' : null,
     },
   }
 }

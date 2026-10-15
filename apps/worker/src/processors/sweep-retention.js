@@ -4,8 +4,11 @@
  *
  * ## This job cannot delete, and that is structural rather than careful
  *
- * There is no deletion path in this file, in `../retention/classes.js`, or
- * anywhere else in the repository. The processor issues `count` queries and
+ * There is no deletion path in this file or in `../retention/classes.js`, and
+ * the retention machinery has none anywhere. The one deletion on a timer in
+ * this repository is the traffic roll-up's (`./roll-up-traffic.js`, through
+ * `@desi-event/db/traffic-rollup`), of raw visit rows it has already added up;
+ * it shares nothing with this job. The processor issues `count` queries and
  * writes one `RetentionSweep` row per class. Three separate things would each
  * have to fail before a row could be removed, and only the first is independent
  * of this code being right:

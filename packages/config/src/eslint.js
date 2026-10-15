@@ -1,5 +1,5 @@
 /**
- * Shared ESLint flat configuration for the Desi-Event monorepo.
+ * Shared ESLint flat configuration for The Desi Events monorepo.
  *
  * The repository is JavaScript-only: there is no TypeScript parser, no
  * `@typescript-eslint` tooling and no type-aware linting. Static confidence

@@ -1,0 +1,187 @@
+/**
+ * What a session may do, asked without touching the request.
+ *
+ * Pure functions of the payload `GET /v1/auth/me` returned. They lived in
+ * `lib/session.js` beside `readSession`, which imports `next/headers`; that
+ * made every one of them server-only by association, so no client component
+ * could ask even "is this entry for me?". Split out, the layouts, the
+ * navigation and a client control all ask the same question the same way.
+ *
+ * None of this is authorisation. The API decides every request again; these
+ * decide only what a screen offers, so nobody is shown a door that will not
+ * open for them.
+ *
+ * @module lib/capabilities
+ */
+
+/**
+ * Whether this session holds a capability, optionally in one organisation.
+ *
+ * Asked the way `can()` in `@desi-event/permissions` decides it: a capability
+ * the platform role holds holds in every organisation, and one the
+ * organisation's membership holds holds there. So a platform administrator with
+ * `report:view` holds it in each organisation, as the API agrees, and a
+ * finance administrator holds `finance:view` in each organisation, as well as
+ * a super administrator through `platform:admin` as before.
+ *
+ * Used only to decide what a screen *offers*. Every action is authorised again
+ * by the API, which is the check that counts — this one exists so a person is
+ * not shown a button that will refuse them, not to keep anybody out.
+ *
+ * @param {object|null} session The session payload from {@link readSession}.
+ * @param {string} capability The capability name.
+ * @param {string} [organizationId] The organisation to check it in.
+ * @returns {boolean} True when the session holds it.
+ */
+export function sessionCan(session, capability, organizationId) {
+  if (!session) return false
+
+  if ((session.capabilities ?? []).includes(capability)) return true
+  if (!organizationId) return false
+
+  // `platform:admin` is the power to grant oneself any membership, so it still
+  // answers for every organisation, as it always did here.
+  if ((session.capabilities ?? []).includes('platform:admin')) return true
+
+  const membership = (session.memberships ?? []).find(
+    (candidate) => candidate.organizationId === organizationId,
+  )
+
+  return (membership?.capabilities ?? []).includes(capability)
+}
+
+/**
+ * Whether this session's membership of one organisation holds a capability.
+ *
+ * Membership only: a capability the platform role holds does not count, and
+ * neither does a super administrator's `platform:admin`. It answers what the
+ * API's `resolveEventAuthority` reads first (`orgCapabilitiesFor`): whether the
+ * person acts *as the organisation*. The organiser's event editor and its
+ * danger zone ask this, so an administrator at The Desi Events who is not a member is
+ * sent to the platform's own editor rather than shown an organiser's controls
+ * that would act under an authority they do not have (SPEC2-XI O9).
+ *
+ * Server-only in use: the pages that ask it compute booleans and hand those to
+ * their client components, which never ask about capabilities themselves (a
+ * test holds every `'use client'` module to that).
+ *
+ * @param {object|null} session The session payload from `GET /v1/auth/me`.
+ * @param {string} capability The capability name.
+ * @param {string} organizationId The organisation.
+ * @returns {boolean} True when the membership holds it.
+ */
+export function membershipCan(session, capability, organizationId) {
+  if (!session || !organizationId) return false
+
+  const membership = (session.memberships ?? []).find(
+    (candidate) => candidate.organizationId === organizationId,
+  )
+
+  return (membership?.capabilities ?? []).includes(capability)
+}
+
+/**
+ * The organisations this session may run privacy erasures in.
+ *
+ * Membership-scoped on purpose. `privacy:redact` is an organisation capability
+ * held by OWNER alone, so asking the unscoped platform question would refuse
+ * every owner and pass every platform administrator — backwards, in the one
+ * area where being wrong erases somebody. The API authorises again, per
+ * organisation, with a step-up window on top; this only decides what the screens
+ * offer.
+ *
+ * @param {object|null} session The session payload.
+ * @returns {Array<{organizationId: string, organizationName: string|null, role: string}>} The memberships.
+ */
+export function privacyOrganizations(session) {
+  return (session?.memberships ?? [])
+    .filter((membership) => (membership.capabilities ?? []).includes('privacy:redact'))
+    .map((membership) => ({
+      organizationId: membership.organizationId,
+      organizationName: membership.organizationName ?? null,
+      role: membership.role,
+    }))
+}
+
+/**
+ * The organisations this session may manage payout setup in.
+ *
+ * Membership-scoped for the reason `privacyOrganizations` gives, and the set is
+ * wider than it looks: `connect:manage` is granted to FINANCE and inherited by
+ * ADMIN and OWNER, so filtering on the capability rather than on a role is what
+ * keeps an owner from being locked out of a screen they are the natural person
+ * to use.
+ *
+ * This only decides what the screens offer. The API authorises again, per
+ * organisation, with a step-up window on top.
+ *
+ * @param {object|null} session The session payload.
+ * @returns {Array<{organizationId: string, organizationName: string|null, role: string}>} The memberships.
+ */
+export function connectOrganizations(session) {
+  return (session?.memberships ?? [])
+    .filter((membership) => (membership.capabilities ?? []).includes('connect:manage'))
+    .map((membership) => ({
+      organizationId: membership.organizationId,
+      organizationName: membership.organizationName ?? null,
+      role: membership.role,
+    }))
+}
+
+/**
+ * The organisations this session may author venues in.
+ *
+ * @param {object|null} session The session payload.
+ * @returns {Array<{organizationId: string, organizationName: string|null, role: string}>} The memberships.
+ */
+export function authoringOrganizations(session) {
+  return (session?.memberships ?? [])
+    .filter((membership) => (membership.capabilities ?? []).includes('venue:manage'))
+    .map((membership) => ({
+      organizationId: membership.organizationId,
+      organizationName: membership.organizationName ?? null,
+      role: membership.role,
+    }))
+}
+
+/**
+ * The organisations this person may create an event in.
+ *
+ * Separate from {@link authoringOrganizations}, which asks about venues: the
+ * two capabilities are genuinely different, and somebody who can add a hall is
+ * not thereby somebody who can put an event on in it.
+ *
+ * Only decides what a screen *offers*. The API authorises the create again.
+ *
+ * @param {object|null} session The session as `GET /v1/auth/me` returned it.
+ * @returns {Array<{organizationId: string, organizationName: string|null, role: string}>} The organisations.
+ */
+export function eventOrganizations(session) {
+  return (session?.memberships ?? [])
+    .filter((membership) => (membership.capabilities ?? []).includes('event:create'))
+    .map((membership) => ({
+      organizationId: membership.organizationId,
+      organizationName: membership.organizationName ?? null,
+      role: membership.role,
+    }))
+}
+
+/**
+ * The memberships that hold a capability in their own right.
+ *
+ * Membership-scoped, with no platform shortcut: the question is "which of my
+ * organisations can I do this in", and a platform role is not an organisation.
+ *
+ * @param {object|null} session The session payload.
+ * @param {string} capability The capability name.
+ * @returns {Array<{organizationId: string, organizationName: string|null, role: string}>} The memberships.
+ */
+export function membershipsWith(session, capability) {
+  return (session?.memberships ?? [])
+    .filter((membership) => (membership.capabilities ?? []).includes(capability))
+    .map((membership) => ({
+      organizationId: membership.organizationId,
+      organizationName: membership.organizationName ?? null,
+      role: membership.role,
+    }))
+}

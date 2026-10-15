@@ -5,15 +5,37 @@
  *
  * ## The invitation is not in the URL
  *
- * A transfer is authorised by a bearer token. It is delivered out of band, to
- * the address the sender typed, and it is pasted into the field below — it is
+ * A transfer is authorised by a one-time code. When codes are not emailed
+ * (`MANUAL`, how this site runs unless a mail server is configured), the API
+ * returns the code exactly once, in the response to the offer, and the sender
+ * passes it on themselves; the shared `OneTimeCodePanel` is the only place it
+ * is drawn, it lives in this component's state and nowhere else, and
+ * it is dropped on "I have handed it over", on leaving the page and on
+ * unmount — not when the tab is hidden, so the sender can switch to a
+ * messaging app and paste it. The recipient pastes it into the field below —
  * never a query parameter, because a secret in a URL is a secret in the browser
  * history, in the `Referer` header of the next request, in the proxy's access
- * log and in every screenshot of the address bar. The API compares the token's
- * digest; it has never held the token itself.
+ * log and in every screenshot of the address bar. The API keeps only its
+ * digest, and a code alone takes nothing: the recipient must also be signed in
+ * at the address it was offered to.
+ *
+ * A reserved seat is offered like any other ticket; the seat goes with it.
+ *
+ * When codes are emailed (`EMAIL`), the API sends the code to the address the
+ * ticket is offered to and returns none, and the panel says so. What the
+ * screen says about the code follows the delivery mode the session reports
+ * (`deliveryMode`), so it is true in the deployment it is read in.
  *
  * The field is a password input for the same reason a password is: this screen
  * gets used on a train.
+ *
+ * ## A ticket booked to pay at the door
+ *
+ * Is offered on like any other (SPEC3-XI XT1): what is due stays with the
+ * ticket, and whoever holds it pays at the door. The holder is told before
+ * sending, above the address; the code panel says what to tell the person it
+ * is for, because with codes not emailed nobody else will; and the person
+ * accepting is told the amount once it is theirs.
  *
  * ## Nothing here decides anything
  *
@@ -29,11 +51,46 @@
  */
 
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input, Textarea } from './ui.jsx'
+import { OneTimeCodePanel } from './one-time-code-panel.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { formatAmount } from '../lib/pricing.js'
+import { owesAtDoor } from '../lib/wallet.js'
+
+/**
+ * What the offer form says, above the address, about a ticket whose price is
+ * paid at the door (SPEC3-XI §12.7).
+ *
+ * @param {string} due The amount, formatted.
+ * @returns {string} The sentence.
+ */
+export function transferDueSentence(due) {
+  return `This ticket’s price, ${due}, is paid at the door. Whoever you pass it to pays it when they arrive, and you no longer do.`
+}
+
+/**
+ * What the code panel adds for such a ticket: what to tell the person it is for.
+ *
+ * @param {string} due The amount, formatted.
+ * @returns {string} The sentence.
+ */
+export function tellThemSentence(due) {
+  return `Tell them: whoever holds this ticket pays ${due} at the door.`
+}
+
+/**
+ * What accepting a ticket that owes its price at the door says (SPEC3-XI §12.7).
+ *
+ * @param {string} due The amount, formatted.
+ * @returns {string} The sentence.
+ */
+export function acceptedDueSentence(due) {
+  return `Ticket accepted. Pay ${due} at the door when you arrive: the steward takes it before letting you in.`
+}
 
 /**
  * The states a ticket can be offered from.
@@ -47,11 +104,36 @@ import { apiFetch } from '../lib/api-fetch.js'
 const OFFERABLE = Object.freeze(['VALID'])
 
 /**
+ * What the offer says about its code, per delivery mode. `MANUAL` keeps "shown
+ * once … give them yourself"; `EMAIL` says the code goes to the address and the
+ * sender does not see it; an unknown mode says neither.
+ *
+ * @type {Readonly<Record<string, {how: string, field: string}>>}
+ */
+export const TRANSFER_DELIVERY_COPY = Object.freeze({
+  MANUAL: {
+    how: 'You are shown a one-time code to give them yourself; they accept it signed in at the address you name.',
+    field:
+      'They must be signed in with this address to accept. Codes are not emailed from this site: after you offer it you are shown a one-time code to give them yourself.',
+  },
+  EMAIL: {
+    how: 'A one-time code is emailed to the address you name, and they accept it signed in there. You will not see the code.',
+    field:
+      'They must be signed in with this address to accept. The code is emailed to that address. You will not see it.',
+  },
+  UNKNOWN: {
+    how: 'They accept it with a one-time code, signed in at the address you name.',
+    field: 'They must be signed in with this address to accept.',
+  },
+})
+
+/**
  * @typedef {object} TicketTransferActionsProps
  * @property {object} ticket The ticket.
  * @property {Array<object>} transfers Its transfers, oldest first.
  * @property {boolean} holder Whether the caller is the person holding it.
  * @property {boolean} mayRevoke Whether the caller may withdraw it.
+ * @property {'MANUAL'|'EMAIL'|null} [deliveryMode] How codes go out here, as the session says.
  */
 
 /**
@@ -60,7 +142,14 @@ const OFFERABLE = Object.freeze(['VALID'])
  * @param {TicketTransferActionsProps} props Component props.
  * @returns {JSX.Element} The rendered panel.
  */
-export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) {
+export function TicketTransferActions({
+  ticket,
+  transfers,
+  holder,
+  mayRevoke,
+  deliveryMode = null,
+}) {
+  const words = TRANSFER_DELIVERY_COPY[deliveryMode] ?? TRANSFER_DELIVERY_COPY.UNKNOWN
   const router = useRouter()
   const [pending, setPending] = useState(null)
   const [toEmail, setToEmail] = useState('')
@@ -70,12 +159,30 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
   const [error, setError] = useState(null)
   const [stepUp, setStepUp] = useState(false)
   const [announcement, setAnnouncement] = useState('')
+  // The one-time code from an offer, with who it is for and until when. In
+  // state only; see the module doc for when it is dropped.
+  const [issued, setIssued] = useState(null)
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const outstanding = transfers.find((transfer) => transfer.status === 'PENDING') ?? null
   const offerable = holder && OFFERABLE.includes(ticket.status) && !outstanding
   const withdrawable = holder && Boolean(outstanding)
+  // What is due at the door goes with the ticket to whoever holds it next.
+  const due = owesAtDoor(ticket)
+    ? formatAmount(ticket.venuePayment.dueCents, ticket.venuePayment.currency)
+    : null
+
+  // Leaving the page drops the code. Hiding the tab does not: the sender has
+  // to be able to switch to a messaging app and paste it.
+  useEffect(() => {
+    const drop = () => setIssued(null)
+
+    window.addEventListener('pagehide', drop)
+
+    return () => window.removeEventListener('pagehide', drop)
+  }, [])
 
   /**
    * Open one form.
@@ -88,7 +195,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
     returnFocus.current = trigger
     setPending(key)
     setError(null)
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -99,7 +206,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
   function dismiss() {
     setPending(null)
     setStepUp(false)
-    queueMicrotask(() => returnFocus.current?.focus())
+    focusAfterRender(returnFocus)
   }
 
   /**
@@ -107,7 +214,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
    *
    * @param {string} path The path under `/v1`.
    * @param {object|null} body The payload, or null for none.
-   * @param {string} said What to announce on success.
+   * @param {string|function(object): string} said What to announce on success, or how to say it from the answer.
    * @returns {Promise<void>} Resolves when the attempt is over.
    */
   async function send(path, body, said) {
@@ -123,11 +230,24 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
       const parsed = await response.json().catch(() => null)
 
       if (response.ok) {
+        const code = parsed?.data?.delivery?.invitationCode ?? null
+
         setPending(null)
         setToEmail('')
         setMessage('')
         setReason('')
-        setAnnouncement(said)
+        setAnnouncement(typeof said === 'function' ? said(parsed?.data ?? null) : said)
+
+        if (code) {
+          setIssued({
+            code,
+            recipient: parsed.data.toEmailMasked ?? null,
+            expiresAt: parsed.data.expiresAt ?? null,
+            // Read now: the page redraws once the offer is made.
+            due,
+          })
+        }
+
         router.refresh()
         return
       }
@@ -138,7 +258,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
       }
 
       setError(parsed?.error?.message ?? 'That was refused.')
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setError('The service is not responding. Nothing has been recorded.')
     } finally {
@@ -150,9 +270,31 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
 
   return (
     <div className="mt-4">
-      <p aria-live="polite" role="status" className="text-sm text-slate-700">
+      <p aria-live="polite" role="status" className="text-sm text-ink-muted">
         {announcement}
       </p>
+
+      {/* What the ticket owes at the door, or why it no longer does, is not an
+          action: the ticket's page draws it under "Where it stands", in the
+          event's own time zone (`VenuePaymentNote`). This panel says only what
+          passing the ticket on means for that amount. */}
+
+      {issued ? (
+        <OneTimeCodePanel
+          code={issued.code}
+          heading="Give them this code"
+          codeLabel="Ticket transfer code"
+          recipient={issued.recipient}
+          expiresAt={issued.expiresAt}
+          acceptPath="/tickets/accept"
+          acceptPlace="Your account → Transfers → Accept a ticket"
+          lostAdvice="If you lose it, withdraw the offer and make a new one."
+          // Inside the panel, with what to tell them and before its buttons
+          // (SPEC3-XI §12.7, XT6).
+          note={issued.due ? tellThemSentence(issued.due) : null}
+          onDone={() => setIssued(null)}
+        />
+      ) : null}
 
       {pending === null ? (
         <ul className="mt-2 space-y-3">
@@ -161,9 +303,8 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
               <Button type="button" onClick={(pressed) => begin('offer', pressed.currentTarget)}>
                 Offer this ticket to somebody
               </Button>
-              <p className="mt-1 text-sm text-slate-600">
-                They get an invitation at the address you give. Until they accept it the ticket
-                stays yours and still admits you.
+              <p className="mt-1 text-sm text-ink-muted">
+                {words.how} Until they do, the ticket stays yours and still admits you.
               </p>
             </li>
           ) : null}
@@ -177,7 +318,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
               >
                 Withdraw the offer
               </Button>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-ink-muted">
                 Cancels the outstanding invitation. Whoever it went to can no longer accept it.
               </p>
             </li>
@@ -192,7 +333,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
               >
                 Withdraw this ticket
               </Button>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-ink-muted">
                 Stops it admitting anybody, permanently. It does not give any money back — a refund
                 is a separate decision with its own record.
               </p>
@@ -200,7 +341,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
           ) : null}
 
           {!offerable && !withdrawable && !mayRevoke ? (
-            <li className="rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <li className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
               There is nothing to do with this ticket. A ticket that has been handed on, withdrawn,
               refunded or already admitted cannot be offered again.
             </li>
@@ -220,7 +361,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
                 ? 'Withdraw the offer'
                 : 'Withdraw this ticket'
           }
-          className="mt-3 rounded-card border border-slate-300 bg-white p-4 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {error ? (
             <div className="mb-3">
@@ -249,13 +390,14 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
 
           {pending === 'offer' ? (
             <>
-              <h3 className="font-semibold text-indigo-night-900">Offer this ticket</h3>
+              <h3 className="font-semibold text-ink">Offer this ticket</h3>
+              {due ? <p className="mt-2 text-sm text-ink">{transferDueSentence(due)}</p> : null}
               <div className="mt-3">
                 <FormField
                   label="Their email address"
                   id="transfer-to"
                   required
-                  description="The invitation goes here and nowhere else. It expires, and until it is accepted the ticket stays yours."
+                  description={words.field}
                 >
                   <Input
                     type="email"
@@ -288,7 +430,10 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
                         toEmail: toEmail.trim(),
                         ...(message.trim() ? { message: message.trim() } : {}),
                       },
-                      'Offered. They have been sent an invitation.',
+                      (data) =>
+                        data?.delivery?.mode === 'EMAIL'
+                          ? 'Offered. The invitation has been sent.'
+                          : 'Offered. Give them the code shown below; it is shown only once.',
                     )
                   }
                 >
@@ -303,8 +448,8 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
 
           {pending === 'withdraw' ? (
             <>
-              <h3 className="font-semibold text-indigo-night-900">Withdraw the offer</h3>
-              <p className="mt-1 text-sm text-slate-700">
+              <h3 className="font-semibold text-ink">Withdraw the offer</h3>
+              <p className="mt-1 text-sm text-ink-muted">
                 The invitation stops working. The ticket has been yours the whole time and stays
                 yours.
               </p>
@@ -331,8 +476,8 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
 
           {pending === 'revoke' ? (
             <>
-              <h3 className="font-semibold text-indigo-night-900">Withdraw this ticket</h3>
-              <p className="mt-1 text-sm text-slate-700">
+              <h3 className="font-semibold text-ink">Withdraw this ticket</h3>
+              <p className="mt-1 text-sm text-ink-muted">
                 Permanent. It will admit nobody, and whoever holds it is told. No money moves — a
                 refund is a separate decision with its own record.
               </p>
@@ -394,6 +539,7 @@ export function TicketTransferResponse() {
   const [error, setError] = useState(null)
   const [accepted, setAccepted] = useState(null)
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Answer the invitation.
@@ -428,7 +574,7 @@ export function TicketTransferResponse() {
       setError(
         'That invitation cannot be used. It may have expired, been withdrawn, or been used already.',
       )
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } catch {
       setError('The service is not responding. Nothing has been recorded.')
     } finally {
@@ -437,8 +583,15 @@ export function TicketTransferResponse() {
   }
 
   if (accepted) {
+    const owed = accepted.venuePayment ?? null
+
     return (
       <Alert variant="success" title="It is yours">
+        {(owed?.dueCents ?? 0) > 0 ? (
+          <p className="mb-2 font-medium">
+            {acceptedDueSentence(formatAmount(owed.dueCents, owed.currency))}
+          </p>
+        ) : null}
         <p>
           The ticket is in your account now, and the pass the sender was holding has stopped
           working. Open it from your tickets to show it at the door.

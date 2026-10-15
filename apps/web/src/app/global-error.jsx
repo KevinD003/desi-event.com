@@ -35,7 +35,7 @@ export default function GlobalError({ error, reset }) {
   }, [error])
 
   return (
-    <html lang="en">
+    <html lang="en-US">
       <body
         style={{
           margin: 0,
@@ -43,14 +43,16 @@ export default function GlobalError({ error, reset }) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: '#fdfaf4',
-          color: '#1e1b3a',
+          // The page and ink tokens, as hex: this renders without the stylesheet.
+          // `semantic-classes.test.js` checks they still equal the tokens.
+          backgroundColor: '#fff9f0',
+          color: '#271539',
           fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
         }}
       >
         <main style={{ maxWidth: '34rem', padding: '2rem', textAlign: 'center' }}>
           <h1 style={{ fontSize: '1.875rem', fontWeight: 700, margin: 0 }}>
-            Desi-Event is temporarily unavailable
+            The Desi Events is temporarily unavailable
           </h1>
           <p style={{ marginTop: '1rem', fontSize: '1.05rem', lineHeight: 1.6 }}>
             Something failed while loading the site. Nothing has been ordered and you have not been
@@ -64,11 +66,12 @@ export default function GlobalError({ error, reset }) {
               height: '3rem',
               padding: '0 1.5rem',
               fontSize: '1rem',
-              fontWeight: 500,
-              color: '#1e1b3a',
-              backgroundColor: '#f5a524',
+              fontWeight: 700,
+              // The primary action and its ink, 6.7:1.
+              color: '#ffffff',
+              backgroundColor: '#b30863',
               border: 'none',
-              borderRadius: '0.5rem',
+              borderRadius: '0.75rem',
               cursor: 'pointer',
             }}
           >

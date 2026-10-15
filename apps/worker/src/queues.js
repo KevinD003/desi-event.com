@@ -37,6 +37,9 @@ export const QUEUE_FOR_JOB = Object.freeze({
   // job name, and so that an operator looking at the retention queue sees
   // exactly what was asked for and nothing else.
   [JOB_NAMES.SWEEP_RETENTION]: QUEUE_NAMES.RETENTION,
+  // Visits added up into daily totals, on a queue of its own so one slow
+  // roll-up never holds up email or tickets.
+  [JOB_NAMES.ROLL_UP_TRAFFIC]: QUEUE_NAMES.ANALYTICS,
 })
 
 /**
@@ -136,6 +139,17 @@ export const QUEUE_JOB_OPTIONS = Object.freeze({
     backoff: { type: 'fixed', delay: 30_000 },
     removeOnComplete: { age: DAY_S, count: 200 },
     removeOnFail: { age: 30 * DAY_S, count: 500 },
+  }),
+
+  // The traffic roll-up recomputes whole days and sets the totals rather than
+  // adding to them, so a missed run is picked up whole by the next one ten
+  // minutes later. One retry rides out a dropped connection; completions are
+  // kept for an hour, enough to answer "is it still running?".
+  [QUEUE_NAMES.ANALYTICS]: Object.freeze({
+    attempts: 2,
+    backoff: { type: 'fixed', delay: 30_000 },
+    removeOnComplete: { age: HOUR_S, count: 50 },
+    removeOnFail: { age: 7 * DAY_S, count: 500 },
   }),
 })
 

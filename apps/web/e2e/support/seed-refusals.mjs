@@ -24,10 +24,13 @@
 import { createPrismaClient } from '@desi-event/db'
 import { hashPassword, seal, totp } from '@desi-event/auth'
 
-/** The connection these journeys use. Disposable by construction. */
-export const CONNECTION =
-  process.env.TEST_DATABASE_URL ??
-  'postgresql://desi:desi@127.0.0.1:5432/desi_event_test?schema=public'
+import { E2E_DATABASE_URL } from './e2e-database.mjs'
+
+/**
+ * The connection these journeys use: the browser suites' own database, never
+ * the unit suites' (`e2e-database.mjs`). Disposable by construction.
+ */
+export const CONNECTION = E2E_DATABASE_URL
 
 /** The password every seeded account uses. Test-only, and it says so. */
 export const PASSWORD = 'e2e-test-password-not-a-real-secret'
@@ -384,11 +387,31 @@ export async function cleanupRefusals(tag) {
       .catch(() => [])
 
     for (const map of maps) {
+      // A night the ledger kept above still sits on its map — the feature
+      // world's balcony, once a spec has sold a seat on it through checkout —
+      // and the map stays with it. Skipped rather than attempted, for the
+      // reason the events are: a foreign-key error in a green run's log reads
+      // like a failure.
+      const inUse = await prisma.eventSession
+        .count({ where: { venueMapVersion: { venueMapId: map.id } } })
+        .catch(() => 0)
+
+      if (inUse > 0) continue
+
       await prisma.venueMapVersion.deleteMany({ where: { venueMapId: map.id } }).catch(() => {})
       await prisma.venueMap.delete({ where: { id: map.id } }).catch(() => {})
     }
 
-    await prisma.venue.deleteMany({ where: { organizationId: organization.id } }).catch(() => {})
+    // And a venue stays while a kept night is on one of its maps, which is
+    // the one thing that would refuse its delete.
+    await prisma.venue
+      .deleteMany({
+        where: {
+          organizationId: organization.id,
+          maps: { none: { versions: { some: { sessions: { some: {} } } } } },
+        },
+      })
+      .catch(() => {})
   }
 
   const users = await prisma.user.findMany({ where: { email: { contains: tag } } })

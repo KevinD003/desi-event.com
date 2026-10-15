@@ -15,7 +15,7 @@ import { unprocessable } from './errors.js'
 /** Unambiguous upper-case alphabet shared by every generated code. */
 export const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
 
-/** Prefix that marks a string as a Desi-Event identifier. */
+/** Prefix that marks a string as an identifier of The Desi Events. */
 export const CODE_PREFIX = 'DE'
 
 /** Random characters in an order reference. */

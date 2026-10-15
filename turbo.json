@@ -14,7 +14,9 @@
     "NEXT_PUBLIC_SITE_URL",
     "LOG_LEVEL",
     "PLATFORM_FEE_BPS",
-    "PLATFORM_FEE_FLAT_CENTS"
+    "PLATFORM_FEE_FLAT_CENTS",
+    "REQUIRE_DATABASE",
+    "TEST_DATABASE_URL"
   ],
   "tasks": {
     "build": {

@@ -1,19 +1,64 @@
 /**
- * Two invariants about how CI is wired, both learned from runs that failed.
+ * Invariants about how CI is wired, each learned from something that failed.
  *
- * Neither is expressible as a unit test, because neither is about application
- * behaviour: one is a property of `.github/workflows/*.yml`, the other of the
- * Turborepo task graph. Both went wrong on this pull request, and in both cases
- * the failure was invisible on a green run — which is the argument for checking
+ * None is expressible as a unit test, because none is about application
+ * behaviour: they are properties of `.github/workflows/*.yml` and of the
+ * Turborepo task graph. Each went wrong at least once, and in each case the
+ * failure was invisible on a green run — which is the argument for checking
  * them on every run rather than noticing again later.
+ *
+ * The third, fresh test reports, has two halves. CI must produce and judge its
+ * Vitest reports through `pnpm run verify:tests:fresh` and no other route, so
+ * that the local command and the CI step cannot drift. And `turbo.json` must
+ * declare the variables the test suites read, because Turborepo's strict
+ * environment mode silently removes every undeclared one: `REQUIRE_DATABASE`,
+ * set workflow-wide in CI, reached no test process at all until it was declared.
+ *
+ * The fourth is where that command's verdict lands. The test step prints its
+ * per-package table thousands of lines above the end of the verify job's log,
+ * out of reach of anything that reads only the tail, so the job must end by
+ * printing the summary file the command writes, with nothing but failure-only
+ * steps after it.
+ *
+ * The fifth is which browser suite runs which spec. Every spec under
+ * `apps/web/e2e` must be collected by exactly one Playwright config that a CI
+ * browser job runs, with nothing narrowing that config, no skipped, fixme'd,
+ * expected-to-fail or focused case, and every browser job a check the `main`
+ * ruleset in `docs/BRANCH_PROTECTION.md` requires. Four detail specs were once
+ * collected by the public job too and failed there on their first day; a spec
+ * collected by none would never have failed at all. The rules, and why each
+ * fails closed, are in `./lib/spec-collection.mjs`.
+ *
+ * The sixth is how a browser suite starts `next dev`. Next 16.3.8 could start
+ * with a stale table of routes and answer its own 404 for routes that exist —
+ * the API proxy among them — for a whole run; the fault is in Next, so it
+ * reaches every config that runs the development server, and only one of them
+ * had a guard. Every such config must build its server entry with
+ * `apps/web/e2e/support/next-dev.mjs` and prove the routes first among its
+ * global setups. The rule is in `./lib/dev-servers.mjs`.
  *
  * Run: `pnpm run ci:check`
  *
  * @module scripts/check-ci-invariants
  */
 
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+import {
+  NARROWING_VARIABLE,
+  judgeRequiredContexts,
+  judgeSpecCollection,
+  matrixSuites,
+  narrowingInWorkflow,
+  requiredContextsFrom,
+  resolveSuites,
+  suiteJobNameTemplate,
+  testFileExtension,
+} from './lib/spec-collection.mjs'
+import { judgeDevServers } from './lib/dev-servers.mjs'
+import { SUMMARY_PATH } from './verify-tests-fresh.mjs'
 
 /**
  * Characters `actions/upload-artifact` refuses in an artefact name.
@@ -28,6 +73,43 @@ const FORBIDDEN_IN_ARTEFACT_NAME = ['"', ':', '<', '>', '|', '*', '?', '\r', '\n
 
 /** Task names whose commands run tests, and so import generated clients. */
 const TEST_TASKS = ['test', 'test:coverage']
+
+/**
+ * Variables the test suites read that Turborepo must pass through.
+ *
+ * Declared in `globalEnv` rather than a pass-through list, because each one
+ * changes what a test run means — a suite that skips for want of a database and
+ * one that fails for it are different results, and a cached result for one must
+ * not be replayed for the other.
+ */
+const TEST_ENVIRONMENT = ['REQUIRE_DATABASE', 'TEST_DATABASE_URL']
+
+/** The one command CI may use to produce and judge Vitest reports. */
+const FRESH_REPORT_COMMAND = 'pnpm run verify:tests:fresh'
+
+/**
+ * The step that prints that command's summary. Exactly this, so that a missing
+ * file fails the step: `cat` exits nonzero, and nothing is piped to hide it.
+ */
+const SUMMARY_COMMAND = `cat ${SUMMARY_PATH}`
+
+/**
+ * Shapes that produce or read Vitest reports outside that command.
+ *
+ * Each is a route by which a report this run did not write gets judged as
+ * though it had: reporter flags handed to a plain test run, or the checker
+ * pointed at whatever `find` turns up on disk.
+ */
+const FORBIDDEN_REPORT_ROUTES = [
+  {
+    pattern: /outputFile(\.json)?=vitest-report\.json/,
+    what: 'writes Vitest reports outside verify:tests:fresh',
+  },
+  {
+    pattern: /check-skipped-tests\.mjs\s+\$\(find/,
+    what: "judges whatever reports are on disk rather than this run's",
+  },
+]
 
 /**
  * Every problem found. Empty means the invariants hold.
@@ -87,6 +169,117 @@ function matrixValues(source, field) {
   }
 
   return values
+}
+
+/**
+ * The steps of one job, in order.
+ *
+ * Another deliberately small reader, for the one shape this repository's
+ * workflows use: `jobs.<job>.steps` as a list of `- name:` entries whose `run:`
+ * is either inline or a `|` block. It fails closed like `matrixValues`: a job
+ * or a steps list it cannot find comes back empty, and the caller reports that
+ * rather than passing.
+ *
+ * @param {string} source The workflow file's text.
+ * @param {string} job The job's id, e.g. `verify`.
+ * @returns {Array<{name: string|null, run: string|null, condition: string|null}>} The steps.
+ */
+function stepsOf(source, job) {
+  const lines = source.split('\n')
+  const indentOf = (line) => line.length - line.trimStart().length
+  const structural = (line) => line.trim() !== '' && !line.trim().startsWith('#')
+
+  /**
+   * The lines inside the block that opens at `start`, up to the next line
+   * indented no further than it.
+   *
+   * @param {number} start Index of the line opening the block.
+   * @returns {string[]} The block's lines.
+   */
+  function blockAfter(start) {
+    const indent = indentOf(lines[start])
+    let end = start + 1
+
+    while (end < lines.length && !(structural(lines[end]) && indentOf(lines[end]) <= indent)) {
+      end += 1
+    }
+
+    return lines.slice(start + 1, end)
+  }
+
+  const jobsAt = lines.findIndex((line) => /^jobs:\s*$/.test(line))
+  if (jobsAt === -1) return []
+
+  /**
+   * Where the key opening a block sits among its siblings, or -1.
+   *
+   * @param {string[]} block The lines holding the siblings.
+   * @param {string} key The key.
+   * @returns {number} Its index in `block`.
+   */
+  function keyIn(block, key) {
+    const sibling = block.find(structural)
+    if (sibling === undefined) return -1
+
+    return block.findIndex(
+      (line) => indentOf(line) === indentOf(sibling) && line.trim() === `${key}:`,
+    )
+  }
+
+  const jobAt = keyIn(blockAfter(jobsAt), job)
+  if (jobAt === -1) return []
+
+  const bodyStart = jobsAt + 1 + jobAt
+  const stepsAt = keyIn(blockAfter(bodyStart), 'steps')
+  if (stepsAt === -1) return []
+
+  const stepLines = blockAfter(bodyStart + 1 + stepsAt)
+  const first = stepLines.find((line) => /^\s*-\s/.test(line))
+  if (first === undefined) return []
+
+  const itemIndent = indentOf(first)
+  const steps = []
+  let current = null
+  let runBlock = null
+
+  for (const line of stepLines) {
+    const indent = indentOf(line)
+
+    if (runBlock !== null) {
+      if (line.trim() === '' || indent > itemIndent + 2) {
+        runBlock.push(line.trim())
+        continue
+      }
+
+      current.run = runBlock.join('\n').trim()
+      runBlock = null
+    }
+
+    if (!structural(line)) continue
+
+    let text = line
+    if (indent === itemIndent && /^\s*-\s/.test(line)) {
+      current = { name: null, run: null, condition: null, continueOnError: null }
+      steps.push(current)
+      text = line.replace('-', ' ')
+    }
+
+    if (current === null) continue
+
+    const field = text.match(/^\s*(name|run|if|continue-on-error):\s*(.*?)\s*$/)
+    if (!field || indentOf(text) !== itemIndent + 2) continue
+
+    const [, key, value] = field
+    if (key === 'name') current.name = value
+    else if (key === 'if') current.condition = value
+    else if (key === 'continue-on-error') current.continueOnError = value
+    else if (value === '|') runBlock = []
+    else current.run = value
+  }
+
+  if (runBlock !== null) current.run = runBlock.join('\n').trim()
+
+  return steps
 }
 
 /**
@@ -201,6 +394,376 @@ function checkTaskOrdering() {
   }
 }
 
+/**
+ * Check that the test suites can see the variables they read.
+ *
+ * @returns {void}
+ */
+function checkTestEnvironment() {
+  const file = 'turbo.json'
+  const declared = JSON.parse(readFileSync(file, 'utf8')).globalEnv ?? []
+
+  for (const name of TEST_ENVIRONMENT) {
+    if (!declared.includes(name)) {
+      fail(
+        file,
+        `"${name}" is not in globalEnv, so Turborepo's strict environment mode removes it from ` +
+          `every test process and a workflow that sets it changes nothing`,
+      )
+    }
+  }
+}
+
+/**
+ * Check that CI produces and judges reports only through the fresh-report command.
+ *
+ * @param {Array<{file: string, source: string}>} files The workflow files.
+ * @returns {void}
+ */
+function checkFreshReports(files) {
+  const ci = files.find(({ file }) => file.endsWith('ci.yml'))
+
+  if (!ci) {
+    fail(workflowDirectory, 'ci.yml not found, so the fresh-report command cannot be checked')
+
+    return
+  }
+
+  if (!ci.source.includes(FRESH_REPORT_COMMAND)) {
+    fail(
+      ci.file,
+      `does not run "${FRESH_REPORT_COMMAND}", so CI's test reports are not proved to be this run's`,
+    )
+  }
+
+  for (const { file, source } of files) {
+    for (const route of FORBIDDEN_REPORT_ROUTES) {
+      if (route.pattern.test(source)) fail(file, `a step ${route.what}`)
+    }
+  }
+
+  checkFreshReportSummary(ci)
+}
+
+/**
+ * Check that the verify job ends by printing the fresh-report summary.
+ *
+ * @param {{file: string, source: string}} ci The CI workflow.
+ * @returns {void}
+ */
+function checkFreshReportSummary(ci) {
+  const steps = stepsOf(ci.source, 'verify')
+
+  if (steps.length === 0) {
+    fail(ci.file, "the verify job's steps could not be read, so its summary step cannot be checked")
+
+    return
+  }
+
+  const tested = steps.findIndex((step) => step.run === FRESH_REPORT_COMMAND)
+  const summary = steps.findIndex((step) => step.run === SUMMARY_COMMAND)
+
+  if (summary === -1) {
+    fail(
+      ci.file,
+      `the verify job has no step that runs exactly "${SUMMARY_COMMAND}", so the fresh-report ` +
+        `table sits thousands of lines above the end of its log, where a reader of the tail never sees it`,
+    )
+
+    return
+  }
+
+  // The step exists to fail a green run that lost its summary: a condition
+  // could skip it on exactly that run, and continue-on-error would swallow the
+  // failure.
+  const { condition, continueOnError } = steps[summary]
+
+  if (condition !== null) {
+    fail(ci.file, `"${SUMMARY_COMMAND}" carries "if: ${condition}", so a green run may skip it`)
+  }
+
+  if (continueOnError !== null && continueOnError !== 'false') {
+    fail(
+      ci.file,
+      `"${SUMMARY_COMMAND}" carries "continue-on-error: ${continueOnError}", so a missing summary ` +
+        `would not fail the job`,
+    )
+  }
+
+  if (tested === -1 || summary < tested) {
+    fail(
+      ci.file,
+      `"${SUMMARY_COMMAND}" runs before "${FRESH_REPORT_COMMAND}" in the verify job, so it could ` +
+        `only print a summary some earlier run left`,
+    )
+  }
+
+  const later = steps.slice(summary + 1).filter((step) => step.condition !== 'failure()')
+
+  if (later.length > 0) {
+    const names = later.map((step) => `"${step.name ?? step.run}"`).join(', ')
+
+    fail(
+      ci.file,
+      `${names} run(s) after "${SUMMARY_COMMAND}" on a green run, so the fresh-report summary ` +
+        `no longer ends the verify job's log — move the summary step after them, or make them failure-only`,
+    )
+  }
+}
+
+/** The web package, whose Playwright configs are the browser suites. */
+const WEB_DIRECTORY = 'apps/web'
+
+/** Where the browser specs live. */
+const E2E_DIRECTORY = `${WEB_DIRECTORY}/e2e`
+
+/** The document holding the approved `main` ruleset. */
+const BRANCH_PROTECTION = 'docs/BRANCH_PROTECTION.md'
+
+/** A Playwright config file, by name: `playwright.config.js`, `playwright.detail.config.js`. */
+const PLAYWRIGHT_CONFIG = /^playwright(?:\.[\w-]+)?\.config\.(?:js|mjs|cjs)$/u
+
+/** How many specs and browser jobs the fifth invariant judged, for the summary line. */
+const browserCounts = { specs: 0, suites: 0 }
+
+/** How many configs the sixth invariant found starting `next dev`, for the summary line. */
+let devServerConfigs = 0
+
+/**
+ * Read a JSON file, reporting rather than throwing when it cannot be read.
+ *
+ * @param {string} file The path.
+ * @returns {object|null} The parsed file, or null after reporting why not.
+ */
+function readJson(file) {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'))
+  } catch (error) {
+    fail(file, `could not be read (${error.message}), so the browser suites cannot be checked`)
+
+    return null
+  }
+}
+
+/**
+ * Every file under a directory that Playwright could load as a test, in a
+ * stable order.
+ *
+ * Playwright walks every directory but `node_modules` and considers every file
+ * with a script extension, so this does too: a spec named `*.spec.mjs`, or one
+ * a new config's pattern would reach, is listed and judged rather than never
+ * seen. Support modules come back as well; the judge passes over the ones no
+ * config collects and that are not named as tests.
+ *
+ * @param {string} directory Where to look, relative to the repository root.
+ * @returns {string[]} Paths relative to the repository root.
+ */
+function specFilesUnder(directory) {
+  const found = []
+
+  for (const name of readdirSync(directory).sort()) {
+    if (name === 'node_modules') continue
+
+    const file = `${directory}/${name}`
+
+    if (statSync(file).isDirectory()) found.push(...specFilesUnder(file))
+    else if (testFileExtension(name)) found.push(file)
+  }
+
+  return found
+}
+
+/**
+ * Check that every browser spec is collected by exactly one CI browser job.
+ *
+ * Each matrix script is followed to the Playwright config it runs, and that
+ * config is loaded — with every `*_E2E_SPEC` variable removed first, because
+ * CI sets none and a developer's shell might — so its `testMatch` and
+ * `testIgnore` are the values Playwright would use, not a reading of its text.
+ *
+ * @param {{file: string, source: string}} ci The CI workflow.
+ * @returns {Promise<void>} Resolves once every problem has been reported.
+ */
+async function checkEverySpecCollected(ci) {
+  for (const name of narrowingInWorkflow(ci.source)) {
+    fail(
+      ci.file,
+      `mentions ${name}, which narrows a Playwright config to fewer specs than it collects — ` +
+        'a browser job must run its whole config',
+    )
+  }
+
+  const root = readJson('package.json')
+  const web = readJson(`${WEB_DIRECTORY}/package.json`)
+
+  if (root === null || web === null) return
+
+  const suites = resolveSuites(
+    matrixSuites(ci.source),
+    root.scripts ?? {},
+    web.scripts ?? {},
+    web.name,
+  )
+
+  let configFiles
+
+  try {
+    configFiles = readdirSync(WEB_DIRECTORY)
+      .filter((name) => PLAYWRIGHT_CONFIG.test(name))
+      .sort()
+  } catch (error) {
+    fail(WEB_DIRECTORY, `could not be listed (${error.message}), so no config can be checked`)
+
+    return
+  }
+
+  for (const name of Object.keys(process.env)) {
+    if (NARROWING_VARIABLE.test(name)) delete process.env[name]
+  }
+
+  const directory = resolve(WEB_DIRECTORY)
+  const runByCi = new Set(
+    suites
+      .filter((suite) => suite.problem === null && configFiles.includes(suite.configFile))
+      .map((suite) => suite.configFile),
+  )
+  const configs = []
+
+  for (const file of runByCi) {
+    try {
+      const loaded = await import(pathToFileURL(join(directory, file)).href)
+
+      if (loaded.default === null || typeof loaded.default !== 'object') {
+        fail(`${WEB_DIRECTORY}/${file}`, 'has no default export, so Playwright could not run it')
+        continue
+      }
+
+      configs.push({ file, dir: directory, config: loaded.default })
+    } catch (error) {
+      fail(
+        `${WEB_DIRECTORY}/${file}`,
+        `could not be loaded (${error.message}), so which specs it collects cannot be checked`,
+      )
+    }
+  }
+
+  let specs
+
+  try {
+    specs = specFilesUnder(E2E_DIRECTORY).map((file) => ({
+      path: resolve(file),
+      relative: file,
+      source: readFileSync(file, 'utf8'),
+    }))
+  } catch (error) {
+    fail(E2E_DIRECTORY, `could not be read (${error.message}), so no spec can be checked`)
+
+    return
+  }
+
+  const { problems, collectedBy } = judgeSpecCollection({
+    suites,
+    configFiles,
+    configs,
+    specs,
+    workflow: ci.file,
+    webDirectory: WEB_DIRECTORY,
+    specRoot: resolve(E2E_DIRECTORY),
+  })
+
+  for (const { where, what } of problems) fail(where, what)
+
+  if (collectedBy.size === 0) {
+    fail(E2E_DIRECTORY, 'holds no browser spec, so there is nothing for this check to prove')
+  }
+
+  browserCounts.specs = collectedBy.size
+  browserCounts.suites = suites.length
+}
+
+/**
+ * Check that every config starting `next dev` does so through the shared
+ * helper and proves its routes before anything uses them.
+ *
+ * Every Playwright config in the web package is loaded, run by CI or not: a
+ * config a developer runs by hand meets the same stale table.
+ *
+ * @returns {Promise<void>} Resolves once every problem has been reported.
+ */
+async function checkDevServers() {
+  let configFiles
+
+  try {
+    configFiles = readdirSync(WEB_DIRECTORY)
+      .filter((name) => PLAYWRIGHT_CONFIG.test(name))
+      .sort()
+  } catch (error) {
+    fail(WEB_DIRECTORY, `could not be listed (${error.message}), so no dev server can be checked`)
+
+    return
+  }
+
+  const directory = resolve(WEB_DIRECTORY)
+  const configs = []
+
+  for (const file of configFiles) {
+    try {
+      const loaded = await import(pathToFileURL(join(directory, file)).href)
+
+      configs.push({ file, dir: directory, config: loaded.default })
+    } catch (error) {
+      fail(
+        `${WEB_DIRECTORY}/${file}`,
+        `could not be loaded (${error.message}), so how it starts next dev cannot be checked`,
+      )
+    }
+  }
+
+  const { problems, devConfigs } = judgeDevServers({
+    configs,
+    webDirectory: WEB_DIRECTORY,
+    exists: existsSync,
+  })
+
+  for (const { where, what } of problems) fail(where, what)
+
+  devServerConfigs = devConfigs.length
+}
+
+/**
+ * Check that every browser job is a check the approved `main` ruleset requires.
+ *
+ * @param {{file: string, source: string}} ci The CI workflow.
+ * @returns {void}
+ */
+function checkRequiredContexts(ci) {
+  let requiredContexts
+
+  try {
+    requiredContexts = requiredContextsFrom(
+      readFileSync(BRANCH_PROTECTION, 'utf8'),
+      BRANCH_PROTECTION,
+    )
+  } catch (error) {
+    fail(
+      BRANCH_PROTECTION,
+      `${error.message}, so no browser job can be proved to be a required check`,
+    )
+
+    return
+  }
+
+  const problems = judgeRequiredContexts({
+    suites: matrixSuites(ci.source),
+    template: suiteJobNameTemplate(ci.source),
+    requiredContexts,
+    workflow: ci.file,
+    document: BRANCH_PROTECTION,
+  })
+
+  for (const { where, what } of problems) fail(where, what)
+}
+
 const workflowDirectory = '.github/workflows'
 const workflows = readdirSync(workflowDirectory).filter(
   (file) => file.endsWith('.yml') || file.endsWith('.yaml'),
@@ -210,14 +773,26 @@ if (workflows.length === 0) {
   fail(workflowDirectory, 'no workflow files found, so no artefact name could be checked')
 }
 
-for (const file of workflows) {
-  checkArtefactNames(
-    join(workflowDirectory, file),
-    readFileSync(join(workflowDirectory, file), 'utf8'),
-  )
-}
+const sources = workflows.map((file) => ({
+  file: join(workflowDirectory, file),
+  source: readFileSync(join(workflowDirectory, file), 'utf8'),
+}))
+
+for (const { file, source } of sources) checkArtefactNames(file, source)
 
 checkTaskOrdering()
+checkTestEnvironment()
+checkFreshReports(sources)
+
+// ci.yml's absence is already reported by checkFreshReports.
+const ciWorkflow = sources.find(({ file }) => file.endsWith('ci.yml'))
+
+if (ciWorkflow) {
+  await checkEverySpecCollected(ciWorkflow)
+  checkRequiredContexts(ciWorkflow)
+}
+
+await checkDevServers()
 
 if (problems.length > 0) {
   console.error('CI invariants failed:\n')
@@ -228,5 +803,10 @@ if (problems.length > 0) {
 
 console.log(
   `CI invariants hold: ${workflows.length} workflow file(s) produce only uploadable artefact names, ` +
-    `and ${TEST_TASKS.length} test tasks order their own build.`,
+    `${TEST_TASKS.length} test tasks order their own build, ${TEST_ENVIRONMENT.length} test ` +
+    `variables reach the suites, reports come only from ${FRESH_REPORT_COMMAND}, and the verify ` +
+    `job ends by printing ${SUMMARY_PATH}. ${browserCounts.specs} browser specs are each ` +
+    `collected by exactly one of ${browserCounts.suites} CI browser jobs, every one of them a ` +
+    `required check. ${devServerConfigs} configs start next dev, each through ` +
+    `e2e/support/next-dev.mjs with its routes proved before any test.`,
 )

@@ -66,18 +66,43 @@ function trimmedUpper(value) {
 }
 
 /**
+ * The most zone names {@link isKnownTimeZone} remembers.
+ *
+ * About 600 IANA names exist. `Intl` also accepts other spellings of them,
+ * such as `asia/kolkata`, so the cache has a bound: a caller who sends every
+ * spelling of every name fills it, and later names are then checked by `Intl`
+ * each time again.
+ */
+const KNOWN_TIME_ZONE_CACHE_LIMIT = 2_000
+
+/** Zone names `Intl` has already accepted. Refusals are never cached. */
+const knownTimeZones = new Set()
+
+/**
  * True when the runtime recognises `value` as an IANA time zone name.
+ *
+ * Remembers each name `Intl` accepts. The check builds an
+ * `Intl.DateTimeFormat`, which is slow, and every event summary carries a zone:
+ * a page of twenty listing cards built twenty formatters. In a CPU profile of
+ * the load suite's search for "garba" that was 22% of the API's time. The
+ * runtime's zone data does not change while it runs, so neither does the
+ * answer for a name.
  *
  * @param {string} value Candidate zone name, e.g. `Asia/Kolkata`.
  * @returns {boolean} Whether `Intl` accepts the zone.
  */
 function isKnownTimeZone(value) {
+  if (knownTimeZones.has(value)) return true
+
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: value })
-    return true
   } catch {
     return false
   }
+
+  if (knownTimeZones.size < KNOWN_TIME_ZONE_CACHE_LIMIT) knownTimeZones.add(value)
+
+  return true
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
@@ -144,6 +169,18 @@ export const signedCentsSchema = z.int().min(-MAX_CENTS).max(MAX_CENTS)
 /** Basis points: 1 bp = 0.01%, so 10000 bps is 100%. */
 export const bpsSchema = z.int().min(0).max(10_000)
 
+/** The largest value a PostgreSQL `integer` (int4) column holds. */
+export const POSTGRES_INT_MAX = 2_147_483_647
+
+/**
+ * A revision the caller read, sent back as a compare-and-set precondition.
+ *
+ * Bounded by the `integer` column it is compared with. A larger number is no
+ * revision any row has, and PostgreSQL will not even compare one with that
+ * column: Prisma refuses the query (P2020), which reached the caller as a 500.
+ */
+export const revisionPreconditionSchema = z.int().min(0).max(POSTGRES_INT_MAX)
+
 /** A strict ISO-8601 datetime string carrying `Z` or an explicit offset. */
 export const isoDateTimeSchema = z.iso.datetime({ offset: true })
 
@@ -153,8 +190,25 @@ export const isoDateTimeSchema = z.iso.datetime({ offset: true })
  */
 export const timestampSchema = z.preprocess(toIsoString, isoDateTimeSchema)
 
-/** Alias kept for query parameters, where the date-only form is common. */
-export const queryDateTimeSchema = timestampSchema
+/** The earliest instant a query's date filter may name: the Unix epoch. */
+export const QUERY_DATE_EARLIEST = '1970-01-01T00:00:00.000Z'
+
+/**
+ * A date filter in a query string, where the date-only form is common: a
+ * timestamp, from 1 January 1970 on.
+ *
+ * Every one is compared with a `timestamp` column or turned into a UTC day for
+ * a `date` one. A strict ISO timestamp can still name year 0000, which
+ * PostgreSQL's calendar does not have (22008), and a `to` at midnight on
+ * 1 January of year 1 ends on a day in year 0: both used to answer 500 from
+ * the database. Nothing this site stores is older than the Unix epoch, so no
+ * window usefully starts earlier, and every day computed from one is a day
+ * PostgreSQL holds.
+ */
+export const queryDateTimeSchema = timestampSchema.refine(
+  (value) => Date.parse(value) >= Date.parse(QUERY_DATE_EARLIEST),
+  'Use a date in 1970 or later.',
+)
 
 /** An IANA time zone identifier the runtime actually knows about. */
 export const timezoneSchema = z.preprocess(
@@ -173,6 +227,36 @@ export const urlSchema = z.preprocess(
 
 /** Any non-empty trimmed string, capped so a body cannot carry a novel. */
 export const nonEmptyStringSchema = z.preprocess(trimmed, z.string().min(1).max(500))
+
+/**
+ * Control characters: C0 (NUL included), DEL and C1.
+ *
+ * Nothing a person types into a search box, a filter or a door screen is one.
+ * NUL in particular is refused by PostgreSQL in every text and JSON column.
+ * The API's request validator refuses a NUL in any string of any validated
+ * request whatever the schema says (`apps/api/src/lib/validation.js`), and
+ * answers one that reaches PostgreSQL by another road as a 400; a field that
+ * uses this refinement refuses every other control character as well, with a
+ * message of its own.
+ *
+ * @type {RegExp}
+ */
+export const CONTROL_CHARACTER_PATTERN = /\p{Cc}/u
+
+/**
+ * The same string schema, refusing any control character.
+ *
+ * A refinement, which JSON Schema cannot express, so the published document is
+ * unchanged; the refusal is a 400 like any other validation failure.
+ *
+ * @param {z.ZodType} schema A schema whose output is a string.
+ * @returns {z.ZodType} The schema, refined.
+ */
+export function withoutControlCharacters(schema) {
+  return schema.refine((value) => !CONTROL_CHARACTER_PATTERN.test(value), {
+    message: 'Remove the control character.',
+  })
+}
 
 /** Free-form long text such as an event description. */
 export const richTextSchema = z.preprocess(trimmed, z.string().min(1).max(20_000))
@@ -216,6 +300,27 @@ export const ticketCodeSchema = z.preprocess(
     .min(6)
     .max(64)
     .regex(/^[A-Z0-9-]+$/, 'Expected an alphanumeric ticket code'),
+)
+
+/**
+ * A group pass as its QR carries it: `G1.` and 43 base64url characters.
+ *
+ * The prefix is part of the secret, not a claim about it; it lets a scanner
+ * route the scan, and the `.` can never occur in a ticket credential, so the
+ * two shapes never overlap.
+ */
+export const groupPassCredentialSchema = z
+  .string()
+  .trim()
+  .regex(/^G1\.[A-Za-z0-9_-]{43}$/u, 'Expected a group pass')
+
+/**
+ * A group pass's printed code: `DEG-` and twelve characters from the ticket
+ * code alphabet, typed at the door when the QR will not scan.
+ */
+export const groupCodeSchema = z.preprocess(
+  trimmedUpper,
+  z.string().regex(/^DEG-[2-9A-HJ-NP-Z]{12}$/u, 'Expected a group code'),
 )
 
 /** A human-typed promotional code. Case is normalised so `save10` == `SAVE10`. */

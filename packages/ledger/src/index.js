@@ -14,6 +14,7 @@
 export { ACCOUNTS, ALL_ACCOUNTS, CREDIT, DEBIT, NORMAL_BALANCE, isAccount } from './accounts.js'
 export {
   BATCH_KINDS,
+  DISPUTE_HELD_FROM_ACCOUNTS,
   MAX_ENTRY_MINOR,
   composeBatch,
   correctionBatch,

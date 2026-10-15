@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { computeOrderTotals } from '@desi-event/pricing'
 
 import {
+  feeConfigFor,
   feeConfigForCurrency,
   formatAmount,
   formatPrice,
@@ -9,6 +10,8 @@ import {
   priceSelection,
   resolveTaxPolicy,
   taxLabelForPlace,
+  taxNameForPlace,
+  taxNameInSentence,
 } from './pricing.js'
 
 describe('feeConfigForCurrency', () => {
@@ -59,20 +62,35 @@ describe('taxLabelForPlace', () => {
     expect(taxLabelForPlace({ country: 'GB' })).toBe('VAT (20%)')
   })
 
-  it('falls back to a plain label where no rate applies', () => {
+  it('names US sales tax without claiming a rate, since the demo policy charges none', () => {
+    expect(taxLabelForPlace({ country: 'US', region: 'NJ' })).toBe('Sales tax')
+  })
+
+  it('falls back to a plain label where no policy applies', () => {
     expect(taxLabelForPlace({ country: 'SG' })).toBe('Tax')
     expect(taxLabelForPlace({})).toBe('Tax')
   })
 })
 
 describe('localeForCurrency', () => {
-  it('uses Indian digit grouping for rupees', () => {
+  it('formats dollars the US way, and is the default', () => {
+    expect(localeForCurrency('USD')).toBe('en-US')
+    expect(localeForCurrency()).toBe('en-US')
+    expect(localeForCurrency('XYZ')).toBe('en-US')
+  })
+
+  it('still uses each other currency’s own convention', () => {
     expect(localeForCurrency('INR')).toBe('en-IN')
     expect(localeForCurrency('GBP')).toBe('en-GB')
   })
 })
 
 describe('formatPrice', () => {
+  it('prices in US dollars by default', () => {
+    expect(formatPrice(3806, 'USD')).toBe('$38.06')
+    expect(formatPrice(3806)).toBe('$38.06')
+  })
+
   it('groups rupees in lakhs', () => {
     expect(formatPrice(899_900, 'INR')).toBe('₹8,999.00')
   })
@@ -88,6 +106,7 @@ describe('formatPrice', () => {
 
 describe('formatAmount', () => {
   it('keeps zero as money, because a summary row is a column of figures', () => {
+    expect(formatAmount(0, 'USD')).toBe('$0.00')
     expect(formatAmount(0, 'INR')).toBe('₹0.00')
   })
 })
@@ -183,5 +202,74 @@ describe('priceSelection', () => {
 
     expect(totals.subtotalCents).toBe(0)
     expect(totals.totalCents).toBe(0)
+  })
+})
+
+describe('pricing with the fee terms the API published', () => {
+  const published = [{ currency: 'INR', percentageBps: 590, flatCents: 99 }]
+
+  it('uses the published terms for the matching currency', () => {
+    expect(feeConfigFor('INR', published)).toEqual({
+      percentageBps: 590,
+      flatCents: 99,
+      currency: 'INR',
+    })
+  })
+
+  it('falls back to the package defaults when nothing was published for the currency', () => {
+    expect(feeConfigFor('GBP', published)).toEqual(feeConfigForCurrency('GBP'))
+    expect(feeConfigFor('INR', null)).toEqual(feeConfigForCurrency('INR'))
+  })
+
+  it('prices a basket with the published terms, not the defaults', () => {
+    const lines = [{ ticketTypeId: 'ga', name: 'General', quantity: 2, unitPriceCents: 150_000 }]
+    const place = { country: 'IN', region: 'MH' }
+
+    const published_ = priceSelection({ lines, currency: 'INR', place, feeTerms: published })
+    const defaults = priceSelection({ lines, currency: 'INR', place })
+
+    // 5.9% of ₹3,000 plus ₹0.99 on each ticket, not 2.5% plus ₹5.00.
+    expect(published_.feesCents).not.toBe(defaults.feesCents)
+    expect(published_.feesCents).toBe(Math.round(300_000 * 0.059) + 2 * 99)
+  })
+})
+
+describe('the tax’s name, for paying at the venue (SPEC3 §12.1)', () => {
+  it('names the place’s tax without its rate, and "Tax" where no policy applies', () => {
+    expect(taxNameForPlace({ country: 'US', region: 'NJ' })).toBe('Sales tax')
+    expect(taxNameForPlace({ country: 'IN' })).toBe('GST')
+    expect(taxNameForPlace({ country: 'GB' })).toBe('VAT')
+    expect(taxNameForPlace({ country: 'SG' })).toBe('Tax')
+    expect(taxNameForPlace({})).toBe('Tax')
+  })
+
+  it('keeps an acronym and lower-cases a name in words inside a sentence', () => {
+    expect(taxNameInSentence({ country: 'US', region: 'NJ' })).toBe('sales tax')
+    expect(taxNameInSentence({ country: 'IN' })).toBe('GST')
+    expect(taxNameInSentence({})).toBe('tax')
+  })
+})
+
+describe('priceSelection for paying at the venue', () => {
+  it('passes the way of paying to computeOrderTotals, and never a waiver', () => {
+    const lines = [{ ticketTypeId: 'tt1', name: 'Entry', quantity: 2, unitPriceCents: 4_000 }]
+    const { taxPolicy, ...totals } = priceSelection({
+      lines,
+      currency: 'USD',
+      place: { country: 'US', region: 'NJ' },
+      paymentMethod: 'AT_VENUE',
+    })
+
+    expect(taxPolicy.resolved).toBe(true)
+    expect(totals).toEqual(
+      computeOrderTotals({
+        items: lines,
+        feeConfig: feeConfigForCurrency('USD'),
+        taxRateBps: 0,
+        currency: 'USD',
+        paymentMethod: 'AT_VENUE',
+      }),
+    )
+    expect(totals.feeWaivedCents ?? 0).toBe(0)
   })
 })

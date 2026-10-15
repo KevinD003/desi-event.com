@@ -209,6 +209,107 @@ describe('comparing provider evidence against local evidence', () => {
   })
 })
 
+describe('comparing refund evidence against the payment’s other refunds (2026-09-30)', () => {
+  /** A timed-out refund of a quarter of the payment. */
+  const TIMED_OUT = Object.freeze({ status: 'TIMEOUT', amountCents: 60_000 })
+
+  it('releases a refund that never reached the provider after an earlier one settled', () => {
+    // The provider has given back exactly the 120 000 settled here before: the
+    // number covers 60 000, but none of it is this refund's.
+    const { verdict, why } = compareEvidence({
+      kind: 'REFUND_UNKNOWN',
+      observed: observation({ refundedAmountCents: 120_000 }),
+      payment: PAYMENT,
+      order: { status: 'PAID' },
+      refund: TIMED_OUT,
+      otherRefunds: { settledCents: 120_000, inFlightCents: [] },
+    })
+
+    expect(verdict).toBe(VERDICTS.RELEASE)
+    expect(why).toMatch(/does not include this refund/)
+  })
+
+  it('settles it once the provider has given back the settled one and this one', () => {
+    const { verdict } = compareEvidence({
+      kind: 'REFUND_UNKNOWN',
+      observed: observation({ refundedAmountCents: 180_000 }),
+      payment: PAYMENT,
+      order: { status: 'PAID' },
+      refund: TIMED_OUT,
+      otherRefunds: { settledCents: 120_000, inFlightCents: [] },
+    })
+
+    expect(verdict).toBe(VERDICTS.SETTLE)
+  })
+
+  it('tells two unanswered refunds of different amounts apart', () => {
+    // 120 000 unanswered and 60 000 unanswered; the provider has given back
+    // 120 000, which only the other one accounts for.
+    const theOther = { otherRefunds: { settledCents: 0, inFlightCents: [120_000] } }
+    const mine = compareEvidence({
+      kind: 'REFUND_UNKNOWN',
+      observed: observation({ refundedAmountCents: 120_000 }),
+      payment: PAYMENT,
+      order: { status: 'PAID' },
+      refund: TIMED_OUT,
+      ...theOther,
+    })
+    const its = compareEvidence({
+      kind: 'REFUND_UNKNOWN',
+      observed: observation({ refundedAmountCents: 120_000 }),
+      payment: PAYMENT,
+      order: { status: 'PAID' },
+      refund: { status: 'TIMEOUT', amountCents: 120_000 },
+      otherRefunds: { settledCents: 0, inFlightCents: [60_000] },
+    })
+
+    expect(mine.verdict).toBe(VERDICTS.RELEASE)
+    expect(its.verdict).toBe(VERDICTS.SETTLE)
+  })
+
+  it('will not guess between two unanswered refunds of the same amount', () => {
+    const { verdict } = compareEvidence({
+      kind: 'REFUND_UNKNOWN',
+      observed: observation({ refundedAmountCents: 60_000 }),
+      payment: PAYMENT,
+      order: { status: 'PAID' },
+      refund: TIMED_OUT,
+      otherRefunds: { settledCents: 0, inFlightCents: [60_000] },
+    })
+
+    expect(verdict).toBe(VERDICTS.CONFLICT)
+  })
+
+  it('calls less than was settled here a conflict', () => {
+    const { verdict } = compareEvidence({
+      kind: 'REFUND_UNKNOWN',
+      observed: observation({ refundedAmountCents: 60_000 }),
+      payment: PAYMENT,
+      order: { status: 'PAID' },
+      refund: TIMED_OUT,
+      otherRefunds: { settledCents: 120_000, inFlightCents: [] },
+    })
+
+    expect(verdict).toBe(VERDICTS.CONFLICT)
+  })
+
+  it('does not release a refund on a charge the provider reports refunded in full', () => {
+    const { verdict } = compareEvidence({
+      kind: 'REFUND_UNKNOWN',
+      observed: observation({
+        status: PAYMENT_INTENT_STATUS.REFUNDED,
+        refundedAmountCents: TOTAL_CENTS,
+      }),
+      payment: PAYMENT,
+      order: { status: 'PAID' },
+      refund: TIMED_OUT,
+      otherRefunds: { settledCents: TOTAL_CENTS, inFlightCents: [] },
+    })
+
+    expect(verdict).toBe(VERDICTS.CONFLICT)
+  })
+})
+
 describe('the task state machine', () => {
   it('lets an escalated item come back to somebody working it', () => {
     expect(canTransition(TASK_STATES.ESCALATED, TASK_STATES.IN_PROGRESS)).toBe(true)

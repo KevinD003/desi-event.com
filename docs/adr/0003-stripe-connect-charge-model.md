@@ -46,8 +46,8 @@ the transfer destination and as the settlement merchant.
 - Refunds: `reverse_transfer` claws the organiser's share back out of their
   balance; `refund_application_fee` decides whether the platform gives its fee
   back. Both are explicit per refund rather than implied.
-- Payout timing stays the connected account's own schedule. Desi-Event never
-  holds organiser funds.
+- Payout timing stays the connected account's own schedule. The Desi Events
+  never holds organiser funds.
 - One Payment Element integration, initialised against the platform account, so
   the web app has one code path.
 
@@ -68,7 +68,7 @@ the transfer destination and as the settlement merchant.
 
 - Maximum flexibility: charge now, decide the split later, split across several
   destinations.
-- But the money lands in the **platform balance**, which makes Desi-Event a
+- But the money lands in the **platform balance**, which makes The Desi Events a
   holder of other people's funds. That brings negative-balance exposure on
   refunds and disputes, a balance to monitor, and a materially larger regulatory
   and accounting surface.
@@ -94,8 +94,8 @@ a bad trade for a feature nobody has asked for.
 
 ## What this decision does not do
 
-It does not make Desi-Event any of the following, and no code in this repository
-may be read as asserting them:
+It does not make The Desi Events any of the following, and no code in this
+repository may be read as asserting them:
 
 - **Merchant of record.** `on_behalf_of` names the connected account as the
   settlement merchant for the charge. What that means commercially and legally
@@ -106,8 +106,8 @@ may be read as asserting them:
 - **Tax remitter or tax determiner.** Every tax rate shipped here is marked
   `DEMO` and production fails closed without a real determination. See
   `packages/pricing/src/tax.js`.
-- **Legal seller of the ticket.** The organiser sells; Desi-Event provides the
-  platform. Nothing in the schema or the pricing engine encodes a different
+- **Legal seller of the ticket.** The organiser sells; The Desi Events provides
+  the platform. Nothing in the schema or the pricing engine encodes a different
   arrangement.
 
 ## Liability, stated rather than implied

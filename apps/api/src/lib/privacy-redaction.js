@@ -37,6 +37,7 @@
 
 import { REVOCATION_REASONS } from '@desi-event/auth'
 
+import { addressCandidates, isSameAddress } from './delivery.js'
 import { countExportsContaining, invalidateExportsForSubject } from './export-register.js'
 import { PRIVACY_CATEGORIES } from './privacy.js'
 import { redactedEmail, redactedName, scrubPayload } from './privacy-placeholders.js'
@@ -80,6 +81,13 @@ const OUTBOX_SETTLED = Object.freeze(['SENT', 'CANCELLED', 'FAILED', 'DEAD_LETTE
  * smaller than what it did. One function means the confirmation screen and the
  * write can no longer disagree.
  *
+ * These clauses only **narrow** the rows. PostgreSQL runs Prisma's
+ * case-insensitive `equals` as an `ILIKE` whose value is not escaped, so an `_`
+ * in the subject's address matches any one character there: an erasure for
+ * `a_b@example.com` would also reach `axb@example.com`, somebody else entirely.
+ * Every reader therefore selects `userId` and the address column and keeps only
+ * the rows {@link belongsToSubject} accepts, which compares the address exactly.
+ *
  * @param {string} subjectUserId The data subject.
  * @param {string|null} subjectEmail Their address, lower-cased, or null.
  * @param {string} field Which column on this model holds the address.
@@ -88,8 +96,50 @@ const OUTBOX_SETTLED = Object.freeze(['SENT', 'CANCELLED', 'FAILED', 'DEAD_LETTE
 export function subjectMatchers(subjectUserId, subjectEmail, field) {
   return [
     { userId: subjectUserId },
-    ...(subjectEmail ? [{ [field]: { equals: subjectEmail, mode: 'insensitive' } }] : []),
+    ...(subjectEmail ? [{ [field]: addressCandidates(subjectEmail) }] : []),
   ]
+}
+
+/**
+ * Whether a row {@link subjectMatchers} found really is the subject's.
+ *
+ * Linked to the subject's account, or carrying the subject's own address once
+ * both are lower-cased, and nothing looser: a look-alike address that the
+ * database's pattern match let through is somebody else's row.
+ *
+ * @param {object} row The row, with `userId` and the address column selected.
+ * @param {string} subjectUserId The data subject.
+ * @param {string|null} subjectEmail Their address, lower-cased, or null.
+ * @param {string} field Which column on this model holds the address.
+ * @returns {boolean} True when the row belongs to the subject.
+ */
+export function belongsToSubject(row, subjectUserId, subjectEmail, field) {
+  return row.userId === subjectUserId || isSameAddress(row[field], subjectEmail)
+}
+
+/**
+ * The rows of one model that belong to the subject, and only those.
+ *
+ * {@link subjectMatchers} narrows in the database, {@link belongsToSubject}
+ * decides here. The preview and the writers both go through this, so the number
+ * an operator confirms is the number of rows the redaction then touches.
+ *
+ * @param {object} delegate The Prisma model delegate (`tx.order`, …).
+ * @param {object} options Inputs.
+ * @param {object} options.where The rest of the `where`, without the subject clauses.
+ * @param {object} options.select The columns the caller needs; `userId` and the address are added.
+ * @param {string} options.subjectUserId The data subject.
+ * @param {string|null} options.subjectEmail Their address, lower-cased, or null.
+ * @param {string} options.field Which column on this model holds the address.
+ * @returns {Promise<Array<object>>} The subject's rows.
+ */
+export async function subjectRows(delegate, { where, select, subjectUserId, subjectEmail, field }) {
+  const rows = await delegate.findMany({
+    where: { ...where, OR: subjectMatchers(subjectUserId, subjectEmail, field) },
+    select: { ...select, userId: true, [field]: true },
+  })
+
+  return rows.filter((row) => belongsToSubject(row, subjectUserId, subjectEmail, field))
 }
 
 /**
@@ -250,12 +300,12 @@ export async function redactBuyerIdentity(tx, { organizationId, subjectUserId, s
   // before they registered — or without registering — is reachable only through
   // the address on it. Matching on both is what stops a redaction from leaving a
   // person's name on the order they bought as a guest.
-  const orders = await tx.order.findMany({
-    where: {
-      event: { organizationId },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'buyerEmail'),
-    },
+  const orders = await subjectRows(tx.order, {
+    where: { event: { organizationId } },
     select: { id: true, buyerEmail: true, buyerName: true },
+    subjectUserId,
+    subjectEmail,
+    field: 'buyerEmail',
   })
 
   if (orders.length === 0) return { status: CATEGORY_STATUSES.NOTHING_TO_DO, count: 0 }
@@ -274,8 +324,38 @@ export async function redactBuyerIdentity(tx, { organizationId, subjectUserId, s
     count += 1
   }
 
+  // Guests' names the buyer typed at checkout wait on the order's lines and
+  // seats until settlement puts them on the tickets. Any still waiting — an
+  // order never paid, or not yet settled — are the buyer's data too, and go
+  // with the buyer's identity. Issued tickets are redacted with their holder.
+  const orderIds = orders.map((order) => order.id)
+  const lines = await tx.orderItem.findMany({
+    where: { orderId: { in: orderIds } },
+    select: { id: true },
+  })
+
+  const stagedLines = await tx.orderItem.updateMany({
+    where: { orderId: { in: orderIds }, attendeeNames: { isEmpty: false } },
+    data: { attendeeNames: [] },
+  })
+  const stagedSeats =
+    lines.length > 0
+      ? await tx.holdItem.updateMany({
+          where: {
+            orderItemId: { in: lines.map((line) => line.id) },
+            attendeeName: { not: null },
+          },
+          data: { attendeeName: null },
+        })
+      : { count: 0 }
+
+  // Names cleared from the staging count as a redaction even when the order's
+  // own columns had been redacted already: something of the buyer's went.
+  const staged = stagedLines.count + stagedSeats.count
+
   return {
-    status: count === 0 ? CATEGORY_STATUSES.ALREADY_REDACTED : CATEGORY_STATUSES.REDACTED,
+    status:
+      count === 0 && staged === 0 ? CATEGORY_STATUSES.ALREADY_REDACTED : CATEGORY_STATUSES.REDACTED,
     count,
   }
 }
@@ -384,12 +464,12 @@ export async function redactTicketHolderIdentity(
  * @returns {Promise<{status: string, count: number}>} What happened.
  */
 export async function redactWaitlistEntries(tx, { organizationId, subjectUserId, subjectEmail }) {
-  const entries = await tx.waitlistEntry.findMany({
-    where: {
-      event: { organizationId },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'email'),
-    },
+  const entries = await subjectRows(tx.waitlistEntry, {
+    where: { event: { organizationId } },
     select: { id: true, email: true },
+    subjectUserId,
+    subjectEmail,
+    field: 'email',
   })
 
   if (entries.length === 0) return { status: CATEGORY_STATUSES.NOTHING_TO_DO, count: 0 }
@@ -437,13 +517,12 @@ export async function redactNotificationDelivery(
   tx,
   { organizationId, subjectUserId, subjectEmail },
 ) {
-  const rows = await tx.notificationOutbox.findMany({
-    where: {
-      organizationId,
-      status: { in: [...OUTBOX_SETTLED] },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'recipient'),
-    },
+  const rows = await subjectRows(tx.notificationOutbox, {
+    where: { organizationId, status: { in: [...OUTBOX_SETTLED] } },
     select: { id: true, recipient: true, payload: true },
+    subjectUserId,
+    subjectEmail,
+    field: 'recipient',
   })
 
   if (rows.length === 0) return { status: CATEGORY_STATUSES.NOTHING_TO_DO, count: 0 }
@@ -486,6 +565,12 @@ export async function redactNotificationDelivery(
  * exactly the case where it is personal data about them. Compared case-
  * insensitively, because addresses are stored as entered.
  *
+ * `Event.publicContactEmail` — the address an organiser chose to print on the
+ * event page — follows the same rule, and matters more: it is public. Phone
+ * numbers (`Event.publicContactPhone`) are not matched, because there is no
+ * reliable phone number to match them against: a subject's account carries an
+ * optional, unverified phone that is not a key for anything.
+ *
  * @param {object} tx A Prisma transaction client.
  * @param {object} params Parameters.
  * @param {string} params.organizationId The organisation named in the path.
@@ -516,20 +601,32 @@ export async function redactContactAddresses(tx, { organizationId, subjectEmail 
   }
 
   const events = await tx.event.findMany({
-    where: { organizationId, contactEmail: { not: null } },
-    select: { id: true, contactEmail: true },
+    where: {
+      organizationId,
+      OR: [{ contactEmail: { not: null } }, { publicContactEmail: { not: null } }],
+    },
+    select: { id: true, contactEmail: true, publicContactEmail: true },
   })
 
   for (const event of events) {
-    if (!event.contactEmail) continue
-    if (event.contactEmail.toLowerCase() !== subjectEmail) continue
+    /** @type {Record<string, string>} */
+    const data = {}
 
-    await tx.event.update({
-      where: { id: event.id },
-      data: { contactEmail: redactedEmail('Event.contactEmail', event.id) },
-    })
+    if (event.contactEmail && event.contactEmail.toLowerCase() === subjectEmail) {
+      data.contactEmail = redactedEmail('Event.contactEmail', event.id)
+    }
 
-    count += 1
+    if (event.publicContactEmail && event.publicContactEmail.toLowerCase() === subjectEmail) {
+      data.publicContactEmail = redactedEmail('Event.publicContactEmail', event.id)
+    }
+
+    const replaced = Object.keys(data).length
+
+    if (replaced === 0) continue
+
+    await tx.event.update({ where: { id: event.id }, data })
+
+    count += replaced
   }
 
   return {
@@ -562,15 +659,112 @@ export async function countContactAddresses(tx, { organizationId, subjectEmail }
   let count = organization?.contactEmail?.toLowerCase() === subjectEmail ? 1 : 0
 
   const events = await tx.event.findMany({
-    where: { organizationId, contactEmail: { not: null } },
-    select: { contactEmail: true },
+    where: {
+      organizationId,
+      OR: [{ contactEmail: { not: null } }, { publicContactEmail: { not: null } }],
+    },
+    select: { contactEmail: true, publicContactEmail: true },
   })
 
   for (const event of events) {
     if (event.contactEmail && event.contactEmail.toLowerCase() === subjectEmail) count += 1
+    if (event.publicContactEmail && event.publicContactEmail.toLowerCase() === subjectEmail) {
+      count += 1
+    }
   }
 
   return count
+}
+
+/**
+ * The organiser invitations a redaction reaches.
+ *
+ * An invitation from the team at The Desi Events to start an organisation carries the
+ * address it was sent to (`OrganizerInvitation.email`) and the inviting
+ * administrator's note to that person, and administrators list every one. Once
+ * accepted it is linked to the organisation it created, whose own contact
+ * address {@link redactContactAddresses} may just have replaced — so left
+ * alone, the invitation would name the person the rest of the redaction made
+ * anonymous.
+ *
+ * The same two scoping rules as everything else. One accepted into **this**
+ * organisation is this organisation's record and is always reached. Any other
+ * — withdrawn, expired, or accepted into an organisation since left — is
+ * account-wide, reached only when the account itself is (`accountInScope`).
+ *
+ * A waiting invitation is never reached: accepting it compares the signed-in
+ * address with this one, so it is an open process that refuses the redaction
+ * while the account would go (`findOpenProcess`) and is left untouched while
+ * the account stays. One past its expiry is no longer waiting, and is reached.
+ *
+ * Matched by the account that accepted it or by the address, narrowed in the
+ * database and decided exactly here, as {@link subjectRows} does.
+ *
+ * @param {object} tx A Prisma client or transaction client.
+ * @param {object} params Parameters.
+ * @param {string} params.organizationId The organisation named in the path.
+ * @param {string} params.subjectUserId The data subject.
+ * @param {string|null} params.subjectEmail The subject's address before redaction, lower-cased.
+ * @param {boolean} params.accountInScope Whether the account identity is redacted too.
+ * @param {Date} params.now The instant, so an expired invitation counts as settled.
+ * @returns {Promise<Array<{id: string, email: string, note: (string|null)}>>} The invitations.
+ */
+export async function subjectOrganizerInvitations(
+  tx,
+  { organizationId, subjectUserId, subjectEmail, accountInScope, now },
+) {
+  const rows = await tx.organizerInvitation.findMany({
+    where: {
+      OR: [
+        { acceptedByUserId: subjectUserId },
+        ...(subjectEmail ? [{ email: addressCandidates(subjectEmail) }] : []),
+      ],
+      NOT: { status: 'PENDING', expiresAt: { gt: now } },
+      ...(accountInScope ? {} : { organizationId }),
+    },
+    select: { id: true, email: true, note: true, acceptedByUserId: true },
+  })
+
+  return rows.filter(
+    (row) => row.acceptedByUserId === subjectUserId || isSameAddress(row.email, subjectEmail),
+  )
+}
+
+/**
+ * Replace the address on the subject's organiser invitations, and drop the note.
+ *
+ * Status, dates, the organisation's name, description and website, and every
+ * link stay: they are the record kept by the team at The Desi Events of who was invited to start
+ * what, and the organisation's details are the organisation's, not the
+ * person's. The note goes rather than being given a placeholder — it is free
+ * text written to the person, and nothing reads it once the invitation is
+ * settled. Each placeholder is derived from the invitation's own id, and lands
+ * lower-case as the column's CHECK requires.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} params As {@link subjectOrganizerInvitations}.
+ * @returns {Promise<{status: string, count: number}>} What happened.
+ */
+export async function redactOrganizerInvitations(tx, params) {
+  const rows = await subjectOrganizerInvitations(tx, params)
+
+  if (rows.length === 0) return { status: CATEGORY_STATUSES.NOTHING_TO_DO, count: 0 }
+
+  let count = 0
+
+  for (const row of rows) {
+    const email = redactedEmail('OrganizerInvitation.email', row.id)
+
+    if (row.email === email && row.note === null) continue
+
+    await tx.organizerInvitation.update({ where: { id: row.id }, data: { email, note: null } })
+    count += 1
+  }
+
+  return {
+    status: count === 0 ? CATEGORY_STATUSES.ALREADY_REDACTED : CATEGORY_STATUSES.REDACTED,
+    count,
+  }
 }
 
 /**
@@ -585,25 +779,34 @@ export async function countContactAddresses(tx, { organizationId, subjectEmail }
  * @param {object} params Parameters.
  * @param {string} params.organizationId The organisation named in the path.
  * @param {string} params.subjectUserId The data subject.
+ * @param {Date} [params.now] The instant, so an expired invitation counts as settled.
  * @returns {Promise<Array<{category: string, count: number, status: string}>>} The scope, one entry per category.
  */
-export async function previewScope(prisma, { organizationId, subjectUserId }) {
+export async function previewScope(prisma, { organizationId, subjectUserId, now = new Date() }) {
   const subjectEmail = await subjectAddress(prisma, subjectUserId)
   const elsewhere = await subjectBelongsElsewhere(prisma, { organizationId, subjectUserId })
 
-  const orders = await prisma.order.count({
-    where: {
-      event: { organizationId },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'buyerEmail'),
-    },
-  })
+  // Rows rather than a `count()`: the database's pattern match only narrows,
+  // and the operator must confirm the number the redaction will really touch.
+  const subject = { subjectUserId, subjectEmail }
 
-  const waitlisted = await prisma.waitlistEntry.count({
-    where: {
-      event: { organizationId },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'email'),
-    },
-  })
+  const orders = (
+    await subjectRows(prisma.order, {
+      where: { event: { organizationId } },
+      select: { id: true },
+      ...subject,
+      field: 'buyerEmail',
+    })
+  ).length
+
+  const waitlisted = (
+    await subjectRows(prisma.waitlistEntry, {
+      where: { event: { organizationId } },
+      select: { id: true },
+      ...subject,
+      field: 'email',
+    })
+  ).length
 
   const tickets = await prisma.ticket.count({
     where: {
@@ -625,15 +828,24 @@ export async function previewScope(prisma, { organizationId, subjectUserId }) {
     },
   })
 
-  const notifications = await prisma.notificationOutbox.count({
-    where: {
-      organizationId,
-      status: { in: [...OUTBOX_SETTLED] },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'recipient'),
-    },
-  })
+  const notifications = (
+    await subjectRows(prisma.notificationOutbox, {
+      where: { organizationId, status: { in: [...OUTBOX_SETTLED] } },
+      select: { id: true },
+      ...subject,
+      field: 'recipient',
+    })
+  ).length
 
   const contacts = await countContactAddresses(prisma, { organizationId, subjectEmail })
+  const invitations = (
+    await subjectOrganizerInvitations(prisma, {
+      organizationId,
+      ...subject,
+      accountInScope: !elsewhere,
+      now,
+    })
+  ).length
   // Counted through the join rather than by opening anything: the register
   // knows which artefacts are known to contain this person, and nothing here
   // reads an export.
@@ -641,11 +853,12 @@ export async function previewScope(prisma, { organizationId, subjectUserId }) {
 
   return [
     {
-      // `(account ? 1 : 0) + contacts`, matching `redactSubject` exactly. The
-      // parenthesis matters: an out-of-scope account still leaves this
-      // organisation's own contact columns to replace.
+      // `(account ? 1 : 0) + contacts + invitations`, matching
+      // `redactSubject` exactly. The parenthesis matters: an out-of-scope
+      // account still leaves this organisation's own contact columns, and the
+      // invitation it was created from, to replace.
       category: PRIVACY_CATEGORIES.ACCOUNT_IDENTITY,
-      rows: (elsewhere ? 0 : 1) + contacts,
+      rows: (elsewhere ? 0 : 1) + contacts + invitations,
       status: elsewhere ? CATEGORY_STATUSES.OUT_OF_SCOPE : CATEGORY_STATUSES.REDACTED,
     },
     {
@@ -727,6 +940,13 @@ export async function redactSubject(tx, { organizationId, subjectUserId, now }) 
     subjectEmail,
   })
   const contacts = await redactContactAddresses(tx, { organizationId, subjectEmail })
+  const invitations = await redactOrganizerInvitations(tx, {
+    organizationId,
+    subjectUserId,
+    subjectEmail,
+    accountInScope: !elsewhere,
+    now,
+  })
   // Inside the same transaction as everything else, so there is no state in
   // which the person is redacted while the register still advertises an
   // artefact containing them.
@@ -745,14 +965,16 @@ export async function redactSubject(tx, { organizationId, subjectUserId, now }) 
     categories: [
       {
         // Two things in one line, and the split is worth stating. `rows` counts
-        // both the account row and any contact address that turned out to be the
-        // subject's own, because both are identity. `status` reports the
-        // **account**, which is the only part that can be out of this
-        // organisation's reach — a contact column belongs to this organisation
-        // and is always within it. So `OUT_OF_SCOPE` with a non-zero count means
-        // exactly what it says: the account survived, the contact columns did not.
+        // the account row, any contact address that turned out to be the
+        // subject's own, and the organiser invitations sent to them, because
+        // all are identity. `status` reports the **account**, which is the only
+        // part that can be out of this organisation's reach — a contact column,
+        // and the invitation this organisation was created from, belong to this
+        // organisation and are always within it. So `OUT_OF_SCOPE` with a
+        // non-zero count means exactly what it says: the account survived, the
+        // organisation's own copies of the address did not.
         category: PRIVACY_CATEGORIES.ACCOUNT_IDENTITY,
-        rows: account.count + contacts.count,
+        rows: account.count + contacts.count + invitations.count,
         status: account.status,
       },
       {

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Desi-Event web app — Next.js App Router, React and JSX, styled with Tailwind CSS.",
+  "description": "The Desi Events web app — Next.js App Router, React and JSX, styled with Tailwind CSS.",
   "scripts": {
     "dev": "next dev --port ${WEB_PORT:-3000}",
     "build": "NODE_ENV=production next build",
@@ -23,7 +23,16 @@
     "test:e2e:analytics": "DETAIL_E2E_SPEC=**/detail-analytics.spec.js playwright test --config playwright.detail.config.js",
     "test:e2e:reconciliation": "DETAIL_E2E_SPEC=**/detail-reconciliation.spec.js playwright test --config playwright.detail.config.js",
     "test:e2e:refunds": "DETAIL_E2E_SPEC=**/detail-refunds.spec.js playwright test --config playwright.detail.config.js",
-    "test:e2e:transfers": "DETAIL_E2E_SPEC=**/detail-transfers.spec.js playwright test --config playwright.detail.config.js"
+    "test:e2e:ticket-wallet": "DETAIL_E2E_SPEC=**/detail-ticket-wallet.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:transfers": "DETAIL_E2E_SPEC=**/detail-transfers.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:seats": "DETAIL_E2E_SPEC=**/detail-seat-picker.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:promo-codes": "DETAIL_E2E_SPEC=**/detail-promo-codes.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:promo-checkout": "DETAIL_E2E_SPEC=**/detail-promo-checkout.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:group-booking": "DETAIL_E2E_SPEC=**/detail-promo-checkout.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:online-event": "DETAIL_E2E_SPEC=**/detail-online-event.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:group-pass": "DETAIL_E2E_SPEC=**/detail-group-pass.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:transfer-code": "DETAIL_E2E_SPEC=**/detail-transfer-code.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:platform-door": "DETAIL_E2E_SPEC=**/detail-platform-door.spec.js playwright test --config playwright.detail.config.js"
   },
   "dependencies": {
     "@desi-event/api-contract": "workspace:*",
@@ -31,11 +40,15 @@
     "@desi-event/pricing": "workspace:*",
     "@desi-event/schemas": "workspace:*",
     "@desi-event/ui": "workspace:*",
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/manrope": "^5.3.0",
     "clsx": "^2.1.1",
     "framer-motion": "^13.3.0",
-    "next": "^16.3.5",
+    "jsqr": "1.4.0",
+    "next": "^16.3.8",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "uqr": "0.1.3",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -43,6 +56,7 @@
     "@desi-event/auth": "workspace:*",
     "@desi-event/config": "workspace:*",
     "@desi-event/db": "workspace:*",
+    "@desi-event/permissions": "workspace:*",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/dom": "^10.4.2",

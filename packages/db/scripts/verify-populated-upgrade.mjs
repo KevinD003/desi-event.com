@@ -116,6 +116,316 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // remove, which is exactly the difference the catalogue comparison below
   // reported.
   '20260921090000_payout_currency_trigger_repair',
+  // The Phase 4 admission work: renames a `CheckInMethod` label in place, makes
+  // `ScannerScope.eventId` a real foreign key, and adds a trigger refusing a
+  // scope that names another organisation's event. It deletes scope rows that
+  // name no event or a foreign one before adding either, and applying it over a
+  // populated database is exactly the claim this group exists to check.
+  '20260922200000_admission_scope_and_method',
+  // The listing search's trigram indexes on venue and organiser names. Adds
+  // the pg_trgm extension and three GIN indexes; building them over tables
+  // that already hold rows is the upgrade case this group proves.
+  '20260923210000_search_trigram_indexes',
+  // The same kind of index on the event's own title, summary and description,
+  // so the whole search is served from indexes.
+  '20260923220000_event_search_trigram_indexes',
+  // Tier visibility, per-order bounds clamped then checked, the reserved-tier partial index, event content fields.
+  '20260928090000_event_authoring_content_and_tier_rules',
+  // Replaces the full unique Ticket.eventSeatId index with "one live ticket per seat" (ADR 0006).
+  '20260928100000_live_seat_ticket_index',
+  // The lazily created GroupPass table and CheckIn.groupPassId, with its admission trigger.
+  '20260928110000_group_pass',
+  // Invitation.deliveryMode, Organization.createdById, and one pending invitation per address.
+  '20260928120000_team_delivery_and_organisation_provenance',
+  // MediaAsset.kind to an enum, MediaBlob, the media CHECKs and cover index, and Event.coverImageUrl dropped.
+  '20260928130000_event_media',
+  // EventSession.label, staged attendee names, and promo code CHECKs after normalising backfills.
+  '20260929090000_checkout_promos_attendees_nights',
+  // Admission per night: CheckIn unique on (ticketId, eventSessionId) plus one row with no night,
+  // and the two ticket triggers rewritten. Swapping a unique index over rows is the upgrade case.
+  '20260929100000_check_in_per_night',
+  // The listing search's upkeep: Event.venueId indexed, and the six trigram indexes set to
+  // fastupdate = off with their pending lists merged, over rows already queued in them.
+  '20260929110000_search_index_upkeep',
+  // SPEC2: the platform ADMIN role, an enum label on its own because a transaction
+  // cannot use a label it added. No row is changed.
+  '20260930090000_platform_admin_role',
+  // OrganizerInvitation and Membership.organizerInvitationId; waiting team invitations
+  // to roles that post events withdrawn, then refused by a CHECK; the review-gate trigger.
+  '20260930100000_organiser_invitations_and_review_gate',
+  // The event's website and its switch: socialLinks.website carried into websiteUrl
+  // (or dropped) over existing rows, the CHECKs and the trigger that keeps "waiting" in step.
+  '20260930120000_event_website_link',
+  // Visits to event pages: four tables, three enums, and the roll-up's one state row.
+  '20260930130000_event_traffic_analytics',
+  // SPEC2-XI: the DELETED event status, an enum label on its own because a
+  // transaction cannot use a label it added. No row is changed.
+  '20260930140000_event_deleted_status',
+  // Full control of posted events: deletion columns and their guard, the review
+  // gate's restore clause, cancelled nights stamped over existing rows,
+  // replacement covers (the one-cover index swapped over existing pictures),
+  // platform edit sittings and change notices.
+  '20260930150000_event_full_control',
+  // Events imported from another site: the platform-held organisation column
+  // and its no-members trigger, nights with no listed end, and three tables.
+  '20260930160000_event_imports',
+  // Indexes on the four foreign keys into tiers and nights that had none, so a
+  // tier's or a night's deletion stops reading every order line, hold line and
+  // order. Building them over tables that already hold rows is the upgrade case.
+  '20261008090000_foreign_key_indexes',
+  // SPEC3: the refund reason for a booking fee refunded by hand, alone (a new
+  // enum label is not used in the transaction that adds it).
+  '20261009090000_refund_reason_booking_fee',
+  // Per-event booking fees and referral codes: the Event and Order columns over
+  // existing rows, the backfill of each order's fee terms from its snapshot,
+  // and the CHECKs every existing row must already satisfy; with SPEC3-XI, the
+  // referral return marker and its trigger.
+  '20261009100000_payment_terms_and_referral_codes',
+  // Paying at the venue: the order, line and ticket columns over existing rows,
+  // the door's payment table, and the admission trigger replaced; with
+  // SPEC3-XI, the unpaid-cancellation table, columns and triggers, and the
+  // sold-count CHECK validated over existing tiers.
+  '20261009110000_pay_at_the_venue',
+])
+
+/**
+ * The first migration written against the schema the API at a6bd5e4 wrote to.
+ *
+ * The generic filler runs once, before Phase 2, and gives every column its
+ * default — so every backfill after this point used to match no row at all,
+ * and a data change that went wrong passed. {@link seedLegacyRows} puts in the
+ * rows that API could really write, just before this migration, and
+ * {@link checkLegacyBackfills} checks what the migrations made of them.
+ */
+const FIRST_FEATURE_MIGRATION = '20260928090000_event_authoring_content_and_tier_rules'
+
+/**
+ * Rows put in immediately before one migration, because that migration
+ * rewrites them.
+ *
+ * {@link seedLegacyRows} runs once, before the first feature migration, which
+ * is right for the backfills written against the schema of that moment. A later
+ * migration that rewrites a column added after that moment needs its rows put
+ * in against the schema just before it runs, and nothing else can: the column
+ * it reads did not exist earlier, and the generic filler gives every column its
+ * default. Each fixture receives a fresh client connected to the upgrading
+ * database, writes with SQL against the schema as it stands, and returns the
+ * rows it added per table so the row-count comparison can expect them. What the
+ * migration made of them is checked by {@link checkSpec2Backfills}.
+ *
+ * @type {Readonly<Record<string, function(object): Promise<Record<string, number>>>>}
+ */
+const BEFORE_MIGRATION_FIXTURES = Object.freeze({
+  // Two waiting team invitations for the filler's organisation: one to a role
+  // that posts events, which the migration withdraws, and one it leaves alone.
+  '20260930100000_organiser_invitations_and_review_gate': async (prisma) => {
+    for (const [id, role, email] of LEGACY_TEAM_INVITATIONS) {
+      await prisma.$executeRawUnsafe(
+        'INSERT INTO "Invitation" ("id", "organizationId", "email", "role", "tokenHash", ' +
+          '"invitedById", "status", "deliveryMode", "createdAt", "expiresAt") VALUES (' +
+          `'${id}', 'upgrade-fixture-Organization', '${email}', '${role}', '${id}-digest', ` +
+          "'upgrade-fixture-User', 'PENDING', 'MANUAL', '2026-09-20T10:00:00Z', " +
+          "'2026-10-04T10:00:00Z')",
+      )
+    }
+
+    return { Invitation: LEGACY_TEAM_INVITATIONS.length }
+  },
+  // The filler's event cloned once per legacy website value, each with its own
+  // id and slug, carrying the socialLinks the case is about.
+  '20260930120000_event_website_link': async (prisma) => {
+    const columns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'Event' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+
+    for (const legacy of LEGACY_WEBSITES) {
+      const literal = (text) => `'${text.replaceAll("'", "''")}'`
+      const values = columns.map((column) => {
+        if (column === 'id' || column === 'slug') return literal(legacy.id)
+        if (column === 'socialLinks') return `${literal(JSON.stringify(legacy.socialLinks))}::jsonb`
+
+        return `"${column}"`
+      })
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Event" (${columns.map((column) => `"${column}"`).join(', ')}) ` +
+          `SELECT ${values.join(', ')} FROM "Event" WHERE "id" = 'upgrade-fixture-Event'`,
+      )
+    }
+
+    const [{ n }] = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM "Event" WHERE "id" LIKE 'legacy-website-%'`,
+    )
+    if (n !== LEGACY_WEBSITES.length) {
+      throw new Error(`expected ${LEGACY_WEBSITES.length} cloned events, found ${n}`)
+    }
+
+    return { Event: LEGACY_WEBSITES.length }
+  },
+  // A night cancelled before nights carried a cancellation stamp: the legacy
+  // first night cloned with status CANCELLED and a known updatedAt, which the
+  // migration's backfill must copy into cancelledAt before its CHECK goes on.
+  '20260930150000_event_full_control': async (prisma) => {
+    const columns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'EventSession' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+    const values = columns.map((column) => {
+      if (column === 'id') return `'${LEGACY_CANCELLED_NIGHT.id}'`
+      if (column === 'status') return "'CANCELLED'"
+      if (column === 'updatedAt') return `'${LEGACY_CANCELLED_NIGHT.updatedAt}'`
+
+      return `"${column}"`
+    })
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "EventSession" (${columns.map((column) => `"${column}"`).join(', ')}) ` +
+        `SELECT ${values.join(', ')} FROM "EventSession" WHERE "id" = '${LEGACY_CANCELLED_NIGHT.from}'`,
+    )
+
+    const [{ n }] = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM "EventSession" WHERE "id" = '${LEGACY_CANCELLED_NIGHT.id}' ` +
+        `AND "status" = 'CANCELLED'`,
+    )
+    if (n !== 1) throw new Error(`expected the cancelled night to be cloned, found ${n}`)
+
+    return { EventSession: 1 }
+  },
+  // Orders placed before the payment-terms migration, each cloned from the
+  // filler's: one whose snapshot carries the site default's terms (5.90% +
+  // $0.99, a $3.35 fee on $40), one with no snapshot and no fee, and one whose
+  // snapshot carries a percentage that is not a whole number, which the
+  // backfill must leave unrecorded rather than fail on.
+  '20261009100000_payment_terms_and_referral_codes': async (prisma) => {
+    const columns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'Order' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+
+    for (const legacy of LEGACY_FEE_ORDERS) {
+      const literal = (text) => `'${text.replaceAll("'", "''")}'`
+      const values = columns.map((column) => {
+        if (column === 'id' || column === 'reference') return literal(legacy.id)
+        if (column === 'idempotencyKey') return 'NULL'
+        if (column === 'pricingSnapshot') {
+          return legacy.snapshot === null
+            ? 'NULL'
+            : `${literal(JSON.stringify(legacy.snapshot))}::jsonb`
+        }
+        if (column === 'subtotalCents') return String(legacy.subtotalCents)
+        if (column === 'feesCents') return String(legacy.feesCents)
+        if (column === 'totalCents') return String(legacy.subtotalCents + legacy.feesCents)
+
+        return `"${column}"`
+      })
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Order" (${columns.map((column) => `"${column}"`).join(', ')}) ` +
+          `SELECT ${values.join(', ')} FROM "Order" WHERE "id" = 'upgrade-fixture-Order'`,
+      )
+    }
+
+    const [{ n }] = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM "Order" WHERE "id" LIKE 'legacy-fee-order-%'`,
+    )
+    if (n !== LEGACY_FEE_ORDERS.length) {
+      throw new Error(`expected ${LEGACY_FEE_ORDERS.length} cloned orders, found ${n}`)
+    }
+
+    return { Order: LEGACY_FEE_ORDERS.length }
+  },
+})
+
+/**
+ * Orders cloned before the payment-terms migration, and the fee terms its
+ * backfill must record for each (null when the snapshot carries none usable).
+ */
+const LEGACY_FEE_ORDERS = Object.freeze([
+  {
+    id: 'legacy-fee-order-snapshot',
+    snapshot: {
+      currency: 'USD',
+      feeConfig: { percentageBps: 590, flatCents: 99, currency: 'USD' },
+      tax: { jurisdiction: 'US', rateBps: 0, source: 'DEMO' },
+    },
+    subtotalCents: 4000,
+    feesCents: 335,
+    percentageBps: 590,
+    flatCentsPerTicket: 99,
+  },
+  {
+    id: 'legacy-fee-order-none',
+    snapshot: null,
+    subtotalCents: 4000,
+    feesCents: 0,
+    percentageBps: null,
+    flatCentsPerTicket: null,
+  },
+  {
+    id: 'legacy-fee-order-fractional',
+    snapshot: {
+      currency: 'USD',
+      feeConfig: { percentageBps: 590.5, flatCents: 99, currency: 'USD' },
+    },
+    subtotalCents: 4000,
+    feesCents: 335,
+    percentageBps: null,
+    flatCentsPerTicket: null,
+  },
+])
+
+/**
+ * The night cloned before the full-control migration with status CANCELLED, and
+ * the `updatedAt` its backfilled `cancelledAt` must equal.
+ */
+const LEGACY_CANCELLED_NIGHT = Object.freeze({
+  id: 'legacy-night-cancelled',
+  from: 'legacy-night-1',
+  updatedAt: '2026-09-20T12:34:56.000Z',
+})
+
+/** Waiting team invitations before the posting-role rule: id, role, address. */
+const LEGACY_TEAM_INVITATIONS = Object.freeze([
+  ['upgrade-invite-admin', 'ADMIN', 'posting.role@example.test'],
+  ['upgrade-invite-staff', 'STAFF', 'staff.role@example.test'],
+])
+
+/**
+ * Legacy `socialLinks.website` values, and what the website migration must make
+ * of each: the stored address, or null when the value is dropped.
+ */
+const LEGACY_WEBSITES = Object.freeze([
+  {
+    id: 'legacy-website-mixed-case',
+    socialLinks: { website: 'HTTPS://Example.ORG', instagram: 'https://instagram.com/x' },
+    carried: 'https://example.org/',
+  },
+  {
+    id: 'legacy-website-sign-in',
+    socialLinks: { website: 'https://u:p@a.example/' },
+    carried: null,
+  },
+  { id: 'legacy-website-port', socialLinks: { website: 'https://a.example:8443/' }, carried: null },
+  { id: 'legacy-website-ip', socialLinks: { website: 'https://1.2.3.4/' }, carried: null },
+  { id: 'legacy-website-null', socialLinks: { website: null }, carried: null },
+  {
+    id: 'legacy-website-token',
+    socialLinks: { website: 'https://a.example/?token=x' },
+    carried: 'https://a.example/?token=x',
+  },
+  { id: 'legacy-website-pipe', socialLinks: { website: 'https://a.example/a|b' }, carried: null },
+  {
+    id: 'legacy-website-dot-segment',
+    socialLinks: { website: 'https://a.example/x/../y' },
+    carried: null,
+  },
 ])
 
 /**
@@ -416,17 +726,12 @@ function literalFor(column, table, index, identifiers, references, enums) {
 }
 
 /**
- * Put one row in every table, in an order that satisfies the foreign keys.
- *
- * Every NOT NULL column without a default gets a value; everything else is left
- * to the database, so a defaulted column that stops being defaulted shows up
- * here as a failure rather than as a silently different row.
+ * Every enum type's labels, in their declared order.
  *
  * @param {object} prisma A client connected to the disposable database.
- * @returns {Promise<{filled: string[], skipped: object[]}>} What was filled and what was not.
+ * @returns {Promise<Map<string, string[]>>} Labels by type name.
  */
-async function populate(prisma) {
-  const tables = await describe(prisma)
+async function enumLabels(prisma) {
   const enumRows = await prisma.$queryRawUnsafe(
     'SELECT type.typname AS name, label.enumlabel AS label FROM pg_enum label ' +
       'JOIN pg_type type ON type.oid = label.enumtypid ORDER BY label.enumsortorder',
@@ -438,6 +743,23 @@ async function populate(prisma) {
     if (!enums.has(row.name)) enums.set(row.name, [])
     enums.get(row.name).push(row.label)
   }
+
+  return enums
+}
+
+/**
+ * Put one row in every table, in an order that satisfies the foreign keys.
+ *
+ * Every NOT NULL column without a default gets a value; everything else is left
+ * to the database, so a defaulted column that stops being defaulted shows up
+ * here as a failure rather than as a silently different row.
+ *
+ * @param {object} prisma A client connected to the disposable database.
+ * @returns {Promise<{filled: string[], skipped: object[]}>} What was filled and what was not.
+ */
+async function populate(prisma) {
+  const tables = await describe(prisma)
+  const enums = await enumLabels(prisma)
 
   /** @type {Map<string, string>} */
   const identifiers = new Map()
@@ -486,6 +808,1275 @@ async function populate(prisma) {
   }
 
   return { filled, skipped }
+}
+
+/** A 2000-character tier description: longer than today's limit, and legal before it. */
+const LONG_DESCRIPTION = 'A long tier description. '.repeat(80)
+
+/** A cover address with a password, a signature and a fragment, as an organiser could paste one. */
+const SIGNED_COVER = 'https://photos:hunter2@img.example.net/c/42.png?X-Amz-Signature=deadbeef#top'
+
+/** A plain cover address. */
+const PLAIN_COVER = 'https://cdn.example.com/covers/garba-night.jpg'
+
+/**
+ * Put in the rows the API at a6bd5e4 could write and the feature migrations
+ * rewrite: the data their backfills exist for.
+ *
+ * Each row names only the columns the case is about; every other NOT NULL
+ * column is filled the way {@link populate} fills it, and foreign keys point at
+ * its rows. Two reserved tiers on one session and zone are not among them: the
+ * API at a6bd5e4 refused that pair, and the migration refuses it by design.
+ *
+ * @param {object} prisma A client connected to the disposable database.
+ * @param {string[]} filled The tables {@link populate} put a row in.
+ * @returns {Promise<{added: Record<string, number>, refused: object[]}>} Rows added per table, and any refused.
+ */
+async function seedLegacyRows(prisma, filled) {
+  const tables = await describe(prisma)
+  const enums = await enumLabels(prisma)
+  const identifiers = new Map(filled.map((table) => [table, `upgrade-fixture-${table}`]))
+  /** @type {Record<string, number>} */
+  const added = {}
+  const refused = []
+  let index = 1000
+
+  /**
+   * Insert one row: the given literals, and the filler's for the rest.
+   *
+   * @param {string} table The table.
+   * @param {Record<string, string>} given Column to SQL literal; must name `id`.
+   * @returns {Promise<void>} Resolves once inserted, or recorded as refused.
+   */
+  const insert = async (table, given) => {
+    const { columns, references } = tables.get(table)
+    const names = []
+    const values = []
+    index += 1
+
+    for (const column of columns) {
+      const literal =
+        given[column.column_name] ??
+        literalFor(column, table, index, identifiers, references, enums)
+
+      if (literal === null) continue
+      names.push(`"${column.column_name}"`)
+      values.push(literal)
+    }
+
+    try {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "${table}" (${names.join(', ')}) VALUES (${values.join(', ')})`,
+      )
+      added[table] = (added[table] ?? 0) + 1
+    } catch (error) {
+      refused.push({
+        table,
+        id: given.id,
+        reason: String(error?.message ?? error)
+          .replace(/\s+/g, ' ')
+          .slice(0, 200),
+      })
+    }
+  }
+
+  const quote = (text) => `'${text.replaceAll("'", "''")}'`
+  const event = "'upgrade-fixture-Event'"
+  const organization = "'upgrade-fixture-Organization'"
+
+  // Events: a line-up to become performers, and two cover addresses to drop.
+  await insert('Event', {
+    id: "'legacy-event-lineup'",
+    slug: "'legacy-event-lineup'",
+    artists: "ARRAY['Falguni Pathak', 'Aishwarya Majmudar']::text[]",
+    coverImageUrl: quote(PLAIN_COVER),
+  })
+  await insert('Event', {
+    id: "'legacy-event-signed-cover'",
+    slug: "'legacy-event-signed-cover'",
+    coverImageUrl: quote(SIGNED_COVER),
+  })
+
+  // Tiers: a comp, bounds over the ceiling, a blank and a long description.
+  await insert('TicketType', {
+    id: "'legacy-tier-comp'",
+    eventId: event,
+    name: "'Legacy comp'",
+    complimentary: 'true',
+    priceCents: '0',
+  })
+  await insert('TicketType', {
+    id: "'legacy-tier-public'",
+    eventId: event,
+    name: "'Legacy public'",
+    complimentary: 'false',
+  })
+  await insert('TicketType', {
+    id: "'legacy-tier-bounds'",
+    eventId: event,
+    name: "'Legacy bounds'",
+    minPerOrder: '60',
+    maxPerOrder: '100',
+  })
+  await insert('TicketType', {
+    id: "'legacy-tier-blank'",
+    eventId: event,
+    name: "'Legacy blank description'",
+    description: "''",
+  })
+  await insert('TicketType', {
+    id: "'legacy-tier-long'",
+    eventId: event,
+    name: "'Legacy long description'",
+    description: quote(LONG_DESCRIPTION),
+  })
+
+  // Invitations: two live ones to one address in different case, and another.
+  const invitation = (id, email, createdAt) =>
+    insert('Invitation', {
+      id: `'${id}'`,
+      organizationId: organization,
+      email: quote(email),
+      role: "'STAFF'",
+      tokenHash: `'${id}-digest'`,
+      invitedById: "'upgrade-fixture-User'",
+      status: "'PENDING'",
+      expiresAt: "'2027-01-01T00:00:00Z'",
+      createdAt: `'${createdAt}'`,
+    })
+
+  await invitation('legacy-invite-older', 'Asha.Rao@Example.com', '2026-09-01T10:00:00Z')
+  await invitation('legacy-invite-newer', 'asha.rao@example.com', '2026-09-02T10:00:00Z')
+  await invitation('legacy-invite-other', 'ben@example.com', '2026-09-01T10:00:00Z')
+
+  // Promo codes outside the ranges the new CHECKs hold them to.
+  const promo = (id, fields) =>
+    insert('PromoCode', {
+      id: `'${id}'`,
+      organizationId: organization,
+      code: `'${id.toUpperCase()}'`,
+      type: "'PERCENTAGE'",
+      value: '1000',
+      ...fields,
+    })
+
+  await promo('legacy-promo-pct-currency', { currency: "'USD'" })
+  await promo('legacy-promo-pct-over', { value: '15000' })
+  await promo('legacy-promo-negative', {
+    type: "'FIXED_AMOUNT'",
+    value: '-500',
+    currency: "'USD'",
+  })
+  await promo('legacy-promo-negative-count', { redemptionCount: '-2' })
+  await promo('legacy-promo-cap-zero', { maxRedemptions: '0', redemptionCount: '0' })
+  await promo('legacy-promo-over-cap', { maxRedemptions: '5', redemptionCount: '7' })
+  await promo('legacy-promo-window', {
+    startsAt: "'2026-10-02T00:00:00Z'",
+    endsAt: "'2026-10-01T00:00:00Z'",
+  })
+
+  // Admissions as the API at a6bd5e4 recorded them: no night, and a pass good
+  // for every night CHECKED_IN at its first. `20260929100000_check_in_per_night`
+  // gives each a night and lets the passes in again on the others.
+  await seedLegacyAdmissions(insert, prisma)
+
+  return { added, refused }
+}
+
+/** Nights of the three-night legacy event, and the one-night one. */
+const LEGACY_NIGHTS = Object.freeze({
+  one: {
+    id: 'legacy-night-1',
+    startsAt: '2026-10-01T18:00:00Z',
+    endsAt: '2026-10-01T23:00:00Z',
+    doorsOpenAt: '2026-10-01T17:00:00Z',
+  },
+  two: {
+    id: 'legacy-night-2',
+    startsAt: '2026-10-02T18:00:00Z',
+    endsAt: '2026-10-02T23:00:00Z',
+    doorsOpenAt: null,
+  },
+  three: {
+    id: 'legacy-night-3',
+    startsAt: '2026-10-03T18:00:00Z',
+    endsAt: '2026-10-03T23:00:00Z',
+    doorsOpenAt: null,
+  },
+  only: {
+    id: 'legacy-night-only',
+    startsAt: '2026-10-05T18:00:00Z',
+    endsAt: '2026-10-05T23:00:00Z',
+    doorsOpenAt: null,
+  },
+})
+
+/**
+ * The legacy admissions, each with the ticket it admitted and where its scan
+ * falls, and what the per-night migration should make of it.
+ *
+ * `night` is the night the admission should end up on (null: left without
+ * one), `chosenBy` how, and `status` the ticket's status afterwards.
+ */
+const LEGACY_ADMISSIONS = Object.freeze([
+  // A pass scanned after night 1's doors opened: night 1, by its window.
+  {
+    ticket: 'legacy-ticket-pass-window',
+    tier: 'legacy-tier-every-night',
+    scannedAt: '2026-10-01T17:30:00Z',
+    finally: 'CHECKED_IN',
+    night: 'legacy-night-1',
+    chosenBy: 'WINDOW',
+    status: 'VALID',
+  },
+  // A pass scanned between nights, nearer night 2's start than night 1's end.
+  {
+    ticket: 'legacy-ticket-pass-nearest',
+    tier: 'legacy-tier-every-night',
+    scannedAt: '2026-10-02T12:00:00Z',
+    finally: 'CHECKED_IN',
+    night: 'legacy-night-2',
+    chosenBy: 'NEAREST',
+    status: 'VALID',
+  },
+  // A night-2 ticket let in during night 1's window: its own night wins, and it admitted once.
+  {
+    ticket: 'legacy-ticket-night-two',
+    tier: 'legacy-tier-night-two',
+    scannedAt: '2026-10-01T20:00:00Z',
+    finally: 'CHECKED_IN',
+    night: 'legacy-night-2',
+    chosenBy: 'OWN_NIGHT',
+    status: 'CHECKED_IN',
+  },
+  // A pass let in and refunded since: it gets its night, and stays refunded.
+  {
+    ticket: 'legacy-ticket-pass-refunded',
+    tier: 'legacy-tier-every-night',
+    scannedAt: '2026-10-01T19:00:00Z',
+    finally: 'REFUNDED',
+    night: 'legacy-night-1',
+    chosenBy: 'WINDOW',
+    status: 'REFUNDED',
+  },
+  // An admission on an event of one night needs no night, and is left alone.
+  {
+    ticket: 'legacy-ticket-one-night',
+    tier: 'legacy-tier-one-night',
+    scannedAt: '2026-10-05T19:00:00Z',
+    finally: 'CHECKED_IN',
+    night: null,
+    chosenBy: null,
+    status: 'CHECKED_IN',
+  },
+])
+
+/** How many audit rows the per-night migration writes for them: one per ticket it touches. */
+const LEGACY_ADMISSION_AUDITS = LEGACY_ADMISSIONS.filter((admission) => admission.night).length
+
+/**
+ * Put in a three-night event and a one-night one, with tickets let in the way
+ * the API at a6bd5e4 let them in: a `CheckIn` with no night, and the ticket
+ * moved to CHECKED_IN (then, for one, to REFUNDED).
+ *
+ * @param {function(string, Record<string, string>): Promise<void>} insert The row writer from {@link seedLegacyRows}.
+ * @param {object} prisma A client connected to the disposable database.
+ * @returns {Promise<void>} Resolves once every row is in or recorded as refused.
+ */
+async function seedLegacyAdmissions(insert, prisma) {
+  const at = (value) => (value ? `'${value}'` : 'NULL')
+
+  await insert('Event', {
+    id: "'legacy-event-nights'",
+    slug: "'legacy-event-nights'",
+    startsAt: at(LEGACY_NIGHTS.one.startsAt),
+    endsAt: at(LEGACY_NIGHTS.three.endsAt),
+  })
+  await insert('Event', {
+    id: "'legacy-event-one-night'",
+    slug: "'legacy-event-one-night'",
+    startsAt: at(LEGACY_NIGHTS.only.startsAt),
+    endsAt: at(LEGACY_NIGHTS.only.endsAt),
+  })
+
+  for (const [key, night] of Object.entries(LEGACY_NIGHTS)) {
+    await insert('EventSession', {
+      id: `'${night.id}'`,
+      eventId: key === 'only' ? "'legacy-event-one-night'" : "'legacy-event-nights'",
+      startsAt: at(night.startsAt),
+      endsAt: at(night.endsAt),
+      doorsOpenAt: at(night.doorsOpenAt),
+      venueMapVersionId: 'NULL',
+      capacity: 'NULL',
+    })
+  }
+
+  const tier = (id, eventId, night) =>
+    insert('TicketType', {
+      id: `'${id}'`,
+      eventId: `'${eventId}'`,
+      name: `'${id}'`,
+      eventSessionId: at(night),
+      priceZoneId: 'NULL',
+      complimentary: 'false',
+    })
+
+  await tier('legacy-tier-every-night', 'legacy-event-nights', null)
+  await tier('legacy-tier-night-two', 'legacy-event-nights', 'legacy-night-2')
+  await tier('legacy-tier-one-night', 'legacy-event-one-night', null)
+
+  for (const eventId of ['legacy-event-nights', 'legacy-event-one-night']) {
+    await insert('Order', {
+      id: `'${eventId}-order'`,
+      eventId: `'${eventId}'`,
+      reference: `'${eventId.toUpperCase()}'`,
+      status: "'PAID'",
+      promoCodeId: 'NULL',
+      eventSessionId: 'NULL',
+    })
+  }
+
+  for (const admission of LEGACY_ADMISSIONS) {
+    const eventId =
+      admission.tier === 'legacy-tier-one-night' ? 'legacy-event-one-night' : 'legacy-event-nights'
+
+    await insert('OrderItem', {
+      id: `'${admission.ticket}-item'`,
+      orderId: `'${eventId}-order'`,
+      ticketTypeId: `'${admission.tier}'`,
+      quantity: '1',
+    })
+    await insert('Ticket', {
+      id: `'${admission.ticket}'`,
+      orderItemId: `'${admission.ticket}-item'`,
+      status: "'VALID'",
+      eventSeatId: 'NULL',
+      supersedesTicketId: 'NULL',
+      transferredFromId: 'NULL',
+    })
+    await insert('CheckIn', {
+      id: `'${admission.ticket}-admission'`,
+      ticketId: `'${admission.ticket}'`,
+      eventSessionId: 'NULL',
+      scannedAt: at(admission.scannedAt),
+    })
+
+    // What the old API did next: the ticket admitted, so it was used up.
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Ticket" SET "status" = 'CHECKED_IN', "checkedInAt" = '${admission.scannedAt}' WHERE "id" = '${admission.ticket}'`,
+    )
+
+    if (admission.finally !== 'CHECKED_IN') {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "Ticket" SET "status" = '${admission.finally}' WHERE "id" = '${admission.ticket}'`,
+      )
+    }
+  }
+}
+
+/**
+ * Check what the feature migrations made of the rows {@link seedLegacyRows} put in.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkLegacyBackfills(prisma) {
+  let ok = true
+  const one = async (sql) => (await prisma.$queryRawUnsafe(sql))[0] ?? null
+  const tiers = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "id", "visibility"::text AS visibility, "minPerOrder", "maxPerOrder", ' +
+          'char_length("description") AS "descriptionLength", "description" IS NULL AS "noDescription" ' +
+          `FROM "TicketType" WHERE "id" LIKE 'legacy-tier-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+
+  ok =
+    record(
+      'a complimentary tier written before the migration is hidden, and a paid one is not',
+      tiers['legacy-tier-comp']?.visibility === 'HIDDEN' &&
+        tiers['legacy-tier-public']?.visibility === 'PUBLIC',
+      {
+        note: `comp ${tiers['legacy-tier-comp']?.visibility}, paid ${tiers['legacy-tier-public']?.visibility}`,
+      },
+    ) && ok
+
+  const bounds = tiers['legacy-tier-bounds']
+  ok =
+    record(
+      'per-order bounds of 60 to 100 are clamped to the ceiling of 50',
+      bounds?.minPerOrder === 50 && bounds?.maxPerOrder === 50,
+      { note: `${bounds?.minPerOrder} to ${bounds?.maxPerOrder}` },
+    ) && ok
+
+  ok =
+    record(
+      'a blank tier description becomes no description',
+      tiers['legacy-tier-blank']?.noDescription === true,
+      { note: `NULL=${tiers['legacy-tier-blank']?.noDescription}` },
+    ) && ok
+
+  // Kept whole, and a sale on its tier still records: the 500-character limit
+  // is checked only when the text itself changes.
+  let sold = 0
+  try {
+    sold = await prisma.$executeRawUnsafe(
+      `UPDATE "TicketType" SET "quantitySold" = "quantitySold" + 1 WHERE "id" = 'legacy-tier-long'`,
+    )
+  } catch {
+    sold = 0
+  }
+  ok =
+    record(
+      'a legacy 2000-character description is kept, and a sale on its tier still records',
+      Number(tiers['legacy-tier-long']?.descriptionLength) === LONG_DESCRIPTION.length &&
+        sold === 1,
+      { note: `${tiers['legacy-tier-long']?.descriptionLength} characters, ${sold} row updated` },
+    ) && ok
+
+  const lineup = await one(`SELECT "performers" FROM "Event" WHERE "id" = 'legacy-event-lineup'`)
+  const unbilled = await one(
+    `SELECT "performers" FROM "Event" WHERE "id" = 'legacy-event-signed-cover'`,
+  )
+  ok =
+    record(
+      'the line-up becomes performers in billing order, and no line-up stays none',
+      JSON.stringify(lineup?.performers) ===
+        JSON.stringify([{ name: 'Falguni Pathak' }, { name: 'Aishwarya Majmudar' }]) &&
+        unbilled?.performers === null,
+      { note: JSON.stringify(lineup?.performers) },
+    ) && ok
+
+  const invitations = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "id", "status"::text AS status, "revokedAt" IS NOT NULL AS revoked ' +
+          `FROM "Invitation" WHERE "id" LIKE 'legacy-invite-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+  ok =
+    record(
+      'of two live invitations to one address in different case, the older is withdrawn',
+      invitations['legacy-invite-older']?.status === 'REVOKED' &&
+        invitations['legacy-invite-older']?.revoked === true &&
+        invitations['legacy-invite-newer']?.status === 'PENDING' &&
+        invitations['legacy-invite-other']?.status === 'PENDING',
+      {
+        note: ['older', 'newer', 'other']
+          .map((key) => `${key} ${invitations[`legacy-invite-${key}`]?.status}`)
+          .join(', '),
+      },
+    ) && ok
+
+  const promos = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "id", "value", "currency", "redemptionCount", "maxRedemptions", "active", ' +
+          `"startsAt" FROM "PromoCode" WHERE "id" LIKE 'legacy-promo-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+  const expectations = {
+    'legacy-promo-pct-currency': (row) => row.currency === null && row.value === 1000,
+    'legacy-promo-pct-over': (row) => row.value === 10000,
+    'legacy-promo-negative': (row) => row.value === 0 && row.currency === 'USD',
+    'legacy-promo-negative-count': (row) => row.redemptionCount === 0,
+    'legacy-promo-cap-zero': (row) => row.active === false && row.maxRedemptions === 1,
+    'legacy-promo-over-cap': (row) =>
+      row.active === true && row.maxRedemptions === 7 && row.redemptionCount === 7,
+    'legacy-promo-window': (row) => row.active === false && row.startsAt === null,
+  }
+  const wrong = Object.entries(expectations)
+    .filter(([id, holds]) => !promos[id] || !holds(promos[id]))
+    .map(([id]) => id)
+  ok =
+    record(
+      'promo codes out of range are brought into range without opening one that was closed',
+      wrong.length === 0,
+      {
+        wrong,
+        note: `${Object.keys(expectations).length - wrong.length} of ${Object.keys(expectations).length} as expected`,
+      },
+    ) && ok
+
+  ok = (await checkLegacyAdmissions(prisma)) && ok
+
+  const dropped = await prisma.$queryRawUnsafe(
+    'SELECT "entityId", "entityType", "actorId", "metadata" FROM "AuditLog" ' +
+      `WHERE "action" = 'event.cover_address_dropped' ORDER BY "entityId"`,
+  )
+  const kept = Object.fromEntries(dropped.map((row) => [row.entityId, row]))
+  const keptText = JSON.stringify(dropped)
+  ok =
+    record(
+      'every dropped cover address is kept in an audit row, without its password or signature',
+      dropped.length === 2 &&
+        dropped.every((row) => row.entityType === 'Event' && row.actorId === null) &&
+        kept['legacy-event-lineup']?.metadata?.coverImageUrl === PLAIN_COVER &&
+        kept['legacy-event-signed-cover']?.metadata?.coverImageUrl ===
+          'https://img.example.net/c/42.png' &&
+        dropped.every((row) => row.metadata?.organizationId === 'upgrade-fixture-Organization') &&
+        !/hunter2|Signature|deadbeef/u.test(keptText),
+      { note: dropped.map((row) => `${row.entityId}: ${row.metadata?.coverImageUrl}`).join('; ') },
+    ) && ok
+
+  return ok
+}
+
+/**
+ * Check what `20260929100000_check_in_per_night` made of the legacy admissions.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkLegacyAdmissions(prisma) {
+  let ok = true
+  const rows = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT t."id", t."status"::text AS status, t."checkedInAt", c."eventSessionId" AS night ' +
+          'FROM "Ticket" t JOIN "CheckIn" c ON c."ticketId" = t."id" ' +
+          `WHERE t."id" LIKE 'legacy-ticket-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+  const wrong = LEGACY_ADMISSIONS.filter(({ ticket, night, status }) => {
+    const row = rows[ticket]
+
+    return (
+      !row ||
+      row.night !== night ||
+      row.status !== status ||
+      // A pass let in again keeps no checkedInAt, as the new rules leave it.
+      (status === 'VALID' && row.checkedInAt !== null)
+    )
+  }).map(({ ticket }) => ticket)
+
+  ok =
+    record(
+      'every admission before per-night admission has its night, and a pass let in on one night admits on the others',
+      wrong.length === 0,
+      {
+        wrong,
+        note: LEGACY_ADMISSIONS.map(
+          ({ ticket }) => `${ticket}: ${rows[ticket]?.night ?? 'no night'} ${rows[ticket]?.status}`,
+        ).join('; '),
+      },
+    ) && ok
+
+  const audits = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "entityId", "entityType", "actorId", "metadata" FROM "AuditLog" ' +
+          `WHERE "action" = 'ticket.admission_night_backfilled'`,
+      )
+    ).map((row) => [row.entityId, row]),
+  )
+  const expected = LEGACY_ADMISSIONS.filter((admission) => admission.night)
+  const unaudited = expected
+    .filter(({ ticket, night, chosenBy, status }) => {
+      const audit = audits[ticket]
+
+      return (
+        !audit ||
+        audit.entityType !== 'Ticket' ||
+        audit.actorId !== null ||
+        audit.metadata?.eventSessionId !== night ||
+        audit.metadata?.chosenBy !== chosenBy ||
+        audit.metadata?.checkInId !== `${ticket}-admission` ||
+        audit.metadata?.restoredToValid !== (status === 'VALID') ||
+        (status === 'VALID' && !audit.metadata?.previousCheckedInAt)
+      )
+    })
+    .map(({ ticket }) => ticket)
+
+  ok =
+    record(
+      'each admission given a night is in the audit log, with how its night was chosen and any old checkedInAt',
+      unaudited.length === 0 && Object.keys(audits).length === expected.length,
+      { unaudited, note: `${Object.keys(audits).length} audit rows` },
+    ) && ok
+
+  // The point of it all: the pass let in on night 1 before the migration is
+  // let in on night 2 now, under the new trigger, and not twice on night 1.
+  let again = 'refused'
+  let twice = 'refused'
+  try {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "CheckIn" ("id", "ticketId", "eventSessionId") ` +
+        `VALUES ('legacy-pass-night-two', 'legacy-ticket-pass-window', 'legacy-night-2')`,
+    )
+    again = 'admitted'
+  } catch (error) {
+    again = String(error?.message ?? error)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 200)
+  }
+  try {
+    // ON CONFLICT DO NOTHING, so the unique key's refusal is a count of none
+    // rather than an error the client logs as though something broke.
+    const inserted = await prisma.$executeRawUnsafe(
+      `INSERT INTO "CheckIn" ("id", "ticketId", "eventSessionId") ` +
+        `VALUES ('legacy-pass-night-one-again', 'legacy-ticket-pass-window', 'legacy-night-1') ` +
+        'ON CONFLICT DO NOTHING',
+    )
+    twice = inserted === 0 ? 'refused' : 'admitted'
+  } catch {
+    twice = 'refused'
+  }
+
+  ok =
+    record(
+      'a pass let in on night 1 before the migration is let in on night 2 after it, and not twice on night 1',
+      again === 'admitted' && twice === 'refused',
+      { note: `night 2: ${again}; night 1 again: ${twice}` },
+    ) && ok
+
+  return ok
+}
+
+/**
+ * Check what the SPEC2 migrations made of the rows {@link BEFORE_MIGRATION_FIXTURES}
+ * put in, and what they left behind on a database that holds rows.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkSpec2Backfills(prisma) {
+  let ok = true
+
+  const labels = (
+    await prisma.$queryRawUnsafe(
+      'SELECT label.enumlabel AS label FROM pg_enum label JOIN pg_type type ON type.oid = label.enumtypid ' +
+        `WHERE type.typname = 'UserRole' ORDER BY label.enumsortorder`,
+    )
+  ).map((row) => row.label)
+  ok =
+    record(
+      'UserRole names ADMIN again, just below SUPER_ADMIN',
+      labels.includes('ADMIN') && labels.indexOf('ADMIN') === labels.indexOf('SUPER_ADMIN') - 1,
+      { note: labels.join(', ') },
+    ) && ok
+
+  const invitations = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "id", "status"::text AS status, "revokedAt" IS NOT NULL AS revoked ' +
+          `FROM "Invitation" WHERE "id" LIKE 'upgrade-invite-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+  const [rule] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM pg_constraint ' +
+      `WHERE conname = 'invitation_pending_role_is_owner_grantable'`,
+  )
+  const [posting] = await prisma.$queryRawUnsafe(
+    `SELECT count(*)::int AS n FROM "Invitation" WHERE "status" = 'PENDING' ` +
+      `AND "role" IN ('OWNER', 'ADMIN', 'MANAGER', 'EVENT_MANAGER')`,
+  )
+  ok =
+    record(
+      'a waiting team invitation to a role that posts events is withdrawn, and a STAFF one is not',
+      invitations['upgrade-invite-admin']?.status === 'REVOKED' &&
+        invitations['upgrade-invite-admin']?.revoked === true &&
+        invitations['upgrade-invite-staff']?.status === 'PENDING' &&
+        invitations['upgrade-invite-staff']?.revoked === false &&
+        rule.n === 1 &&
+        posting.n === 0,
+      {
+        note:
+          `ADMIN ${invitations['upgrade-invite-admin']?.status}, ` +
+          `STAFF ${invitations['upgrade-invite-staff']?.status}, ` +
+          `CHECK ${rule.n === 1 ? 'present' : 'missing'}, ${posting.n} waiting posting-role invitations`,
+      },
+    ) && ok
+
+  const websites = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "id", "websiteUrl", "websiteDecisionPending" AS pending, ' +
+          '"websiteSubmittedAt" IS NOT NULL AS submitted, "websiteRedirectEnabled" AS enabled, ' +
+          `"socialLinks" FROM "Event" WHERE "id" LIKE 'legacy-website-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+  const wrong = LEGACY_WEBSITES.filter((legacy) => {
+    const row = websites[legacy.id]
+    const carried = legacy.carried !== null
+
+    return (
+      !row ||
+      row.websiteUrl !== legacy.carried ||
+      row.pending !== carried ||
+      row.submitted !== carried ||
+      row.enabled !== false ||
+      row.socialLinks === null ||
+      'website' in row.socialLinks
+    )
+  }).map((legacy) => legacy.id)
+  const mixed = websites['legacy-website-mixed-case']
+  ok =
+    record(
+      'legacy website links are carried normalised and waiting, or dropped, and the key is gone',
+      wrong.length === 0 &&
+        JSON.stringify(mixed?.socialLinks) ===
+          JSON.stringify({ instagram: 'https://instagram.com/x' }),
+      {
+        wrong,
+        note: LEGACY_WEBSITES.map(
+          (legacy) =>
+            `${legacy.id.replace('legacy-website-', '')}: ${websites[legacy.id]?.websiteUrl ?? 'dropped'}`,
+        ).join('; '),
+      },
+    ) && ok
+
+  const [switchedOn] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM "Event" WHERE "websiteRedirectEnabled"',
+  )
+  ok =
+    record("no event's website link is on after the upgrade", switchedOn.n === 0, {
+      note: `${switchedOn.n} on`,
+    }) && ok
+
+  const triggers = (
+    await prisma.$queryRawUnsafe(
+      'SELECT tgname FROM pg_trigger WHERE NOT tgisinternal ' +
+        `AND tgname IN ('desi_event_status_requires_review', 'desi_event_website_change') ORDER BY tgname`,
+    )
+  ).map((row) => row.tgname)
+  ok =
+    record('the review-gate and website triggers exist', triggers.length === 2, {
+      note: triggers.join(', '),
+    }) && ok
+
+  const state = await prisma.$queryRawUnsafe(
+    'SELECT "id", "leaseOwner", "leaseExpiresAt", "lastCompletedAt" FROM "TrafficRollupState"',
+  )
+  const [visits] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "TrafficEvent")::int AS events, ' +
+      '(SELECT count(*) FROM "TrafficDaily")::int AS daily, ' +
+      '(SELECT count(*) FROM "TrafficSalt")::int AS salts',
+  )
+  ok =
+    record(
+      'the traffic roll-up has exactly one state row with no lease, and nothing is counted',
+      state.length === 1 &&
+        state[0].id === 'traffic-rollup' &&
+        state[0].leaseOwner === null &&
+        state[0].leaseExpiresAt === null &&
+        state[0].lastCompletedAt === null &&
+        visits.events === 0 &&
+        visits.daily === 0 &&
+        visits.salts === 0,
+      {
+        note: `${state.length} state row(s); ${visits.events} events, ${visits.daily} daily, ${visits.salts} salts`,
+      },
+    ) && ok
+
+  return ok
+}
+
+/**
+ * Check what the SPEC2-XI migrations (the DELETED status, full control of posted
+ * events, and imports) made of a database that holds rows.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkFullControlAndImportBackfills(prisma) {
+  let ok = true
+
+  const statuses = (
+    await prisma.$queryRawUnsafe(
+      'SELECT label.enumlabel AS label FROM pg_enum label JOIN pg_type type ON type.oid = label.enumtypid ' +
+        `WHERE type.typname = 'EventStatus' ORDER BY label.enumsortorder`,
+    )
+  ).map((row) => row.label)
+  const [deleted] = await prisma.$queryRawUnsafe(
+    `SELECT count(*)::int AS n FROM "Event" WHERE "status" = 'DELETED' ` +
+      'OR "deletedAt" IS NOT NULL OR "statusBeforeDeletion" IS NOT NULL',
+  )
+  ok =
+    record(
+      'EventStatus names DELETED last, and no existing event is deleted by the upgrade',
+      statuses.at(-1) === 'DELETED' && deleted.n === 0,
+      { note: `${statuses.join(', ')}; ${deleted.n} deleted` },
+    ) && ok
+
+  const nights = await prisma.$queryRawUnsafe(
+    'SELECT "id", "status"::text AS status, "cancelledAt", "updatedAt" FROM "EventSession"',
+  )
+  const cancelled = nights.find((night) => night.id === LEGACY_CANCELLED_NIGHT.id)
+  const wronglyStamped = nights.filter(
+    (night) => (night.status === 'CANCELLED') !== (night.cancelledAt !== null),
+  )
+  ok =
+    record(
+      'a night cancelled before the upgrade is stamped cancelled when it last changed, and no other night is',
+      cancelled?.cancelledAt instanceof Date &&
+        cancelled.cancelledAt.getTime() === cancelled.updatedAt.getTime() &&
+        cancelled.cancelledAt.toISOString() === LEGACY_CANCELLED_NIGHT.updatedAt &&
+        wronglyStamped.length === 0,
+      {
+        note:
+          `cancelledAt ${cancelled?.cancelledAt?.toISOString() ?? 'missing'}, ` +
+          `updatedAt ${cancelled?.updatedAt?.toISOString() ?? 'missing'}; ` +
+          `${wronglyStamped.length} of ${nights.length} nights mis-stamped`,
+      },
+    ) && ok
+
+  const coverIndexes = (
+    await prisma.$queryRawUnsafe(
+      "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname IN " +
+        "('MediaAsset_one_cover_per_event_key', 'MediaAsset_one_current_cover_per_event_key')",
+    )
+  ).map((row) => row.indexname)
+  ok =
+    record(
+      'the one-cover index is replaced by the one-current-cover index',
+      coverIndexes.length === 1 && coverIndexes[0] === 'MediaAsset_one_current_cover_per_event_key',
+      { note: coverIndexes.join(', ') || 'neither' },
+    ) && ok
+
+  const [gate] = await prisma.$queryRawUnsafe(
+    "SELECT pg_get_functiondef('desi_event_status_requires_review'::regproc) AS body",
+  )
+  const body = gate?.body ?? ''
+  ok =
+    record(
+      "the review gate keeps P's two refusals and restores only to desi_event_restore_target",
+      body.includes('only a review decision approves') &&
+        body.includes('it has not been approved') &&
+        body.includes('desi_event_restore_target'),
+      {
+        note: [
+          'only a review decision approves',
+          'it has not been approved',
+          'desi_event_restore_target',
+        ]
+          .map((phrase) => `${phrase}: ${body.includes(phrase) ? 'present' : 'missing'}`)
+          .join('; '),
+      },
+    ) && ok
+
+  const [held] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM "Organization" WHERE "platformHeldSource" IS NOT NULL',
+  )
+  const [unlisted] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM "EventSession" WHERE NOT "endTimeListed"',
+  )
+  ok =
+    record(
+      'no organisation is platform-held, and every night keeps the end time it was given',
+      held.n === 0 && unlisted.n === 0,
+      { note: `${held.n} platform-held organisations; ${unlisted.n} nights without a listed end` },
+    ) && ok
+
+  const memberGuards = (
+    await prisma.$queryRawUnsafe(
+      'SELECT tgrelid::regclass::text AS relation FROM pg_trigger WHERE NOT tgisinternal ' +
+        "AND tgname = 'desi_platform_held_has_no_members' ORDER BY 1",
+    )
+  ).map((row) => row.relation)
+  ok =
+    record(
+      'the platform-held no-members trigger guards memberships and team invitations',
+      memberGuards.length === 2 &&
+        memberGuards.includes('"Membership"') &&
+        memberGuards.includes('"Invitation"'),
+      { note: memberGuards.join(', ') || 'missing' },
+    ) && ok
+
+  const [imports] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "EventImportRun")::int AS runs, ' +
+      '(SELECT count(*) FROM "EventImportItem")::int AS items, ' +
+      '(SELECT count(*) FROM "EventImportImage")::int AS images, ' +
+      '(SELECT count(*) FROM "EventPlatformEdit")::int AS sittings, ' +
+      '(SELECT count(*) FROM "EventChangeNotice")::int AS notices',
+  )
+  ok =
+    record(
+      'the import tables, sittings and change notices start empty',
+      imports.runs === 0 &&
+        imports.items === 0 &&
+        imports.images === 0 &&
+        imports.sittings === 0 &&
+        imports.notices === 0,
+      {
+        note:
+          `${imports.runs} runs, ${imports.items} items, ${imports.images} images, ` +
+          `${imports.sittings} sittings, ${imports.notices} notices`,
+      },
+    ) && ok
+
+  return ok
+}
+
+/**
+ * Check what the SPEC3 migrations (booking fees, referral codes, paying at the
+ * venue) made of a database that holds rows: each order's fee terms read from
+ * its snapshot, every existing row a card order at the site default with
+ * nothing due at the door, the new tables empty, the admission trigger
+ * replaced with its old refusals kept, and the hand-on trigger unchanged.
+ * And what SPEC3-XI adds to the same two migrations: no order with a referral
+ * return marker, nothing cancelled unpaid and nothing kept, no kept-tax column
+ * anywhere, the sold-count CHECK validated over existing tiers, and the
+ * cancellation, due and referral triggers in place (the sums deferred).
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkPaymentTermsAndVenueBackfills(prisma) {
+  let ok = true
+
+  const reasons = (
+    await prisma.$queryRawUnsafe(
+      'SELECT label.enumlabel AS label FROM pg_enum label JOIN pg_type type ON type.oid = label.enumtypid ' +
+        `WHERE type.typname = 'RefundReason' ORDER BY label.enumsortorder`,
+    )
+  ).map((row) => row.label)
+  ok =
+    record('RefundReason names BOOKING_FEE', reasons.at(-1) === 'BOOKING_FEE', {
+      note: reasons.join(', '),
+    }) && ok
+
+  const legacyOrders = await prisma.$queryRawUnsafe(
+    'SELECT "id", "feesCents", "feeGrossCents", "feePercentageBps", "feeFlatCentsPerTicket" ' +
+      `FROM "Order" WHERE "id" LIKE 'legacy-fee-order-%'`,
+  )
+  const wrongTerms = LEGACY_FEE_ORDERS.filter((legacy) => {
+    const row = legacyOrders.find((order) => order.id === legacy.id)
+
+    return (
+      !row ||
+      row.feeGrossCents !== legacy.feesCents ||
+      row.feePercentageBps !== legacy.percentageBps ||
+      row.feeFlatCentsPerTicket !== legacy.flatCentsPerTicket
+    )
+  })
+  ok =
+    record(
+      "each order's gross fee is the fee it charged, and its terms are read from a usable snapshot only",
+      wrongTerms.length === 0,
+      {
+        note:
+          legacyOrders
+            .map(
+              (row) =>
+                `${row.id}: gross ${row.feeGrossCents}, ` +
+                `${row.feePercentageBps ?? 'null'} bps + ${row.feeFlatCentsPerTicket ?? 'null'}`,
+            )
+            .join('; ') || 'no legacy orders',
+      },
+    ) && ok
+
+  const [orders] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS total, ' +
+      `count(*) FILTER (WHERE "paymentMethod" <> 'CARD' OR "feeSource" <> 'SITE_DEFAULT' ` +
+      'OR "feeWaivedCents" <> 0 OR "feeGrossCents" <> "feesCents" OR "feeSettingId" IS NOT NULL ' +
+      'OR "referralCodeId" IS NOT NULL OR "venueDueCents" <> 0)::int AS changed FROM "Order"',
+  )
+  ok =
+    record(
+      'every existing order is a card order at the site default, with no waiver and nothing due at the door',
+      orders.total > 0 && orders.changed === 0,
+      { note: `${orders.changed} of ${orders.total} orders otherwise` },
+    ) && ok
+
+  const [events] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS total, ' +
+      `count(*) FILTER (WHERE "feeSource" <> 'SITE_DEFAULT' OR "feePercentageBps" IS NOT NULL ` +
+      'OR "feeFlatCentsPerTicket" IS NOT NULL OR "feeCurrency" IS NOT NULL OR "feeSettingId" IS NOT NULL ' +
+      'OR "venuePaymentEnabled" OR "venuePaymentLimit" IS NOT NULL OR "venuePaymentChangedAt" IS NOT NULL ' +
+      'OR "venuePaymentChangedById" IS NOT NULL OR "venuePaymentReason" IS NOT NULL)::int AS changed ' +
+      'FROM "Event"',
+  )
+  ok =
+    record(
+      'every existing event takes the site default fee, with paying at the venue off and no limit',
+      events.total > 0 && events.changed === 0,
+      { note: `${events.changed} of ${events.total} events otherwise` },
+    ) && ok
+
+  const [lines] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "OrderItem")::int AS lines, ' +
+      '(SELECT count(*) FROM "OrderItem" WHERE "venueDueCents" <> 0)::int AS "linesDue", ' +
+      '(SELECT count(*) FROM "Ticket")::int AS tickets, ' +
+      '(SELECT count(*) FROM "Ticket" WHERE "venueDueCents" <> 0 OR "venuePaymentId" IS NOT NULL)::int AS "ticketsDue"',
+  )
+  ok =
+    record(
+      'every existing order line and ticket owes nothing at the door and has no door payment',
+      lines.lines > 0 && lines.tickets > 0 && lines.linesDue === 0 && lines.ticketsDue === 0,
+      {
+        note:
+          `${lines.linesDue} of ${lines.lines} lines and ${lines.ticketsDue} of ` +
+          `${lines.tickets} tickets otherwise`,
+      },
+    ) && ok
+
+  const [tables] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "ReferralCode")::int AS codes, ' +
+      '(SELECT count(*) FROM "ReferralCodeEvent")::int AS scopes, ' +
+      '(SELECT count(*) FROM "EventFeeSetting")::int AS settings, ' +
+      '(SELECT count(*) FROM "EventVenuePaymentChange")::int AS changes, ' +
+      '(SELECT count(*) FROM "VenuePayment")::int AS payments',
+  )
+  ok =
+    record(
+      'the referral code, fee decision, switch change and door payment tables start empty',
+      tables.codes === 0 &&
+        tables.scopes === 0 &&
+        tables.settings === 0 &&
+        tables.changes === 0 &&
+        tables.payments === 0,
+      {
+        note:
+          `${tables.codes} codes, ${tables.scopes} scope rows, ${tables.settings} fee decisions, ` +
+          `${tables.changes} switch changes, ${tables.payments} door payments`,
+      },
+    ) && ok
+
+  const [admission] = await prisma.$queryRawUnsafe(
+    "SELECT pg_get_functiondef('desi_check_in_ticket_admissible'::regproc) AS body",
+  )
+  const admissionPhrases = [
+    'paid at the venue and its payment is not recorded',
+    'which does not admit',
+    'is for another night',
+    'is good for every night, so its admission names the night',
+    'admits once and was already admitted',
+  ]
+  const admissionBody = admission?.body ?? ''
+  ok =
+    record(
+      'the admission trigger refuses an unpaid ticket and keeps every per-night refusal',
+      admissionPhrases.every((phrase) => admissionBody.includes(phrase)),
+      {
+        note: admissionPhrases
+          .map((phrase) => `${phrase}: ${admissionBody.includes(phrase) ? 'present' : 'missing'}`)
+          .join('; '),
+      },
+    ) && ok
+
+  const [transition] = await prisma.$queryRawUnsafe(
+    "SELECT pg_get_functiondef('desi_ticket_status_transition'::regproc) AS body",
+  )
+  const transitionKept = ['has been let in on a night; it cannot be handed on', 'which is terminal']
+  const transitionBody = transition?.body ?? ''
+  // A ticket that owes a payment at the door is handed on like any other (open
+  // question 7): the hand-on trigger keeps its earlier refusals and gains none
+  // about the door.
+  ok =
+    record(
+      'the hand-on trigger keeps its earlier refusals and does not refuse a ticket owing at the door',
+      transitionKept.every((phrase) => transitionBody.includes(phrase)) &&
+        !/venue|venueDueCents/i.test(transitionBody),
+      {
+        note:
+          transitionKept
+            .map(
+              (phrase) => `${phrase}: ${transitionBody.includes(phrase) ? 'present' : 'missing'}`,
+            )
+            .join('; ') +
+          `; mentions the venue: ${/venue|venueDueCents/i.test(transitionBody) ? 'yes' : 'no'}`,
+      },
+    ) && ok
+
+  const triggers = await prisma.$queryRawUnsafe(
+    'SELECT tgname, tgrelid::regclass::text AS relation, tgdeferrable, tginitdeferred, ' +
+      '(tgconstraint <> 0) AS "isConstraint" FROM pg_trigger WHERE NOT tgisinternal AND tgname IN (' +
+      "'desi_event_fee_setting_append_only', 'desi_ticket_venue_payment_guard', " +
+      "'desi_venue_payment_append_only', 'desi_venue_payment_sum', " +
+      "'desi_ticket_venue_payment_sum', 'desi_ticket_venue_payment_sum_on_delete') ORDER BY tgname",
+  )
+  const on = (name) => triggers.find((trigger) => trigger.tgname === name)
+  ok =
+    record(
+      'the fee-decision, ticket-payment, payment append-only and payment-sum triggers exist where they belong',
+      on('desi_event_fee_setting_append_only')?.relation === '"EventFeeSetting"' &&
+        on('desi_ticket_venue_payment_guard')?.relation === '"Ticket"' &&
+        on('desi_venue_payment_append_only')?.relation === '"VenuePayment"' &&
+        on('desi_venue_payment_sum')?.relation === '"VenuePayment"' &&
+        on('desi_ticket_venue_payment_sum')?.relation === '"Ticket"' &&
+        on('desi_ticket_venue_payment_sum_on_delete')?.relation === '"Ticket"',
+      { note: triggers.map((trigger) => `${trigger.tgname} on ${trigger.relation}`).join(', ') },
+    ) && ok
+
+  // The payment's own sum check, and the same check again for the payment a
+  // ticket joins, changes its due under or leaves, in any later transaction.
+  for (const name of [
+    'desi_venue_payment_sum',
+    'desi_ticket_venue_payment_sum',
+    'desi_ticket_venue_payment_sum_on_delete',
+  ]) {
+    const sum = on(name)
+    ok =
+      record(
+        `${name} is a constraint trigger, DEFERRABLE INITIALLY DEFERRED`,
+        sum?.isConstraint === true && sum?.tgdeferrable === true && sum?.tginitdeferred === true,
+        {
+          note: sum
+            ? `constraint=${sum.isConstraint} deferrable=${sum.tgdeferrable} initially deferred=${sum.tginitdeferred}`
+            : 'missing',
+        },
+      ) && ok
+  }
+
+  ok = (await checkUnpaidCancellationAndReferralReturns(prisma)) && ok
+
+  return ok
+}
+
+/**
+ * Check what SPEC3-XI added to the payment-terms and pay-at-the-venue
+ * migrations, over a database that holds rows (SPEC3-XI §5.7): nothing
+ * cancelled unpaid, nothing kept and no referral use given back on any existing
+ * row; no kept-tax column; `ticket_type_sold_not_negative` validated over the
+ * existing tiers; the due, cancellation and referral triggers on their tables,
+ * the three cancellation sums deferred to commit; the payment guard refusing a
+ * cancelled ticket; and the hand-on trigger still silent about paying at the
+ * venue.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkUnpaidCancellationAndReferralReturns(prisma) {
+  let ok = true
+
+  const [orders] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS total, ' +
+      'count(*) FILTER (WHERE "venueCancelledBasisCents" <> 0 OR "venueFeeKeptCents" <> 0 ' +
+      'OR "referralUseReturnedAt" IS NOT NULL OR "referralUseReturnCause" IS NOT NULL)::int AS changed ' +
+      'FROM "Order"',
+  )
+  ok =
+    record(
+      'every existing order has nothing cancelled unpaid, nothing kept and no referral use given back',
+      orders.total > 0 && orders.changed === 0,
+      { note: `${orders.changed} of ${orders.total} orders otherwise` },
+    ) && ok
+
+  const keptTax = await prisma.$queryRawUnsafe(
+    "SELECT table_name || '.' || column_name AS name FROM information_schema.columns " +
+      "WHERE table_schema = 'public' AND column_name IN ('venueTaxKeptCents', 'taxKeptCents')",
+  )
+  ok =
+    record(
+      'no column keeps tax: only the booking fee is ever kept (no venueTaxKeptCents, no taxKeptCents)',
+      keptTax.length === 0,
+      { note: keptTax.map((row) => row.name).join(', ') || 'none' },
+    ) && ok
+
+  const [rows] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "OrderItem")::int AS lines, ' +
+      '(SELECT count(*) FROM "OrderItem" WHERE "venueCancelledQuantity" <> 0)::int AS "linesCancelled", ' +
+      '(SELECT count(*) FROM "Ticket")::int AS tickets, ' +
+      '(SELECT count(*) FROM "Ticket" WHERE "venueCancellationId" IS NOT NULL)::int AS "ticketsCancelled", ' +
+      '(SELECT count(*) FROM "VenueBookingCancellation")::int AS cancellations',
+  )
+  ok =
+    record(
+      'no existing line or ticket is cancelled unpaid, and the cancellation table starts empty',
+      rows.lines > 0 &&
+        rows.tickets > 0 &&
+        rows.linesCancelled === 0 &&
+        rows.ticketsCancelled === 0 &&
+        rows.cancellations === 0,
+      {
+        note:
+          `${rows.linesCancelled} of ${rows.lines} lines and ${rows.ticketsCancelled} of ` +
+          `${rows.tickets} tickets cancelled; ${rows.cancellations} cancellations`,
+      },
+    ) && ok
+
+  const [sold] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "TicketType")::int AS tiers, ' +
+      "(SELECT convalidated FROM pg_constraint WHERE conname = 'ticket_type_sold_not_negative' " +
+      'AND conrelid = \'"TicketType"\'::regclass) AS validated',
+  )
+  ok =
+    record(
+      'ticket_type_sold_not_negative is validated over the existing tiers',
+      sold.tiers > 0 && sold.validated === true,
+      { note: `${sold.tiers} tiers; validated=${sold.validated}` },
+    ) && ok
+
+  const names = [
+    'desi_order_referral_fixed',
+    'desi_ticket_venue_due_guard',
+    'desi_ticket_venue_cancellation_guard',
+    'desi_venue_booking_cancellation_append_only',
+    'desi_venue_booking_cancellation_sum',
+    'desi_ticket_venue_cancellation_sum',
+    'desi_ticket_venue_cancellation_sum_on_delete',
+  ]
+  const triggers = await prisma.$queryRawUnsafe(
+    'SELECT tgname, tgrelid::regclass::text AS relation, tgdeferrable, tginitdeferred, ' +
+      '(tgconstraint <> 0) AS "isConstraint" FROM pg_trigger WHERE NOT tgisinternal AND tgname IN (' +
+      names.map((name) => `'${name}'`).join(', ') +
+      ') ORDER BY tgname',
+  )
+  const on = (name) => triggers.find((trigger) => trigger.tgname === name)
+  ok =
+    record(
+      'the referral-return, due, cancellation guard, append-only and cancellation-sum triggers exist where they belong',
+      on('desi_order_referral_fixed')?.relation === '"Order"' &&
+        on('desi_ticket_venue_due_guard')?.relation === '"Ticket"' &&
+        on('desi_ticket_venue_cancellation_guard')?.relation === '"Ticket"' &&
+        on('desi_venue_booking_cancellation_append_only')?.relation ===
+          '"VenueBookingCancellation"' &&
+        on('desi_venue_booking_cancellation_sum')?.relation === '"VenueBookingCancellation"' &&
+        on('desi_ticket_venue_cancellation_sum')?.relation === '"Ticket"' &&
+        on('desi_ticket_venue_cancellation_sum_on_delete')?.relation === '"Ticket"',
+      { note: triggers.map((trigger) => `${trigger.tgname} on ${trigger.relation}`).join(', ') },
+    ) && ok
+
+  // A cancellation's own sum check, and the same check again for the
+  // cancellation a ticket joins or leaves, in any later transaction.
+  for (const name of [
+    'desi_venue_booking_cancellation_sum',
+    'desi_ticket_venue_cancellation_sum',
+    'desi_ticket_venue_cancellation_sum_on_delete',
+  ]) {
+    const sum = on(name)
+    ok =
+      record(
+        `${name} is a constraint trigger, DEFERRABLE INITIALLY DEFERRED`,
+        sum?.isConstraint === true && sum?.tgdeferrable === true && sum?.tginitdeferred === true,
+        {
+          note: sum
+            ? `constraint=${sum.isConstraint} deferrable=${sum.tgdeferrable} initially deferred=${sum.tginitdeferred}`
+            : 'missing',
+        },
+      ) && ok
+  }
+
+  const [guard] = await prisma.$queryRawUnsafe(
+    "SELECT pg_get_functiondef('desi_ticket_venue_payment_guard'::regproc) AS body",
+  )
+  ok =
+    record(
+      'the payment guard refuses paying a ticket cancelled unpaid (it reads venueCancellationId)',
+      (guard?.body ?? '').includes('venueCancellationId'),
+      { note: (guard?.body ?? '').includes('venueCancellationId') ? 'present' : 'missing' },
+    ) && ok
+
+  const [transition] = await prisma.$queryRawUnsafe(
+    "SELECT pg_get_functiondef('desi_ticket_status_transition'::regproc) AS body",
+  )
+  ok =
+    record(
+      'the hand-on trigger says nothing about tickets paid at the venue',
+      !/paid at the venue/i.test(transition?.body ?? ''),
+      { note: /paid at the venue/i.test(transition?.body ?? '') ? 'mentions it' : 'silent' },
+    ) && ok
+
+  return ok
 }
 
 /**
@@ -728,7 +2319,62 @@ async function main() {
         ) && ok
     }
 
+    let legacy = null
+    /** @type {Record<string, number>} Rows the per-migration fixtures added, per table. */
+    const fixtureRows = {}
+
     for (const migration of phase3) {
+      if (migration === FIRST_FEATURE_MIGRATION) {
+        prisma = createPrismaClient({ connectionString: target })
+        legacy = await seedLegacyRows(prisma, filled)
+        await prisma.$disconnect()
+        prisma = null
+
+        ok =
+          record(
+            'rows the API at a6bd5e4 could write are in place before the feature migrations',
+            legacy.refused.length === 0,
+            {
+              added: legacy.added,
+              refused: legacy.refused,
+              note: Object.entries(legacy.added)
+                .map(([table, count]) => `${count} ${table}`)
+                .join(', '),
+            },
+          ) && ok
+      }
+
+      const fixture = BEFORE_MIGRATION_FIXTURES[migration]
+
+      if (fixture) {
+        prisma = createPrismaClient({ connectionString: target })
+
+        try {
+          const added = await fixture(prisma)
+
+          for (const [table, count] of Object.entries(added)) {
+            fixtureRows[table] = (fixtureRows[table] ?? 0) + count
+          }
+          ok =
+            record(`the rows ${migration} rewrites are in place before it`, true, {
+              added,
+              note: Object.entries(added)
+                .map(([table, count]) => `${count} ${table}`)
+                .join(', '),
+            }) && ok
+        } catch (error) {
+          ok =
+            record(`the rows ${migration} rewrites are in place before it`, false, {
+              note: String(error?.message ?? error)
+                .replace(/\s+/g, ' ')
+                .slice(0, 300),
+            }) && ok
+        } finally {
+          await prisma.$disconnect()
+          prisma = null
+        }
+      }
+
       const applied = await applyMigration(target, migration)
       ok =
         record(
@@ -746,12 +2392,36 @@ async function main() {
     prisma = createPrismaClient({ connectionString: target })
     const upgraded = await countRows(prisma)
 
-    const lost = Object.entries(populated).filter(([table, count]) => upgraded[table] !== count)
+    // The rows put in on purpose are expected, and so are the audit rows two
+    // migrations write about what they changed; nothing else.
+    const expected = { ...populated }
+
+    for (const [table, count] of Object.entries(legacy?.added ?? {})) {
+      if (table in expected) expected[table] += count
+    }
+    for (const [table, count] of Object.entries(fixtureRows)) {
+      if (table in expected) expected[table] += count
+    }
+    // Two for the covers the media migration drops, and one for each legacy
+    // admission the per-night migration gives a night.
+    if ('AuditLog' in expected) expected.AuditLog += 2 + LEGACY_ADMISSION_AUDITS
+
+    const lost = Object.entries(expected).filter(([table, count]) => upgraded[table] !== count)
     ok =
       record('the upgrade preserved every existing row', lost.length === 0, {
         lost: lost.map(([table, count]) => ({ table, before: count, after: upgraded[table] })),
         note: `${Object.keys(populated).length} pre-existing tables`,
       }) && ok
+
+    if (!legacy) {
+      ok = record(`the legacy rows went in before ${FIRST_FEATURE_MIGRATION}`, false) && ok
+    } else {
+      ok = (await checkLegacyBackfills(prisma)) && ok
+    }
+
+    ok = (await checkSpec2Backfills(prisma)) && ok
+    ok = (await checkFullControlAndImportBackfills(prisma)) && ok
+    ok = (await checkPaymentTermsAndVenueBackfills(prisma)) && ok
 
     const [adminAfter] = await prisma.$queryRawUnsafe(
       `SELECT "role"::text AS role FROM "User" WHERE id = 'upgrade-fixture-User'`,

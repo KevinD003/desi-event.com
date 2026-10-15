@@ -13,18 +13,28 @@
  *   - **The second factor appears when it is asked for, not before.** A form
  *     that always shows a code field teaches people to look for a code they
  *     usually do not need. The API says when it needs one.
- *   - **Every failure is announced, not just shown.** The error lives in a
- *     `role="alert"` and focus moves to it, because a sighted user sees red
- *     appear and a screen-reader user is told nothing otherwise.
+ *   - **Every failure is announced, not just shown.** Focus moves to the
+ *     error, which sits in a polite live region, because a sighted user sees
+ *     red appear and a screen-reader user is told nothing otherwise. Polite,
+ *     not assertive: only the door's outcomes interrupt.
  *   - **It never says which half was wrong.** "Invalid email address or
  *     password" is the API's wording and it is repeated verbatim; narrowing it
  *     to "no such account" is an account-enumeration oracle.
+ *
+ * And one thing it does so that nothing happens by accident: the form says
+ * `method="post"`. Its fields are named, and a form with no method submits
+ * with GET. Pressed before the page's script has arrived — on a slow phone,
+ * say — it would have put the address, the password and any code into the
+ * URL, and from there into history, logs and the `Referer` of the next
+ * request. Posted, they stay in a body that nothing here accepts, and the page
+ * simply comes back.
  *
  * @module components/sign-in-form
  */
 
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 
@@ -45,6 +55,7 @@ export function SignInForm({ next = '/organizer/events' }) {
   const [busy, setBusy] = useState(false)
   const errorRef = useRef(null)
   const codeRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Submit the credentials.
@@ -82,7 +93,7 @@ export function SignInForm({ next = '/organizer/events' }) {
       // body decides, not the status.
       if (response.ok && body?.mfaRequired && !code) {
         setNeedsCode(true)
-        queueMicrotask(() => codeRef.current?.focus())
+        focusAfterRender(codeRef)
         return
       }
 
@@ -100,22 +111,22 @@ export function SignInForm({ next = '/organizer/events' }) {
       // field on screen so the next code can be typed without starting over.
       if (needsCode) {
         setError(message)
-        queueMicrotask(() => codeRef.current?.focus())
+        focusAfterRender(codeRef)
         return
       }
 
       setError(message)
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } catch {
       setError('The ticketing service is not responding. Nothing has been changed.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-5" noValidate>
+    <form method="post" onSubmit={onSubmit} className="space-y-5" noValidate>
       {error ? (
         <div ref={errorRef} tabIndex={-1}>
           <Alert variant="error" title="Could not sign you in">

@@ -62,7 +62,7 @@ function humanise(code) {
 export const SWEEP_STATES = Object.freeze({
   SCHEDULED: Object.freeze({
     label: 'Scheduled',
-    description: 'Queued. Nothing has been counted yet.',
+    description: 'Queued. Nothing has been counted so far.',
   }),
   CLAIMED: Object.freeze({
     label: 'Running',

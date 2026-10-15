@@ -151,8 +151,10 @@ export function fromLocalInputValue(value, timeZone) {
 /**
  * A zone's current abbreviation, for a label beside the input.
  *
- * "IST" beside a time box is what tells somebody the box means seven in Mumbai
- * rather than seven where they are sitting.
+ * "EDT" beside a time box is what tells somebody the box means seven in New
+ * York rather than seven where they are sitting. Named in US English, which
+ * knows the US zones by their letters ("PDT") where British English only has
+ * an offset ("GMT-7"); a zone with no US name still gets its offset.
  *
  * @param {string} timeZone An IANA zone name.
  * @param {Date} [at] The instant to read the abbreviation at; zones change it seasonally.
@@ -161,7 +163,7 @@ export function fromLocalInputValue(value, timeZone) {
 export function zoneAbbreviation(timeZone, at = new Date(0)) {
   if (!isKnownTimeZone(timeZone)) return ''
 
-  const parts = new Intl.DateTimeFormat('en-GB', {
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     timeZoneName: 'short',
   }).formatToParts(at)
@@ -175,18 +177,24 @@ export function zoneAbbreviation(timeZone, at = new Date(0)) {
  * A starting list, not a limit: the field accepts any zone the platform knows.
  * Ordered by how often they will be picked here rather than alphabetically,
  * because a select whose first entry is `Africa/Abidjan` makes somebody scroll
- * past two hundred names to reach the one they always want.
+ * past two hundred names to reach the one they always want. The catalogue is
+ * American, so the six US zones come first, east to west, and Eastern — where
+ * most of it happens — is the default.
  *
  * @type {ReadonlyArray<string>}
  */
 export const COMMON_ZONES = Object.freeze([
-  'Asia/Kolkata',
-  'Asia/Dubai',
-  'Europe/London',
   'America/New_York',
   'America/Chicago',
+  'America/Denver',
+  'America/Phoenix',
   'America/Los_Angeles',
+  'America/Anchorage',
+  'Pacific/Honolulu',
   'America/Toronto',
+  'Europe/London',
+  'Asia/Kolkata',
+  'Asia/Dubai',
   'Australia/Sydney',
   'Asia/Singapore',
   'UTC',

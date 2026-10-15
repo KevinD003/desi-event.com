@@ -12,7 +12,10 @@
  *   - **A token works only for the address it was sent to.** Otherwise a
  *     forwarded email is a way to take somebody else's ticket.
  *   - **Neither the pass nor the transfer token is ever returned twice**, and
- *     neither is stored: the database holds digests.
+ *     neither is stored: the database holds digests. With no delivery provider
+ *     (MANUAL, this build) the transfer code is in the offer's 201 exactly
+ *     once, `no-store`, for the sender to pass on; it is never in any later
+ *     read, a log line, an audit row or the outbox.
  *
  * The real-PostgreSQL races — two scanners, a transfer against a check-in, a
  * refund against a transfer — are in `ticket-concurrency.test.js`, because a
@@ -21,6 +24,7 @@
  * @module @desi-event/api/tests/ticket-lifecycle
  */
 
+import { createLogger } from '@desi-event/logger'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -32,7 +36,7 @@ import {
   transferTokenDigest,
 } from '../src/lib/tickets.js'
 import { credentialDigest, mintTicketCredential } from '../src/lib/ticket-credentials.js'
-import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { bearer, claim, createTestApp, signIn } from './helpers/app.js'
 import { TEST_AUTH_SECRET } from './helpers/fixtures.js'
 
 /** Whoever bought the tickets. */
@@ -77,9 +81,12 @@ async function withOwnedTickets() {
 
   // Claimed by the buyer's account. Checkout does not do this for a guest
   // purchase, and a ticket with no owner is deliberately untransferable.
-  for (const ticket of tickets) {
-    prisma._store.ticket.find((row) => row.id === ticket.id).ownerUserId = ids.attendee.id
-  }
+  //
+  // The order's buyer moves with them. Checkout sets `ownerUserId` from
+  // `order.userId`, so the two columns are in step in every state this system
+  // produces; a fixture that set only one would be rehearsing a state that does
+  // not exist, and the ownership rules read both.
+  claim(prisma, tickets, ids.attendee.id)
 
   return { ...harness, tickets }
 }
@@ -176,15 +183,38 @@ describe('POST /v1/tickets/:id/transfers', () => {
     const { data } = response.json()
 
     expect(data.status).toBe('PENDING')
-    // Masked, not whole: a transfer record is read by the sender and shown on a
-    // screen, and the address is enough to recognise rather than to harvest.
-    expect(data.toEmailMasked).toMatch(/^r\*+l@dhol\.example$/)
+    // The domain and nothing of the local part: the sender typed the address,
+    // so the domain tells them nothing new and lets them tell offers apart.
+    // The old mask, `r***l@`, kept the first and last characters and the
+    // length; none of that is here.
+    expect(data.toEmailMasked).toBe('••••@dhol.example')
     expect(response.body).not.toContain(RECIPIENT)
+    expect(response.body).not.toContain('rival')
+    expect(response.body).not.toMatch(/r\*+l/u)
 
-    // The token is not in the response. It is a bearer secret, and a response
-    // carrying it would put it wherever the sender's browser keeps responses.
+    // No `token` and no digest under any name. With no delivery provider the
+    // one-time code is present once, as `delivery.invitationCode`, in this
+    // 201, which no cache may keep; it is never in any later read.
     expect(data).not.toHaveProperty('token')
     expect(data).not.toHaveProperty('tokenHash')
+    expect(data.delivery.mode).toBe('MANUAL')
+    expect(data.delivery.invitationCode).toEqual(expect.any(String))
+    expect(response.headers['cache-control']).toBe('no-store, private')
+    expect(response.headers.pragma).toBe('no-cache')
+
+    const stored = prisma._store.ticketTransfer.find((row) => row.id === data.id)
+
+    expect(transferTokenDigest(data.delivery.invitationCode)).toBe(stored.tokenHash)
+    expect(JSON.stringify(prisma._store)).not.toContain(data.delivery.invitationCode)
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/v1/tickets/${tickets[0].id}`,
+      headers: bearer(token),
+    })
+
+    expect(detail.statusCode).toBe(200)
+    expect(detail.body).not.toContain(data.delivery.invitationCode)
 
     const ticket = prisma._store.ticket.find((row) => row.id === tickets[0].id)
 
@@ -192,6 +222,146 @@ describe('POST /v1/tickets/:id/transfers', () => {
     // Still admittable. An invitation nobody accepted must not leave a paying
     // attendee at the door.
     expect(ticket.credentialHash).not.toBeNull()
+
+    await app.close()
+  })
+
+  it('records how the code went out, and never the code: audit, outbox and logs', async () => {
+    const chunks = []
+    const logger = createLogger({
+      name: 'api',
+      level: 'debug',
+      destination: { write: (chunk) => chunks.push(String(chunk)) },
+    })
+    const harness = await createTestApp({ logger })
+    const { app, prisma, ids } = harness
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: BUYER,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+      },
+    })
+    const [ticket] = bought.json().data.tickets
+
+    claim(prisma, [ticket], ids.attendee.id)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${ticket.id}/transfers`,
+      headers: bearer(await signIn(app, BUYER)),
+      payload: { toEmail: RECIPIENT },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+
+    const code = response.json().data.delivery.invitationCode
+
+    expect(prisma._store.auditLog).toContainEqual(
+      expect.objectContaining({
+        action: 'ticket.transfer_started',
+        entityId: ticket.id,
+        metadata: expect.objectContaining({ delivery: 'MANUAL' }),
+      }),
+    )
+    expect(JSON.stringify(prisma._store.auditLog)).not.toContain(code)
+    expect(JSON.stringify(prisma._store.notificationOutbox)).not.toContain(code)
+    expect(chunks.join('')).not.toContain(code)
+    expect(chunks.join('')).toContain('issued a ticket transfer invitation')
+
+    await app.close()
+  })
+
+  it('hands the code to a delivery provider when one is wired, and returns none', async () => {
+    const delivered = []
+    const harness = await createTestApp({
+      deliver: async (message) => {
+        delivered.push(message)
+      },
+    })
+    const { app, prisma, ids } = harness
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: BUYER,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+      },
+    })
+    const [ticket] = bought.json().data.tickets
+
+    claim(prisma, [ticket], ids.attendee.id)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${ticket.id}/transfers`,
+      headers: bearer(await signIn(app, BUYER)),
+      payload: { toEmail: RECIPIENT },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+    expect(response.json().data.delivery).toEqual({ mode: 'EMAIL', invitationCode: null })
+    expect(response.headers['cache-control']).toBe('no-store, private')
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]).toMatchObject({ purpose: 'ticket-transfer', to: RECIPIENT })
+    expect(response.body).not.toContain(delivered[0].token)
+
+    // The delivered code accepts.
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/v1/ticket-transfers/accept',
+      headers: bearer(await signIn(app, RECIPIENT)),
+      payload: { token: delivered[0].token },
+    })
+
+    expect(accepted.statusCode, accepted.body).toBe(200)
+    expect(prisma._store.auditLog).toContainEqual(
+      expect.objectContaining({
+        action: 'ticket.transfer_started',
+        metadata: expect.objectContaining({ delivery: 'EMAIL' }),
+      }),
+    )
+
+    await app.close()
+  })
+
+  it('accepts the code from the offer only for the address it was offered to', async () => {
+    const { app, prisma, tickets } = await withOwnedTickets()
+    const offered = await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${tickets[0].id}/transfers`,
+      headers: bearer(await signIn(app, BUYER)),
+      payload: { toEmail: RECIPIENT },
+    })
+    const code = offered.json().data.delivery.invitationCode
+
+    const wrongPerson = await app.inject({
+      method: 'POST',
+      url: '/v1/ticket-transfers/accept',
+      headers: bearer(await signIn(app, 'owner@rangoli.example')),
+      payload: { token: code },
+    })
+
+    expect(wrongPerson.statusCode).toBe(403)
+    expect(wrongPerson.json().error.code).toBe('TRANSFER_NOT_YOURS')
+    expect(prisma._store.ticket.find((row) => row.id === tickets[0].id).status).toBe(
+      'TRANSFER_PENDING',
+    )
+
+    const rightPerson = await app.inject({
+      method: 'POST',
+      url: '/v1/ticket-transfers/accept',
+      headers: bearer(await signIn(app, RECIPIENT)),
+      payload: { token: code },
+    })
+
+    expect(rightPerson.statusCode, rightPerson.body).toBe(200)
+    expect(prisma._store.ticket.find((row) => row.id === tickets[0].id).status).toBe('TRANSFERRED')
 
     await app.close()
   })
@@ -214,8 +384,10 @@ describe('POST /v1/tickets/:id/transfers', () => {
     expect(queued).toHaveLength(1)
     expect(queued[0].suppressible).toBe(false)
     // The payload is read by a worker and by whoever is debugging it. A token
-    // in one would be a bearer secret in a log.
+    // in one would be a bearer secret in a log, and so would the printed code,
+    // which still admits the sender's ticket until the offer is accepted.
     expect(JSON.stringify(queued[0].payload)).not.toMatch(/token/i)
+    expect(JSON.stringify(queued[0].payload)).not.toContain(tickets[0].code)
 
     await app.close()
   })
@@ -344,9 +516,7 @@ describe('POST /v1/ticket-transfers/accept', () => {
 
     const tickets = response.json().data.tickets
 
-    for (const ticket of tickets) {
-      prisma._store.ticket.find((row) => row.id === ticket.id).ownerUserId = ids.attendee.id
-    }
+    claim(prisma, tickets, ids.attendee.id)
 
     return { ...harness, tickets, delivered }
   }
@@ -384,6 +554,11 @@ describe('POST /v1/ticket-transfers/accept', () => {
     expect(issued.ownerUserId).toBeTruthy()
     expect(issued.supersedesTicketId).toBe(tickets[0].id)
     expect(issued.credentialVersion).toBe(1)
+    // The recipient's own name, from their account: the door matches a face to
+    // it. The route passes the request actor, which carries no display name, so
+    // this was null on every ticket ever handed on.
+    expect(issued.attendeeName).toBe('Rival Organiser')
+    expect(data.ticket.attendeeName).toBe('Rival Organiser')
     // The digest is stored; the credential itself is not, anywhere.
     expect(issued.credentialHash).toBe(credentialDigest(data.credential))
     expect(JSON.stringify(prisma._store.ticket)).not.toContain(data.credential)
@@ -626,7 +801,7 @@ describe('a transferred-away ticket at the door', () => {
     })
     const [ticket] = order.json().data.tickets
 
-    prisma._store.ticket.find((row) => row.id === ticket.id).ownerUserId = ids.attendee.id
+    claim(prisma, [ticket], ids.attendee.id)
 
     const oldCredential = mintTicketCredential({
       secret: TEST_AUTH_SECRET,
@@ -654,14 +829,14 @@ describe('a transferred-away ticket at the door', () => {
     const doorToken = await signIn(app, DOOR)
     const scan = await app.inject({
       method: 'POST',
-      url: '/v1/tickets/check-in',
+      url: '/v1/tickets/admission/preview',
       headers: bearer(doorToken),
       payload: { credential: oldCredential },
     })
 
     // 404, not 409. The digest was cleared, so the old pass names nothing —
     // which is a stronger guarantee than a status check the scanner has to
-    // remember to make.
+    // remember to make. A door cannot confirm what it could not preview.
     expect(scan.statusCode).toBe(404)
 
     await app.close()
@@ -688,6 +863,15 @@ describe('POST /v1/tickets/:id/revoke', () => {
     expect(revoked.revokedReason).toMatch(/disputed/)
     expect(revoked.credentialHash).toBeNull()
 
+    // The audit row names the ticket by id. The printed code admits at the
+    // door by hand, and an audit row is read by operators and exports.
+    const audit = prisma._store.auditLog.filter(
+      (row) => row.action === 'ticket.revoked' && row.entityId === tickets[0].id,
+    )
+
+    expect(audit).toHaveLength(1)
+    expect(JSON.stringify(audit[0])).not.toContain(tickets[0].code)
+
     await app.close()
   })
 
@@ -713,12 +897,20 @@ describe('POST /v1/tickets/:id/revoke', () => {
     const { app, prisma, tickets } = await withOwnedTickets()
     const doorToken = await signIn(app, DOOR)
 
-    await app.inject({
+    const preview = await app.inject({
       method: 'POST',
-      url: '/v1/tickets/check-in',
+      url: '/v1/tickets/admission/preview',
       headers: bearer(doorToken),
       payload: { code: tickets[0].code },
     })
+    const admitted = await app.inject({
+      method: 'POST',
+      url: '/v1/tickets/check-in',
+      headers: bearer(doorToken),
+      payload: { code: tickets[0].code, previewReference: preview.json().data.previewReference },
+    })
+
+    expect(admitted.json().data.outcome).toBe('ADMITTED')
 
     const managerToken = await signIn(app, MANAGER)
     const response = await app.inject({
@@ -754,6 +946,8 @@ describe('GET /v1/tickets/:id', () => {
     expect(data.holder).toBe(true)
     expect(data.organizationId).toBe(ids.organization.id)
     expect(data.event.title).toBe(ids.publishedEvent.title)
+    // The category draws the ticket page's poster, the same as the event page's.
+    expect(data.event.category).toBe(ids.publishedEvent.category)
     expect(data.transfers).toEqual([])
 
     await app.close()
@@ -815,7 +1009,7 @@ describe('GET /v1/tickets/:id', () => {
 
     const [ticket] = order.json().data.tickets
 
-    prisma._store.ticket.find((row) => row.id === ticket.id).ownerUserId = ids.attendee.id
+    claim(prisma, [ticket], ids.attendee.id)
 
     const token = await signIn(app, BUYER)
 
@@ -842,15 +1036,61 @@ describe('GET /v1/tickets/:id', () => {
 
     expect(data.transfers).toHaveLength(1)
     expect(data.transfers[0].status).toBe('PENDING')
-    // Masked, not omitted: the sender typed the address and should recognise
-    // it, and nobody should be able to harvest it from here.
-    expect(data.transfers[0].toEmailMasked).toMatch(/\*/u)
-    expect(data.transfers[0].toEmailMasked).not.toBe(RECIPIENT)
+    // The holder sent the offer: the domain alone, and nothing of the local
+    // part, so nobody else who opens the page can reconstruct the address.
+    expect(data.transfers[0].toEmailMasked).toBe('••••@dhol.example')
+    expect(response.body).not.toContain('rival')
 
     // The three things that must never come back.
     expect(response.body).not.toContain(invitation)
     expect(response.body).not.toContain('credentialHash')
     expect(response.body).not.toContain('tokenHash')
+
+    await app.close()
+  })
+
+  it('shows an organiser that a transfer happened, and nothing of whom it was to', async () => {
+    const harness = await createTestApp({ deliver: async () => {} })
+    const { app, prisma, ids } = harness
+
+    const order = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: BUYER,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+      },
+    })
+
+    const [ticket] = order.json().data.tickets
+
+    claim(prisma, [ticket], ids.attendee.id)
+
+    const offered = await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${ticket.id}/transfers`,
+      headers: bearer(await signIn(app, BUYER)),
+      payload: { toEmail: RECIPIENT },
+    })
+
+    expect(offered.statusCode, offered.body).toBe(201)
+
+    // The organiser may read the ticket (they hold `ticket:revoke`) and is
+    // asking whether it should still admit. The recipient's address does not
+    // answer that, so not even its domain is sent.
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tickets/${ticket.id}`,
+      headers: bearer(await signIn(app, 'owner@rangoli.example')),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data.holder).toBe(false)
+    expect(response.json().data.transfers[0].toEmailMasked).toBe('Hidden email')
+    expect(response.body).not.toContain('rival')
+    expect(response.body).not.toContain('dhol.example')
 
     await app.close()
   })

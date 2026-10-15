@@ -16,17 +16,38 @@
  */
 
 import { Prisma } from '@desi-event/db'
+import { INDEXABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 /**
- * The scope every facet is computed over.
+ * The statuses every facet is counted over: exactly the ones a listing shows.
  *
- * Published events only: a draft is not part of the public catalogue, and
- * counting one would advertise an event nobody can buy into.
+ * It used to be `PUBLISHED` alone, which was the whole public catalogue before
+ * the lifecycle added `ON_SALE`, `SALES_PAUSED` and `SOLD_OUT`. Afterwards it
+ * counted only the events whose sales had not opened, so an event dropped out
+ * of its category's count at the moment it went on sale. Derived from
+ * `INDEXABLE_STATUSES` rather than listed, so the two cannot drift again.
+ *
+ * @type {ReadonlyArray<string>}
  */
-export const FACET_SCOPE = Object.freeze({ status: 'PUBLISHED' })
+const LISTED_STATUSES = Object.freeze([...INDEXABLE_STATUSES])
 
 /**
- * Count published events by category, city, language and format.
+ * The scope every facet is computed over, as the response names it.
+ *
+ * `LISTED` rather than a status: it is a set of statuses, the one a listing
+ * uses. A draft is not in it, and counting one would advertise an event nobody
+ * can buy into.
+ */
+export const FACET_SCOPE = Object.freeze({ status: 'LISTED' })
+
+/** The same scope, for Prisma. */
+const SCOPE_WHERE = Object.freeze({ status: { in: [...LISTED_STATUSES] } })
+
+/** The same scope, for the raw aggregations. The column is an enum, hence the cast. */
+const SCOPE_SQL = Prisma.sql`e."status"::text IN (${Prisma.join(LISTED_STATUSES)})`
+
+/**
+ * Count listed events by category, city, language and format.
  *
  * @param {object} prisma A Prisma client or transaction client.
  * @returns {Promise<object>} Facet lists plus the scope they were computed over.
@@ -36,7 +57,7 @@ export async function loadEventFacets(prisma) {
     prisma.$queryRaw(Prisma.sql`
       SELECT e."category"::text AS value, count(*)::int AS count
       FROM "Event" e
-      WHERE e."status" = 'PUBLISHED'
+      WHERE ${SCOPE_SQL}
       GROUP BY e."category"
       ORDER BY count DESC, value ASC
     `),
@@ -47,7 +68,7 @@ export async function loadEventFacets(prisma) {
       SELECT v."city" AS value, count(*)::int AS count
       FROM "Event" e
       JOIN "Venue" v ON v."id" = e."venueId"
-      WHERE e."status" = 'PUBLISHED'
+      WHERE ${SCOPE_SQL}
       GROUP BY v."city"
       ORDER BY count DESC, value ASC
     `),
@@ -56,7 +77,7 @@ export async function loadEventFacets(prisma) {
     prisma.$queryRaw(Prisma.sql`
       SELECT language AS value, count(*)::int AS count
       FROM "Event" e, unnest(e."languages") AS language
-      WHERE e."status" = 'PUBLISHED'
+      WHERE ${SCOPE_SQL}
       GROUP BY language
       ORDER BY count DESC, value ASC
     `),
@@ -65,12 +86,12 @@ export async function loadEventFacets(prisma) {
       SELECT CASE WHEN e."isOnline" THEN 'online' ELSE 'in_person' END AS value,
              count(*)::int AS count
       FROM "Event" e
-      WHERE e."status" = 'PUBLISHED'
+      WHERE ${SCOPE_SQL}
       GROUP BY e."isOnline"
       ORDER BY count DESC, value ASC
     `),
 
-    prisma.event.count({ where: FACET_SCOPE }),
+    prisma.event.count({ where: SCOPE_WHERE }),
   ])
 
   return {

@@ -389,7 +389,21 @@ describe('step-up policy, finding NF-11', () => {
     expect(offenders).toEqual([])
   })
 
+  it('accepts PAYMENT_TERMS, the booking fee and referral codes window (SPEC3 §4.2)', () => {
+    const route = { ...routeById('auth.disableFactor'), stepUp: 'PAYMENT_TERMS' }
+
+    expect(STEP_UP_POLICY_NAMES).toContain('PAYMENT_TERMS')
+    expect(codes(validateContract({ routes: [route] }))).toEqual([])
+  })
+
   it('removing a second factor uses the tightest window, not the finance one', () => {
     expect(routeById('auth.disableFactor').stepUp).toBe('CREDENTIAL')
+  })
+
+  it('validates the venue-bookings routes, which ask for no new window (SPEC3-XI §4.2)', () => {
+    const routes = [routeById('venueBookings.unpaid'), routeById('venueBookings.cancel')]
+
+    expect(routes.map((route) => route.stepUp)).toEqual(['FINANCE_VIEW', 'FINANCE_ACTION'])
+    expect(codes(validateContract({ routes }))).toEqual([])
   })
 })

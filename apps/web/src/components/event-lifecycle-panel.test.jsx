@@ -122,7 +122,7 @@ describe('the readiness checklist', () => {
     expect(
       screen.getByText('The event needs at least one ticket type on sale.'),
     ).toBeInTheDocument()
-    expect(screen.getAllByText('Not yet')).toHaveLength(2)
+    expect(screen.getAllByText('Not ready')).toHaveLength(2)
   })
 
   it('says when the organisation is what is holding it up', () => {
@@ -296,6 +296,82 @@ describe('cancelling an event', () => {
     expect(screen.getByText(/nothing is sent to a payment provider/i)).toBeInTheDocument()
   })
 
+  it('says what cancelling means for bookings made to pay at the venue, from the event’s own figures', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <EventLifecyclePanel
+        event={{
+          ...onSale,
+          paymentTerms: {
+            fee: { currency: 'USD' },
+            siteDefault: {},
+            venuePayment: {
+              enabled: true,
+              hasOrders: true,
+              unpaidTickets: 4,
+              paidAtDoorTickets: 3,
+              paidAtDoorCents: 12_000,
+            },
+          },
+        }}
+        readiness={{ ...ready, status: 'ON_SALE' }}
+        transitions={{
+          status: 'ON_SALE',
+          transitions: [{ to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] }],
+        }}
+        history={[]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /cancel this event/i }))
+
+    expect(
+      screen.getByText(
+        'For tickets paid at the venue, only the booking fee paid online is refunded (simulated).',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Payment taken at the door for 3 of these tickets ($120.00) is held by the organiser. The Desi Events does not hold it and cannot refund it.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('says nothing about paying at the venue for an event that never took such bookings', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <EventLifecyclePanel
+        event={{
+          ...onSale,
+          paymentTerms: {
+            fee: { currency: 'USD' },
+            siteDefault: {},
+            venuePayment: {
+              enabled: false,
+              hasOrders: false,
+              unpaidTickets: 0,
+              paidAtDoorTickets: 0,
+              paidAtDoorCents: 0,
+            },
+          },
+        }}
+        readiness={{ ...ready, status: 'ON_SALE' }}
+        transitions={{
+          status: 'ON_SALE',
+          transitions: [{ to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] }],
+        }}
+        history={[]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /cancel this event/i }))
+
+    expect(screen.queryByText(/paid at the venue/u)).toBeNull()
+    expect(screen.queryByText(/held by the organiser/u)).toBeNull()
+  })
+
   it('sends the reason code with the command', async () => {
     const user = userEvent.setup()
 
@@ -365,6 +441,111 @@ describe('cancelling an event', () => {
 
     await waitFor(() => expect(screen.getByText('This event is not ready.')).toBeInTheDocument())
     expect(screen.getByText('Confirm your identity first.')).toBeInTheDocument()
+  })
+})
+
+describe('when the server wants a fresh second factor', () => {
+  const onSale = { ...event, status: 'ON_SALE' }
+  const moves = {
+    status: 'ON_SALE',
+    transitions: [{ to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] }],
+  }
+
+  /**
+   * Answer the cancel command from a queue, and everything else as `routeFetch` does.
+   *
+   * @param {object[]} answers The cancel answers, in order.
+   * @returns {void}
+   */
+  function queueCancel(answers) {
+    apiFetch.mockImplementation(async (path) => {
+      if (path.endsWith('/readiness')) return answer(200, { data: { ...ready, status: 'ON_SALE' } })
+      if (path.endsWith('/transitions')) return answer(200, { data: moves })
+      if (path === '/v1/auth/step-up') return answer(200, { ok: true })
+
+      return answers.shift() ?? answer(500, { error: { message: 'No more answers.' } })
+    })
+  }
+
+  it('opens the step-up in place, then sends the same command with what was typed', async () => {
+    const user = userEvent.setup()
+
+    queueCancel([
+      answer(403, {
+        error: {
+          code: 'STEP_UP_REQUIRED',
+          message: 'Authenticate at /v1/auth/step-up and retry.',
+        },
+      }),
+      answer(200, { data: { status: 'CANCELLED' } }),
+    ])
+
+    const { container } = render(
+      <EventLifecyclePanel
+        event={onSale}
+        readiness={{ ...ready, status: 'ON_SALE' }}
+        transitions={moves}
+        history={[]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /cancel this event/i }))
+    await user.selectOptions(screen.getByLabelText(/^Reason/), 'WEATHER')
+    await user.type(screen.getByLabelText(/what to tell ticket holders/i), 'The ground flooded.')
+    await user.click(screen.getByRole('button', { name: /yes, cancel this event/i }))
+
+    // The prompt, not the API's words, which name an endpoint.
+    await user.type(await screen.findByLabelText(/your password/i), 'not-a-real-password')
+    expect(container.textContent).not.toContain('/v1/')
+
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() =>
+      expect(
+        apiFetch.mock.calls.filter(([path]) => path === '/v1/events/evtqawwalibanyan/cancel'),
+      ).toHaveLength(2),
+    )
+
+    const retried = apiFetch.mock.calls.filter(
+      ([path]) => path === '/v1/events/evtqawwalibanyan/cancel',
+    )[1]
+
+    expect(JSON.parse(retried[1].body)).toEqual({
+      reason: 'The ground flooded.',
+      reasonCode: 'WEATHER',
+    })
+  })
+
+  it('sends an account with no second factor to set one up, and changes nothing', async () => {
+    const user = userEvent.setup()
+
+    queueCancel([
+      answer(403, {
+        error: {
+          code: 'MFA_ENROLMENT_REQUIRED',
+          message: 'Enrol one at /v1/auth/mfa/totp, then try again.',
+        },
+      }),
+    ])
+
+    const { container } = render(
+      <EventLifecyclePanel
+        event={onSale}
+        readiness={{ ...ready, status: 'ON_SALE' }}
+        transitions={moves}
+        history={[]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /cancel this event/i }))
+    await user.type(screen.getByLabelText(/what to tell ticket holders/i), 'Flooded.')
+    await user.click(screen.getByRole('button', { name: /yes, cancel this event/i }))
+
+    const link = await screen.findByRole('link', { name: 'Set up two-step sign-in' })
+
+    expect(link.getAttribute('href')).toBe('/account/security')
+    expect(container.textContent).toMatch(/nothing has changed/i)
+    expect(container.textContent).not.toContain('/v1/')
   })
 })
 
@@ -469,6 +650,35 @@ describe('what a moderator asked for', () => {
   })
 })
 
+describe('the history’s dates', () => {
+  it('writes when each change happened in the event’s zone, naming it, not in the browser’s', () => {
+    render(
+      <EventLifecyclePanel
+        event={{ ...event, status: 'CHANGES_REQUIRED', timezone: 'America/Chicago' }}
+        readiness={{ ...ready, status: 'CHANGES_REQUIRED' }}
+        transitions={transitions([])}
+        history={[
+          {
+            id: 'ema3',
+            fromStatus: 'REVIEW_PENDING',
+            toStatus: 'CHANGES_REQUIRED',
+            reason: 'Name the language.',
+            requestedChanges: null,
+            actorId: null,
+            // 02:30 UTC on 2 September is 9:30 PM on 1 September in Chicago.
+            createdAt: '2026-09-02T02:30:00.000Z',
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.getByText('Sep 1, 2026, 9:30 PM CDT')).toHaveAttribute(
+      'dateTime',
+      '2026-09-02T02:30:00.000Z',
+    )
+  })
+})
+
 describe('the preview link', () => {
   it('points at the public page and says what it shows', () => {
     render(
@@ -485,5 +695,166 @@ describe('the preview link', () => {
       '/events/qawwali-under-the-banyan',
     )
     expect(screen.getByText(/only your team can load it/i)).toBeInTheDocument()
+  })
+})
+
+describe('a rejected event', () => {
+  it('offers to rework it as a draft, and sends the command with no body', async () => {
+    const user = userEvent.setup()
+    const rejected = { ...event, status: 'REJECTED' }
+    const moves = {
+      status: 'REJECTED',
+      transitions: [{ to: 'DRAFT', actor: 'organizer', entitled: true, blockers: [] }],
+    }
+
+    routeFetch({ moves, command: answer(200, { data: { status: 'DRAFT' } }) })
+
+    render(
+      <EventLifecyclePanel
+        event={rejected}
+        readiness={{ ...ready, status: 'REJECTED' }}
+        transitions={moves}
+        history={[]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Rework as a draft' }))
+
+    // It says what happens to the moderator's reasons before it does anything.
+    expect(screen.getByText(/reasons stay in the history/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Yes, rework as a draft/i }))
+
+    await waitFor(() => expect(callTo('/v1/events/evtqawwalibanyan/rework')).toBeTruthy())
+
+    const [, options] = callTo('/v1/events/evtqawwalibanyan/rework')
+
+    expect(options.method).toBe('POST')
+  })
+
+  it('hands the event it gets back to the editor, so the editor unlocks and keeps the revision', async () => {
+    const user = userEvent.setup()
+    const onChanged = vi.fn()
+    const rejected = { ...event, status: 'REJECTED' }
+    const moves = {
+      status: 'REJECTED',
+      transitions: [{ to: 'DRAFT', actor: 'organizer', entitled: true, blockers: [] }],
+    }
+    const detail = { ...event, status: 'DRAFT', revision: 8 }
+
+    routeFetch({ moves, command: answer(200, { data: detail }) })
+
+    render(
+      <EventLifecyclePanel
+        event={rejected}
+        readiness={{ ...ready, status: 'REJECTED' }}
+        transitions={moves}
+        history={[]}
+        onChanged={onChanged}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Rework as a draft' }))
+    await user.click(screen.getByRole('button', { name: /^Yes, rework as a draft/i }))
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith(detail))
+  })
+})
+
+describe('postponing an event', () => {
+  it('never says the reason is sent to anybody, because this build sends nothing', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <EventLifecyclePanel
+        event={{ ...event, status: 'ON_SALE' }}
+        readiness={{ ...ready, status: 'ON_SALE' }}
+        transitions={{
+          status: 'ON_SALE',
+          transitions: [{ to: 'POSTPONED', actor: 'organizer', entitled: true, blockers: [] }],
+        }}
+        history={[]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /^Postpone$/ }))
+
+    const reason = screen.getByLabelText(/what to tell ticket holders/i)
+
+    expect(reason).toHaveAccessibleDescription(
+      'Recorded with the notice for every current order. Notices are not emailed, so tell ticket holders yourself as well.',
+    )
+    expect(screen.queryByText(/sent to/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('a postponed event', () => {
+  const postponed = {
+    ...event,
+    status: 'POSTPONED',
+    timezone: 'America/New_York',
+    startsAt: '2027-10-04T23:00:00.000Z',
+    endsAt: '2027-10-05T03:00:00.000Z',
+  }
+  const moves = {
+    status: 'POSTPONED',
+    transitions: [
+      { to: 'PUBLISHED', actor: 'organizer', entitled: true, blockers: [] },
+      { to: 'ON_SALE', actor: 'organizer', entitled: true, blockers: [] },
+      { to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] },
+    ],
+  }
+
+  it('offers a new date or cancelling, and says a notice was recorded rather than sent', () => {
+    routeFetch({ moves })
+
+    render(
+      <EventLifecyclePanel
+        event={postponed}
+        readiness={{ ...ready, status: 'POSTPONED' }}
+        transitions={moves}
+        history={[]}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Set a new date and bring it back' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /cancel this event/i })).toBeInTheDocument()
+    expect(
+      screen.getAllByText(/A notice has been recorded for every ticket holder/),
+    ).not.toHaveLength(0)
+  })
+
+  it('opens the new-date form with the sessions, not a bare confirmation', async () => {
+    const user = userEvent.setup()
+
+    routeFetch({ moves })
+
+    render(
+      <EventLifecyclePanel
+        event={postponed}
+        readiness={{ ...ready, status: 'POSTPONED' }}
+        transitions={moves}
+        history={[]}
+        revision={5}
+        sessions={[
+          {
+            id: 'snight1',
+            timezone: 'America/New_York',
+            startsAt: '2027-10-04T23:00:00.000Z',
+            endsAt: '2027-10-05T03:00:00.000Z',
+          },
+        ]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Set a new date and bring it back' }))
+
+    expect(
+      screen.getByRole('heading', { name: 'Set a new date and bring it back', level: 3 }),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Session 1 starts/)).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /On sale straight away/ })).toBeEnabled()
   })
 })

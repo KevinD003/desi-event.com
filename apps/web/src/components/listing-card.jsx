@@ -7,28 +7,121 @@
  * accessible name is the entire card, and adding a second "View" link would
  * make every card appear twice in the links list.
  *
+ * ## What a card says
+ *
+ * The poster, wearing its category; the start in the event's own zone with the
+ * zone's letters ("Sat, Oct 17 · 7:30 PM EDT"); the title; the venue and city,
+ * or "Online"; who is putting it on; the price one ticket starts at; and
+ * whether tickets can be bought now. The price is all-in when the API sends it
+ * all-in — the same figure checkout would charge for one ticket of the
+ * cheapest tier — and is said to be before fees when it is not. Nothing is said
+ * about how fast anything is selling: the summary carries no such fact.
+ *
+ * An event copied from its Sulekha listing (`importedFrom`) is sold there, not
+ * here: its price slot says where, with the lowest listed price above zero
+ * ("On Sulekha from $25.00", "Free, on Sulekha" or "On Sulekha"); it names the
+ * organiser who presents it; and it never says "Not on sale now".
+ *
+ * Two things the design shows are not on a card, because a listing summary
+ * does not carry them: the venue's state after the city, and the organiser's
+ * verified badge. The event's own page shows both, from the full record. A
+ * badge inferred here would be an endorsement nobody made.
+ *
+ * ## Motion
+ *
+ * The card rises into place as it scrolls into view, lifts 4px while hovered
+ * or while its link has keyboard focus, and its poster zooms a little inside
+ * its frame. Under reduced motion none of that happens and the card is simply
+ * there; the shadow still deepens on hover, because that is a change of state
+ * rather than movement.
+ *
+ * ## Counting a click
+ *
+ * Where a page passes `trafficPlacement` (the home page, the events list,
+ * search results), the title link carries `data-traffic-*` attributes naming
+ * the event, its organisation and the place. One listener on the page reads
+ * them and sends a beacon when the card is clicked: no cookie, and the click is
+ * counted without who made it. The card stays a server component. A card from
+ * sample data carries none, because its event does not exist.
+ *
  * @module components/listing-card
  */
 
 import Link from 'next/link'
-import { Badge, Card, CardBody, CardFooter } from './ui.jsx'
 
 import { categoryLabel } from '../lib/catalog.js'
-import {
-  formatEventDate,
-  formatEventLocation,
-  formatEventTime,
-  toDateTimeAttribute,
-} from '../lib/format.js'
+import { eventAvailability, startingPrice } from '../lib/event-availability.js'
+import { formatEventStart, toDateTimeAttribute } from '../lib/format.js'
+import { importedCardPrice } from '../lib/imports.js'
 import { formatPrice } from '../lib/pricing.js'
-import { HoverLift, RevealOnScroll } from './motion.jsx'
-import { EventPoster } from './poster.jsx'
+import { trafficAttributes } from '../lib/traffic-client.js'
+import { PersonIcon, PinIcon } from './icons.jsx'
+import { HoverLift, HoverZoom, Reveal } from './motion.jsx'
+import { EventArt } from './event-art.jsx'
+
+/**
+ * The chip's look, per availability tone. Always with words; the dot is
+ * decoration.
+ *
+ * On sale is outlined in peacock on white; closed — sold out, paused,
+ * postponed, cancelled, finished — is the calm plum grey, because a sold-out
+ * night is a fact rather than an alarm; "not on sale now" is plain.
+ */
+const AVAILABILITY_CHIP = Object.freeze({
+  open: 'border border-availability-open bg-surface-raised text-availability-open',
+  closed: 'bg-availability-closed-soft text-availability-closed',
+  neutral: 'bg-surface-subtle text-ink-muted',
+})
+
+/** The dot inside each chip, in the chip's own colour. */
+const AVAILABILITY_DOT = Object.freeze({
+  open: 'bg-availability-open',
+  closed: 'bg-availability-closed',
+  neutral: 'bg-ink-muted',
+})
+
+/**
+ * Whether tickets can be bought, in words.
+ *
+ * @param {object} props Component props.
+ * @param {{tone: string, label: string}} props.availability What to say, from `eventAvailability`.
+ * @returns {JSX.Element} The chip.
+ */
+export function AvailabilityChip({ availability }) {
+  return (
+    <span
+      className={`inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-bold whitespace-nowrap ${AVAILABILITY_CHIP[availability.tone]}`}
+    >
+      <span
+        aria-hidden="true"
+        className={`h-1.5 w-1.5 rounded-full ${AVAILABILITY_DOT[availability.tone]}`}
+      />
+      <span className="sr-only">Availability: </span>
+      {availability.label}
+    </span>
+  )
+}
+
+/**
+ * Where an event is, as a card says it: the venue and the city, "Online" for a
+ * streamed event, or that the venue is still to come.
+ *
+ * @param {object} event An event summary.
+ * @returns {string} The place.
+ */
+function placeOf(event) {
+  if (event?.isOnline) return 'Online'
+
+  return [event?.venueName, event?.city].filter(Boolean).join(' · ') || 'Venue to be announced'
+}
 
 /**
  * @typedef {object} EventCardProps
  * @property {object} event An event summary.
  * @property {number} [index] Position in the grid, used to stagger the entrance.
  * @property {'h2'|'h3'} [headingLevel] Heading element for the title. Pick the level that keeps the page outline correct.
+ * @property {string} [className] Classes for the list item, for a grid that sizes its items itself.
+ * @property {'HOME'|'LISTING'|'SEARCH'|null} [trafficPlacement] Where the card is shown, so a click on it is counted; null counts nothing.
  */
 
 /**
@@ -37,74 +130,106 @@ import { EventPoster } from './poster.jsx'
  * @param {EventCardProps} props Component props.
  * @returns {JSX.Element} The rendered card.
  */
-export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
-  const priceLabel =
-    event.minPriceCents == null
-      ? 'Price to be announced'
-      : formatPrice(event.minPriceCents, event.currency ?? 'INR')
+export function EventCard({
+  event,
+  index = 0,
+  headingLevel: Heading = 'h3',
+  className = '',
+  trafficPlacement = null,
+}) {
+  const imported = event.importedFrom ?? null
+  const price = startingPrice(event, formatPrice)
+  // Read from the status alone for an imported event: its tickets are sold on
+  // its listing's site, so "Not on sale now" would be untrue.
+  const availability = eventAvailability(imported ? { status: event.status } : event)
+  const free = price.amount === 'Free'
+  const organiser = imported?.presentedBy || event.organizationName
 
   return (
-    <RevealOnScroll as="li" index={index} className="h-full">
-      <HoverLift className="h-full">
-        <Card
-          as="article"
-          interactive
-          className="relative flex h-full flex-col overflow-hidden bg-white"
-        >
-          <EventPoster event={event} />
-
-          <CardBody className="flex flex-1 flex-col gap-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="brand">{categoryLabel(event.category)}</Badge>
-              {event.soldOut ? (
-                <Badge variant="danger" srLabel="Availability:">
-                  Sold out
-                </Badge>
+    <Reveal as="li" index={index} className={`flex h-full ${className}`}>
+      <HoverLift className="group flex w-full">
+        <article className="relative flex w-full flex-col overflow-hidden rounded-card bg-surface-raised shadow-card transition-shadow duration-(--duration-base) ease-standard group-data-lifted:shadow-card-hover hover:shadow-card-hover has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus">
+          <div className="relative bg-surface-subtle">
+            <HoverZoom className="aspect-[3/2]">
+              <EventArt event={event} className="h-full" />
+            </HoverZoom>
+            <p className="absolute top-3 left-3 flex flex-wrap gap-2">
+              <span className="inline-flex min-h-7 items-center rounded-full bg-surface/95 px-3 text-xs font-bold text-ink shadow-control">
+                <span className="sr-only">Category: </span>
+                {categoryLabel(event.category)}
+              </span>
+              {event.isOnline ? (
+                <span className="inline-flex min-h-7 items-center rounded-full bg-surface/95 px-3 text-xs font-bold text-accent-secondary shadow-control">
+                  Online
+                </span>
               ) : null}
-              {event.isOnline ? <Badge variant="info">Online</Badge> : null}
-            </div>
+            </p>
+          </div>
 
-            <Heading className="font-display text-lg leading-snug font-semibold text-indigo-night-900">
+          <div className="flex flex-1 flex-col p-5 sm:p-6">
+            <p className="text-sm font-bold text-accent-strong">
+              <time dateTime={toDateTimeAttribute(event.startsAt)}>{formatEventStart(event)}</time>
+            </p>
+
+            <Heading className="mt-2 text-h3 font-semibold text-ink">
               <Link
                 href={`/events/${event.slug}`}
-                className="rounded-sm after:absolute after:inset-0 after:content-[''] hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+                {...(trafficPlacement
+                  ? trafficAttributes({
+                      kind: 'CARD_CLICK',
+                      eventId: event.id,
+                      organizationId: event.organizationId,
+                      placement: trafficPlacement,
+                    })
+                  : {})}
+                className="transition-colors duration-(--duration-fast) group-hover:text-accent-strong after:absolute after:inset-0 after:content-[''] focus-visible:outline-none"
               >
                 {event.title}
               </Link>
             </Heading>
 
-            <p className="line-clamp-3 text-sm text-slate-600">{event.summary}</p>
-
-            <dl className="mt-auto space-y-1 pt-2 text-sm text-slate-700">
-              <div className="flex gap-2">
-                <dt className="sr-only">Date</dt>
-                <dd>
-                  <time dateTime={toDateTimeAttribute(event.startsAt)}>
-                    {formatEventDate(event.startsAt, event.timezone)}
-                  </time>
-                  <span aria-hidden="true"> · </span>
-                  <span>{formatEventTime(event.startsAt, event.timezone)}</span>
-                </dd>
-              </div>
-              <div className="flex gap-2">
-                <dt className="sr-only">Location</dt>
-                <dd className="text-slate-600">{formatEventLocation(event)}</dd>
-              </div>
-            </dl>
-          </CardBody>
-
-          <CardFooter className="justify-between bg-marigold-50/60">
-            <p className="text-sm text-slate-700">
-              <span className="text-slate-600">From </span>
-              <span className="font-semibold text-indigo-night-900">{priceLabel}</span>
+            <p className="mt-2.5 flex gap-1.5 text-sm text-ink-muted">
+              <PinIcon className="mt-0.5 h-4 w-4 text-ink-subtle" />
+              <span>
+                <span className="sr-only">Where: </span>
+                {placeOf(event)}
+              </span>
             </p>
-            <span aria-hidden="true" className="text-sm font-medium text-marigold-700">
-              Details →
-            </span>
-          </CardFooter>
-        </Card>
+
+            {organiser ? (
+              <p className="mt-1.5 flex gap-1.5 text-sm text-ink-muted">
+                <PersonIcon className="mt-0.5 h-4 w-4 text-ink-subtle" />
+                <span className="sr-only">Organiser: </span>
+                <span>{organiser}</span>
+              </p>
+            ) : null}
+
+            <div className="mt-auto pt-4">
+              <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-t border-line pt-4">
+                {imported ? (
+                  <p className="min-w-0 text-base leading-6 font-bold text-ink tabular-nums">
+                    {importedCardPrice(imported)}
+                  </p>
+                ) : (
+                  <p className="min-w-0 text-sm text-ink-subtle">
+                    {!free && (price.qualifier || price.allIn) ? <span>From </span> : null}
+                    <span className="text-xl leading-6 font-bold text-ink tabular-nums">
+                      {price.amount}
+                    </span>
+                    {price.qualifier ? (
+                      <span className="mt-0.5 block text-xs text-ink-subtle">
+                        {price.qualifier}
+                      </span>
+                    ) : null}
+                  </p>
+                )}
+                {availability ? <AvailabilityChip availability={availability} /> : null}
+              </div>
+            </div>
+          </div>
+        </article>
       </HoverLift>
-    </RevealOnScroll>
+    </Reveal>
   )
 }
 
@@ -113,26 +238,49 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
  * @property {object[]} events Event summaries to render.
  * @property {string} label Accessible name for the list, e.g. `Upcoming events`.
  * @property {'h2'|'h3'} [headingLevel] Heading element used inside each card.
+ * @property {'grid'|'rail'} [layout] A wrapping grid (the default), or — for a short featured row — a rail that scrolls sideways on a phone and becomes a four-up grid on a wide screen.
+ * @property {'HOME'|'LISTING'|'SEARCH'|null} [trafficPlacement] Where the grid is shown, passed to every card; null counts nothing.
  */
 
 /**
- * A responsive grid of event cards.
+ * A responsive list of event cards.
  *
  * It is a `ul` so that assistive technology announces how many events there
  * are before the visitor starts reading them.
  *
+ * The rail scrolls inside itself, never the page: the list is the scroll
+ * container, it is reachable by keyboard because every card holds a link, and
+ * snapping keeps a card from resting half in view.
+ *
  * @param {EventGridProps} props Component props.
  * @returns {JSX.Element} The rendered grid.
  */
-export function EventGrid({ events, label, headingLevel = 'h3' }) {
+export function EventGrid({
+  events,
+  label,
+  headingLevel = 'h3',
+  layout = 'grid',
+  trafficPlacement = null,
+}) {
+  const rail = layout === 'rail'
+
   return (
-    <ul aria-label={label} className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+    <ul
+      aria-label={label}
+      className={
+        rail
+          ? '-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pt-1 pb-4 sm:mx-0 sm:grid sm:grid-cols-2 sm:gap-6 sm:overflow-visible sm:px-0 sm:pb-1 xl:grid-cols-4'
+          : 'grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3'
+      }
+    >
       {events.map((event, index) => (
         <EventCard
           key={event.id ?? event.slug}
           event={event}
           index={index}
           headingLevel={headingLevel}
+          className={rail ? 'w-[82%] max-w-80 shrink-0 snap-start sm:w-auto sm:max-w-none' : ''}
+          trafficPlacement={trafficPlacement}
         />
       ))}
     </ul>

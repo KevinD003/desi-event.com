@@ -4,8 +4,10 @@ import { QUEUE_NAMES } from '@desi-event/schemas/jobs'
 import {
   DEFAULT_DRAIN_OUTBOX_INTERVAL_MS,
   DEFAULT_EXPIRE_HOLDS_INTERVAL_MS,
+  DEFAULT_TRAFFIC_ROLLUP_INTERVAL_MS,
   DRAIN_OUTBOX_SCHEDULER_ID,
   EXPIRE_HOLDS_SCHEDULER_ID,
+  TRAFFIC_ROLLUP_SCHEDULER_ID,
   listRepeatableJobs,
   registerRepeatableJobs,
   removeRepeatableJobs,
@@ -15,7 +17,7 @@ import { createFakeLogger } from '../tests/helpers/fakes.js'
 /**
  * Queues that record scheduler upserts in memory.
  *
- * One shared store across both queues, because the assertions are about which
+ * One shared store across every queue, because the assertions are about which
  * scheduler exists rather than which queue holds it, and two stores would mean
  * every lookup had to know the answer it was checking.
  *
@@ -45,13 +47,14 @@ function createFakeQueues() {
     queues: {
       [QUEUE_NAMES.HOLDS]: queue(QUEUE_NAMES.HOLDS),
       [QUEUE_NAMES.EMAIL]: queue(QUEUE_NAMES.EMAIL),
+      [QUEUE_NAMES.ANALYTICS]: queue(QUEUE_NAMES.ANALYTICS),
     },
     schedulers,
   }
 }
 
 describe('registerRepeatableJobs', () => {
-  it('registers the hold sweep on the holds queue', async () => {
+  it('registers the hold sweep, the outbox drain and the traffic roll-up, each on its queue', async () => {
     const { queues, schedulers } = createFakeQueues()
 
     const registered = await registerRepeatableJobs({ queues })
@@ -67,11 +70,55 @@ describe('registerRepeatableJobs', () => {
         queue: QUEUE_NAMES.EMAIL,
         everyMs: DEFAULT_DRAIN_OUTBOX_INTERVAL_MS,
       },
+      {
+        id: TRAFFIC_ROLLUP_SCHEDULER_ID,
+        queue: QUEUE_NAMES.ANALYTICS,
+        everyMs: DEFAULT_TRAFFIC_ROLLUP_INTERVAL_MS,
+      },
     ])
 
     const scheduler = schedulers.get(EXPIRE_HOLDS_SCHEDULER_ID)
     expect(scheduler.repeat).toEqual({ every: DEFAULT_EXPIRE_HOLDS_INTERVAL_MS })
     expect(scheduler.template.name).toBe('expire-holds')
+
+    const rollup = schedulers.get(TRAFFIC_ROLLUP_SCHEDULER_ID)
+    expect(rollup.queue).toBe(QUEUE_NAMES.ANALYTICS)
+    expect(rollup.repeat).toEqual({ every: 600_000 })
+    expect(rollup.template.name).toBe('roll-up-traffic')
+  })
+
+  it('adds visits up every ten minutes by default, and as often as configured', async () => {
+    expect(DEFAULT_TRAFFIC_ROLLUP_INTERVAL_MS).toBe(600_000)
+
+    const { queues, schedulers } = createFakeQueues()
+    const registered = await registerRepeatableJobs({ queues, trafficRollupIntervalMs: 60_000 })
+
+    expect(registered[2]).toEqual({
+      id: TRAFFIC_ROLLUP_SCHEDULER_ID,
+      queue: QUEUE_NAMES.ANALYTICS,
+      everyMs: 60_000,
+    })
+    expect(schedulers.get(TRAFFIC_ROLLUP_SCHEDULER_ID).repeat).toEqual({ every: 60_000 })
+  })
+
+  it('never bakes a `now` into the roll-up template, which would freeze the day it adds up', async () => {
+    const { queues, schedulers } = createFakeQueues()
+
+    await registerRepeatableJobs({ queues })
+
+    const { data, opts } = schedulers.get(TRAFFIC_ROLLUP_SCHEDULER_ID).template
+    expect(data).not.toHaveProperty('now')
+    expect(data).toEqual({ leaseMs: 300_000 })
+    expect(opts.removeOnComplete.count).toBeGreaterThan(0)
+    expect(opts.removeOnFail.count).toBeGreaterThan(0)
+  })
+
+  it('fails loudly when the analytics queue is missing', async () => {
+    const { queues } = createFakeQueues()
+
+    delete queues[QUEUE_NAMES.ANALYTICS]
+
+    await expect(registerRepeatableJobs({ queues })).rejects.toThrow(/analytics/u)
   })
 
   it('sweeps at most once a minute by default', () => {
@@ -94,7 +141,7 @@ describe('registerRepeatableJobs', () => {
     await registerRepeatableJobs({ queues })
     await registerRepeatableJobs({ queues, intervalMs: 30_000 })
 
-    expect(schedulers.size).toBe(2)
+    expect(schedulers.size).toBe(3)
     expect(schedulers.get(EXPIRE_HOLDS_SCHEDULER_ID).repeat).toEqual({ every: 30_000 })
     expect(schedulers.get(DRAIN_OUTBOX_SCHEDULER_ID).repeat).toEqual({
       every: DEFAULT_DRAIN_OUTBOX_INTERVAL_MS,
@@ -145,10 +192,14 @@ describe('removeRepeatableJobs and listRepeatableJobs', () => {
     const { queues, schedulers } = createFakeQueues()
     await registerRepeatableJobs({ queues })
 
-    await expect(listRepeatableJobs({ queues })).resolves.toHaveLength(2)
+    const listed = await listRepeatableJobs({ queues })
+
+    expect(listed).toHaveLength(3)
+    expect(listed.map((entry) => entry.id)).toContain(TRAFFIC_ROLLUP_SCHEDULER_ID)
     await expect(removeRepeatableJobs({ queues })).resolves.toEqual([
       EXPIRE_HOLDS_SCHEDULER_ID,
       DRAIN_OUTBOX_SCHEDULER_ID,
+      TRAFFIC_ROLLUP_SCHEDULER_ID,
     ])
     expect(schedulers.size).toBe(0)
   })

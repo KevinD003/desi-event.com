@@ -3,84 +3,151 @@
  *
  * ## Scanning
  *
- * A pass is the primary key at the door. `credential` is the bearer secret
- * inside the QR code; the server hashes it and looks the digest up, so a
- * database that leaks does not leak passes and a scanner never sends a
- * guessable identifier. `code` — the printed reference — is the fallback for a
- * pass that will not scan, and it is deliberately the fallback: the schema says
- * it "admits nobody by itself", and it is accepted only from somebody who
- * already holds `ticket:check_in` in the organisation that owns the event.
+ * Preview, then confirm, then exactly one admission. `../lib/admission.js`
+ * holds the whole of it; this file wires three routes to it:
  *
- * ## Idempotence
+ * - `GET /v1/tickets/admission/events` — the events this account may admit to.
+ * - `POST /v1/tickets/admission/preview` — resolve and show, write nothing.
+ * - `POST /v1/tickets/check-in` — present the same pass with the preview's
+ *   reference; everything is re-checked inside the admitting transaction.
  *
- * A door scanner on venue Wi-Fi retries. A steward scans the same pass twice
- * because the first beep was drowned out. Neither must produce a second
- * check-in, and neither must stall the queue with an error the steward has to
- * think about.
+ * And the same pair for a whole order's group pass (`../lib/group-admission.js`):
  *
- * So a re-scan is a no-op that reports itself: the response carries the
- * **original** `checkedInAt` and `alreadyCheckedIn: true`, which is what a
- * scanner app shows as "already admitted at 19:42". Exactly one `CheckIn` row
- * is ever written per ticket, and its unique index is what makes that true when
- * two scanners race rather than merely when one retries.
+ * - `POST /v1/tickets/admission/group/preview` — every ticket the buyer still
+ *   holds on the order, each with its own outcome.
+ * - `POST /v1/tickets/admission/group/check-in` — admit the named tickets, in
+ *   one transaction, each exactly once.
  *
- * A ticket that was refunded, revoked, transferred away or cancelled is a
- * different matter — those are 409s, because letting that person in is wrong
- * rather than redundant.
+ * A re-scan of an admitted ticket is a duplicate, not an error: it answers 200
+ * with `ALREADY_CHECKED_IN` and the original instant. A ticket that must not be
+ * admitted is a 409 carrying a reason from a closed vocabulary. Exactly one
+ * `CheckIn` row is ever written per ticket; its unique index and the row lock
+ * the confirmation takes are what make that true when two scanners race.
  *
  * ## Transfers
  *
  * Offering, accepting, declining and withdrawing. The reasoning lives in
- * `../lib/tickets.js`; what is here is who may do each one.
+ * `../lib/tickets.js`; what is here is who may do each one, and how the
+ * one-time code reaches the recipient (`../lib/delivery.js`): with no delivery
+ * provider it is returned once, `no-store`, to the sender to pass on.
+ *
+ * ## Paying at the door (SPEC3 §9.3, SPEC3-XI XT)
+ *
+ * A ticket booked to pay at the venue says what it owes at the door on its own
+ * page, its pass and an accepted transfer (`venuePayment`). It can be offered
+ * and passed on like any other ticket: what is due stays with it, and the
+ * invitation says so; whoever holds it pays at the door.
  *
  * @module @desi-event/api/routes/tickets
  */
 
 import { isSuppressible } from '@desi-event/notifications'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
-import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
+import { HIDDEN_EMAIL, buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
-import { conflict, databaseErrorCode, forbidden, notFound, unprocessable } from '../lib/errors.js'
+import { changesForOrder } from '../lib/event-change-notices.js'
+import { EVENT_COVER_INCLUDE, publicCover } from '../lib/event-media.js'
+import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
-import { maskRecipient } from '../lib/presenters.js'
+import { admissionRateLimit, passRateLimit, transferMailRateLimit } from '../plugins/rate-limit.js'
+import { credentialMatches, mintTicketCredential } from '../lib/ticket-credentials.js'
+import {
+  DELIVERY_MODES,
+  TRANSFER_DELIVERY_FAILED_SENTENCE,
+  assertRecipientDailyCap,
+  deliverOrWithdraw,
+} from '../lib/delivery.js'
+import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
+import {
+  SESSION_SUMMARY_SELECT,
+  WALLET_INCLUDE,
+  joinUrlFor,
+  ticketSession,
+  ticketVenuePayment,
+  toWalletTicket,
+  transferRecipient,
+} from '../lib/presenters.js'
 import {
   TICKET_STATES,
   TRANSFER_TTL_HOURS,
   acceptTransfer,
   admissionRefusal,
-  admit,
   assertHolds,
   endTransfer,
-  findTicketForScan,
   loadTransferByToken,
   mintTransferToken,
   revokeTicket,
   startTransfer,
   transferTokenDigest,
 } from '../lib/tickets.js'
+import { confirmAdmission, listAdmissionEvents, previewAdmission } from '../lib/admission.js'
+import { settleReferralUsesIfEnded } from '../lib/referral-uses.js'
+import { TRANSACTION_BUDGETS, budgetedTransaction } from '../lib/transaction-budget.js'
+import { confirmGroupAdmission, previewGroupAdmission } from '../lib/group-admission.js'
 import { defineRoute } from '../lib/register.js'
 
-/** Everything a scan needs in order to authorise itself. */
-const TICKET_INCLUDE = Object.freeze({
-  orderItem: { include: { order: { include: { event: true } } } },
+/**
+ * How long revoking a ticket may wait behind another change to its order, and
+ * what the organiser is told when it waited too long: a 503 with
+ * `Retry-After`, the ticket still valid.
+ */
+const REVOKE_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Another change to this ticket’s order was being saved at the same moment, so the ticket was not revoked. Try again in a moment.',
 })
 
 /**
- * One transfer, as either party sees it.
+ * A ticket's cancellation unpaid, as its holder is told it: when, by whom and
+ * the reason given (SPEC3-XI XU10). Never the name of who gave it.
+ */
+const VENUE_CANCELLATION_SELECT = Object.freeze({ createdAt: true, authority: true, reason: true })
+
+/** Everything a scan needs in order to authorise itself. */
+const TICKET_INCLUDE = Object.freeze({
+  // The event's approved cover comes with it, so a ticket shows the picture
+  // its event page shows.
+  orderItem: { include: { order: { include: { event: { include: EVENT_COVER_INCLUDE } } } } },
+  venueCancellation: { select: VENUE_CANCELLATION_SELECT },
+})
+
+/** The ticket page's read: the same, plus the night it is for. */
+const TICKET_DETAIL_INCLUDE = Object.freeze({
+  orderItem: {
+    include: {
+      order: { include: { event: { include: EVENT_COVER_INCLUDE } } },
+      ticketType: { select: { eventSession: { select: SESSION_SUMMARY_SELECT } } },
+    },
+  },
+  eventSeat: { select: { eventSession: { select: SESSION_SUMMARY_SELECT } } },
+  venueCancellation: { select: VENUE_CANCELLATION_SELECT },
+})
+
+/**
+ * One transfer, as either party sees it, or as the organiser does.
  *
  * The token is never here. It goes in the invitation link once and the database
  * holds only its digest; echoing it would put a bearer secret in a browser
  * cache, a proxy log and a screenshot.
  *
+ * The recipient is `••••@example.com` for a party to the transfer. The sender
+ * typed the address, and the recipient owns it, so the domain tells neither of
+ * them anything new, and it lets a sender tell their offers apart. An
+ * organiser reading the ticket's history is asking whether it should still
+ * admit, which the recipient's address does not answer. They get
+ * `Hidden email`.
+ *
  * @param {object} row A `TicketTransfer` row.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.party] Whether the reader is a party to the transfer.
  * @returns {object} A payload satisfying `ticketTransferSchema`.
  */
-function toTicketTransfer(row) {
+function toTicketTransfer(row, { party = true } = {}) {
   return {
     id: row.id,
     ticketId: row.ticketId,
     fromUserId: row.fromUserId ?? null,
-    toEmailMasked: maskRecipient(row.toEmail),
+    toEmailMasked: party ? transferRecipient(row.toEmail) : HIDDEN_EMAIL,
     status: row.status,
     expiresAt: row.expiresAt,
     acceptedAt: row.acceptedAt ?? null,
@@ -92,141 +159,144 @@ function toTicketTransfer(row) {
 }
 
 /**
+ * What changed about a ticket's event since its order was placed and touches
+ * the ticket: read as the order's notices are, for the ticket's own night (its
+ * seat's, else its tier's), or every night for a ticket good for every night.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} ticket The ticket, with `orderItem.order`, `orderItem.ticketType.eventSession` and `eventSeat.eventSession`.
+ * @param {object} event Its event.
+ * @returns {Promise<object[]>} `eventChangeNoticeSchema` payloads.
+ */
+async function changesForTicket(prisma, ticket, event) {
+  const order = ticket.orderItem?.order
+
+  if (!order) return []
+
+  const night =
+    ticket.eventSeat?.eventSession?.id ?? ticket.orderItem?.ticketType?.eventSession?.id ?? null
+
+  return changesForOrder(prisma, {
+    id: order.id,
+    eventId: event.id,
+    createdAt: order.createdAt,
+    eventSessionId: null,
+    items: [{ ticketType: { eventSessionId: night } }],
+  })
+}
+
+/**
  * Register the ticket routes.
  *
  * @param {object} app The Fastify instance.
  * @param {object} deps Injected dependencies.
  * @param {object} deps.prisma The Prisma client.
  * @param {object} deps.env The parsed API environment.
- * @param {function(object): Promise<void>} [deps.deliver] Where a single-use link is sent.
+ * @param {function(object): Promise<void>} [deps.deliver] Where a single-use code is sent, in EMAIL mode.
+ * @param {'MANUAL'|'EMAIL'} [deps.deliveryMode] How codes reach people, resolved once by `buildApp`.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the admission-pass rate limit; supplied by tests.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.admissionLimit] Overrides for the door rate limit; supplied by tests and the load suite.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.transferMailLimit] Overrides for the transfer mail budget (EMAIL mode only); supplied by tests.
  * @returns {void} Nothing.
  */
-export function registerTicketRoutes(app, { prisma, env, deliver }) {
-  defineRoute(app, 'tickets.checkIn', {
-    handler: async (request) => {
-      const { credential, code, eventId, eventSessionId, checkedInAt, deviceId, gate } =
-        request.body
-      const now = checkedInAt ? new Date(checkedInAt) : new Date()
+export function registerTicketRoutes(
+  app,
+  { prisma, env, deliver, deliveryMode, passLimit, admissionLimit, transferMailLimit },
+) {
+  const mode = deliveryMode ?? app.deliveryMode ?? DELIVERY_MODES.MANUAL
 
-      const ticket = await findTicketForScan(prisma, {
-        credential,
-        code,
-        include: TICKET_INCLUDE,
+  // The door. The reasoning — resolve first, authorise against the ticket's own
+  // event, preview without writing, confirm inside one locked transaction —
+  // lives in ../lib/admission.js; what is here is only the wiring.
+  defineRoute(app, 'tickets.admissionEvents', {
+    handler: async (request, reply) => {
+      // Which doors this account stands at is about the account, and a shared
+      // cache is the wrong place for it.
+      reply.header('cache-control', 'private, no-store')
+
+      const { entries, meta } = await listAdmissionEvents({
+        prisma,
+        actor: request.actor,
+        filters: request.query ?? {},
       })
 
-      // The same answer for a pass that names nothing and a pass that is not a
-      // pass. Distinguishing them would turn the endpoint into an oracle for
-      // whether a guessed credential named something real.
-      if (!ticket) throw notFound('No ticket with that pass.')
+      return { data: entries, meta }
+    },
+  })
 
-      const order = ticket.orderItem?.order
-      const event = order?.event
-
-      if (!event) throw notFound('No ticket with that pass.')
-
-      assertCan(request.actor, CAPABILITIES.TICKET_CHECK_IN, {
-        organizationId: event.organizationId,
-      })
-
-      if (eventId && eventId !== event.id) {
-        throw conflict('This ticket belongs to a different event.', {
-          ticketEventId: event.id,
-          scannedEventId: eventId,
-        })
-      }
-
-      const refusal = admissionRefusal(ticket, order)
-
-      if (refusal) throw conflict(refusal, { status: ticket.status })
-
-      // There is no `force`. It used to re-stamp `checkedInAt`, and with a
-      // `CheckIn` row that is unique per ticket the only thing it could mean
-      // now is "rewrite the admission record" — and a record that whoever is
-      // holding the scanner can rewrite is not a record. A correction is a
-      // different action with a different audit trail, not a boolean on a scan.
-      if (ticket.status === TICKET_STATES.CHECKED_IN) {
-        request.log.info(
-          { ticketCode: ticket.code, deviceId, checkedInAt: ticket.checkedInAt },
-          'duplicate check-in ignored',
-        )
-
-        return {
-          data: {
-            ticket: stripRelations(ticket),
-            alreadyCheckedIn: true,
-            checkedInAt: ticket.checkedInAt,
-            attendeeName: ticket.attendeeName ?? null,
-          },
-        }
-      }
-
-      const outcome = await prisma
-        .$transaction((tx) =>
-          admit(tx, {
-            ticket,
-            eventSessionId: eventSessionId ?? order.eventSessionId ?? null,
-            scannedByUserId: request.actor.id,
-            // What the scanner calls itself, recorded in the audit trail and
-            // not in `CheckIn.deviceId` — that column is a foreign key to a
-            // device this system issued, and a string from the field is not one.
-            scannerId: deviceId ?? null,
-            gate: gate ?? null,
-            now,
-          }),
-        )
-        .catch(async (error) => {
-          // Two ways the database refuses a racing scan, and both are ordinary
-          // at a door with a queue behind it:
-          //
-          //   - `P2002`, the `CheckIn` unique index: somebody else admitted
-          //     this ticket between the read and the write.
-          //   - `P0001`, `desi_check_in_ticket_admissible`: the ticket's status
-          //     moved between the read and the insert. The trigger is a BEFORE
-          //     INSERT, so it fires before the index does and this is the more
-          //     likely of the two.
-          //
-          // Neither is a 500. The load suite found the second one at a 1.7%
-          // error rate under sixteen concurrent scanners, which is a real
-          // failure at a real door and is exactly what that suite is for.
-          //
-          // What it becomes depends on what the ticket now *is*, re-read rather
-          // than assumed: already admitted is a duplicate and answers 200, and
-          // anything else is a refusal that the person scanning needs to see.
-          // Read from wherever Prisma put it. A trigger's `P0001` is nested
-          // under the driver adapter's cause and the outer code is Prisma's
-          // own — checking only the outer one is how this reached a door as a
-          // 500 in the first place.
-          const code = databaseErrorCode(error)
-
-          if (code !== 'P2002' && code !== 'P0001') throw error
-
-          const current = await prisma.ticket.findUnique({ where: { id: ticket.id } })
-
-          if (current?.status !== TICKET_STATES.CHECKED_IN) {
-            throw conflict(
-              admissionRefusal(current ?? ticket, order) ??
-                'That ticket changed while it was being scanned. Scan it again.',
-              { status: current?.status ?? ticket.status },
-            )
-          }
-
-          return { admitted: false, checkIn: null }
-        })
-
-      const after = await prisma.ticket.findUnique({ where: { id: ticket.id } })
-
-      request.log.info(
-        { ticketCode: after.code, eventId: event.id, deviceId, admitted: outcome.admitted },
-        outcome.admitted ? 'ticket checked in' : 'ticket was already in',
-      )
+  defineRoute(app, 'tickets.previewAdmission', {
+    config: { rateLimit: admissionRateLimit(admissionLimit) },
+    handler: async (request, reply) => {
+      // A preview names an attendee. Nothing between the server and the door
+      // keeps it: not a browser cache, not a shared proxy.
+      reply.header('cache-control', 'private, no-store')
+      reply.header('pragma', 'no-cache')
 
       return {
-        data: {
-          ticket: after,
-          alreadyCheckedIn: !outcome.admitted,
-          checkedInAt: after.checkedInAt,
-          attendeeName: after.attendeeName ?? null,
-        },
+        data: await previewAdmission({
+          prisma,
+          env,
+          actor: request.actor,
+          body: request.body,
+          log: request.log,
+        }),
+      }
+    },
+  })
+
+  defineRoute(app, 'tickets.checkIn', {
+    config: { rateLimit: admissionRateLimit(admissionLimit) },
+    handler: async (request, reply) => {
+      reply.header('cache-control', 'private, no-store')
+      reply.header('pragma', 'no-cache')
+
+      return {
+        data: await confirmAdmission({
+          prisma,
+          env,
+          actor: request.actor,
+          body: request.body,
+          log: request.log,
+        }),
+      }
+    },
+  })
+
+  // A group pass at the door: the same wiring as a single ticket, and the same
+  // rate limit per scanner. The pass, the printed code and the reference are
+  // never logged here; the logger redacts them by name as well.
+  defineRoute(app, 'tickets.previewGroupAdmission', {
+    config: { rateLimit: admissionRateLimit(admissionLimit) },
+    handler: async (request, reply) => {
+      reply.header('cache-control', 'private, no-store')
+      reply.header('pragma', 'no-cache')
+
+      return {
+        data: await previewGroupAdmission({
+          prisma,
+          env,
+          actor: request.actor,
+          body: request.body,
+          log: request.log,
+        }),
+      }
+    },
+  })
+
+  defineRoute(app, 'tickets.checkInGroup', {
+    config: { rateLimit: admissionRateLimit(admissionLimit) },
+    handler: async (request, reply) => {
+      reply.header('cache-control', 'private, no-store')
+      reply.header('pragma', 'no-cache')
+
+      return {
+        data: await confirmGroupAdmission({
+          prisma,
+          env,
+          actor: request.actor,
+          body: request.body,
+          log: request.log,
+        }),
       }
     },
   })
@@ -248,12 +318,18 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           skip,
           take,
+          include: WALLET_INCLUDE,
         }),
         prisma.ticket.count({ where }),
       ])
 
       return {
-        data: rows,
+        // `where` already scopes every row to this account. The presenter is
+        // told who is reading anyway, because whether an order reference is
+        // theirs to see is a question about the reader, and a presenter that
+        // infers the reader from the query that fetched the rows is one filter
+        // away from being wrong.
+        data: rows.map((row) => toWalletTicket(row, { viewerUserId: request.actor.id })),
         pagination: buildPaginationMeta({ page, perPage, total }),
       }
     },
@@ -263,7 +339,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
     handler: async (request) => {
       const ticket = await prisma.ticket.findUnique({
         where: { id: request.params.id },
-        include: TICKET_INCLUDE,
+        include: TICKET_DETAIL_INCLUDE,
       })
 
       if (!ticket) throw notFound('No such ticket.')
@@ -291,24 +367,152 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
 
       return {
         data: {
-          ticket: stripRelations(ticket),
+          ticket: {
+            ...stripRelations(ticket),
+            // What it owes at the door, whether it was paid there and by the
+            // reader, and whether (and why) it was cancelled because it was
+            // not paid for; null when it owes nothing there.
+            venuePayment: ticketVenuePayment(ticket, {
+              currency: ticket.orderItem.order.currency,
+              viewerUserId: request.actor.id,
+            }),
+          },
           event: {
             id: event.id,
             slug: event.slug,
             title: event.title,
+            category: event.category,
             startsAt: event.startsAt,
             timezone: event.timezone,
             status: event.status,
+            coverImage: publicCover(event),
           },
           organizationId: event.organizationId,
           holder,
-          transfers: transfers.map(toTicketTransfer),
+          transfers: transfers.map((row) => toTicketTransfer(row, { party: holder })),
+          session: ticketSession(ticket),
+          // The holder's, while the ticket admits. An organiser reading the
+          // ticket has the link in their own editor and gets null here.
+          onlineJoinUrl: holder ? joinUrlFor(ticket, ticket.orderItem?.order ?? null, event) : null,
+          // What changed about the event since the order was placed and
+          // touches this ticket: event-wide changes and its own night's, or
+          // every night's for a ticket good for every night (SPEC2-XI X-14).
+          eventChanges: await changesForTicket(prisma, ticket, event),
+        },
+      }
+    },
+  })
+
+  defineRoute(app, 'tickets.pass', {
+    config: { rateLimit: passRateLimit(passLimit) },
+    handler: async (request, reply) => {
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: request.params.id },
+        include: TICKET_INCLUDE,
+      })
+
+      // One answer for every way this can fail to be yours, and `assertHolds`
+      // is deliberately **not** used for it. That helper is written for the
+      // transfer routes, where a ticket bought without an account is worth a
+      // distinct 403 telling somebody to claim it — and on this route that 403
+      // is an oracle: a guest ticket's id answers differently from an id
+      // nobody has ever used, so anybody can learn which identifiers name a
+      // real unclaimed ticket. Here the three cases collapse into one.
+      //
+      // An organiser gets the same 404 as a stranger, because `ticket:revoke`
+      // is the power to withdraw a ticket, not to be admitted on it, and a pass
+      // is the one thing on a ticket nobody but its holder may read.
+      const passHolder = Boolean(ticket?.ownerUserId) && ticket.ownerUserId === request.actor.id
+
+      if (!passHolder) throw notFound('No such ticket.')
+
+      const order = ticket.orderItem?.order ?? null
+      const refusal = admissionRefusal(ticket, order, order?.event ?? null)
+
+      // Transferred away, revoked, refunded, cancelled, void, superseded, or on
+      // an unpaid order. The sentence is the door's own, from the same pure
+      // function, so a holder is never told their pass is fine by one part of
+      // the system and refused by another.
+      if (refusal) throw conflict(refusal, { status: ticket.status })
+
+      // A ticket whose digest was cleared has no pass. Accepting a transfer
+      // clears it; so does revocation. This should already be unreachable
+      // through `admissionRefusal`, and it is checked anyway, because the thing
+      // on the other side of this branch is a bearer secret.
+      if (!ticket.credentialHash) {
+        throw conflict('This ticket has no pass.', {
+          status: ticket.status,
+        })
+      }
+
+      const credential = mintTicketCredential({
+        secret: env.AUTH_SECRET,
+        ticketId: ticket.id,
+        version: ticket.credentialVersion,
+      })
+
+      // Derived, then checked against what is stored. Without this the endpoint
+      // would hand somebody a string that looks like a pass and opens nothing —
+      // after a secret rotation, or a version that drifted from its digest —
+      // and they would find out at the door. Constant-time, because the
+      // comparison is against a digest.
+      if (!credentialMatches(credential, ticket.credentialHash)) {
+        request.log.error(
+          { ticketId: ticket.id, credentialVersion: ticket.credentialVersion },
+          'derived ticket credential does not match the stored digest',
+        )
+
+        throw conflict('This pass cannot be verified.', {
+          status: ticket.status,
+        })
+      }
+
+      await recordAudit(prisma, {
+        action: AUDIT_ACTIONS.TICKET_PASS_ISSUED,
+        entityType: 'Ticket',
+        entityId: ticket.id,
+        actorId: request.actor.id,
+        // The version and the instant, so a holder can be shown when their pass
+        // was last taken out and an investigation can see how often. Not the
+        // credential: an audit row is read by more people than a response is,
+        // and a secret in one is a secret in every export of it.
+        metadata: {
+          requestId: request.id,
+          at: new Date().toISOString(),
+          credentialVersion: ticket.credentialVersion,
+        },
+      })
+
+      // Not by a browser, not by a proxy, not by anything in between. `private`
+      // alone would still let the browser keep it; `no-store` is what stops a
+      // pass surviving in the back button after somebody hands their phone over.
+      reply.header('cache-control', 'no-store, private')
+      reply.header('pragma', 'no-cache')
+
+      // Nothing is logged here. `request.log` records the route and the status,
+      // which is what an operator needs; the body is the one place this value
+      // is allowed to exist.
+      return {
+        data: {
+          ticketId: ticket.id,
+          credential,
+          credentialVersion: ticket.credentialVersion,
+          issuedAt: ticket.credentialIssuedAt ?? null,
+          // A ticket that owes a payment still gets its pass: the door has to
+          // scan it to take the payment.
+          venuePayment: ticketVenuePayment(ticket, {
+            currency: order?.currency ?? null,
+            viewerUserId: request.actor.id,
+          }),
         },
       }
     },
   })
 
   defineRoute(app, 'tickets.startTransfer', {
+    // In EMAIL mode a sender may email five transfer codes an hour; in MANUAL
+    // nothing is emailed and the budget does not apply.
+    config: { rateLimit: transferMailRateLimit(transferMailLimit, { deliveryMode: mode }) },
     handler: async (request, reply) => {
       const now = new Date()
       const toEmail = request.body.toEmail.toLowerCase()
@@ -318,7 +522,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
       // that sent it rather than by reading its payload.
       const ticket = await prisma.ticket.findUnique({
         where: { id: request.params.id },
-        include: { orderItem: { select: { order: { select: { event: true } } } } },
+        include: { orderItem: { select: { order: { select: { event: true, currency: true } } } } },
       })
 
       if (!ticket) throw notFound('No such ticket.')
@@ -328,17 +532,25 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
       const { token, tokenHash } = mintTransferToken()
       const expiresAt = new Date(now.getTime() + TRANSFER_TTL_HOURS * 3_600_000)
 
-      const outcome = await prisma.$transaction((tx) =>
-        startTransfer(tx, {
+      const outcome = await prisma.$transaction(async (tx) => {
+        // In EMAIL mode, one address is sent at most three codes a day. Counted
+        // in the transaction that writes the offer, under a lock on the
+        // address, so offers sent to it at the same moment take turns.
+        if (mode === DELIVERY_MODES.EMAIL) {
+          await assertRecipientDailyCap(tx, { email: toEmail, now })
+        }
+
+        return startTransfer(tx, {
           ticket,
           toEmail,
           fromUserId: request.actor.id,
           tokenHash,
           expiresAt,
           requestId: request.id,
+          delivery: mode,
           now,
-        }),
-      )
+        })
+      })
 
       if (!outcome.started) {
         throw conflict('Somebody else moved that ticket on. Read it again.', {
@@ -346,28 +558,63 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
         })
       }
 
-      // The token goes to the recipient and nowhere else. Not into this
-      // response — the sender does not need it, and a response carrying it
-      // would put a bearer secret wherever their browser keeps responses — and
-      // not into the outbox payload, which a worker and whoever is debugging it
-      // both read. The `deliver` seam is where single-use links go, and it is
-      // the same one email verification and password resets use.
-      if (typeof deliver === 'function') {
-        await deliver({
+      // The code reaches the recipient one way or the other, and never goes
+      // anywhere else. In EMAIL (DELIVERY_MODE=EMAIL with an SMTP server) the
+      // mailer gets it and this response carries null. In MANUAL (the default)
+      // this response is the only place it ever exists: the sender is shown it
+      // once and passes it on themselves, and the database keeps only its
+      // digest, so it cannot be shown again. Either way the response is `no-store`, and the
+      // code never reaches a log line, an audit row or the outbox payload.
+      const delivery = await deliverOrWithdraw({
+        mode,
+        secret: token,
+        reply,
+        deliver,
+        log: request.log,
+        failureMessage: TRANSFER_DELIVERY_FAILED_SENTENCE,
+        // A code that could not be emailed is a code nobody holds: the offer is
+        // withdrawn and the ticket is the holder's again, with the record of
+        // why in the same transaction.
+        withdraw: () =>
+          prisma.$transaction(async (tx) => {
+            const ended = await endTransfer(tx, {
+              transfer: outcome.transfer,
+              ticket,
+              outcome: 'CANCELLED',
+              actorId: request.actor.id,
+              requestId: request.id,
+              now: new Date(),
+            })
+
+            if (!ended) return
+
+            await recordAudit(tx, {
+              action: AUDIT_ACTIONS.TICKET_TRANSFER_DELIVERY_FAILED,
+              entityType: 'Ticket',
+              entityId: ticket.id,
+              actorId: request.actor.id,
+              metadata: {
+                requestId: request.id,
+                transferId: outcome.transfer.id,
+                deliveryMode: DELIVERY_MODES.EMAIL,
+              },
+            })
+          }),
+        message: {
           purpose: 'ticket-transfer',
-          token,
           to: toEmail,
           ticketId: ticket.id,
           transferId: outcome.transfer.id,
           expiresAt: expiresAt.toISOString(),
           message: request.body.message ?? null,
-        })
-      } else {
-        app.log.info(
-          { transferId: outcome.transfer.id },
-          'issued a ticket transfer invitation; no delivery provider is configured',
-        )
-      }
+        },
+      })
+
+      // Identifiers and the mode, never the code.
+      request.log.info(
+        { transferId: outcome.transfer.id, delivery: delivery.mode },
+        'issued a ticket transfer invitation',
+      )
 
       // The outbox row is the durable record that somebody is owed a message.
       // It carries who and about what, and no secret: a worker reads it, and so
@@ -387,8 +634,14 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
             payload: {
               ticketId: ticket.id,
               transferId: outcome.transfer.id,
-              ticketCode: ticket.code,
+              // Not the printed code: the email never shows it, and until the
+              // offer is accepted it still admits the sender's ticket by hand.
               expiresAt: expiresAt.toISOString(),
+              // A ticket booked to pay at the door keeps what it owes: the
+              // invitation tells the recipient whoever holds it pays this
+              // there (SPEC3-XI XT6). 0 for a ticket that owes nothing.
+              venueDueCents: ticket.venuePaymentId ? 0 : (ticket.venueDueCents ?? 0),
+              currency: ticket.orderItem?.order?.currency ?? null,
             },
             businessEvent: `ticket.transfer.invited:${outcome.transfer.id}`,
             dedupeKey: `ticket.transfer.invited:${outcome.transfer.id}`,
@@ -402,7 +655,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
 
       reply.code(201)
 
-      return { data: toTicketTransfer(outcome.transfer) }
+      return { data: { ...toTicketTransfer(outcome.transfer), delivery } }
     },
   })
 
@@ -439,10 +692,23 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
         throw conflict('That invitation was already answered.', { status: transfer.status })
       }
 
+      // What the new ticket owes at the door: what the old one owed, now the
+      // recipient's to pay (SPEC3-XI XT2). Null when it owes nothing there.
+      const line = await prisma.orderItem.findUnique({
+        where: { id: outcome.ticket.orderItemId },
+        select: { order: { select: { currency: true } } },
+      })
+      const venuePayment = ticketVenuePayment(outcome.ticket, {
+        currency: line?.order?.currency ?? null,
+        viewerUserId: request.actor.id,
+      })
+
       // The one time a credential crosses the wire. It is derived rather than
       // stored, so this response is the only place it will ever exist outside
       // the recipient's own device.
-      return { data: { ticket: outcome.ticket, credential: outcome.credential } }
+      return {
+        data: { ticket: { ...outcome.ticket, venuePayment }, credential: outcome.credential },
+      }
     },
   })
 
@@ -534,15 +800,40 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
         organizationId: event.organizationId,
       })
 
-      const revoked = await prisma.$transaction((tx) =>
-        revokeTicket(tx, {
+      const orderId = ticket.orderItem.order.id
+      // Bounded: the order's row can be held by a night's cancellation or a
+      // deletion for their whole budget, and the organiser is told within
+      // the wait that nothing was revoked (final door review, finding 2).
+      const revoked = await budgetedTransaction(prisma, REVOKE_BUDGET, async (tx) => {
+        // The order first, then the ticket (SPEC3-XI §2.3.5): every other
+        // writer of an order and its tickets takes them in that order, and
+        // the referral use below is decided under this lock.
+        await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${orderId} FOR UPDATE`
+
+        const moved = await revokeTicket(tx, {
           ticket: stripRelations(ticket),
           reason: request.body.reason,
           actorId: request.actor.id,
           requestId: request.id,
           now,
-        }),
-      )
+        })
+
+        // An order that now has no ticket standing and nothing left to refund
+        // ended without being used, and gives its referral use back once
+        // (SPEC3-XI XR4): after the ticket's write, so the code is the last
+        // lock taken.
+        if (moved) {
+          await settleReferralUsesIfEnded(tx, {
+            entries: [{ orderId, cause: 'TICKETS_REVOKED' }],
+            actorId: request.actor.id,
+            requestId: request.id,
+            now,
+            log: request.log,
+          })
+        }
+
+        return moved
+      })
 
       if (!revoked) {
         throw conflict('Somebody else moved that ticket on. Read it again.', {
@@ -568,7 +859,12 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
  * @returns {object} The ticket's own columns only.
  */
 function stripRelations(ticket) {
-  const { orderItem: _orderItem, ...rest } = ticket
+  const {
+    orderItem: _orderItem,
+    eventSeat: _eventSeat,
+    venueCancellation: _venueCancellation,
+    ...rest
+  } = ticket
 
   return rest
 }

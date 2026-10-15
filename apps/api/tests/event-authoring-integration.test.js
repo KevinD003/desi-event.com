@@ -31,7 +31,14 @@ import { createPrismaClient } from '@desi-event/db'
 
 import { requireDatabaseOrWarn } from './helpers/database.js'
 
-import { authorChange, prepareInventory } from '../src/lib/event-authoring.js'
+import {
+  authorChange,
+  bindReservedSeats,
+  prepareInventory,
+  sessionRemovable,
+  sessionUsage,
+} from '../src/lib/event-authoring.js'
+import { databaseErrorCode } from '../src/lib/errors.js'
 import { cancellationWork } from '../src/lib/event-cancellation.js'
 import { classifyChanges, materialChangeWork } from '../src/lib/event-material-change.js'
 import { loadForTransition, transitionEvent } from '../src/lib/event-lifecycle.js'
@@ -200,6 +207,13 @@ async function publishedMapVersion(venueId, label) {
 /**
  * A paid order against an event, so cancellation has something to owe.
  *
+ * Its totals add up — face value, fee and tax to the total — as every order
+ * checkout writes does. Cancellation now asks for the refund through the
+ * refund service, which works out its split from those parts and refuses an
+ * order whose parts do not add up (`ORDER_TOTALS_INCONSISTENT`), so an order
+ * of 1,499.00 charged 1,580.00 with no fee recorded is no longer one it can
+ * refund.
+ *
  * @param {object} event The event.
  * @param {string} label Distinguishes the reference.
  * @returns {Promise<object>} The order.
@@ -214,6 +228,9 @@ async function paidOrder(event, label) {
       status: 'PAID',
       currency: 'INR',
       subtotalCents: 149_900,
+      feesCents: 8_100,
+      // The fee before any waiver: no referral code, so all of it (SPEC3 §5).
+      feeGrossCents: 8_100,
       totalCents: 158_000,
       policySnapshot: { refund: 'Refundable up to 48 hours before.' },
     },
@@ -464,7 +481,7 @@ when('two people cancelling the same event', () => {
     })
 
     // One business result. Two refund rows against one order would be a
-    // double refund waiting for a worker to execute it.
+    // double refund waiting for somebody to approve and send it.
     expect(refunds).toHaveLength(1)
     expect(refunds[0].status).toBe('REQUESTED')
     expect(notices).toHaveLength(1)
@@ -498,9 +515,10 @@ when('two people cancelling the same event', () => {
 
     const [refund] = await prisma.refund.findMany({ where: { orderId: order.id } })
 
-    // No refund service exists in this repository. The row is the first state
-    // of `RefundStatus`, meaning somebody asked; nothing has been sent
-    // anywhere, and nothing here claims money moved.
+    // The row is the first state of `RefundStatus`, meaning somebody asked:
+    // cancellation asks the refund service for it (reserved, with its lines
+    // and split — asserted in `refund-fees-integration.test.js`), and sends
+    // nothing anywhere. Nothing here claims money moved.
     expect(refund.status).toBe('REQUESTED')
     expect(refund.providerRefundId ?? null).toBeNull()
     expect(refund.settledAt ?? null).toBeNull()
@@ -603,6 +621,8 @@ when('two people preparing the same session', () => {
       expected: 0,
       prepared: 0,
       created: 0,
+      // Nothing to bind, either: seats are what a reserved tier sells.
+      assigned: 0,
     })
   })
 })
@@ -764,5 +784,261 @@ when('a material change under two writers', () => {
     // Rewriting it would defeat the entire mechanism, retroactively and
     // invisibly.
     expect(stored.policySnapshot).toEqual({ refund: 'Refundable up to 48 hours before.' })
+  })
+})
+
+/**
+ * Run statements with the tier description trigger switched off, in one
+ * transaction, to write the kind of row that exists from before the trigger.
+ *
+ * `ALTER TABLE` takes an exclusive lock held to the end of the transaction, so
+ * no other session ever sees the trigger switched off.
+ *
+ * @param {Function} work Given the transaction client.
+ * @returns {Promise<unknown>} What `work` returned.
+ */
+function withoutDescriptionTrigger(work) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(
+      'ALTER TABLE "TicketType" DISABLE TRIGGER desi_ticket_type_description_length',
+    )
+
+    const result = await work(tx)
+
+    await tx.$executeRawUnsafe(
+      'ALTER TABLE "TicketType" ENABLE TRIGGER desi_ticket_type_description_length',
+    )
+
+    return result
+  })
+}
+
+/**
+ * The PostgreSQL error code behind a refused write.
+ *
+ * @param {Promise<unknown>} write The write.
+ * @returns {Promise<string|null>} The code, or null when it succeeded.
+ */
+async function refusal(write) {
+  try {
+    await write
+    return null
+  } catch (error) {
+    return databaseErrorCode(error) ?? error?.code ?? 'UNKNOWN'
+  }
+}
+
+when('the database holding a tier to the limits the API refuses first', () => {
+  /**
+   * A ticket type row on a fixture event.
+   *
+   * @param {object} fixture The fixture.
+   * @param {object} [data] Columns to set.
+   * @returns {Promise<object>} The row.
+   */
+  const tierOn = (fixture, data = {}) =>
+    prisma.ticketType.create({
+      data: {
+        eventId: fixture.event.id,
+        name: `Tier ${Math.random().toString(36).slice(2, 8)}`,
+        priceCents: 1000,
+        quantityTotal: 10,
+        ...data,
+      },
+    })
+
+  it('refuses 51 per order and a least above the most (ticket_type_per_order_bounds)', async () => {
+    const fixture = await freshEvent('per-order-check')
+
+    expect(await refusal(tierOn(fixture, { maxPerOrder: 51 }))).not.toBeNull()
+    expect(await refusal(tierOn(fixture, { minPerOrder: 5, maxPerOrder: 4 }))).not.toBeNull()
+    expect(await refusal(tierOn(fixture, { minPerOrder: 50, maxPerOrder: 50 }))).toBeNull()
+  })
+
+  it('refuses a 501-character description on insert and on change, but lets a legacy row sell', async () => {
+    const fixture = await freshEvent('description-trigger')
+
+    expect(await refusal(tierOn(fixture, { description: 'd'.repeat(501) }))).not.toBeNull()
+
+    const legacy = await withoutDescriptionTrigger((tx) =>
+      tx.ticketType.create({
+        data: {
+          eventId: fixture.event.id,
+          name: 'Legacy',
+          description: 'd'.repeat(900),
+          priceCents: 1000,
+          quantityTotal: 10,
+        },
+      }),
+    )
+
+    // Settlement's counter update never touches the description, so it passes.
+    expect(
+      await refusal(
+        prisma.ticketType.update({ where: { id: legacy.id }, data: { quantitySold: 1 } }),
+      ),
+    ).toBeNull()
+
+    // A change to the description is held to the limit.
+    expect(
+      await refusal(
+        prisma.ticketType.update({
+          where: { id: legacy.id },
+          data: { description: 'e'.repeat(700) },
+        }),
+      ),
+    ).not.toBeNull()
+  })
+
+  it('refuses a priced or public complimentary tier (ticket_type_complimentary_free_and_hidden)', async () => {
+    const fixture = await freshEvent('comp-check')
+
+    expect(
+      await refusal(
+        tierOn(fixture, { complimentary: true, priceCents: 100, visibility: 'HIDDEN' }),
+      ),
+    ).not.toBeNull()
+    expect(
+      await refusal(tierOn(fixture, { complimentary: true, priceCents: 0, visibility: 'PUBLIC' })),
+    ).not.toBeNull()
+    expect(
+      await refusal(tierOn(fixture, { complimentary: true, priceCents: 0, visibility: 'HIDDEN' })),
+    ).toBeNull()
+  })
+
+  it('refuses a second reserved tier on a zone at a session, and a zone of another version', async () => {
+    const fixture = await freshEvent('reserved-rules')
+    const version = await publishedMapVersion(fixture.venue.id, 'reserved-rules')
+    const other = await publishedMapVersion(fixture.venue.id, 'reserved-rules-other')
+    const [zone] = await prisma.priceZone.findMany({ where: { venueMapVersionId: version.id } })
+    const [foreign] = await prisma.priceZone.findMany({ where: { venueMapVersionId: other.id } })
+
+    await prisma.eventSession.update({
+      where: { id: fixture.session.id },
+      data: { venueMapVersionId: version.id, capacity: null },
+    })
+
+    const reserved = { reserved: true, quantityTotal: 0, eventSessionId: fixture.session.id }
+
+    expect(await refusal(tierOn(fixture, { ...reserved, priceZoneId: zone.id }))).toBeNull()
+    // TicketType_reserved_session_zone_key.
+    expect(await refusal(tierOn(fixture, { ...reserved, priceZoneId: zone.id }))).toBe('P2002')
+    // desi_ticket_type_zone_matches_session: check_violation.
+    expect(await refusal(tierOn(fixture, { ...reserved, priceZoneId: foreign.id }))).not.toBeNull()
+  })
+
+  it('refuses a thirty-first question on the event page', async () => {
+    const fixture = await freshEvent('faq-check')
+    const faq = Array.from({ length: 31 }, (_, index) => ({ question: `Q${index}`, answer: 'A' }))
+
+    expect(
+      await refusal(
+        prisma.$executeRawUnsafe(
+          'UPDATE "Event" SET "faq" = $1::jsonb WHERE "id" = $2',
+          JSON.stringify(faq),
+          fixture.event.id,
+        ),
+      ),
+    ).not.toBeNull()
+    expect(
+      await refusal(
+        prisma.event.update({ where: { id: fixture.event.id }, data: { faq: faq.slice(0, 30) } }),
+      ),
+    ).toBeNull()
+  })
+})
+
+when('reserved seats and the tier that sells them', () => {
+  it('binds each available seat to the tier pricing its zone, and moves them with the zone', async () => {
+    const fixture = await freshEvent('bind-real')
+    const version = await publishedMapVersion(fixture.venue.id, 'bind-real')
+    const [zone] = await prisma.priceZone.findMany({ where: { venueMapVersionId: version.id } })
+
+    await prisma.eventSession.update({
+      where: { id: fixture.session.id },
+      data: { venueMapVersionId: version.id, capacity: null },
+    })
+
+    const event = await prisma.event.findUnique({
+      where: { id: fixture.event.id },
+      include: { sessions: true },
+    })
+
+    const tier = await prisma.ticketType.create({
+      data: {
+        eventId: fixture.event.id,
+        name: 'Stalls',
+        priceCents: 1000,
+        quantityTotal: 0,
+        reserved: true,
+        eventSessionId: fixture.session.id,
+        priceZoneId: zone.id,
+      },
+    })
+
+    const prepared = await prepareInventory(prisma, {
+      event,
+      sessionId: fixture.session.id,
+      actor: fixture.owner,
+    })
+
+    expect(prepared).toMatchObject({ created: 2, assigned: 2 })
+    expect(await prisma.eventSeat.count({ where: { ticketTypeId: tier.id } })).toBe(2)
+
+    // Idempotent.
+    expect(await bindReservedSeats(prisma, { eventSessionId: fixture.session.id })).toEqual({
+      bound: 0,
+      unbound: 0,
+    })
+
+    // A tier that stops being reserved gives its free seats back.
+    await prisma.ticketType.update({
+      where: { id: tier.id },
+      data: { reserved: false, priceZoneId: null, quantityTotal: 5 },
+    })
+
+    expect(await bindReservedSeats(prisma, { eventSessionId: fixture.session.id })).toEqual({
+      bound: 0,
+      unbound: 2,
+    })
+    expect(await prisma.eventSeat.count({ where: { ticketTypeId: tier.id } })).toBe(0)
+  })
+})
+
+when('a session somebody bought a ticket for', () => {
+  it('reads as in use through the tier, although the order names no session', async () => {
+    const fixture = await freshEvent('session-in-use', 'ON_SALE')
+    const tier = await prisma.ticketType.create({
+      data: {
+        eventId: fixture.event.id,
+        name: 'Night pass',
+        priceCents: 1000,
+        quantityTotal: 10,
+        status: 'ON_SALE',
+        eventSessionId: fixture.session.id,
+      },
+    })
+    const order = await paidOrder(fixture.event, 'sessioninuse')
+
+    await prisma.orderItem.create({
+      data: {
+        orderId: order.id,
+        ticketTypeId: tier.id,
+        quantity: 1,
+        unitPriceCents: 1000,
+        subtotalCents: 1000,
+      },
+    })
+
+    const usage = await sessionUsage(prisma, [fixture.session], [tier])
+
+    expect(usage.get(fixture.session.id).orders).toBe(1)
+    expect(sessionRemovable(usage.get(fixture.session.id))).toBe(false)
+
+    // Without that check the database is what refuses, as a foreign-key error
+    // the route turns into 409 SESSION_IN_USE rather than a 500.
+    const code = await refusal(prisma.eventSession.delete({ where: { id: fixture.session.id } }))
+
+    expect(['P2003', '23503']).toContain(code)
   })
 })

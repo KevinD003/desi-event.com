@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
-import { allocateProportionally, computeOrderTotals } from './totals.js'
+import {
+  AT_VENUE_TAXES_BOOKING_FEE,
+  PAYMENT_METHODS,
+  allocateProportionally,
+  computeOrderTotals,
+  splitAcrossTickets,
+  unitsWithShare,
+} from './totals.js'
 import { DEFAULT_FEE_CONFIG } from './fees.js'
 import { PROMO_TYPES } from './discount.js'
 import { PricingError } from './errors.js'
-import { MAX_CENTS } from './money.js'
+import { MAX_CENTS, applyBps } from './money.js'
+import { resolveTaxPolicy } from './tax.js'
 
 const NOW = new Date('2026-06-15T12:00:00.000Z')
 const NO_FEES = { percentageBps: 0, flatCents: 0, currency: 'INR' }
@@ -432,5 +440,408 @@ describe('allocateProportionally at scale', () => {
     expect(() => allocateProportionally(Number.NaN, [1])).toThrow(PricingError)
     expect(() => allocateProportionally(Number.POSITIVE_INFINITY, [1])).toThrow(PricingError)
     expect(() => allocateProportionally(100, 'nope')).toThrow(PricingError)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SPEC3 §6: the booking fee's waiver and paying at the venue
+// ---------------------------------------------------------------------------
+
+describe('computeOrderTotals: the worked examples of SPEC3 §6.2', () => {
+  const US = 0
+  const ONTARIO = resolveTaxPolicy({ country: 'CA', region: 'ON' }).rateBps
+  const SITE_DEFAULT_USD = { percentageBps: 590, flatCents: 99, currency: 'USD' }
+  const EVENT_TERMS = { percentageBps: 300, flatCents: 149, currency: 'USD' }
+  const forty = (quantity = 1, id = 'tt_forty') => ({
+    ticketTypeId: id,
+    quantity,
+    unitPriceCents: 4_000,
+  })
+  const quarterOff = {
+    code: 'QUARTER',
+    type: PROMO_TYPES.PERCENTAGE,
+    value: 2_500,
+    active: true,
+  }
+
+  /**
+   * One row of the table: the inputs, and G, W, F, T, online and at the door.
+   *
+   * @type {Array<Array<*>>} Each row: a label, the inputs, and `{G, W, F, T, online, door}`.
+   */
+  const ROWS = [
+    [
+      '1 × $40, US, site default, card',
+      { items: [forty()], feeConfig: SITE_DEFAULT_USD, taxRateBps: US },
+      { G: 335, W: 0, F: 335, T: 0, online: 4_335, door: 0 },
+    ],
+    [
+      '2 × $40, US, event 3.00% + $1.49, card',
+      { items: [forty(2)], feeConfig: EVENT_TERMS, taxRateBps: US },
+      { G: 538, W: 0, F: 538, T: 0, online: 8_538, door: 0 },
+    ],
+    [
+      '2 × $40, US, event terms, at the venue',
+      { items: [forty(2)], feeConfig: EVENT_TERMS, taxRateBps: US, paymentMethod: 'AT_VENUE' },
+      { G: 538, W: 0, F: 538, T: 0, online: 538, door: 8_000 },
+    ],
+    [
+      '2 × $40 + referral, US, event terms, at the venue',
+      {
+        items: [forty(2)],
+        feeConfig: EVENT_TERMS,
+        taxRateBps: US,
+        paymentMethod: 'AT_VENUE',
+        feeWaived: true,
+      },
+      { G: 538, W: 538, F: 0, T: 0, online: 0, door: 8_000 },
+    ],
+    [
+      '2 × $40, 25% promo, referral, US, event terms, card',
+      {
+        items: [forty(2)],
+        feeConfig: EVENT_TERMS,
+        taxRateBps: US,
+        promoCode: quarterOff,
+        now: NOW,
+        feeWaived: true,
+      },
+      { G: 478, W: 478, F: 0, T: 0, online: 6_000, door: 0 },
+    ],
+    [
+      '$40 + $0, US, event terms, at the venue',
+      {
+        items: [forty(1), { ticketTypeId: 'tt_free', quantity: 1, unitPriceCents: 0 }],
+        feeConfig: EVENT_TERMS,
+        taxRateBps: US,
+        paymentMethod: 'AT_VENUE',
+      },
+      { G: 418, W: 0, F: 418, T: 0, online: 418, door: 4_000 },
+    ],
+    [
+      '2 × $0, US, any terms, card, a referral code named',
+      {
+        items: [{ ticketTypeId: 'tt_free', quantity: 2, unitPriceCents: 0 }],
+        feeConfig: EVENT_TERMS,
+        taxRateBps: US,
+        feeWaived: true,
+      },
+      { G: 0, W: 0, F: 0, T: 0, online: 0, door: 0 },
+    ],
+    [
+      '1 × $40, Ontario, site default, card',
+      { items: [forty()], feeConfig: SITE_DEFAULT_USD, taxRateBps: ONTARIO },
+      { G: 335, W: 0, F: 335, T: 564, online: 4_899, door: 0 },
+    ],
+    [
+      '1 × $40 + referral, Ontario, site default, card',
+      { items: [forty()], feeConfig: SITE_DEFAULT_USD, taxRateBps: ONTARIO, feeWaived: true },
+      { G: 335, W: 335, F: 0, T: 520, online: 4_520, door: 0 },
+    ],
+    [
+      '1 × $40, Ontario, site default, at the venue',
+      {
+        items: [forty()],
+        feeConfig: SITE_DEFAULT_USD,
+        taxRateBps: ONTARIO,
+        paymentMethod: 'AT_VENUE',
+      },
+      { G: 335, W: 0, F: 335, T: 0, online: 335, door: 4_000 },
+    ],
+    [
+      '1 × $40, Ontario, site default, at the venue, question 9 answered "yes"',
+      {
+        items: [forty()],
+        feeConfig: SITE_DEFAULT_USD,
+        taxRateBps: ONTARIO,
+        paymentMethod: 'AT_VENUE',
+        atVenueTaxesBookingFee: true,
+      },
+      { G: 335, W: 0, F: 335, T: 44, online: 379, door: 4_000 },
+    ],
+  ]
+
+  it('takes the Ontario rate from the DEMO HST policy (13%)', () => {
+    expect(ONTARIO).toBe(1_300)
+  })
+
+  it.each(ROWS)('%s', (_label, input, expected) => {
+    const totals = computeOrderTotals({ currency: 'USD', ...input })
+
+    expect({
+      G: totals.feeGrossCents,
+      W: totals.feeWaivedCents,
+      F: totals.feesCents,
+      T: totals.taxCents,
+      online: totals.totalCents,
+      door: totals.venueDueCents,
+    }).toEqual(expected)
+    // What is paid, wherever, is the ticket price after the promo, the fee
+    // charged and the tax charged.
+    expect(totals.totalCents + totals.venueDueCents).toBe(
+      totals.subtotalCents - totals.discountCents + totals.feesCents + totals.taxCents,
+    )
+  })
+})
+
+describe('computeOrderTotals: card orders with the defaults are unchanged', () => {
+  const CASES = [
+    {
+      items: [{ ticketTypeId: 'a', quantity: 3, unitPriceCents: 1_999 }],
+      taxRateBps: 1_800,
+    },
+    {
+      items: [
+        { ticketTypeId: 'a', quantity: 2, unitPriceCents: 4_000 },
+        { ticketTypeId: 'b', quantity: 1, unitPriceCents: 2_500 },
+      ],
+      promoCode: percentagePromo(1_500),
+      taxRateBps: 1_300,
+      now: NOW,
+    },
+    { items: [{ ticketTypeId: 'a', quantity: 1, unitPriceCents: 0 }] },
+    { items: [] },
+  ]
+
+  it.each(CASES.map((input, index) => [index, input]))(
+    'case %i: today’s fields, a gross fee equal to the fee, nothing waived, nothing due at the door',
+    (_index, input) => {
+      const totals = computeOrderTotals(input)
+      const explicit = computeOrderTotals({ ...input, paymentMethod: 'CARD', feeWaived: false })
+
+      expect(explicit).toEqual(totals)
+      expect(totals.feeGrossCents).toBe(totals.feesCents)
+      expect(totals.feeWaivedCents).toBe(0)
+      expect(totals.venueDueCents).toBe(0)
+      expect(totals.taxApplied).toBe(true)
+      expect(totals.taxAppliedTo).toBe('TICKETS_AND_FEE')
+      expect(totals.lineItems.every((line) => !('venueDueCents' in line))).toBe(true)
+      expectReconciled(totals)
+    },
+  )
+
+  it('still charges the fee and its tax on the discounted subtotal (today’s numbers)', () => {
+    const totals = computeOrderTotals({
+      items: [{ ticketTypeId: 'tt_ga', name: 'General', quantity: 1, unitPriceCents: 100_000 }],
+      promoCode: percentagePromo(1_000),
+      taxRateBps: 1_800,
+      now: NOW,
+    })
+
+    // 90,000 after the promo; 2.5% + ₹5 = 2,750; 18% of 92,750 = 16,695.
+    expect(totals).toMatchObject({
+      subtotalCents: 100_000,
+      discountCents: 10_000,
+      feesCents: 2_750,
+      taxCents: 16_695,
+      totalCents: 109_445,
+    })
+  })
+})
+
+describe('computeOrderTotals: paying at the venue', () => {
+  const items = [
+    { ticketTypeId: 'a', quantity: 2, unitPriceCents: 3_333 },
+    { ticketTypeId: 'b', quantity: 1, unitPriceCents: 1_000 },
+  ]
+
+  it.each([0, 1_300, 1_800, 2_000])(
+    'adds no tax at %i basis points, and charges online only the fee and its tax',
+    (taxRateBps) => {
+      const totals = computeOrderTotals({
+        items,
+        promoCode: percentagePromo(1_000),
+        now: NOW,
+        taxRateBps,
+        paymentMethod: 'AT_VENUE',
+      })
+
+      expect(totals.taxCents).toBe(0)
+      expect(totals.taxApplied).toBe(false)
+      expect(totals.taxAppliedTo).toBe('NOTHING')
+      expect(totals.totalCents).toBe(totals.feesCents + totals.taxCents)
+      expect(totals.venueDueCents).toBe(totals.subtotalCents - totals.discountCents)
+    },
+  )
+
+  it('gives each line its ticket price after its share of the promo, summing to the order', () => {
+    const totals = computeOrderTotals({
+      items,
+      promoCode: percentagePromo(1_000),
+      now: NOW,
+      paymentMethod: 'AT_VENUE',
+    })
+
+    for (const line of totals.lineItems) {
+      expect(line.venueDueCents).toBe(line.subtotalCents - line.discountCents)
+    }
+    expect(totals.lineItems.reduce((sum, line) => sum + line.venueDueCents, 0)).toBe(
+      totals.venueDueCents,
+    )
+  })
+
+  it('charges the same booking fee as a card order would', () => {
+    const card = computeOrderTotals({ items, taxRateBps: 1_300 })
+    const venue = computeOrderTotals({ items, taxRateBps: 1_300, paymentMethod: 'AT_VENUE' })
+
+    expect(venue.feeGrossCents).toBe(card.feeGrossCents)
+    expect(venue.feesCents).toBe(card.feesCents)
+  })
+
+  it('owes nothing at the door, and has no fee, when the ticket price is 0', () => {
+    const totals = computeOrderTotals({
+      items: [{ ticketTypeId: 'free', quantity: 2, unitPriceCents: 0 }],
+      paymentMethod: 'AT_VENUE',
+    })
+
+    expect(totals).toMatchObject({
+      feeGrossCents: 0,
+      feesCents: 0,
+      venueDueCents: 0,
+      totalCents: 0,
+    })
+  })
+
+  it('refuses a payment method it does not know', () => {
+    expect(() => computeOrderTotals({ items, paymentMethod: 'CASH' })).toThrow(PricingError)
+    expect(() => computeOrderTotals({ items, paymentMethod: 'CASH' })).toThrow(
+      expect.objectContaining({ code: 'INVALID_PAYMENT_METHOD' }),
+    )
+  })
+})
+
+describe('computeOrderTotals: a referral code waives the whole booking fee', () => {
+  const items = [{ ticketTypeId: 'a', quantity: 2, unitPriceCents: 4_000 }]
+
+  it('keeps the gross fee, charges none, and takes the waived fee out of a card order’s tax base', () => {
+    const plain = computeOrderTotals({ items, taxRateBps: 1_300 })
+    const waived = computeOrderTotals({ items, taxRateBps: 1_300, feeWaived: true })
+
+    expect(waived.feeGrossCents).toBe(plain.feesCents)
+    expect(waived.feeWaivedCents).toBe(plain.feesCents)
+    expect(waived.feesCents).toBe(0)
+    expect(waived.taxCents).toBe(applyBps(waived.subtotalCents, 1_300))
+    expect(waived.totalCents).toBe(waived.subtotalCents + waived.taxCents)
+    expectReconciled(waived)
+  })
+
+  it('never touches the ticket price or the promo', () => {
+    const plain = computeOrderTotals({
+      items,
+      promoCode: percentagePromo(2_500),
+      now: NOW,
+    })
+    const waived = computeOrderTotals({
+      items,
+      promoCode: percentagePromo(2_500),
+      now: NOW,
+      feeWaived: true,
+    })
+
+    expect(waived.subtotalCents).toBe(plain.subtotalCents)
+    expect(waived.discountCents).toBe(plain.discountCents)
+    expect(waived.lineItems.map((line) => line.discountCents)).toEqual(
+      plain.lineItems.map((line) => line.discountCents),
+    )
+  })
+
+  it('waives nothing when the basket is free (the gross fee is 0)', () => {
+    const totals = computeOrderTotals({
+      items: [{ ticketTypeId: 'free', quantity: 3, unitPriceCents: 0 }],
+      feeWaived: true,
+    })
+
+    expect(totals).toMatchObject({ feeGrossCents: 0, feeWaivedCents: 0, feesCents: 0 })
+  })
+
+  it('waives nothing when a 100% promo makes the tickets free', () => {
+    const totals = computeOrderTotals({
+      items,
+      promoCode: percentagePromo(10_000),
+      now: NOW,
+      feeWaived: true,
+    })
+
+    expect(totals).toMatchObject({ feeGrossCents: 0, feeWaivedCents: 0, totalCents: 0 })
+  })
+
+  it('refuses a waiver that is not a boolean', () => {
+    expect(() => computeOrderTotals({ items, feeWaived: 'yes' })).toThrow(
+      expect.objectContaining({ code: 'INVALID_FEE_WAIVER' }),
+    )
+    expect(() => computeOrderTotals({ items, atVenueTaxesBookingFee: 1 })).toThrow(
+      expect.objectContaining({ code: 'INVALID_TAX_OPTION' }),
+    )
+  })
+})
+
+describe('AT_VENUE_TAXES_BOOKING_FEE and PAYMENT_METHODS', () => {
+  it('adds no tax to the online fee of a pay-at-the-venue order by default (open question 9)', () => {
+    expect(AT_VENUE_TAXES_BOOKING_FEE).toBe(false)
+  })
+
+  it('names the two payment methods the database knows', () => {
+    expect(PAYMENT_METHODS).toEqual({ CARD: 'CARD', AT_VENUE: 'AT_VENUE' })
+    expect(Object.isFrozen(PAYMENT_METHODS)).toBe(true)
+  })
+})
+
+describe('splitAcrossTickets', () => {
+  it('sums exactly to the amount, the first tickets taking the extra cents', () => {
+    expect(splitAcrossTickets(1_000, 3)).toEqual([334, 333, 333])
+    expect(splitAcrossTickets(1_001, 3)).toEqual([334, 334, 333])
+    expect(splitAcrossTickets(8_000, 2)).toEqual([4_000, 4_000])
+  })
+
+  it('gives one ticket the whole amount', () => {
+    expect(splitAcrossTickets(4_000, 1)).toEqual([4_000])
+  })
+
+  it('gives some tickets 0 when the amount is smaller than the quantity in cents', () => {
+    expect(splitAcrossTickets(2, 5)).toEqual([1, 1, 0, 0, 0])
+    expect(splitAcrossTickets(0, 2)).toEqual([0, 0])
+  })
+
+  it.each([
+    [1, 1],
+    [7, 3],
+    [99_999, 7],
+    [12_345, 100],
+  ])('splits %i across %i tickets into parts summing exactly', (amount, quantity) => {
+    const parts = splitAcrossTickets(amount, quantity)
+
+    expect(parts).toHaveLength(quantity)
+    expect(parts.reduce((sum, part) => sum + part, 0)).toBe(amount)
+    expect(Math.max(...parts) - Math.min(...parts)).toBeLessThanOrEqual(1)
+    expect([...parts].sort((a, b) => b - a)).toEqual(parts)
+  })
+
+  it('refuses a quantity of 0, a negative amount and a fraction', () => {
+    expect(() => splitAcrossTickets(100, 0)).toThrow(PricingError)
+    expect(() => splitAcrossTickets(-1, 2)).toThrow(PricingError)
+    expect(() => splitAcrossTickets(1.5, 2)).toThrow(PricingError)
+  })
+})
+
+describe('unitsWithShare', () => {
+  it('is min(quantity, due): the tickets of a line whose share is above 0', () => {
+    expect(unitsWithShare(8_000, 2)).toBe(2)
+    expect(unitsWithShare(2, 5)).toBe(2)
+    expect(unitsWithShare(0, 3)).toBe(0)
+  })
+
+  it('agrees with splitAcrossTickets for every small line', () => {
+    for (let quantity = 1; quantity <= 6; quantity += 1) {
+      for (let due = 0; due <= 8; due += 1) {
+        const above = splitAcrossTickets(due, quantity).filter((share) => share > 0).length
+
+        expect(unitsWithShare(due, quantity)).toBe(above)
+      }
+    }
+  })
+
+  it('refuses a negative amount or quantity', () => {
+    expect(() => unitsWithShare(-1, 2)).toThrow(PricingError)
+    expect(() => unitsWithShare(1, -2)).toThrow(PricingError)
   })
 })

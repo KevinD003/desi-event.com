@@ -1,0 +1,86 @@
+/**
+ * The attendee privacy page says what is missing as plainly as what exists.
+ *
+ * The properties worth pinning: it links to the controls that exist; it names
+ * every capability this build lacks — export, deletion, email, scheduled
+ * deletion — as unavailable rather than as "coming"; it promises nothing about
+ * an address it cannot keep; and it asks nothing of the API, so it cannot fail
+ * to load.
+ *
+ * @module app/account/privacy/page.test
+ */
+
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import AccountPrivacyPage from './page.jsx'
+
+afterEach(cleanup)
+
+describe('AccountPrivacyPage', () => {
+  it('links to the privacy controls that exist', () => {
+    render(<AccountPrivacyPage />)
+
+    expect(screen.getByRole('link', { name: 'Account security' }).getAttribute('href')).toBe(
+      '/account/security',
+    )
+    expect(screen.getByRole('link', { name: 'Transfers' }).getAttribute('href')).toBe(
+      '/account/transfers',
+    )
+  })
+
+  it('names each missing capability as unavailable, not as coming', () => {
+    const { container } = render(<AccountPrivacyPage />)
+
+    for (const missing of [
+      'Download a copy of your data',
+      'Delete your account',
+      'Email from this site',
+      'Automatic deletion after a set time',
+    ]) {
+      expect(screen.getByText(missing, { exact: false }).textContent).toMatch(
+        /not available in this build/,
+      )
+    }
+
+    expect(container.textContent).not.toMatch(/coming soon|\bsoon\b|\byet\b|in a future/i)
+  })
+
+  it('says nothing about the visitor is deleted on a schedule, and names the one timed deletion', () => {
+    const { container } = render(<AccountPrivacyPage />)
+
+    expect(container.textContent).toMatch(
+      /Nothing about you, your orders or your tickets is deleted on a schedule\./,
+    )
+    expect(container.textContent).toMatch(/removes nothing/)
+    // The traffic roll-up deletes raw visit rows on a timer (SPEC2 §4.N-H), so
+    // the page no longer says scheduled deletion is off altogether.
+    expect(container.textContent).toMatch(/The one deletion on a timer is of raw visit records/)
+    expect(container.textContent).not.toMatch(/Scheduled deletion is switched off/)
+  })
+
+  it('says a forgotten password cannot be reset, because resets are not emailed', () => {
+    const { container } = render(<AccountPrivacyPage />)
+
+    expect(container.textContent).toMatch(/forgotten password cannot be reset/i)
+    expect(container.textContent).toMatch(
+      /does not email receipts, confirmation links or password resets/i,
+    )
+    expect(container.textContent).not.toMatch(/delivers no email|sends no email/i)
+  })
+
+  it('shows no email address, and no address-shaped example', () => {
+    const { container } = render(<AccountPrivacyPage />)
+
+    expect(container.textContent).not.toMatch(/[^\s@]+@[^\s@]+\.[^\s@]+/)
+  })
+
+  it('makes no request of its own', () => {
+    const fetch = vi.spyOn(globalThis, 'fetch')
+
+    render(<AccountPrivacyPage />)
+
+    expect(fetch).not.toHaveBeenCalled()
+    fetch.mockRestore()
+  })
+})

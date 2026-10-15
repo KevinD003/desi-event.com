@@ -45,8 +45,17 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://127.0.0.1:3000'
 /** How long the whole sitemap build may take before it gives up on the API. */
 const REQUEST_TIMEOUT_MS = 4000
 
-/** Events requested per page. */
-const PAGE_SIZE = 200
+/**
+ * Events requested per page: `MAX_PER_PAGE` in `@desi-event/schemas`, the most
+ * the listing accepts (the unit test holds it to that).
+ *
+ * It was 200. The API refuses anything over 100 with a 400, the refusal was
+ * caught below like any other failure, and so every sitemap this site served
+ * listed its static routes and not one event — while a stub client in the unit
+ * test accepted any page size it was asked for. The browser suite, reading the
+ * real sitemap from the real API, is what found it.
+ */
+export const PAGE_SIZE = 100
 
 /** Hard stop, so a misreporting API cannot spin this forever. */
 const MAX_PAGES = 50
@@ -63,6 +72,11 @@ function staticRoutes() {
   return [
     { url: `${siteUrl}/`, changeFrequency: 'daily', priority: 1 },
     { url: `${siteUrl}/events`, changeFrequency: 'daily', priority: 0.9 },
+    { url: `${siteUrl}/categories`, changeFrequency: 'daily', priority: 0.7 },
+    { url: `${siteUrl}/venues`, changeFrequency: 'weekly', priority: 0.6 },
+    { url: `${siteUrl}/organizers`, changeFrequency: 'daily', priority: 0.6 },
+    { url: `${siteUrl}/limitations`, changeFrequency: 'monthly', priority: 0.3 },
+    { url: `${siteUrl}/contact`, changeFrequency: 'monthly', priority: 0.3 },
   ]
 }
 

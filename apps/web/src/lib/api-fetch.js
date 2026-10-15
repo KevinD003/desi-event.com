@@ -48,15 +48,69 @@ export function readCsrfToken() {
   return null
 }
 
+/** Methods that carry no body. A precondition for one travels in the query string. */
+const BODILESS = ['GET', 'HEAD', 'DELETE']
+
+/**
+ * Serialise a query object, dropping absent values.
+ *
+ * @param {Record<string, unknown>|undefined} query The values.
+ * @returns {string} `?a=1&b=2`, or an empty string when nothing is left.
+ */
+export function toQueryString(query) {
+  if (!query) return ''
+
+  const params = new URLSearchParams()
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value === null || value === undefined) continue
+
+    params.append(key, String(value))
+  }
+
+  const text = params.toString()
+
+  return text ? `?${text}` : ''
+}
+
 /**
  * Call the API through the same-origin proxy.
  *
+ * A body on a GET, HEAD or DELETE is refused with a `TypeError` rather than
+ * sent. The API reads those methods' preconditions from the query string, and a
+ * DELETE whose revision travelled in a body was refused with a 400 however it
+ * was called — the Remove button that never removed anything. Throwing here
+ * makes that mistake fail in the first unit test rather than in front of an
+ * organiser. Pass `query` instead.
+ *
  * @param {string} path An API path beginning `/v1/`.
- * @param {object} [options] Fetch options.
+ * @param {object} [options] Fetch options, plus `query`.
+ * @param {Record<string, unknown>} [options.query] Query-string values; null and undefined are dropped.
  * @returns {Promise<Response>} The response.
+ * @throws {TypeError} When a body is given with GET, HEAD or DELETE.
  */
 export function apiFetch(path, options = {}) {
-  const method = (options.method ?? 'GET').toUpperCase()
+  const { query, ...init } = options
+  const method = (init.method ?? 'GET').toUpperCase()
+
+  if (BODILESS.includes(method) && init.body !== undefined && init.body !== null) {
+    throw new TypeError(
+      `apiFetch: a ${method} request carries no body; send ${path} its values as \`query\`.`,
+    )
+  }
+
+  return send(`${path}${toQueryString(query)}`, init, method)
+}
+
+/**
+ * Send one request, with the CSRF token on anything that changes something.
+ *
+ * @param {string} target The API path, with any query string.
+ * @param {object} options Fetch options.
+ * @param {string} method The upper-case method.
+ * @returns {Promise<Response>} The response.
+ */
+function send(target, options, method) {
   const headers = new Headers(options.headers ?? {})
 
   if (options.body && !headers.has('content-type')) {
@@ -69,5 +123,5 @@ export function apiFetch(path, options = {}) {
     if (token) headers.set('x-desi-csrf', token)
   }
 
-  return fetch(`/api${path}`, { ...options, method, headers })
+  return fetch(`/api${target}`, { ...options, method, headers })
 }

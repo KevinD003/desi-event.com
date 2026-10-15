@@ -52,11 +52,13 @@ const QUANTITY = 2
  * @param {object} [options.providers] A provider registry, when a test needs one that knows the payment.
  * @param {string} [options.providerRef] The payment's provider reference.
  * @param {Array<object>} [options.refunds] Refund rows to seed.
+ * @param {Array<object>} [options.disputes] Dispute rows to seed against the payment.
  * @returns {Promise<object>} The harness and the ids the tests need.
  */
 async function worldWithPaidOrder({
   order: orderOverrides = {},
   refunds = [],
+  disputes = [],
   providers,
   providerRef = 'pi_000001',
 } = {}) {
@@ -149,6 +151,23 @@ async function worldWithPaidOrder({
     createdAt: new Date('2026-09-02T10:00:00Z'),
     updatedAt: new Date('2026-09-02T10:00:00Z'),
     ...refund,
+  }))
+
+  seed.dispute = disputes.map((dispute, index) => ({
+    id: cuid(),
+    paymentId,
+    provider: 'in-memory-payments',
+    providerDisputeId: `dp_seeded_${index}`,
+    amountCents: totalCents,
+    currency: 'INR',
+    reason: null,
+    evidenceDueAt: null,
+    rawProviderStatus: null,
+    fundsWithheld: true,
+    closedAt: null,
+    createdAt: new Date('2026-09-03T10:00:00Z'),
+    updatedAt: new Date('2026-09-03T10:00:00Z'),
+    ...dispute,
   }))
 
   const harness = await createTestApp({ seed, ids, ...(providers ? { providers } : {}) })
@@ -884,6 +903,53 @@ describe('GET /v1/refunds', () => {
     await app.close()
   })
 
+  it('puts a refund still in doubt ahead of a settled one, across pages', async () => {
+    // TIMEOUT sorts after SUCCEEDED by name and by PostgreSQL enum order alike;
+    // the list used to sort by that column, so the refund somebody has to chase
+    // was on the later page.
+    const settled = cuid()
+    const inDoubt = cuid()
+    const { app, ids } = await worldWithPaidOrder({
+      order: { refundPendingCents: UNIT_CENTS },
+      refunds: [
+        {
+          id: settled,
+          status: 'SUCCEEDED',
+          idempotencyKey: 'settled',
+          createdAt: new Date('2026-09-03T10:00:00Z'),
+        },
+        {
+          id: inDoubt,
+          status: 'TIMEOUT',
+          idempotencyKey: 'in-doubt',
+          createdAt: new Date('2026-09-02T10:00:00Z'),
+        },
+      ],
+    })
+    const headers = await asUser(app, OWNER)
+
+    const pageOf = async (page) => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/v1/refunds?organizationId=${ids.organization.id}&perPage=1&page=${page}`,
+        headers,
+      })
+
+      expect(response.statusCode, response.body).toBe(200)
+
+      return response.json()
+    }
+
+    const first = await pageOf(1)
+    const second = await pageOf(2)
+
+    expect(first.data.map((refund) => refund.id)).toEqual([inDoubt])
+    expect(second.data.map((refund) => refund.id)).toEqual([settled])
+    expect(first.pagination.total).toBe(2)
+
+    await app.close()
+  })
+
   it('never returns a buyer’s details', async () => {
     const { app, ids } = await worldWithPaidOrder({
       order: { refundPendingCents: UNIT_CENTS },
@@ -900,6 +966,271 @@ describe('GET /v1/refunds', () => {
     // the buyer's details is needed to answer it, so none is on the allow list.
     expect(response.body).not.toContain('priya@example.com')
     expect(response.body).not.toContain('Priya Sharma')
+
+    await app.close()
+  })
+})
+
+describe('fees, tax and retries (2026-09-30)', () => {
+  it('reserves a declined refund again when it is approved again', async () => {
+    const refundId = cuid()
+    const { app, reference } = await worldWithPaidOrder({
+      // A refusal released the reservation: nothing is held.
+      order: { refundPendingCents: 0 },
+      refunds: [{ id: refundId, status: 'DECLINED', idempotencyKey: 'declined-once' }],
+    })
+    const headers = await asUser(app, OWNER)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/approve`,
+      headers,
+      payload: { reason: 'The cause is fixed; try again.' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data.status).toBe('APPROVED')
+
+    const summary = await app.inject({
+      method: 'GET',
+      url: `/v1/orders/${reference}/refunds`,
+      headers,
+    })
+
+    // Held again before anything is sent, or the settlement that follows
+    // would release it a second time.
+    expect(summary.json().data.refundPendingCents).toBe(UNIT_CENTS)
+
+    await app.close()
+  })
+
+  it('refuses REFUND_BALANCE_GONE when another refund took what a failed one was for', async () => {
+    const failedId = cuid()
+    const { app, reference, totalCents } = await worldWithPaidOrder({
+      order: { refundPendingCents: UNIT_CENTS },
+      refunds: [
+        {
+          id: failedId,
+          status: 'FAILED',
+          amountCents: UNIT_CENTS * QUANTITY,
+          allocation: { faceValueCents: UNIT_CENTS * QUANTITY, feeCents: 0, taxCents: 0 },
+          idempotencyKey: 'failed-whole',
+        },
+        { id: cuid(), status: 'REQUESTED', idempotencyKey: 'took-half-since' },
+      ],
+    })
+    const headers = await asUser(app, OWNER)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${failedId}/approve`,
+      headers,
+      payload: { reason: 'Try the whole order again.' },
+    })
+
+    expect(response.statusCode, response.body).toBe(409)
+    expect(response.json().error.code).toBe('REFUND_BALANCE_GONE')
+
+    const summary = await app.inject({
+      method: 'GET',
+      url: `/v1/orders/${reference}/refunds`,
+      headers,
+    })
+
+    expect(summary.json().data.refundPendingCents).toBe(UNIT_CENTS)
+    expect(summary.json().data.refundableCents).toBe(totalCents - UNIT_CENTS)
+    expect(summary.json().data.refunds.find((refund) => refund.id === failedId).status).toBe(
+      'FAILED',
+    )
+
+    await app.close()
+  })
+
+  it('refuses PAYMENT_DISPUTED while a dispute blocks, and not once it was won', async () => {
+    const disputed = await worldWithPaidOrder({ disputes: [{ status: 'UNDER_REVIEW' }] })
+
+    const refused = await disputed.app.inject({
+      method: 'POST',
+      url: `/v1/orders/${disputed.reference}/refunds`,
+      headers: await asUser(disputed.app, OWNER),
+      payload: { amountCents: UNIT_CENTS, reason: 'CUSTOMER_REQUEST', idempotencyKey: 'disputed' },
+    })
+
+    expect(refused.statusCode, refused.body).toBe(409)
+    expect(refused.json().error.code).toBe('PAYMENT_DISPUTED')
+
+    await disputed.app.close()
+
+    const won = await worldWithPaidOrder({ disputes: [{ status: 'WON' }] })
+
+    const allowed = await won.app.inject({
+      method: 'POST',
+      url: `/v1/orders/${won.reference}/refunds`,
+      headers: await asUser(won.app, OWNER),
+      payload: {
+        amountCents: UNIT_CENTS,
+        reason: 'CUSTOMER_REQUEST',
+        idempotencyKey: 'dispute-was-won',
+      },
+    })
+
+    expect(allowed.statusCode, allowed.body).toBe(201)
+
+    await won.app.close()
+  })
+
+  it('does not approve a refund whose payment was disputed after it was asked for', async () => {
+    const refundId = cuid()
+    const { app } = await worldWithPaidOrder({
+      order: { refundPendingCents: UNIT_CENTS },
+      refunds: [{ id: refundId, status: 'REQUESTED', idempotencyKey: 'asked-then-disputed' }],
+      disputes: [{ status: 'NEEDS_RESPONSE' }],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/approve`,
+      headers: await asUser(app, OWNER),
+      payload: { reason: 'Policy allows it.' },
+    })
+
+    expect(response.statusCode, response.body).toBe(409)
+    expect(response.json().error.code).toBe('PAYMENT_DISPUTED')
+
+    await app.close()
+  })
+
+  it('withdraws no ticket for an amount that pays for none', async () => {
+    const { app, reference } = await worldWithPaidOrder()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/orders/${reference}/refunds`,
+      headers: await asUser(app, OWNER),
+      payload: {
+        // Less than one ticket's price.
+        amountCents: UNIT_CENTS / 2,
+        reason: 'ORGANIZER_GOODWILL',
+        idempotencyKey: 'less-than-a-ticket',
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+    expect(response.json().data.amountCents).toBe(UNIT_CENTS / 2)
+    // No line: the buyer keeps both tickets they paid for.
+    expect(response.json().data.items).toEqual([])
+
+    await app.close()
+  })
+
+  it('withdraws every ticket for an amount that is everything left', async () => {
+    const { app, reference, orderItemId, totalCents } = await worldWithPaidOrder()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/orders/${reference}/refunds`,
+      headers: await asUser(app, OWNER),
+      payload: { amountCents: totalCents, reason: 'CUSTOMER_REQUEST', idempotencyKey: 'all-of-it' },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+    expect(response.json().data.items).toEqual([
+      { orderItemId, quantity: QUANTITY, amountCents: totalCents },
+    ])
+
+    await app.close()
+  })
+
+  it('releases nothing when a cancellation refund that reserved nothing is withdrawn', async () => {
+    const refundId = cuid()
+    const { app, reference } = await worldWithPaidOrder({
+      refunds: [
+        {
+          id: refundId,
+          status: 'REQUESTED',
+          reason: 'EVENT_CANCELLED',
+          amountCents: UNIT_CENTS * QUANTITY,
+          // Written by `createMany` before refunds reserved: no allocation,
+          // no lines, and nothing added to `refundPendingCents`.
+          allocation: null,
+          idempotencyKey: 'event-cancelled:legacy',
+        },
+      ],
+    })
+    const headers = await asUser(app, OWNER)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/cancel`,
+      headers,
+      payload: { reason: 'Asked for twice.' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data.status).toBe('CANCELLED')
+
+    const summary = await app.inject({
+      method: 'GET',
+      url: `/v1/orders/${reference}/refunds`,
+      headers,
+    })
+
+    expect(summary.json().data.refundPendingCents).toBe(0)
+
+    await app.close()
+  })
+
+  it('settles a refund that gives back only fee, posting no organiser line', async () => {
+    const providers = createInMemoryProviderRegistry()
+    const intent = providers.payments.createIntent({ amountCents: 205, currency: 'INR' })
+
+    providers.payments.capture(intent.id)
+
+    // One $1.00 ticket and a $1.05 fee: a one-cent refund is, in proportion,
+    // one cent of fee and no face value.
+    const { app, reference } = await worldWithPaidOrder({
+      order: { subtotalCents: 100, feesCents: 105, totalCents: 205 },
+      providers,
+      providerRef: intent.id,
+    })
+    const headers = await asUser(app, OWNER)
+
+    const requested = await app.inject({
+      method: 'POST',
+      url: `/v1/orders/${reference}/refunds`,
+      headers,
+      payload: { amountCents: 1, reason: 'ORGANIZER_GOODWILL', idempotencyKey: 'one-cent' },
+    })
+
+    expect(requested.statusCode, requested.body).toBe(201)
+    expect(requested.json().data.allocation).toEqual({
+      faceValueCents: 0,
+      feeCents: 1,
+      taxCents: 0,
+    })
+
+    const id = requested.json().data.id
+
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/v1/refunds/${id}/approve`,
+          headers,
+          payload: { reason: 'Goodwill.' },
+        })
+      ).statusCode,
+    ).toBe(200)
+
+    const submitted = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${id}/submit`,
+      headers,
+      payload: { reason: 'Goodwill, sent.' },
+    })
+
+    expect(submitted.statusCode, submitted.body).toBe(200)
+    expect(submitted.json().data.status).toBe('SUCCEEDED')
 
     await app.close()
   })

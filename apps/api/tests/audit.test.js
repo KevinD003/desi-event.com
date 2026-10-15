@@ -186,9 +186,55 @@ describe('AUDIT_ACTIONS', () => {
   })
 
   it('spells every action as a dotted subject and verb phrase', () => {
+    // A subject may be one snake_case phrase (`organizer_invitation`), as the
+    // SPEC2 organiser-invitation actions are; it is still one subject, a dot,
+    // and one verb phrase.
     for (const [name, value] of Object.entries(AUDIT_ACTIONS)) {
-      expect(value, `${name} is not dotted`).toMatch(/^[a-z][A-Za-z0-9]*\.[a-z][a-z0-9_]*$/)
+      expect(value, `${name} is not dotted`).toMatch(
+        /^[a-z][A-Za-z0-9]*(?:_[a-z0-9]+)*\.[a-z][a-z0-9_]*$/,
+      )
     }
+
+    // Still refused: no dot, two dots, a leading capital, a trailing underscore.
+    for (const bad of ['organizer', 'a.b.c', 'Organizer_invitation.issued', 'organizer_.issued']) {
+      expect(bad).not.toMatch(/^[a-z][A-Za-z0-9]*(?:_[a-z0-9]+)*\.[a-z][a-z0-9_]*$/)
+    }
+  })
+
+  it('names the organiser-invitation and code-delivery actions exactly as SPEC2 does', () => {
+    expect(AUDIT_ACTIONS).toMatchObject({
+      ORGANIZER_INVITATION_ISSUED: 'organizer_invitation.issued',
+      ORGANIZER_INVITATION_REISSUED: 'organizer_invitation.reissued',
+      ORGANIZER_INVITATION_REVOKED: 'organizer_invitation.revoked',
+      ORGANIZER_INVITATION_ACCEPTED: 'organizer_invitation.accepted',
+      ORGANIZER_INVITATION_DELIVERY_FAILED: 'organizer_invitation.delivery_failed',
+      ORGANIZATION_VERIFIED_BY_INVITATION: 'organization.verified_by_invitation',
+      TEAM_INVITATION_DELIVERY_FAILED: 'team.invitation_delivery_failed',
+      TICKET_TRANSFER_DELIVERY_FAILED: 'ticket.transfer_delivery_failed',
+    })
+  })
+
+  it('names the website link decision exactly as SPEC2 does', () => {
+    expect(AUDIT_ACTIONS.EVENT_WEBSITE_REDIRECT_CHANGED).toBe('event.website_redirect_changed')
+  })
+
+  it('names the booking fee, referral code and door payment actions exactly as SPEC3 §4.3 does', () => {
+    expect(AUDIT_ACTIONS).toMatchObject({
+      EVENT_PLATFORM_FEE_CHANGED: 'event.platform_fee_changed',
+      EVENT_VENUE_PAYMENT_CHANGED: 'event.venue_payment_changed',
+      REFERRAL_CODE_CREATED: 'referral_code.created',
+      REFERRAL_CODE_UPDATED: 'referral_code.updated',
+      REFERRAL_CODE_SWITCHED_OFF: 'referral_code.switched_off',
+      REFERRAL_CODE_SWITCHED_ON: 'referral_code.switched_on',
+      VENUE_PAYMENT_RECORDED: 'venue_payment.recorded',
+    })
+  })
+
+  it('names the unpaid-tickets cancellation and the referral return exactly as SPEC3-XI §4.3 does', () => {
+    expect(AUDIT_ACTIONS).toMatchObject({
+      VENUE_BOOKING_CANCELLED: 'venue_booking.cancelled',
+      REFERRAL_USE_RETURNED: 'referral_code.use_returned',
+    })
   })
 
   it('has no two names sharing one action string', () => {

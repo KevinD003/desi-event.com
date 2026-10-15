@@ -14,6 +14,9 @@
  *     date somebody had in their calendar.
  *   - `POSTPONED` becomes `EventPostponed`, which is the vocabulary's own word
  *     for "it is not happening then and we will say when".
+ *   - A postponed event brought back on a new date is `EventRescheduled`, with
+ *     `previousStartDate` the date it moved from: `EventScheduled` means "on
+ *     the startDate as scheduled", which an event that moved is not.
  *   - Everything else on sale is `EventScheduled`.
  *
  * ## What is not in here
@@ -30,6 +33,11 @@
  * @file lib/event-jsonld
  */
 
+import { endTimeListed } from './imports.js'
+import { absoluteMediaUrl } from './media.js'
+import { sessionDisplayLabel } from './sessions.js'
+import { socialImageFor } from './social-image.js'
+
 /**
  * `schema.org` event-status URLs, by our own lifecycle status.
  *
@@ -44,6 +52,32 @@ const EVENT_STATUS = Object.freeze({
   POSTPONED: 'https://schema.org/EventPostponed',
   CANCELLED: 'https://schema.org/EventCancelled',
 })
+
+/**
+ * The statuses a postponed event comes back to, where a start that moved makes
+ * it `EventRescheduled` rather than `EventScheduled`.
+ *
+ * @type {ReadonlySet<string>}
+ */
+const RESCHEDULABLE = new Set(['PUBLISHED', 'ON_SALE', 'SALES_PAUSED', 'SOLD_OUT', 'COMPLETED'])
+
+/**
+ * Whether the event was postponed and brought back on another date.
+ *
+ * `previousStartsAt` is written at postponement and kept, so an event back on
+ * sale carries it; it means a reschedule only when the start actually moved.
+ *
+ * @param {object} event The public event payload.
+ * @returns {boolean} True when it now starts somewhere other than it did.
+ */
+function wasRescheduled(event) {
+  if (!event.previousStartsAt || !RESCHEDULABLE.has(event.status)) return false
+
+  const before = Date.parse(event.previousStartsAt)
+  const after = Date.parse(event.startsAt)
+
+  return Number.isFinite(before) && Number.isFinite(after) && before !== after
+}
 
 /**
  * `schema.org` availability URLs, by what the ticket situation actually is.
@@ -69,7 +103,24 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
   if (!event?.slug || !event?.title) return null
 
   const url = `${siteUrl}/events/${event.slug}`
-  const tiers = (event.ticketTypes ?? []).filter((tier) => Number.isFinite(tier.priceCents))
+  // A hidden tier — a guest list, a complimentary allocation — is not an offer
+  // to the public. The public payload leaves them out already; this holds
+  // even for a payload that did not.
+  const tiers = (event.ticketTypes ?? []).filter(
+    (tier) => Number.isFinite(tier.priceCents) && tier.visibility !== 'HIDDEN',
+  )
+
+  // An event copied from its Sulekha listing: its tickets are sold there, so
+  // it has no offers here; its organiser is the one the listing names; and
+  // where the listing gave no end time, no end is claimed (the API's end is a
+  // planning estimate then).
+  const imported = event.importedFrom ?? null
+  const endListed = endTimeListed(event)
+
+  const rescheduled = wasRescheduled(event)
+  const status = rescheduled
+    ? 'https://schema.org/EventRescheduled'
+    : (EVENT_STATUS[event.status] ?? 'https://schema.org/EventScheduled')
 
   /** @type {Record<string, unknown>} */
   const data = {
@@ -78,8 +129,8 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
     name: event.title,
     description: event.summary,
     startDate: event.startsAt,
-    endDate: event.endsAt,
-    eventStatus: EVENT_STATUS[event.status] ?? 'https://schema.org/EventScheduled',
+    ...(endListed ? { endDate: event.endsAt } : {}),
+    eventStatus: status,
     eventAttendanceMode: event.isOnline
       ? 'https://schema.org/OnlineEventAttendanceMode'
       : 'https://schema.org/OfflineEventAttendanceMode',
@@ -87,11 +138,17 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
   }
 
   // The date somebody wrote in their diary. Without it a postponement says
-  // only that something changed, not what.
-  if (event.previousStartsAt) data.previousStartDate = event.previousStartsAt
+  // only that something changed, not what. On an event back on sale it goes
+  // with `EventRescheduled` and only then: a start that did not move was not
+  // rescheduled from anywhere.
+  if (event.previousStartsAt && (rescheduled || !RESCHEDULABLE.has(event.status))) {
+    data.previousStartDate = event.previousStartsAt
+  }
 
+  // Always the page, never the joining link: the link is for ticket holders,
+  // and structured data is read by every search engine and scraper there is.
   if (event.isOnline) {
-    data.location = { '@type': 'VirtualLocation', url: event.onlineUrl ?? url }
+    data.location = { '@type': 'VirtualLocation', url }
   } else if (event.venue) {
     data.location = {
       '@type': 'Place',
@@ -107,7 +164,9 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
     }
   }
 
-  if (event.organization?.name) {
+  if (imported?.presentedBy) {
+    data.organizer = { '@type': 'Organization', name: imported.presentedBy }
+  } else if (event.organization?.name) {
     data.organizer = {
       '@type': 'Organization',
       name: event.organization.name,
@@ -117,18 +176,25 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
     }
   }
 
-  if (event.artists?.length > 0) {
-    data.performer = event.artists.map((name) => ({ '@type': 'PerformingGroup', name }))
+  // The line-up with roles is the source of truth; the names alone are what
+  // an event saved before it existed has.
+  const performers =
+    event.performers?.length > 0
+      ? event.performers.map((performer) => performer?.name).filter(Boolean)
+      : (event.artists ?? [])
+
+  if (performers.length > 0) {
+    data.performer = performers.map((name) => ({ '@type': 'PerformingGroup', name }))
   }
 
   // A cancelled event has no offers. Leaving them in would describe tickets on
   // sale for something that is not happening.
-  if (tiers.length > 0 && event.status !== 'CANCELLED') {
+  if (tiers.length > 0 && event.status !== 'CANCELLED' && !imported) {
     data.offers = tiers.map((tier) => ({
       '@type': 'Offer',
       name: tier.name,
       price: (tier.priceCents / 100).toFixed(2),
-      priceCurrency: tier.currency ?? 'INR',
+      priceCurrency: tier.currency ?? 'USD',
       availability: AVAILABILITY[event.status] ?? 'https://schema.org/PreOrder',
       url,
       ...(tier.salesStartAt ? { validFrom: tier.salesStartAt } : {}),
@@ -138,6 +204,35 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
   if (event.ageRestriction) {
     data.typicalAgeRange = `${event.ageRestriction}-`
   }
+
+  // Each night of a run of several, as an event of its own, named with its
+  // label or its date, and cancelled when that night is.
+  const sessions = event.sessions ?? []
+
+  if (sessions.length > 1) {
+    data.subEvent = sessions.map((session) => ({
+      '@type': 'Event',
+      name: `${event.title} — ${sessionDisplayLabel(session)}`,
+      startDate: session.startsAt,
+      ...(session.endTimeListed === false ? {} : { endDate: session.endsAt }),
+      ...(session.doorsOpenAt ? { doorTime: session.doorsOpenAt } : {}),
+      eventStatus: session.status === 'CANCELLED' ? 'https://schema.org/EventCancelled' : status,
+      url,
+    }))
+  }
+
+  // What a search result shows beside the listing: the organiser's approved
+  // cover and up to two gallery pictures, each an absolute URL on this site.
+  // With none, the generated poster at its social-card address, so the result
+  // shows the same picture a shared link does.
+  const pictures = [event.coverImage, ...(event.gallery ?? []).slice(0, 2)]
+    .map((image) => absoluteMediaUrl(image, siteUrl))
+    .filter(Boolean)
+
+  data.image =
+    pictures.length > 0
+      ? pictures
+      : [`${siteUrl}/events/${event.slug}/opengraph-image/${socialImageFor(event).id}`]
 
   return data
 }

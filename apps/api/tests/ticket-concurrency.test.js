@@ -35,6 +35,7 @@ import {
   startTransfer,
 } from '../src/lib/tickets.js'
 import { issueTicketCredential } from '../src/lib/ticket-credentials.js'
+import { WALLET_INCLUDE, toOrder, toWalletTicket } from '../src/lib/presenters.js'
 import { connectTestDatabase } from './helpers/database.js'
 
 const { prisma, when } = await connectTestDatabase('the ticket concurrency suite')
@@ -250,6 +251,9 @@ function scan(ticket, scannedByUserId, eventSessionId) {
         eventSessionId,
         scannedByUserId,
         scannerId: `scanner-${scannedByUserId}`,
+        // What the route records for a presented pass credential. Required:
+        // `admit` has no default to fall back on.
+        method: 'QR_SCAN',
         now: new Date(),
       }),
     )
@@ -330,7 +334,52 @@ when()('two scanners reaching for one ticket', () => {
           scannedAt: new Date(),
         },
       }),
-    ).rejects.toThrow()
+      // The trigger's own refusal, word for word, rather than any error at all:
+      // a Prisma validation error would satisfy a bare toThrow() too.
+    ).rejects.toMatchObject({
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: 'P0001',
+            originalMessage: `check-in refused: ticket ${ticket.id} is CHECKED_IN, which does not admit`,
+          },
+        },
+      },
+    })
+
+    expect(await prisma.checkIn.count({ where: { ticketId: ticket.id } })).toBe(1)
+  })
+})
+
+when()('an admission that does not say how the ticket was presented', () => {
+  it.each([
+    ['no method at all', {}],
+    ['ASSISTED, which the server cannot tell from a typed code', { method: 'ASSISTED' }],
+  ])('refuses %s, and writes nothing', async (_label, presented) => {
+    const world = await buildIssuedTickets()
+    const [ticket] = world.issued
+
+    // Against the database rather than the stub, because `CheckIn.method`
+    // defaults to QR_SCAN there: a missing method that reached the insert would
+    // be recorded as a scanned pass without anybody having said so.
+    const refusal = await prisma
+      .$transaction((tx) =>
+        admit(tx, {
+          ticket,
+          eventSessionId: world.session.id,
+          scannedByUserId: world.holder.id,
+          ...presented,
+          now: new Date(),
+        }),
+      )
+      .catch((error) => error)
+
+    expect(refusal).toBeInstanceOf(TypeError)
+    expect(refusal.message).toMatch(/needs the method that was presented/)
+    expect(await prisma.checkIn.count({ where: { ticketId: ticket.id } })).toBe(0)
+    expect((await prisma.ticket.findUnique({ where: { id: ticket.id } })).status).toBe(
+      TICKET_STATES.VALID,
+    )
   })
 })
 
@@ -498,7 +547,18 @@ when()('a revocation racing a check-in', () => {
           scannedAt: new Date(),
         },
       }),
-    ).rejects.toThrow(/admissible|revoked/i)
+    ).rejects.toMatchObject({
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: 'P0001',
+            originalMessage: `check-in refused: ticket ${revoked.id} is REVOKED, which does not admit`,
+          },
+        },
+      },
+    })
+
+    expect(await prisma.checkIn.count({ where: { ticketId: revoked.id } })).toBe(0)
   })
 })
 
@@ -590,7 +650,267 @@ when()('a refund racing a transfer', () => {
           scannedAt: new Date(),
         },
       }),
-    ).rejects.toThrow(/admissible|refunded/i)
+    ).rejects.toMatchObject({
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: 'P0001',
+            originalMessage: `check-in refused: ticket ${refunded.id} is REFUNDED, which does not admit`,
+          },
+        },
+      },
+    })
+
+    expect(await prisma.checkIn.count({ where: { ticketId: refunded.id } })).toBe(0)
+  })
+})
+
+when()('ownership after a handover', () => {
+  /**
+   * Read an order the way `orders.get` reads one.
+   *
+   * @param {string} orderId Which order.
+   * @returns {Promise<object>} The presented payload.
+   */
+  async function readOrder(orderId) {
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: { include: { tickets: true } },
+        event: { include: { venue: true, organization: true, ticketTypes: true } },
+      },
+    })
+
+    return toOrder(order)
+  }
+
+  /**
+   * Read somebody's wallet the way `tickets.listMine` reads one.
+   *
+   * @param {string} userId Whose.
+   * @returns {Promise<object[]>} The presented rows.
+   */
+  async function readWallet(userId) {
+    const rows = await prisma.ticket.findMany({
+      where: { ownerUserId: userId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      include: WALLET_INCLUDE,
+    })
+
+    return rows.map((row) => toWalletTicket(row, { viewerUserId: userId }))
+  }
+
+  it('moves the ticket between wallets and keeps it off the wrong order', async () => {
+    // The stubbed suite proves the presenter. This proves the presenter against
+    // rows PostgreSQL actually wrote, through the real `acceptTransfer`, with
+    // the real foreign keys — including the one that makes the leak possible:
+    // the minted ticket hangs off the sender's `orderItemId`.
+    const world = await buildIssuedTickets()
+    const [ticket] = world.issued
+    const { tokenHash } = mintTransferToken()
+
+    await prisma.$transaction((tx) =>
+      startTransfer(tx, {
+        ticket,
+        toEmail: world.recipient.email,
+        fromUserId: world.holder.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 3_600_000),
+        now: new Date(),
+      }),
+    )
+
+    const pending = await prisma.ticket.findUnique({ where: { id: ticket.id } })
+    const transfer = await prisma.ticketTransfer.findUnique({ where: { tokenHash } })
+
+    const accepted = await prisma.$transaction((tx) =>
+      acceptTransfer(tx, {
+        transfer,
+        ticket: pending,
+        recipient: world.recipient,
+        credentialSecret: SECRET,
+        generateTicketCode: () => `DET-${RUN.toUpperCase()}OW${(sequence += 1).toString(36)}`,
+        now: new Date(),
+      }),
+    )
+
+    expect(accepted.accepted).toBe(true)
+
+    const minted = accepted.ticket
+
+    // The fact that makes this worth testing against a real database: one order
+    // item, two ticket rows, two different owners.
+    expect(minted.orderItemId).toBe(ticket.orderItemId)
+
+    const order = await readOrder(world.order.id)
+    const ids = order.tickets.map((row) => row.id)
+
+    expect(ids).toEqual([ticket.id])
+    expect(ids).not.toContain(minted.id)
+    expect(order.tickets[0].purchaserHolding).toBe('TRANSFERRED_AWAY')
+    // Derived from the status, which is the only column that moved. The
+    // sender's row still carries their own id in `ownerUserId` after an
+    // accepted transfer, so a predicate over the owner columns would call this
+    // ticket theirs — against a real database, not just in the stub.
+    expect(order.tickets[0].supersededByLaterTicket).toBe(true)
+    expect(JSON.stringify(order)).not.toContain(minted.code)
+
+    const senderWallet = await readWallet(world.holder.id)
+    const recipientWallet = await readWallet(world.recipient.id)
+
+    expect(senderWallet.map((row) => row.id)).toEqual([ticket.id])
+    expect(senderWallet[0].admits).toBe(false)
+    expect(senderWallet[0].holderRelationship).toBe('PURCHASED')
+
+    expect(recipientWallet.map((row) => row.id)).toEqual([minted.id])
+    expect(recipientWallet[0].admits).toBe(true)
+    // Bought by somebody else, so the order behind it is not theirs to see.
+    expect(recipientWallet[0].holderRelationship).toBe('RECEIVED')
+    expect(recipientWallet[0].orderReference).toBeNull()
+    expect(JSON.stringify(recipientWallet)).not.toContain(world.order.reference)
+  })
+
+  it('hands one invitation to one person when two accepts race', async () => {
+    // Both callers read the same PENDING row and both try to take it. The
+    // conditional `updateMany` inside `acceptTransfer` is what decides, and the
+    // thing that must not happen is two tickets minted against one invitation —
+    // two live passes for one seat.
+    const world = await buildIssuedTickets()
+    const [ticket] = world.issued
+    const { tokenHash } = mintTransferToken()
+
+    await prisma.$transaction((tx) =>
+      startTransfer(tx, {
+        ticket,
+        toEmail: world.recipient.email,
+        fromUserId: world.holder.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 3_600_000),
+        now: new Date(),
+      }),
+    )
+
+    const pending = await prisma.ticket.findUnique({ where: { id: ticket.id } })
+    const transfer = await prisma.ticketTransfer.findUnique({ where: { tokenHash } })
+
+    /**
+     * Accept, the way the route does, swallowing a losing race.
+     *
+     * @param {string} suffix Distinguishes the generated codes.
+     * @returns {Promise<object>} The outcome, or the error as data.
+     */
+    const accept = (suffix) =>
+      prisma
+        .$transaction((tx) =>
+          acceptTransfer(tx, {
+            transfer,
+            ticket: pending,
+            recipient: world.recipient,
+            credentialSecret: SECRET,
+            generateTicketCode: () =>
+              `DET-${RUN.toUpperCase()}${suffix}${(sequence += 1).toString(36)}`,
+            now: new Date(),
+          }),
+        )
+        .catch((error) => ({ accepted: false, failed: String(error?.message ?? error) }))
+
+    const outcomes = await Promise.all([accept('R1'), accept('R2')])
+
+    expect(outcomes.filter((outcome) => outcome.accepted)).toHaveLength(1)
+
+    const minted = await prisma.ticket.findMany({ where: { supersedesTicketId: ticket.id } })
+
+    expect(minted).toHaveLength(1)
+
+    const after = await prisma.ticket.findUnique({ where: { id: ticket.id } })
+
+    expect(after.status).toBe(TICKET_STATES.TRANSFERRED)
+    // The sender's pass is dead whichever caller won.
+    expect(after.credentialHash).toBeNull()
+
+    // And exactly one wallet gained exactly one ticket.
+    const recipientWallet = await readWallet(world.recipient.id)
+
+    expect(recipientWallet).toHaveLength(1)
+    expect(recipientWallet[0].id).toBe(minted[0].id)
+
+    // The settlement property, asked of the line the race ran on.
+    //
+    // This is the shape that broke the reliability check: the winner mints onto
+    // the buyer's own order item, so the line legitimately holds more rows than
+    // it sold. What must stay true is not the row count but the count of
+    // *current* chains — tickets on this line with no successor on this line —
+    // and of usable passes. One of each, for one sold, however the race went.
+    //
+    // Counted here rather than by calling `checkInvariants`, which asks the
+    // whole database: `settlement-invariants.test.js` is what proves the query
+    // right, and a database-wide assertion in this file would answer for rows
+    // that a concurrently running suite owns. What this case has to establish is
+    // that a raced accept leaves one current chain, and that is a question about
+    // this line.
+    const onTheLine = await prisma.ticket.findMany({
+      where: { orderItemId: world.orderItem.id },
+      select: { id: true, supersedesTicketId: true, credentialHash: true },
+    })
+
+    const superseded = new Set(onTheLine.map((row) => row.supersedesTicketId).filter(Boolean))
+    const current = onTheLine.filter((row) => !superseded.has(row.id))
+    const usable = onTheLine.filter((row) => row.credentialHash !== null)
+
+    expect(onTheLine.length, 'the predecessor is kept, so the lineage is auditable').toBe(2)
+    expect(
+      current.map((row) => row.id),
+      'one current chain for one sold',
+    ).toEqual([minted[0].id])
+    expect(
+      usable.map((row) => row.id),
+      'one way in for one sold',
+    ).toEqual([minted[0].id])
+  })
+
+  it('does not let a declined invitation move ownership', async () => {
+    const world = await buildIssuedTickets()
+    const [ticket] = world.issued
+    const { tokenHash } = mintTransferToken()
+
+    await prisma.$transaction((tx) =>
+      startTransfer(tx, {
+        ticket,
+        toEmail: world.recipient.email,
+        fromUserId: world.holder.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 3_600_000),
+        now: new Date(),
+      }),
+    )
+
+    const pending = await prisma.ticket.findUnique({ where: { id: ticket.id } })
+    const transfer = await prisma.ticketTransfer.findUnique({ where: { tokenHash } })
+
+    await prisma.$transaction((tx) =>
+      endTransfer(tx, {
+        transfer,
+        ticket: pending,
+        outcome: 'DECLINED',
+        actorId: world.recipient.id,
+        now: new Date(),
+      }),
+    )
+
+    const senderWallet = await readWallet(world.holder.id)
+    const recipientWallet = await readWallet(world.recipient.id)
+
+    expect(senderWallet.map((row) => row.id)).toEqual([ticket.id])
+    expect(senderWallet[0].admits).toBe(true)
+    expect(senderWallet[0].pendingTransfer).toBeNull()
+    expect(recipientWallet).toHaveLength(0)
+
+    // The sender's pass still matches what is stored, which is the property a
+    // declined invitation has to preserve: nothing was rotated.
+    const after = await prisma.ticket.findUnique({ where: { id: ticket.id } })
+
+    expect(after.credentialHash).toBe(pending.credentialHash)
+    expect(after.credentialVersion).toBe(pending.credentialVersion)
   })
 })
 

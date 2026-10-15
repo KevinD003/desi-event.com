@@ -45,7 +45,11 @@ import {
   resolveDisposableTarget,
   withDatabase,
 } from './disposable-database.mjs'
+import { runEventControlProbes } from './event-control-probes.mjs'
+import { runMediaProbes } from './media-probes.mjs'
+import { runPaymentTermsProbes } from './payment-terms-probes.mjs'
 import { runPhase2Probes } from './phase2-probes.mjs'
+import { runPlatformFeatureProbes } from './platform-feature-probes.mjs'
 import { runSeatConcurrencyProbes } from './seat-concurrency.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -60,11 +64,13 @@ loadDotenv({ path: path.join(REPO_ROOT, '.env'), override: false, quiet: true })
  *
  * The chart of accounts is structure rather than sample data: without it a
  * payment cannot be recorded at all, so it is created by the migration that
- * creates the ledger. Every other table must be empty on a fresh database.
+ * creates the ledger. The traffic roll-up's state row is structure for the same
+ * reason: it is the one lease the roll-up takes, and a second row would be a
+ * second lease. Every other table must be empty on a fresh database.
  *
  * @type {Readonly<Record<string, number>>}
  */
-const STRUCTURAL_ROWS = Object.freeze({ LedgerAccount: 10 })
+const STRUCTURAL_ROWS = Object.freeze({ LedgerAccount: 10, TrafficRollupState: 1 })
 
 /** Sentinel used to roll a probe's transaction back once it has proved its point. */
 const ROLLBACK = Symbol('rollback')
@@ -791,6 +797,263 @@ async function probeConstraints(prisma) {
     ),
   )
 
+  // ---------------------------------------------------------------------------
+  // Partial unique indexes written by hand, because Prisma's schema language
+  // cannot express them. `prisma migrate diff` does not see these, so a probe
+  // is the only thing that notices one going missing.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A published seat map with one zone and one seat, and a session selling it,
+   * written inside the probe's transaction so nothing survives it.
+   *
+   * @param {object} tx The probe's transaction client.
+   * @returns {Promise<{zone: object, session: object, eventSeat: object}>} The rows.
+   */
+  const seatedSession = async (tx) => {
+    const venue = await tx.venue.findFirst()
+    const map = await tx.venueMap.create({
+      data: { venueId: venue.id, name: `probe-seated-${Date.now()}` },
+    })
+    const version = await tx.venueMapVersion.create({ data: { venueMapId: map.id, version: 1 } })
+    const zone = await tx.priceZone.create({
+      data: { venueMapVersionId: version.id, name: 'Front' },
+    })
+    const section = await tx.section.create({
+      data: { venueMapVersionId: version.id, name: 'Stalls' },
+    })
+    const seat = await tx.seat.create({
+      data: {
+        venueMapVersionId: version.id,
+        sectionId: section.id,
+        label: 'Stalls A1',
+        priceZoneId: zone.id,
+      },
+    })
+
+    await tx.venueMapVersion.update({
+      where: { id: version.id },
+      data: { publishedAt: new Date(), seatCount: 1 },
+    })
+
+    const session = await tx.eventSession.create({
+      data: {
+        eventId: ticketType.eventId,
+        startsAt: new Date(Date.now() + 86_400_000),
+        endsAt: new Date(Date.now() + 90_000_000),
+        venueMapVersionId: version.id,
+      },
+    })
+    const eventSeat = await tx.eventSeat.create({
+      data: { eventSessionId: session.id, seatId: seat.id },
+    })
+
+    return { zone, session, eventSeat }
+  }
+
+  // Two reserved tiers on one zone at one session would each claim the same
+  // seats, and which one a buyer paid for would depend on which was read first.
+  results.push(
+    await probe(
+      prisma,
+      'one reserved tier prices a zone at a session',
+      /TicketType_reserved_session_zone_key/,
+      async (tx) => {
+        const { zone, session } = await seatedSession(tx)
+        const tier = {
+          eventId: ticketType.eventId,
+          eventSessionId: session.id,
+          priceZoneId: zone.id,
+          reserved: true,
+          priceCents: 1000,
+          currency: ticketType.currency,
+          quantityTotal: 1,
+        }
+
+        await tx.ticketType.create({ data: { ...tier, name: `Probe front ${Date.now()}` } })
+        await tx.ticketType.create({ data: { ...tier, name: `Probe front again ${Date.now()}` } })
+      },
+    ),
+  )
+
+  // ---------------------------------------------------------------------------
+  // A reserved tier's zone is on the map version its session sells. Two
+  // triggers hold the rule, one for each side, and each side gets a probe.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A reserved tier pricing the zone of a seated session.
+   *
+   * @param {object} tx The probe's transaction client.
+   * @param {{zone: object, session: object}} rows From `seatedSession`.
+   * @returns {Promise<object>} The tier.
+   */
+  const reservedTier = (tx, { zone, session }) =>
+    tx.ticketType.create({
+      data: {
+        eventId: ticketType.eventId,
+        eventSessionId: session.id,
+        priceZoneId: zone.id,
+        reserved: true,
+        priceCents: 1000,
+        currency: ticketType.currency,
+        quantityTotal: 1,
+        name: `Probe zone ${Date.now()}`,
+      },
+    })
+
+  results.push(
+    await probe(
+      prisma,
+      "a reserved tier prices a zone of its session's own map version",
+      /prices zone .* from map version/,
+      async (tx) => {
+        const { zone, session } = await seatedSession(tx)
+        const { venueMapId } = await tx.venueMapVersion.findUnique({
+          where: { id: zone.venueMapVersionId },
+        })
+        const nextVersion = await tx.venueMapVersion.create({ data: { venueMapId, version: 2 } })
+        const foreignZone = await tx.priceZone.create({
+          data: { venueMapVersionId: nextVersion.id, name: 'Front' },
+        })
+
+        await reservedTier(tx, { zone: foreignZone, session })
+      },
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a session cannot leave the map version its reserved tier prices',
+      /cannot move to map version .*: ticket type .* prices a zone/,
+      async (tx) => {
+        const rows = await seatedSession(tx)
+
+        await reservedTier(tx, rows)
+        await tx.eventSession.update({
+          where: { id: rows.session.id },
+          data: { venueMapVersionId: null, capacity: 10 },
+        })
+      },
+    ),
+  )
+
+  // The other half, so the trigger is not simply refusing every move.
+  results.push(
+    await probe(
+      prisma,
+      'a session no tier prices may still change its map version',
+      null,
+      async (tx) => {
+        const { session } = await seatedSession(tx)
+
+        await tx.eventSession.update({
+          where: { id: session.id },
+          data: { venueMapVersionId: null, capacity: 10 },
+        })
+      },
+    ),
+  )
+
+  // ADR 0006: one live ticket per seat, whatever the application believes.
+  results.push(
+    await probe(
+      prisma,
+      'a second live ticket cannot take the same seat',
+      /Ticket_eventSeatId_live_key/,
+      async (tx) => {
+        const { eventSeat } = await seatedSession(tx)
+        const seated = { orderItemId: ticket.orderItemId, eventSeatId: eventSeat.id }
+
+        await tx.ticket.create({ data: { ...seated, code: `PROBE-SEAT-A-${Date.now()}` } })
+        await tx.ticket.create({ data: { ...seated, code: `PROBE-SEAT-B-${Date.now()}` } })
+      },
+    ),
+  )
+
+  // The other half of the same index, and the reason it is partial: a ticket
+  // that was handed on keeps its seat as history while its successor holds it.
+  results.push(
+    await probe(
+      prisma,
+      'a handed-on ticket keeps its seat while its successor holds it',
+      null,
+      async (tx) => {
+        const { eventSeat } = await seatedSession(tx)
+        const seated = { orderItemId: ticket.orderItemId, eventSeatId: eventSeat.id }
+        const handedOn = await tx.ticket.create({
+          data: { ...seated, code: `PROBE-SEAT-OLD-${Date.now()}`, status: 'TRANSFERRED' },
+        })
+
+        await tx.ticket.create({
+          data: {
+            ...seated,
+            code: `PROBE-SEAT-NEW-${Date.now()}`,
+            supersedesTicketId: handedOn.id,
+          },
+        })
+      },
+    ),
+  )
+
+  // Two live codes for one address would leave the invitee holding one that
+  // the team page no longer lists. Case-insensitive, like the address itself.
+  results.push(
+    await probe(
+      prisma,
+      'one pending invitation per address per organisation',
+      /Invitation_one_pending_per_address/,
+      async (tx) => {
+        const invitation = {
+          organizationId: organization.id,
+          role: 'VIEWER',
+          invitedById: user.id,
+          expiresAt: new Date(Date.now() + 86_400_000),
+        }
+
+        await tx.invitation.create({
+          data: { ...invitation, email: 'probe.invitee@example.test', tokenHash: 'e'.repeat(64) },
+        })
+        await tx.invitation.create({
+          data: { ...invitation, email: 'Probe.Invitee@example.test', tokenHash: 'f'.repeat(64) },
+        })
+      },
+    ),
+  )
+
+  // An event page shows one cover. A second would be a coin toss between two. A
+  // replacement waiting for review is the one other cover row an event may have
+  // (it points at the cover it replaces), probed in event-control-probes.mjs.
+  results.push(
+    await probe(
+      prisma,
+      'an event has at most one current cover picture',
+      /MediaAsset_one_current_cover_per_event_key/,
+      async (tx) => {
+        const cover = {
+          ownerType: 'EVENT',
+          ownerId: ticketType.eventId,
+          eventId: ticketType.eventId,
+          kind: 'EVENT_COVER',
+          contentType: 'image/png',
+          byteSize: 1024,
+          width: 1200,
+          height: 630,
+          checksum: 'a'.repeat(64),
+          altText: 'A probe cover picture',
+        }
+
+        await tx.mediaAsset.create({
+          data: { ...cover, storageKey: `probe-cover-a-${Date.now()}` },
+        })
+        await tx.mediaAsset.create({
+          data: { ...cover, storageKey: `probe-cover-b-${Date.now()}` },
+        })
+      },
+    ),
+  )
+
   return results.every(Boolean)
 }
 
@@ -937,6 +1200,41 @@ async function main() {
     // comparison above — nothing downstream counts rows.
     ok = (await runPhase2Probes(prisma, { probe, record })) && ok
 
+    // Event pictures: the gallery cap, the shape and review CHECKs, and the
+    // bytes going with their picture. Each runs in a rolled-back transaction.
+    ok = (await runMediaProbes(prisma, { probe, record })) && ok
+
+    // Invite-only organisers, the review gate, the event website switch and
+    // visit counting: triggers, CHECKs and partial unique indexes, each in a
+    // rolled-back transaction.
+    ok = (await runPlatformFeatureProbes(prisma, { probe, record })) && ok
+
+    // Full control of posted events and the Sulekha import (SPEC2-XI §6):
+    // deletion and restore through desi_event_restore_target, cancelled nights,
+    // replacement covers, platform edit sittings, change notices, and the import
+    // tables with the platform-held organisation's no-members trigger. Each runs
+    // in a rolled-back transaction.
+    ok = (await runEventControlProbes(prisma, { probe, record })) && ok
+
+    // Per-event booking fees, referral codes and paying at the venue (SPEC3
+    // §5.7): the fee and switch CHECKs, the append-only fee decisions, the
+    // referral code's pattern and use limit, each order's fee parts and what a
+    // pay-at-the-venue order pays where, and the door's triggers — no admission
+    // while a payment is due (a hand-on is not refused: open question 7), a
+    // ticket's payment set once to its own order's, a payment never edited and
+    // equal to its tickets at commit and after it. With SPEC3-XI §5.7: unpaid
+    // tickets cancelled (a cancellation's shape, its sum at commit and after
+    // it, set once to the ticket's own order, never edited, a cancelled ticket
+    // never paid or let in), kept fees within the fee and never refunded, a
+    // line's cancelled tickets within it, a tier's sold count never below 0,
+    // referral return markers set once and the code an order used fixed, and
+    // what is due staying with a ticket. Each runs in a rolled-back
+    // transaction except the commit-time ones: one booking paid in part at the
+    // door and one with a ticket cancelled unpaid are committed (nothing
+    // downstream counts their rows), and every other commit-time write must
+    // fail.
+    ok = (await runPaymentTermsProbes(prisma, { probe, record })) && ok
+
     // Concurrency, against real transactions rather than a stub that agrees with
     // whoever wrote it. These commit, so they run last among the probes and
     // before the row comparison is done with.
@@ -957,13 +1255,111 @@ async function main() {
         'vitest',
         'run',
         'tests/facets-integration.test.js',
+        // The listing search: every branch of its OR indexed, the trigram
+        // indexes without a pending list, and the card's select against the
+        // whole row. `fastupdate` is not something `migrate diff` can see.
+        'tests/event-search-integration.test.js',
         'tests/ledger-integration.test.js',
         'tests/reserved-seat-concurrency.test.js',
         'tests/refund-concurrency.test.js',
+        // Refunds of orders carrying the USD fee, tax and a promo code: whole,
+        // partial and line refunds against the line CHECK, retries that
+        // reserve again, cancellation refunds reserved and legacy ones
+        // repaired, a late payment on a closed order, and disputed payments.
+        'tests/refund-fees-integration.test.js',
         'tests/ticket-concurrency.test.js',
         'tests/privacy-redaction-integration.test.js',
         'tests/privacy-lifecycle-integration.test.js',
         'tests/payout-currency-trigger.test.js',
+        // The door, the operator's outbox actions, and reserved-seat transfer:
+        // each depends on a lock, a trigger or a constraint only a real, freshly
+        // migrated database has.
+        'tests/admission-integration.test.js',
+        'tests/notification-lease-integration.test.js',
+        'tests/seat-transfer-integration.test.js',
+        // Group passes at the door: the order, pass and ticket locks, the
+        // group-pass trigger and the races against refunds and single scans.
+        'tests/group-admission-integration.test.js',
+        // Admission per night: the (ticket, night) index and its partial
+        // no-night half, the rewritten admission and hand-on triggers, and
+        // stewards racing on one night by single, group and raw writes.
+        'tests/check-in-per-night-integration.test.js',
+        // Who sees a colleague's address: real sessions, memberships and
+        // second factors, read from their rows.
+        'tests/team-email-integration.test.js',
+        // Invitation codes, organisations created from the site and platform
+        // roles: the one-live-invitation index, the owner and user-row locks,
+        // and the races they close, against real rows.
+        'tests/team-invitation-integration.test.js',
+        'tests/organization-create-integration.test.js',
+        'tests/platform-roles-integration.test.js',
+        // Event pictures: the gallery trigger under parallel uploads, the
+        // cover index, cascades and a 10 MiB bytea, against real rows.
+        'tests/event-media-integration.test.js',
+        // Authoring after publication: every tier rule the database enforces
+        // refused first by the API as a 4xx, a quantity cut racing live holds,
+        // and a reschedule whose revision moved leaving the event untouched.
+        'tests/event-authoring-live-integration.test.js',
+        // Checkout: a promo code's cap under twelve racing buyers, its CHECKs,
+        // a delete racing a checkout; and reserved seats bound by zone, a
+        // wheelchair pair raced for, released and swept seats back on sale.
+        'tests/promo-redemption-integration.test.js',
+        'tests/seat-purchase-integration.test.js',
+        // A hold changing hands: a release racing a checkout, two checkouts
+        // spending one hold, a retry after a timed-out capture, a settlement
+        // refused after the capture, and a seat hold racing its night's removal.
+        'tests/checkout-hold-race-integration.test.js',
+        // A NUL or a lone surrogate in a request: refused before any write on
+        // the paths that put free text into JSON columns, audit rows and
+        // outbox payloads, and PostgreSQL's own refusals (22P05, 22P02)
+        // answered as a 400; and a revision past an integer column or a query
+        // date in year 0000, refused by name, with 22003/22008 a 400 too.
+        'tests/unstorable-character-integration.test.js',
+        // Invite-only organisers and the review gate: the one-waiting-invitation
+        // index, the posting-role CHECK and the gate's 23514 answered as a 4xx;
+        // codes emailed through a local SMTP sink; the event website switch
+        // against its trigger and CHECKs; and visits counted against their
+        // CHECKs, dedupe index and cascade. Written by SPEC2 Stages B1 and B2,
+        // named here from Stage A so each runs from the moment it exists.
+        'tests/organizer-invitation-integration.test.js',
+        'tests/email-delivery-integration.test.js',
+        'tests/event-review-gate-integration.test.js',
+        'tests/website-redirect-integration.test.js',
+        'tests/traffic-integration.test.js',
+        // Full control of posted events and the Sulekha import (SPEC2-XI §6):
+        // the deletion, restore, night and sitting triggers against the API,
+        // the delete and cover-approval races, the platform-held trigger
+        // answered as a 409 through buildApp, and concurrent applies and
+        // approvals. Written by Stages B4-X and B5-I; named here from Stage AX
+        // so each runs from the moment it exists. Until then the filter
+        // matches no file and vitest runs the others (it fails only when no
+        // filter matches anything).
+        'tests/event-full-control-integration.test.js',
+        'tests/event-import-integration.test.js',
+        // Booking fees, referral codes and paying at the venue (SPEC3 §14.3):
+        // a fee change racing a checkout, the referral code's last use under
+        // two buyers, the per-event venue limit against concurrent orders and
+        // against settlement, and the door's payment against
+        // refunds, night cancellation and deletion, with every trigger answered
+        // as a 409 through buildApp. Written by Stages B1-T and B1-V; named
+        // here from Stage A so each runs from the moment it exists.
+        'tests/payment-terms-integration.test.js',
+        'tests/referral-codes-integration.test.js',
+        'tests/venue-booking-integration.test.js',
+        'tests/venue-payment-integration.test.js',
+        // Stage A's own proof of what the four above build on: the
+        // pay-at-the-venue order helper against every CHECK, the paid and
+        // unpaid filters on PostgreSQL, the referral use's limit, and each
+        // new constraint name answered as a 409.
+        'tests/payment-terms-foundation-integration.test.js',
+        // Unpaid pay-at-the-venue tickets cancelled, and referral uses given
+        // back once (SPEC3-XI §14.3): every race of a cancellation against
+        // the door, transfers, refunds, night cancellation, deletion and
+        // checkout, and every returner against the others, with no deadlock.
+        // Written by Stage B1-V; named here from Stage AX3 so each runs from
+        // the moment it exists.
+        'tests/venue-booking-cancellation-integration.test.js',
+        'tests/referral-returns-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),
@@ -971,6 +1367,20 @@ async function main() {
       },
     )
     ok = record('the API database integration suite passes against it', apiSuite.code === 0) && ok
+
+    // The traffic roll-up: exact sums within every TrafficDaily CHECK, a purged
+    // day never zeroed, one lease holder at a time, and a run that lost its
+    // lease stopping before it writes or deletes more. Written in SPEC2 Stage
+    // B1 (§5: "the worker adds traffic-rollup-postgres.test.js").
+    const workerSuite = await run(
+      'npx',
+      ['vitest', 'run', 'tests/traffic-rollup-postgres.test.js'],
+      {
+        cwd: path.join(REPO_ROOT, 'apps', 'worker'),
+        env: { ...childEnv, REQUIRE_DATABASE: '1' },
+      },
+    )
+    ok = record('the worker traffic roll-up suite passes against it', workerSuite.code === 0) && ok
   } catch (error) {
     ok = record('the verification ran to completion', false, {
       note: String(error?.message ?? error).slice(0, 300),

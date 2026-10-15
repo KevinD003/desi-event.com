@@ -62,6 +62,23 @@ async function probeTestDatabase() {
 
 const { reachable, migrated } = await probeTestDatabase()
 
+/**
+ * Remove the organisation one case created, and with it (by cascade) its
+ * event and ticket type: by its exact slug, never by a prefix. A prefix
+ * reached every other run's rows that shared it — a run alongside this one,
+ * or one a restart cut short — and deleted them under that run, cascading
+ * through their events and tiers on the way.
+ *
+ * @param {object} client A Prisma client.
+ * @param {string} slug The organisation's slug.
+ * @returns {Promise<number>} How many organisations went (zero or one).
+ */
+async function removeOwnOrganization(client, slug) {
+  const { count } = await client.organization.deleteMany({ where: { slug } })
+
+  return count
+}
+
 /** `it` when the test database answers, `it.skip` otherwise. */
 const itLive = reachable ? it : it.skip
 /** `it` when the test database also has the migrations applied. */
@@ -281,7 +298,61 @@ describe('schema access through the wrapper', () => {
       expect(ticketType.status).toBe('DRAFT')
       expect(ticketType.quantitySold).toBe(0)
     } finally {
-      await client.organization.deleteMany({ where: { slug: { startsWith: 'wrapper-event-' } } })
+      await removeOwnOrganization(client, `${slug}-org`)
+      await client.$disconnect()
+    }
+  })
+
+  itMigrated('cleans up only its own rows, never another run’s', async () => {
+    const client = createPrismaClient({ connectionString: TEST_DATABASE_URL })
+    const own = `wrapper-event-${randomUUID()}-org`
+    const other = `wrapper-event-${randomUUID()}-org`
+
+    try {
+      for (const slug of [own, other]) {
+        await client.organization.create({
+          data: { name: 'Cleanup Test Org', slug, contactEmail: 'cleanup@example.com' },
+        })
+      }
+
+      expect(await removeOwnOrganization(client, own)).toBe(1)
+      expect(await client.organization.findUnique({ where: { slug: own } })).toBeNull()
+      expect(await client.organization.findUnique({ where: { slug: other } })).not.toBeNull()
+    } finally {
+      await removeOwnOrganization(client, own)
+      await removeOwnOrganization(client, other)
+      await client.$disconnect()
+    }
+  })
+})
+
+describe('foreign keys into the event graph', () => {
+  // PostgreSQL checks a foreign key from the referenced side too: deleting an
+  // organisation, an event, a tier or a night looks for the rows that still
+  // name it. Without an index leading with the referencing column, each look
+  // reads the whole referencing table, so every such delete — this file's own
+  // cleanup among them — costs as much as every order line or order ever
+  // written (`20261008090000_foreign_key_indexes`).
+  itMigrated('each has an index leading with its columns', async () => {
+    const client = createPrismaClient({ connectionString: TEST_DATABASE_URL })
+
+    try {
+      const unindexed = await client.$queryRawUnsafe(`
+        SELECT c.conname AS name
+        FROM pg_constraint c
+        WHERE c.contype = 'f'
+          AND c.confrelid IN ('"Organization"'::regclass, '"Event"'::regclass,
+                              '"TicketType"'::regclass, '"EventSession"'::regclass)
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_index i
+            WHERE i.indrelid = c.conrelid
+              AND (i.indkey::int2[])[0:cardinality(c.conkey) - 1] @> c.conkey
+              AND (i.indkey::int2[])[0:cardinality(c.conkey) - 1] <@ c.conkey
+          )
+        ORDER BY 1`)
+
+      expect(unindexed.map((row) => row.name)).toEqual([])
+    } finally {
       await client.$disconnect()
     }
   })
@@ -335,14 +406,19 @@ describe('exported enums', () => {
     expect(Object.values(exported).sort()).toEqual([...declared[name]].sort())
   })
 
-  it('no longer names a platform role the schema dropped', () => {
-    // Phase 1's catch-all ADMIN became SUPER_ADMIN, and the narrower staff
-    // roles exist so the ordinary platform jobs do not need it.
-    expect(Object.values(UserRole)).not.toContain('ADMIN')
-    expect(Object.values(UserRole)).toContain('SUPER_ADMIN')
-    expect(Object.values(UserRole)).toContain('MODERATOR')
-    expect(Object.values(UserRole)).toContain('FINANCE_ADMIN')
-    expect(Object.values(UserRole)).toContain('SUPPORT')
+  it('names ADMIN again, as the platform administrator narrower than SUPER_ADMIN', () => {
+    // Phase 1's catch-all ADMIN became SUPER_ADMIN (the Phase 2 migration, whose
+    // mapping verify-populated-upgrade still proves), and the name came back in
+    // 20260930090000_platform_admin_role for a narrower role: it invites
+    // organisers and reviews, and cannot change platform roles or move money.
+    const roles = Object.values(UserRole)
+
+    expect(roles).toContain('ADMIN')
+    expect(roles).toContain('SUPER_ADMIN')
+    expect(roles).toContain('MODERATOR')
+    expect(roles).toContain('FINANCE_ADMIN')
+    expect(roles).toContain('SUPPORT')
+    expect(declared.UserRole.indexOf('ADMIN')).toBe(declared.UserRole.indexOf('SUPER_ADMIN') - 1)
   })
 
   it('keeps ADMIN as an organisation role, which is a different thing', () => {

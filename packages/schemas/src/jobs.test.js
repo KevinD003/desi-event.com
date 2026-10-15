@@ -9,6 +9,7 @@ import {
   indexEventJobSchema,
   issueTicketsJobSchema,
   jobSchemaFor,
+  rollUpTrafficJobSchema,
   sendEmailJobSchema,
 } from './jobs.js'
 
@@ -135,5 +136,25 @@ describe('indexEventJobSchema', () => {
     expect(indexEventJobSchema.safeParse({ eventId: EVENT_ID, action: 'REBUILD' }).success).toBe(
       false,
     )
+  })
+})
+
+describe('rollUpTrafficJobSchema', () => {
+  it('runs on the analytics queue under its own name', () => {
+    expect(QUEUE_NAMES.ANALYTICS).toBe('analytics')
+    expect(JOB_NAMES.ROLL_UP_TRAFFIC).toBe('roll-up-traffic')
+    expect(jobSchemaFor(JOB_NAMES.ROLL_UP_TRAFFIC)).toBe(rollUpTrafficJobSchema)
+  })
+
+  it('defaults the lease and leaves the business instant to the roll-up', () => {
+    expect(rollUpTrafficJobSchema.parse({})).toEqual({ leaseMs: 300_000 })
+    expect(rollUpTrafficJobSchema.parse({ now: '2026-09-30T12:00:00Z', leaseMs: '60000' })).toEqual(
+      { now: '2026-09-30T12:00:00Z', leaseMs: 60_000 },
+    )
+  })
+
+  it('bounds the lease', () => {
+    expect(rollUpTrafficJobSchema.safeParse({ leaseMs: 9_999 }).success).toBe(false)
+    expect(rollUpTrafficJobSchema.safeParse({ leaseMs: 900_001 }).success).toBe(false)
   })
 })

@@ -9,28 +9,54 @@
  * else; this page renders what came back and asks a scoped capability — with
  * the organisation the payload named — to decide whether to offer withdrawal.
  *
+ * ## The pass, only when asked, only to the holder
+ *
+ * The page is rendered without the pass. The holder of a ticket that still
+ * admits can ask for it, and `TicketPass` fetches it from the holder-only,
+ * `no-store` endpoint and draws it as a QR code on this device — the text of
+ * the credential never reaches the markup. The organiser reading the same page
+ * is never offered it.
+ *
+ * ## A ticket booked to pay at the door
+ *
+ * Its holder reads, under "Where it stands", what it owes at the door, or that
+ * it was cancelled because it was not paid for, or that money they paid at
+ * the door is with the organiser (`VenuePaymentNote`, SPEC3-XI §12.7). An
+ * organiser reading the same ticket is not addressed by those sentences and
+ * is not shown them.
+ *
  * ## What never appears on it
  *
- * The pass, and any invitation code. A credential is derived once and handed
- * over once; a screen that displayed one would put it in a screenshot, and a
- * screenshot of a QR code is a ticket. An invitation code is a bearer secret
- * and lives in exactly one place — the message sent to the person it was
- * offered to. Recipient addresses are masked: enough to recognise who you sent
- * it to, not enough for anybody else to harvest.
+ * Any invitation code, and the credential as text. An invitation code is a
+ * bearer secret and lives in exactly one place — the message sent to the
+ * person it was offered to. The server decides how much of a recipient's
+ * address this page gets: the domain alone, as `••••@example.com`, for the
+ * holder who sent the offer, and `Hidden email` for an organiser, who does not
+ * need it. Nothing of the local part reaches the page, so no stylesheet is
+ * doing the hiding.
  *
  * @module app/tickets/id/page
  */
 
+import { HIDDEN_EMAIL } from '@desi-event/schemas'
 import Link from 'next/link'
 
+import { EventChangesList } from '../../../components/event-changes-list.jsx'
+import { TicketPass, VenuePaymentNote } from '../../../components/ticket-pass.jsx'
 import { TicketTransferActions } from '../../../components/ticket-transfer-actions.jsx'
-import { AsOf, Breadcrumbs, Empty, Failure, Forbidden } from '../../../components/page-state.jsx'
+import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { PANEL, PosterThumb, Section, TEXT_LINK } from '../../../components/workspace-kit.jsx'
+import { deletedForHolder } from '../../../lib/event-control.js'
+import { formatEventWhen, formatTimeZoneLabel } from '../../../lib/format.js'
 import { getTicket } from '../../../lib/organizer-api.js'
+import { describeApiRefusal } from '../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../lib/session.js'
+import { joinLinkHost, sessionDisplayLabel } from '../../../lib/sessions.js'
 
 export const dynamic = 'force-dynamic'
 
-export const metadata = { robots: { index: false, follow: false } }
+export const metadata = { title: 'Ticket', robots: { index: false, follow: false } }
 
 /**
  * What each ticket status means, and whether it still admits anybody.
@@ -51,7 +77,7 @@ const STATUS = Object.freeze({
   },
   REVOKED: { label: 'Withdrawn by the organiser. It admits nobody.', admits: false },
   REFUNDED: { label: 'Refunded. It admits nobody.', admits: false },
-  CANCELLED: { label: 'Cancelled. It admits nobody.', admits: false },
+  CANCELLED: { label: 'Withdrawn — this ticket no longer works at the door.', admits: false },
   SUPERSEDED: { label: 'Replaced by a newer ticket.', admits: false },
   VOID: { label: 'Void. It admits nobody.', admits: false },
 })
@@ -62,7 +88,7 @@ const STATUS = Object.freeze({
  * @type {Readonly<Record<string, string>>}
  */
 const TRANSFER_STATUS = Object.freeze({
-  PENDING: 'Offered, not yet answered',
+  PENDING: 'Offered, awaiting an answer',
   ACCEPTED: 'Accepted',
   DECLINED: 'Declined',
   CANCELLED: 'Withdrawn by the sender',
@@ -90,11 +116,14 @@ export default async function TicketDetailPage({ params }) {
   try {
     detail = await getTicket(id)
   } catch (error) {
-    if (error?.status === 403 || error?.status === 404) {
+    const { state } = describeApiRefusal(error)
+
+    // Refused and missing alike; a missing second factor is neither.
+    if (state === 'permission-denied' || state === 'not-found') {
       return <Forbidden area="This ticket" backHref="/tickets" backLabel="Back to my tickets" />
     }
 
-    failure = error?.message ?? null
+    failure = error
   }
 
   if (!detail) {
@@ -106,13 +135,17 @@ export default async function TicketDetailPage({ params }) {
             { href: null, label: 'Ticket' },
           ]}
         />
-        <h1 className="mt-3 text-2xl font-bold text-indigo-night-900">Ticket</h1>
-        <Failure what="This ticket" detail={failure} />
+        <h1 className="mt-4 text-h2 font-semibold text-ink">Ticket</h1>
+        <ReadRefusal error={failure} what="This ticket" action="see this ticket" />
       </div>
     )
   }
 
   const { ticket, event, transfers, holder, organizationId } = detail
+  // The server gives the joining link to the holder only, and only while the
+  // ticket admits; the page shows it only then too.
+  const joinUrl = holder && detail.onlineJoinUrl ? detail.onlineJoinUrl : null
+  const joinHost = joinUrl ? joinLinkHost(joinUrl) : null
   const status = STATUS[ticket.status] ?? { label: ticket.status, admits: false }
   // Scoped, with the organisation the payload named. Asked without one this
   // would be a platform question, which is how NF-05 gets in.
@@ -127,71 +160,141 @@ export default async function TicketDetailPage({ params }) {
         ]}
       />
 
-      <h1 className="mt-3 text-2xl font-bold text-indigo-night-900">{event.title}</h1>
-      <p className="mt-1 text-slate-700">
-        <time dateTime={event.startsAt}>{event.startsAt}</time> · {event.timezone}
-      </p>
-      <AsOf asOf={new Date().toISOString()} />
+      {/* The event's poster beside its title, so the ticket page and the
+          wallet card it was opened from look like the same night. Decoration:
+          the heading names the event. */}
+      <div className={`mt-4 flex flex-col overflow-hidden sm:flex-row ${PANEL}`}>
+        <PosterThumb event={event} className="h-32 sm:h-auto sm:w-56" />
+        <div className="min-w-0 flex-1 p-5 sm:p-6">
+          <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+            Ticket
+          </p>
+          <h1 className="mt-2 text-h2 font-semibold text-ink">{event.title}</h1>
+          <p className="mt-2 text-ink-muted">
+            {/* The event's own clock, zone named, as every other account page
+                writes it; this used to print the raw UTC timestamp beside the
+                zone's name, which reads as a local time and is not one. */}
+            <time dateTime={event.startsAt}>{formatEventWhen(event)}</time> ·{' '}
+            {formatTimeZoneLabel(event)}
+          </p>
+          <AsOf asOf={new Date().toISOString()} />
+        </div>
+      </div>
 
-      <section aria-labelledby="status-heading" className="mt-8">
-        <h2 id="status-heading" className="text-lg font-semibold text-indigo-night-900">
-          Where it stands
-        </h2>
+      {event.status === 'DELETED' ? (
+        <p className="mt-4 max-w-prose rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-ink">
+          {deletedForHolder(
+            (detail.eventChanges ?? []).find((notice) => notice.kind === 'DELETED') ?? null,
+          )}{' '}
+          It is no longer on the site, and this ticket no longer works at the door.
+        </p>
+      ) : null}
+
+      {(detail.eventChanges ?? []).length > 0 ? (
+        <div className="mt-8">
+          <EventChangesList
+            notices={detail.eventChanges}
+            timeZone={event.timezone ?? 'UTC'}
+            sessions={detail.session ? [detail.session] : []}
+          />
+        </div>
+      ) : null}
+
+      <Section id="status-heading" title="Where it stands">
         <p
-          className={`mt-3 rounded-card border p-4 text-sm ${
+          className={`mt-4 rounded-card border p-4 text-sm ${
             status.admits
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-              : 'border-slate-300 bg-slate-50 text-slate-800'
+              ? 'border-status-success/25 bg-status-success-soft text-status-success'
+              : 'border-line-strong bg-surface-subtle text-ink'
           }`}
         >
           {/* The word, not only the colour. */}
           <strong>{status.admits ? 'Admits' : 'Does not admit'}.</strong> {status.label}
         </p>
 
-        <dl className="mt-3 space-y-2 text-sm">
-          <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Reference</dt>
-            <dd className="font-mono text-indigo-night-900">{ticket.code}</dd>
+        {/* A ticket booked to pay at the door says, to its holder, what it
+            owes there, that it was cancelled because it was not paid for, or
+            that money they paid at the door is the organiser's to return
+            (SPEC3-XI §12.7). Dates in the event's own zone, as every account
+            page writes them; the ticket row does not carry its event, so the
+            zone comes from the page's. Only what the note reads crosses to the
+            client. */}
+        {holder ? (
+          <VenuePaymentNote
+            ticket={{ status: ticket.status, venuePayment: ticket.venuePayment ?? null }}
+            timeZone={event.timezone ?? 'UTC'}
+          />
+        ) : null}
+
+        <dl className={`mt-4 grid grid-cols-1 gap-x-6 gap-y-3 p-5 text-sm sm:grid-cols-3 ${PANEL}`}>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium text-ink-subtle">Reference</dt>
+            <dd className="mt-0.5 font-mono text-ink">{ticket.code}</dd>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Name on it</dt>
-            <dd className="text-indigo-night-900">{ticket.attendeeName ?? 'Not given'}</dd>
+          <div className="min-w-0">
+            <dt className="text-xs font-medium text-ink-subtle">Name on it</dt>
+            <dd className="mt-0.5 break-words text-ink">{ticket.attendeeName ?? 'Not given'}</dd>
           </div>
+          {detail.session ? (
+            <div className="min-w-0">
+              <dt className="text-xs font-medium text-ink-subtle">Night</dt>
+              <dd className="mt-0.5 text-ink">{sessionDisplayLabel(detail.session)}</dd>
+            </div>
+          ) : null}
           {ticket.checkedInAt ? (
-            <div className="flex flex-wrap gap-2">
-              <dt className="text-slate-600">Admitted</dt>
-              <dd className="text-indigo-night-900">
+            <div className="min-w-0">
+              <dt className="text-xs font-medium text-ink-subtle">Admitted</dt>
+              <dd className="mt-0.5 text-ink">
                 <time dateTime={ticket.checkedInAt}>{ticket.checkedInAt}</time>
               </dd>
             </div>
           ) : null}
         </dl>
+      </Section>
 
-        <p className="mt-3 text-sm text-slate-600">
-          The pass itself is not shown here. It is handed over once, when the ticket is issued or
-          accepted — a pass on a page is a pass in a screenshot, and a screenshot of one is a
-          ticket.
-        </p>
-      </section>
+      {joinUrl && joinHost ? (
+        <Section id="join-heading" title="Join the online event">
+          <p className="mt-2 max-w-prose text-sm text-ink-muted">
+            The organiser’s joining link, for you as the holder of this ticket. Keep it to yourself:
+            anybody with the link can use it.
+          </p>
+          <p className="mt-3">
+            <a
+              href={joinUrl}
+              rel="noopener noreferrer"
+              referrerPolicy="no-referrer"
+              className={TEXT_LINK}
+            >
+              Join online at {joinHost}
+            </a>
+          </p>
+        </Section>
+      ) : null}
 
-      <section aria-labelledby="history-heading" className="mt-8">
-        <h2 id="history-heading" className="text-lg font-semibold text-indigo-night-900">
-          Where it has been
-        </h2>
+      {holder && status.admits ? (
+        // `entry-pass` is where the wallet's "Show my entry pass" link lands.
+        <Section id="entry-pass" title="Your entry pass">
+          <TicketPass ticketId={ticket.id} />
+        </Section>
+      ) : null}
+
+      <Section id="history-heading" title="Where it has been">
         {transfers.length === 0 ? (
           <Empty
             title="Never handed on"
             description="This ticket has stayed with whoever bought it."
           />
         ) : (
-          <ol className="mt-3 space-y-3">
+          <ol className="mt-4 space-y-3">
             {transfers.map((transfer) => (
-              <li key={transfer.id} className="rounded-card border border-slate-200 bg-white p-4">
-                <p className="font-medium text-indigo-night-900">
+              <li key={transfer.id} className={`p-4 ${PANEL}`}>
+                <p className="font-semibold text-ink">
                   {TRANSFER_STATUS[transfer.status] ?? transfer.status}
                 </p>
-                <p className="mt-1 text-sm text-slate-700">
-                  Offered to {transfer.toEmailMasked} on{' '}
+                <p className="mt-1 text-sm text-ink-muted">
+                  {transfer.toEmailMasked === HIDDEN_EMAIL
+                    ? 'Offered on '
+                    : `Offered to ${transfer.toEmailMasked} on `}
                   <time dateTime={transfer.createdAt}>{transfer.createdAt}</time>.
                   {transfer.status === 'PENDING' ? (
                     <>
@@ -200,33 +303,44 @@ export default async function TicketDetailPage({ params }) {
                     </>
                   ) : null}
                 </p>
+                {transfer.resultTicketId ? (
+                  <p className="mt-1 text-sm text-ink-muted">
+                    It became{' '}
+                    <Link href={`/tickets/${transfer.resultTicketId}`} className={TEXT_LINK}>
+                      a new ticket
+                    </Link>
+                    , which is the one that admits anybody now.
+                  </p>
+                ) : null}
               </li>
             ))}
           </ol>
         )}
-        <p className="mt-3 text-sm text-slate-600">
-          Addresses are shortened on purpose: enough to recognise who you sent it to, not enough for
-          anybody else to collect them.
+        <p className="mt-3 text-sm text-ink-muted">
+          {holder
+            ? 'Only the part of an address after the @ is shown, so nobody else who opens this page can collect it.'
+            : 'Who a ticket was offered to is not shown here: whether it should still admit does not depend on it.'}
         </p>
-      </section>
+      </Section>
 
-      <section aria-labelledby="actions-heading" className="mt-8">
-        <h2 id="actions-heading" className="text-lg font-semibold text-indigo-night-900">
-          What you can do
-        </h2>
+      <Section id="actions-heading" title="What you can do">
+        {/* Transfers carry only what the component reads: everything passed to a
+            client component is serialised into the page, recipients included. */}
         <TicketTransferActions
           ticket={ticket}
-          transfers={transfers}
+          transfers={transfers.map(({ id, status }) => ({ id, status }))}
           holder={holder}
           mayRevoke={mayRevoke}
+          deliveryMode={
+            session?.deliveryMode === 'EMAIL' || session?.deliveryMode === 'MANUAL'
+              ? session.deliveryMode
+              : null
+          }
         />
-      </section>
+      </Section>
 
-      <p className="mt-8 text-sm">
-        <Link
-          href="/tickets"
-          className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
-        >
+      <p className="mt-10 text-sm">
+        <Link href="/tickets" className={TEXT_LINK}>
           Back to my tickets
         </Link>
       </p>

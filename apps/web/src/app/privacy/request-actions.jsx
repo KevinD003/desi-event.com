@@ -42,6 +42,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { useFocusAfterRender } from '../../components/focus-after-render.jsx'
 import { StepUpPrompt } from '../../components/step-up-prompt.jsx'
 import { apiFetch } from '../../lib/api-fetch.js'
 import { REQUEST_CANCEL_REASONS, describeRefusal } from '../../lib/privacy-vocabulary.js'
@@ -73,6 +74,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
   const panelRef = useRef(null)
   const confirmRef = useRef(null)
   const cancelRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   // Focus is restored by effect rather than by holding the node, because
   // opening a panel unmounts the trigger buttons — the element captured on the
@@ -99,7 +101,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
     setPending(key)
     setRefusal(null)
     setPhrase('')
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -157,14 +159,14 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
       }
 
       setRefusal(describeRefusal({ status: response.status, code: parsed?.error?.code ?? null }))
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefusal({
         title: 'The service is not responding',
         detail: 'Nothing has been recorded. The request is exactly as it was.',
         recoverable: true,
       })
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } finally {
       setBusy(false)
     }
@@ -172,7 +174,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
 
   if (!canConfirm && !canCancel) {
     return (
-      <p className="mt-6 rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+      <p className="mt-6 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
         There is nothing to do here. This request has reached a state nothing moves it out of.
       </p>
     )
@@ -180,7 +182,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
 
   return (
     <section aria-labelledby="request-actions-heading" className="mt-8">
-      <h2 id="request-actions-heading" className="text-lg font-semibold text-indigo-night-900">
+      <h2 id="request-actions-heading" className="text-xl font-semibold text-ink">
         Actions
       </h2>
 
@@ -195,7 +197,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
               type="button"
               ref={confirmRef}
               onClick={() => open('confirm')}
-              className="rounded-sm bg-rose-700 px-4 py-2 text-sm font-medium text-white hover:bg-rose-800 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-danger px-4 text-sm font-semibold text-action-danger-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-danger-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               Confirm erasure
             </button>
@@ -205,7 +207,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
               type="button"
               ref={cancelRef}
               onClick={() => open('cancel')}
-              className="rounded-sm border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-indigo-night-900 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               Withdraw request
             </button>
@@ -219,16 +221,16 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
           tabIndex={-1}
           role="group"
           aria-labelledby="pending-heading"
-          className="mt-4 rounded-card border border-slate-300 bg-white p-4 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="mt-4 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <h3 id="pending-heading" className="font-semibold text-indigo-night-900">
+          <h3 id="pending-heading" className="font-semibold text-ink">
             {pending === 'confirm' ? 'Confirm this erasure' : 'Withdraw this request'}
           </h3>
 
           {refusal ? (
             <p
-              role="alert"
-              className="mt-3 rounded-card border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900"
+              role="status"
+              className="mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-3 text-sm text-status-danger"
             >
               <span className="font-medium">{refusal.title}.</span> {refusal.detail}
             </p>
@@ -236,16 +238,13 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
 
           {pending === 'confirm' ? (
             <>
-              <p className="mt-2 text-sm text-slate-700">
+              <p className="mt-2 text-sm text-ink-muted">
                 This cannot be undone. Type back the confirmation phrase you were given when this
                 request was raised — it is not shown here, and it is not recoverable from this
                 screen.
               </p>
               <div className="mt-3 flex flex-col gap-1">
-                <label
-                  htmlFor="confirmation-phrase"
-                  className="text-sm font-medium text-indigo-night-900"
-                >
+                <label htmlFor="confirmation-phrase" className="text-sm font-medium text-ink">
                   Confirmation phrase
                 </label>
                 <input
@@ -256,18 +255,18 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
                   spellCheck="false"
                   value={phrase}
                   onChange={(event) => setPhrase(event.target.value)}
-                  className="rounded-sm border border-slate-300 px-3 py-2 font-mono text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 font-mono text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                 />
               </div>
             </>
           ) : (
             <>
-              <p className="mt-2 text-sm text-slate-700">
+              <p className="mt-2 text-sm text-ink-muted">
                 Withdrawing changes nothing about the subject. It records that this request will not
                 run.
               </p>
               <div className="mt-3 flex flex-col gap-1">
-                <label htmlFor="reason-code" className="text-sm font-medium text-indigo-night-900">
+                <label htmlFor="reason-code" className="text-sm font-medium text-ink">
                   Why
                 </label>
                 <select
@@ -275,7 +274,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
                   name="reasonCode"
                   value={reasonCode}
                   onChange={(event) => setReasonCode(event.target.value)}
-                  className="rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                 >
                   {REQUEST_CANCEL_REASONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -304,7 +303,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
                 type="button"
                 onClick={send}
                 disabled={busy || (pending === 'confirm' && phrase.trim() === '')}
-                className="rounded-sm bg-indigo-night-900 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-night-800 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? 'Working…' : pending === 'confirm' ? 'Erase' : 'Withdraw'}
               </button>
@@ -312,7 +311,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
                 type="button"
                 onClick={dismiss}
                 disabled={busy}
-                className="rounded-sm border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-indigo-night-900 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+                className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 Back
               </button>

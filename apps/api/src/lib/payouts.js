@@ -50,6 +50,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { conflict, notFound, unprocessable } from './errors.js'
 import { postBatch } from './ledger.js'
+import { PENDING_STATES } from './refunds.js'
 import { openReconciliation } from './webhook-handlers.js'
 
 /**
@@ -237,7 +238,7 @@ export async function payableCents(prisma, { organizationId, currency }) {
 export async function availableBalance(prisma, { organizationId, currency }) {
   const payable = await payableCents(prisma, { organizationId, currency })
 
-  const [transfers, payoutRows, orders, disputes] = await Promise.all([
+  const [transfers, payoutRows, orders, feeRefunds, disputes] = await Promise.all([
     prisma.transfer.aggregate({
       where: { organizationId, currency, status: { in: [...TRANSFER_IN_FLIGHT] } },
       _sum: { amountCents: true },
@@ -246,9 +247,22 @@ export async function availableBalance(prisma, { organizationId, currency }) {
       where: { organizationId, currency, status: { in: [...PAYOUT_IN_FLIGHT] } },
       _sum: { amountCents: true },
     }),
+    // What is held back for refunds is the organiser's share of them. A
+    // pay-at-the-venue order paid online only the booking fee of The Desi Events, so
+    // its refunds never come out of the organiser's balance; neither does a
+    // card order's booking fee refunded on its own (SPEC3 §9.8).
     prisma.order.aggregate({
-      where: { currency, event: { organizationId } },
+      where: { currency, event: { organizationId }, paymentMethod: 'CARD' },
       _sum: { refundPendingCents: true },
+    }),
+    prisma.refund.aggregate({
+      where: {
+        currency,
+        reason: 'BOOKING_FEE',
+        status: { in: [...PENDING_STATES] },
+        order: { paymentMethod: 'CARD', event: { organizationId } },
+      },
+      _sum: { amountCents: true },
     }),
     prisma.dispute.aggregate({
       where: {
@@ -256,8 +270,10 @@ export async function availableBalance(prisma, { organizationId, currency }) {
         status: { in: [...DISPUTE_OPEN] },
         // Three hops — dispute to payment to order to event — walked as a
         // relation filter rather than summed in application code, so the
-        // database does the work and the set never has to fit in memory.
-        payment: { order: { event: { organizationId } } },
+        // database does the work and the set never has to fit in memory. A
+        // dispute of a pay-at-the-venue booking fee is held from the fee
+        // revenue of The Desi Events, never from the organiser (SPEC3 §10.1).
+        payment: { order: { paymentMethod: 'CARD', event: { organizationId } } },
       },
       _sum: { amountCents: true },
     }),
@@ -265,7 +281,10 @@ export async function availableBalance(prisma, { organizationId, currency }) {
 
   const disputeLiabilityCents = disputes._sum.amountCents ?? 0
   const inFlightCents = (transfers._sum.amountCents ?? 0) + (payoutRows._sum.amountCents ?? 0)
-  const refundLiabilityCents = orders._sum.refundPendingCents ?? 0
+  const refundLiabilityCents = Math.max(
+    0,
+    (orders._sum.refundPendingCents ?? 0) - (feeRefunds._sum.amountCents ?? 0),
+  )
 
   return {
     payableCents: payable,
@@ -846,6 +865,30 @@ export async function reverseTransfer(tx, params) {
 }
 
 /**
+ * Where a dispute's money is held from (SPEC3 §10.1): a pay-at-the-venue
+ * order's payment was its booking fee alone, revenue of The Desi Events, so a
+ * chargeback of it is taken from `platform_fee_revenue`, never from an
+ * organiser who never received it; every other payment's from the
+ * organiser's payable, as always.
+ *
+ * @param {object} tx A Prisma client or transaction client.
+ * @param {{orderId?: string|null}|null} payment The disputed payment.
+ * @returns {Promise<string>} The ledger account.
+ */
+async function disputeHeldFrom(tx, payment) {
+  const order = payment?.orderId
+    ? await tx.order.findUnique({
+        where: { id: payment.orderId },
+        select: { paymentMethod: true },
+      })
+    : null
+
+  return order?.paymentMethod === 'AT_VENUE'
+    ? ACCOUNTS.PLATFORM_FEE_REVENUE
+    : ACCOUNTS.ORGANIZER_PAYABLE
+}
+
+/**
  * Record a dispute, and hold the money while it is open.
  *
  * Idempotent on the provider's own identifier, because a dispute webhook is
@@ -882,6 +925,7 @@ export async function openDispute(tx, params) {
 
   if (existing) return { dispute: existing, created: false }
 
+  const heldFrom = await disputeHeldFrom(tx, payment)
   const dispute = await tx.dispute.create({
     data: {
       paymentId: payment.id,
@@ -902,6 +946,7 @@ export async function openDispute(tx, params) {
       currency,
       organizationId,
       reference: dispute.id,
+      heldFrom,
     }),
     {
       sourceType: 'DISPUTE',
@@ -965,6 +1010,11 @@ export async function resolveDispute(tx, params) {
 
   if (!resolved) return { resolved: false }
 
+  const payment = await tx.payment.findUnique({
+    where: { id: dispute.paymentId },
+    select: { id: true, orderId: true },
+  })
+
   await postBatch(
     tx,
     disputeResolvedBatch({
@@ -973,6 +1023,7 @@ export async function resolveDispute(tx, params) {
       currency: dispute.currency,
       organizationId,
       reference: dispute.id,
+      heldFrom: await disputeHeldFrom(tx, payment),
     }),
     {
       sourceType: 'DISPUTE',

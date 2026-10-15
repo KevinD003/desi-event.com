@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { INDEXABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { EVENT_CATEGORIES } from './catalog.js'
+import { eventAvailability } from './event-availability.js'
+import { formatTimeZoneLabel, toParagraphs } from './format.js'
+import { formatPrice } from './pricing.js'
 import {
   SAMPLE_EVENTS,
   findSampleEvent,
+  findSampleOrganizer,
+  findSampleVenue,
   sampleCities,
   sampleEventSummaries,
   toEventSummary,
@@ -18,19 +24,84 @@ const CUID_PATTERN = /^[a-z][a-z0-9]{7,31}$/
 /** Shape the API demands of a slug. */
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
+/** The only zones a US catalogue has any business using. */
+const US_ZONES = new Set(['America/New_York', 'America/Chicago', 'America/Los_Angeles'])
+
+/** Which zone each state in the catalogue keeps its clocks in. */
+const ZONE_BY_STATE = {
+  NJ: 'America/New_York',
+  NY: 'America/New_York',
+  PA: 'America/New_York',
+  GA: 'America/New_York',
+  TX: 'America/Chicago',
+  IL: 'America/Chicago',
+  CA: 'America/Los_Angeles',
+  WA: 'America/Los_Angeles',
+}
+
+/**
+ * The local wall-clock hour and minute of an instant in a zone.
+ *
+ * @param {string} iso A UTC timestamp.
+ * @param {string} timeZone An IANA zone.
+ * @returns {{hour: number, minute: number}} The local time.
+ */
+function localClock(iso, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: 'numeric',
+    hourCycle: 'h23',
+    timeZone,
+  }).formatToParts(new Date(iso))
+  const read = (type) => Number(parts.find((part) => part.type === type)?.value)
+
+  return { hour: read('hour'), minute: read('minute') }
+}
+
+/**
+ * A sample event by slug, failing loudly when the catalogue lost it.
+ *
+ * @param {string} slug The event's slug.
+ * @returns {object} The event.
+ */
+function event(slug) {
+  const found = findSampleEvent(slug)
+  if (!found) throw new Error(`the sample catalogue has no ${slug}`)
+
+  return found
+}
+
 describe('the fallback catalogue', () => {
   it('has enough events to make the site look programmed rather than empty', () => {
-    expect(SAMPLE_EVENTS.length).toBeGreaterThanOrEqual(8)
+    expect(SAMPLE_EVENTS.length).toBe(20)
+    expect(sampleEventSummaries().length).toBeGreaterThanOrEqual(12)
   })
 
-  it('spans the four cities the product claims to programme', () => {
-    expect(sampleCities()).toEqual(['Ahmedabad', 'London', 'Mumbai', 'Toronto'])
+  it('lists the eleven US cities the catalogue programmes, and nowhere else', () => {
+    expect(sampleCities()).toEqual([
+      'Atlanta',
+      'Bellevue',
+      'Cerritos',
+      'Edison',
+      'Houston',
+      'Irving',
+      'Jersey City',
+      'Philadelphia',
+      'Queens',
+      'Santa Clara',
+      'Schaumburg',
+    ])
   })
 
-  it('covers a broad spread of categories, not one repeated', () => {
-    const categories = new Set(SAMPLE_EVENTS.map((event) => event.category))
+  it('is garba season: mostly garba and dandiya, with workshops, melas and a concert', () => {
+    const categories = SAMPLE_EVENTS.map((event) => event.category)
 
-    expect(categories.size).toBeGreaterThanOrEqual(6)
+    expect(new Set(categories)).toEqual(
+      new Set(['GARBA_DANDIYA', 'WORKSHOP', 'CULTURAL_FESTIVAL', 'MUSIC_CONCERT']),
+    )
+    expect(categories.filter((category) => category === 'GARBA_DANDIYA').length).toBeGreaterThan(
+      categories.length / 2,
+    )
   })
 
   it('uses only categories the front end can label', () => {
@@ -68,9 +139,50 @@ describe('the fallback catalogue', () => {
     }
   })
 
-  it('keeps the catalogue in the future, so the fallback never rots', () => {
+  it('keeps everything but the finished event in the future, so the fallback never rots', () => {
     for (const event of SAMPLE_EVENTS) {
-      expect(Date.parse(event.startsAt)).toBeGreaterThan(Date.now())
+      if (event.status === 'COMPLETED') {
+        expect(Date.parse(event.endsAt)).toBeLessThan(Date.now())
+      } else {
+        expect(Date.parse(event.startsAt)).toBeGreaterThan(Date.now())
+      }
+    }
+  })
+
+  it('prices everything in US dollars, and in integer cents', () => {
+    for (const event of SAMPLE_EVENTS) {
+      for (const tier of event.ticketTypes) {
+        expect(tier.currency).toBe('USD')
+      }
+      expect(event.feeTerms).toEqual([{ currency: 'USD', percentageBps: 590, flatCents: 99 }])
+    }
+  })
+
+  it('puts every venue in the US, in the zone its state keeps', () => {
+    for (const event of SAMPLE_EVENTS) {
+      expect(event.venue.country).toBe('US')
+      expect(US_ZONES.has(event.timezone)).toBe(true)
+      expect(event.venue.timezone).toBe(ZONE_BY_STATE[event.venue.region])
+      expect(event.timezone).toBe(event.venue.timezone)
+      expect(event.venue.postalCode).toMatch(/^\d{5}$/)
+    }
+  })
+
+  it('starts every event on a local evening, whatever the offset that day', () => {
+    for (const event of SAMPLE_EVENTS) {
+      const { hour, minute } = localClock(event.startsAt, event.timezone)
+
+      expect(hour).toBeGreaterThanOrEqual(19)
+      expect(hour).toBeLessThanOrEqual(20)
+      expect([0, 30]).toContain(minute)
+      // And the label beside it is a US zone's own letters, e.g. EDT or PDT.
+      expect(formatTimeZoneLabel(event)).toMatch(/^[CEP][DS]T$/)
+    }
+  })
+
+  it('invents its organisers, so every website is on a reserved domain', () => {
+    for (const event of SAMPLE_EVENTS) {
+      expect(new URL(event.organization.websiteUrl).hostname).toMatch(/\.example$/)
     }
   })
 
@@ -100,8 +212,9 @@ describe('the fallback catalogue', () => {
   })
 
   it('marks an exhausted tier sold out with nothing available', () => {
+    // Seated tiers are sold by seat, so their zero quantity is not exhaustion.
     const exhausted = SAMPLE_EVENTS.flatMap((event) => event.ticketTypes).filter(
-      (tier) => tier.quantitySold === tier.quantityTotal,
+      (tier) => !tier.reserved && tier.quantitySold === tier.quantityTotal,
     )
 
     expect(exhausted.length).toBeGreaterThan(0)
@@ -121,17 +234,211 @@ describe('the fallback catalogue', () => {
     }
   })
 
+  it('carries no pictures, so every surface draws the generated poster as the API does', () => {
+    for (const event of SAMPLE_EVENTS) {
+      expect(event.coverImage, event.slug).toBeNull()
+      expect(event.gallery, event.slug).toEqual([])
+      expect(event, event.slug).not.toHaveProperty('coverImageUrl')
+    }
+
+    for (const summary of sampleEventSummaries()) {
+      expect(summary.coverImage, summary.slug).toBeNull()
+    }
+  })
+
   it('gives every event a multi-paragraph description worth reading', () => {
     for (const event of SAMPLE_EVENTS) {
-      expect(event.description.split('\n\n').length).toBeGreaterThanOrEqual(2)
+      const paragraphs = toParagraphs(event.description)
+
+      expect(paragraphs.length).toBeGreaterThanOrEqual(2)
+      expect(paragraphs.length).toBeLessThanOrEqual(3)
       expect(event.description.length).toBeGreaterThan(300)
     }
   })
 
-  it('publishes everything, since only published events are listed', () => {
+  it('never invents urgency or popularity in its copy', () => {
+    const banned =
+      /selling fast|sells out|almost gone|hurry|limited time|coming soon|best-selling|most popular/i
+
     for (const event of SAMPLE_EVENTS) {
-      expect(event.status).toBe('PUBLISHED')
+      expect(`${event.title} ${event.summary} ${event.description}`).not.toMatch(banned)
     }
+  })
+
+  it('uses only statuses a stranger may open', () => {
+    for (const event of SAMPLE_EVENTS) {
+      expect(PUBLICLY_VISIBLE_STATUSES.has(event.status)).toBe(true)
+    }
+  })
+})
+
+describe('the states the catalogue exercises', () => {
+  it('has a tier that has sold out beside tiers that have not', () => {
+    const opening = event('bay-lights-garba-opening')
+    const early = opening.ticketTypes.find((tier) => tier.name === 'Early Bird')
+
+    expect(early).toMatchObject({ status: 'SOLD_OUT', isSoldOut: true, availableQuantity: 0 })
+    expect(opening.ticketTypes.some((tier) => !tier.isSoldOut)).toBe(true)
+    expect(toEventSummary(opening).soldOut).toBe(false)
+  })
+
+  it('has an event that has sold out entirely', () => {
+    const marathon = event('five-boroughs-garba-marathon')
+
+    expect(marathon.status).toBe('SOLD_OUT')
+    expect(marathon.ticketTypes.every((tier) => tier.isSoldOut)).toBe(true)
+    expect(eventAvailability(toEventSummary(marathon))).toEqual({
+      tone: 'closed',
+      label: 'Sold out',
+    })
+  })
+
+  it('has a free event, which a card calls free', () => {
+    const summary = toEventSummary(event('dandiya-kids-hour-houston'))
+
+    expect(summary.minPriceCents).toBe(0)
+    expect(summary.minTotalCents).toBe(0)
+    expect(formatPrice(summary.minTotalCents, summary.currency)).toBe('Free')
+  })
+
+  it('has tiers with only a few left, and says how few from real numbers', () => {
+    const few = SAMPLE_EVENTS.flatMap((event) => event.ticketTypes).filter(
+      (tier) => !tier.isSoldOut && tier.availableQuantity <= 25,
+    )
+
+    expect(few.map((tier) => tier.name)).toEqual(
+      expect.arrayContaining(['VIP Circle', 'Season Pass — All Nine Nights']),
+    )
+    for (const tier of few) {
+      expect(tier.availableQuantity).toBe(tier.quantityTotal - tier.quantitySold)
+    }
+  })
+
+  it('leaves the same few on those tiers as the seeded database does', () => {
+    // packages/db/scripts/seed.mjs allocates 12 and 19 and sells none, so the
+    // page says the same "Only N left" whichever source answered.
+    const tier = (slug, name) => event(slug).ticketTypes.find((type) => type.name === name)
+
+    expect(tier('navratri-night-one-edison', 'VIP Circle').availableQuantity).toBe(12)
+    expect(
+      tier('mirrorwork-nine-nights-pass', 'Season Pass — All Nine Nights').availableQuantity,
+    ).toBe(19)
+  })
+
+  it('has an event whose sales are paused, which is not on sale', () => {
+    const glow = event('garba-glow-night-santa-clara')
+
+    expect(glow.status).toBe('SALES_PAUSED')
+    expect(toEventSummary(glow).salesOpen).toBe(false)
+    expect(eventAvailability(toEventSummary(glow)).label).toBe('Sales paused')
+  })
+
+  it('has a postponed event that remembers the date it was going to be on', () => {
+    const postponed = event('garba-for-good-philadelphia')
+
+    expect(postponed.status).toBe('POSTPONED')
+    expect(postponed.previousStartsAt).toBe(postponed.startsAt)
+    expect(toEventSummary(postponed).salesOpen).toBe(false)
+  })
+
+  it('has a cancelled event and a finished one, both still resolvable', () => {
+    expect(event('collegiate-raas-showcase-irving').status).toBe('CANCELLED')
+    expect(event('garba-warm-up-night-atlanta').status).toBe('COMPLETED')
+  })
+
+  it('has a seated tier that is shown and not sold here', () => {
+    const concert = event('mirrorwork-live-band-night')
+    const balcony = concert.ticketTypes.find((tier) => tier.reserved)
+
+    expect(concert.category).toBe('MUSIC_CONCERT')
+    expect(balcony).toMatchObject({ reserved: true, availableQuantity: 0, status: 'ON_SALE' })
+    // The standing floor is still on sale, and the "from" price is its price.
+    expect(toEventSummary(concert)).toMatchObject({
+      minPriceCents: 4500,
+      soldOut: false,
+      salesOpen: true,
+    })
+  })
+
+  it('has an organiser who is not verified, and shows no badge for them', () => {
+    const delaware = event('garba-and-aarti-on-the-delaware')
+
+    expect(delaware.organization.verified).toBe(false)
+    expect(SAMPLE_EVENTS.filter((event) => !event.organization.verified).length).toBeLessThan(
+      SAMPLE_EVENTS.length / 2,
+    )
+  })
+
+  it('has an event that runs across nine nights', () => {
+    const pass = event('mirrorwork-nine-nights-pass')
+    const nights = (Date.parse(pass.endsAt) - Date.parse(pass.startsAt)) / 86_400_000
+
+    expect(nights).toBeGreaterThan(8)
+    expect(nights).toBeLessThan(9)
+  })
+
+  it('lists the nine nights of that event, labelled and in order, as the API would send them', async () => {
+    const { publicEventSessionSchema } = await import('@desi-event/schemas')
+    const pass = event('mirrorwork-nine-nights-pass')
+
+    expect(pass.sessions).toHaveLength(9)
+    expect(pass.sessions.map((night) => night.label)).toEqual(
+      Array.from({ length: 9 }, (_, index) => `Night ${index + 1}`),
+    )
+    expect(pass.sessions[0].startsAt).toBe(pass.startsAt)
+    expect(pass.sessions.at(-1).endsAt).toBe(pass.endsAt)
+
+    for (const [index, night] of pass.sessions.entries()) {
+      expect(publicEventSessionSchema.safeParse(night).success).toBe(true)
+      expect(night.id).toMatch(CUID_PATTERN)
+      expect(Date.parse(night.doorsOpenAt)).toBeLessThan(Date.parse(night.startsAt))
+
+      if (index > 0) {
+        expect(Date.parse(night.startsAt)).toBeGreaterThan(
+          Date.parse(pass.sessions[index - 1].endsAt),
+        )
+      }
+    }
+
+    // Season passes: good for every night, so no tier names one of them.
+    expect(pass.ticketTypes.every((tier) => !tier.eventSessionId)).toBe(true)
+    // An in-person event: nothing to join online, in the sample data or anywhere else.
+    expect(SAMPLE_EVENTS.every((sample) => sample.onlineUrl === null)).toBe(true)
+  })
+
+  it('puts the Saturday night on a Saturday', () => {
+    const saturday = event('peachtree-garba-saturday')
+    const weekday = new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      timeZone: saturday.timezone,
+    }).format(new Date(saturday.startsAt))
+
+    expect(weekday).toBe('Saturday')
+  })
+})
+
+describe('what the fallback lists', () => {
+  it('lists exactly the statuses the API lists', () => {
+    const listed = sampleEventSummaries()
+
+    for (const summary of listed) expect(INDEXABLE_STATUSES.has(summary.status)).toBe(true)
+    expect(listed.map((summary) => summary.slug)).not.toEqual(
+      expect.arrayContaining(['garba-for-good-philadelphia']),
+    )
+    expect(listed).toHaveLength(
+      SAMPLE_EVENTS.filter((event) => INDEXABLE_STATUSES.has(event.status)).length,
+    )
+  })
+
+  it('quotes the all-in price a card shows, fees included and US tax at zero', () => {
+    const summary = sampleEventSummaries().find(
+      (event) => event.slug === 'navratri-night-one-edison',
+    )
+
+    // $35.00 face value + 5.9% ($2.07, rounded) + $0.99 per ticket; the US demo
+    // tax policy is deliberately zero.
+    expect(summary).toMatchObject({ minPriceCents: 3500, minTotalCents: 3806, currency: 'USD' })
+    expect(formatPrice(summary.minTotalCents, summary.currency)).toBe('$38.06')
   })
 })
 
@@ -200,18 +507,183 @@ describe('toEventSummary', () => {
 })
 
 describe('sampleEventSummaries', () => {
-  it('summarises the whole catalogue', () => {
-    expect(sampleEventSummaries()).toHaveLength(SAMPLE_EVENTS.length)
+  it('summarises every listed event, in start-date order', () => {
+    const summaries = sampleEventSummaries()
+    const starts = summaries.map((summary) => Date.parse(summary.startsAt))
+
+    // Twenty events, of which the postponed, cancelled and finished three are
+    // not listed — exactly as the API leaves them out of "what is on".
+    expect(summaries).toHaveLength(SAMPLE_EVENTS.length - 3)
+    expect(starts).toEqual([...starts].sort((a, b) => a - b))
   })
 })
 
 describe('findSampleEvent', () => {
   it('finds an event by slug', () => {
-    expect(findSampleEvent('desi-comedy-uncensored').title).toBe('Desi Comedy Uncensored')
+    expect(findSampleEvent('navratri-night-one-edison').title).toBe(
+      'Navratri Night One: Garba Under the Lights',
+    )
+  })
+
+  it('resolves an event the listing leaves out, as the live page does', () => {
+    expect(findSampleEvent('collegiate-raas-showcase-irving').status).toBe('CANCELLED')
   })
 
   it('returns null for anything it does not have', () => {
     expect(findSampleEvent('no-such-event')).toBeNull()
     expect(findSampleEvent(undefined)).toBeNull()
+  })
+})
+
+describe('findSampleVenue', () => {
+  it('lists only upcoming events in a listed status', () => {
+    const delaware = findSampleVenue('delaware-river-pavilion')
+
+    expect(delaware).toMatchObject({ city: 'Philadelphia', region: 'PA', country: 'US' })
+    expect(delaware.timezone).toBe('America/New_York')
+    // Garba & Aarti is listed; Garba for Good is postponed, and is not.
+    expect(delaware.upcomingEvents.map((entry) => entry.slug)).toEqual([
+      'garba-and-aarti-on-the-delaware',
+    ])
+  })
+
+  it('claims no coordinates for an invented address', () => {
+    expect(findSampleVenue('lamplight-expo-hall')).toMatchObject({
+      latitude: null,
+      longitude: null,
+    })
+  })
+
+  it('returns null for a venue it does not have', () => {
+    expect(findSampleVenue('no-such-venue')).toBeNull()
+  })
+})
+
+describe('findSampleOrganizer', () => {
+  it('shows a finished event as the organiser’s track record', () => {
+    const peachtree = findSampleOrganizer('peachtree-raas-club')
+
+    expect(peachtree.verified).toBe(true)
+    expect(peachtree.pastEvents.map((entry) => entry.slug)).toEqual(['garba-warm-up-night-atlanta'])
+    expect(peachtree.upcomingEvents.map((entry) => entry.slug)).toEqual([
+      'peachtree-garba-saturday',
+    ])
+  })
+
+  it('leaves a cancelled event off both lists', () => {
+    const loneStar = findSampleOrganizer('lone-star-navratri')
+    const slugs = [...loneStar.upcomingEvents, ...loneStar.pastEvents].map((entry) => entry.slug)
+
+    expect(slugs).toEqual(['lone-star-sharad-poonam-garba'])
+  })
+
+  it('carries no badge for an unverified organiser', () => {
+    expect(findSampleOrganizer('liberty-bell-navratri').verified).toBe(false)
+  })
+})
+
+describe('the event page content in the sample catalogue', () => {
+  it('has one event that shows every content section, and it parses as the API would send it', async () => {
+    const {
+      eventFaqSchema,
+      eventPerformersSchema,
+      eventRunningOrderSchema,
+      eventSocialLinksSchema,
+      eventSponsorsSchema,
+    } = await import('@desi-event/schemas/event-content')
+    const withContent = SAMPLE_EVENTS.filter((event) => event.performers?.length > 0)
+
+    expect(withContent.length).toBeGreaterThan(0)
+
+    for (const event of withContent) {
+      expect(eventPerformersSchema.safeParse(event.performers).success).toBe(true)
+      expect(eventRunningOrderSchema.safeParse(event.runningOrder).success).toBe(true)
+      expect(eventFaqSchema.safeParse(event.faq).success).toBe(true)
+      expect(eventSocialLinksSchema.safeParse(event.socialLinks).success).toBe(true)
+      expect(eventSponsorsSchema.safeParse(event.sponsors).success).toBe(true)
+      // The names alone stay in step with the line-up, as the server keeps them.
+      expect(event.artists).toEqual(event.performers.map((performer) => performer.name))
+
+      for (const href of Object.values(event.socialLinks)) {
+        expect(new URL(href).hostname).toMatch(/\.example$/)
+      }
+      expect(event.publicEmail).toMatch(/\.example$/)
+    }
+  })
+})
+
+describe('the organiser’s website in the sample catalogue', () => {
+  it('links no sample event to another site, and keeps no website among the social links', async () => {
+    const { eventSocialLinksSchema } = await import('@desi-event/schemas/event-content')
+
+    for (const event of SAMPLE_EVENTS) {
+      expect(event.websiteLink, event.slug).toBeNull()
+      expect(event, event.slug).not.toHaveProperty('websiteUrl')
+      expect(event, event.slug).not.toHaveProperty('websiteRedirect')
+      expect(event.socialLinks?.website, event.slug).toBeUndefined()
+
+      if (event.socialLinks) {
+        expect(eventSocialLinksSchema.safeParse(event.socialLinks).success, event.slug).toBe(true)
+      }
+    }
+
+    expect(findSampleEvent(SAMPLE_EVENTS[0].slug).websiteLink).toBeNull()
+  })
+})
+
+describe('the catalogue built at any hour, across a change of the clocks', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.resetModules()
+  })
+
+  /**
+   * The calendar date of an instant in a zone, as `YYYY-MM-DD`.
+   *
+   * @param {string|number} instant A timestamp.
+   * @param {string} timeZone An IANA zone.
+   * @returns {string} The date there.
+   */
+  function dateIn(instant, timeZone) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date(instant))
+  }
+
+  /**
+   * A `YYYY-MM-DD` date some whole calendar days after another.
+   *
+   * @param {string} date The first date.
+   * @param {number} days How many days later.
+   * @returns {string} The later date.
+   */
+  function daysAfter(date, days) {
+    const [year, month, day] = date.split('-').map(Number)
+
+    return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10)
+  }
+
+  // The nine nights start eighteen days after the process does. Started just
+  // after midnight in New York, 25 days before the clocks go back (1 November
+  // 2026), counting days as 24 hours put the eighth and ninth nights on the same
+  // date; started just before midnight, 17 days before they go forward (14
+  // March 2027), it put the first night a day late.
+  it.each([
+    ['00:40 in New York, before the clocks go back', '2026-10-07T04:40:00.000Z'],
+    ['23:30 in New York, before the clocks go forward', '2027-02-25T04:30:00.000Z'],
+  ])('keeps the nine nights on nine consecutive dates when started at %s', async (_, startedAt) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(startedAt))
+    vi.resetModules()
+
+    const { findSampleEvent: findFresh } = await import('./sample-data.js')
+    const pass = findFresh('mirrorwork-nine-nights-pass')
+    const today = dateIn(startedAt, pass.timezone)
+
+    expect(pass.sessions.map((night) => dateIn(night.startsAt, pass.timezone))).toEqual(
+      Array.from({ length: 9 }, (_, index) => daysAfter(today, 18 + index)),
+    )
+
+    for (const night of pass.sessions) {
+      expect(localClock(night.startsAt, pass.timezone)).toEqual({ hour: 19, minute: 30 })
+    }
   })
 })

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ACCOUNTS, CREDIT, DEBIT, NORMAL_BALANCE, isAccount } from './accounts.js'
 import {
   BATCH_KINDS,
+  DISPUTE_HELD_FROM_ACCOUNTS,
   MAX_ENTRY_MINOR,
   composeBatch,
   correctionBatch,
@@ -358,4 +359,159 @@ describe('a correction', () => {
       /nothing to correct/,
     )
   })
+})
+
+describe('a pay-at-the-venue order (SPEC3 §10.1)', () => {
+  const VENUE = Object.freeze({
+    currency: 'USD',
+    organizationId: 'org_rangoli',
+    reference: 'DE-2026-0002',
+  })
+
+  it('posts a fee-only batch: processor clearing debited the fee, fee revenue credited it', () => {
+    const batch = orderPaidBatch({
+      ...VENUE,
+      capturedCents: 538,
+      organizerNetCents: 0,
+      platformFeeCents: 538,
+      taxCents: 0,
+      discountCents: 0,
+    })
+
+    expect(batch.kind).toBe(BATCH_KINDS.ORDER_PAID)
+    expect(
+      batch.entries.map(({ account, direction, amountCents }) => [account, direction, amountCents]),
+    ).toEqual([
+      [ACCOUNTS.PROCESSOR_CLEARING, DEBIT, 538],
+      [ACCOUNTS.PLATFORM_FEE_REVENUE, CREDIT, 538],
+    ])
+    expect(batch.debitCents).toBe(batch.creditCents)
+  })
+
+  it('posts a fee-plus-tax batch, with no organiser entry', () => {
+    const batch = orderPaidBatch({
+      ...VENUE,
+      capturedCents: 379,
+      organizerNetCents: 0,
+      platformFeeCents: 335,
+      taxCents: 44,
+    })
+
+    expect(batch.entries.some((line) => line.account === ACCOUNTS.ORGANIZER_PAYABLE)).toBe(false)
+    expect(batch.entries.map(({ account, amountCents }) => [account, amountCents])).toEqual([
+      [ACCOUNTS.PROCESSOR_CLEARING, 379],
+      [ACCOUNTS.PLATFORM_FEE_REVENUE, 335],
+      [ACCOUNTS.TAX_PAYABLE, 44],
+    ])
+    expect(batch.debitCents).toBe(379)
+    expect(batch.creditCents).toBe(379)
+  })
+
+  it('still refuses a fee-only batch that does not add up to what was captured', () => {
+    expect(() =>
+      orderPaidBatch({
+        ...VENUE,
+        capturedCents: 600,
+        organizerNetCents: 0,
+        platformFeeCents: 538,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'UNBALANCED' }))
+  })
+
+  it('still refuses a negative organiser share', () => {
+    expect(() =>
+      orderPaidBatch({
+        ...VENUE,
+        capturedCents: 538,
+        organizerNetCents: -1,
+        platformFeeCents: 539,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'AMOUNT_NOT_POSITIVE' }))
+  })
+})
+
+describe('a dispute held from the booking fee revenue (SPEC3 §10.1)', () => {
+  const DISPUTE = Object.freeze({
+    disputedCents: 538,
+    currency: 'USD',
+    organizationId: 'org_rangoli',
+    reference: 'DP-0002',
+  })
+
+  it('names the only two accounts a dispute may be held from', () => {
+    expect(DISPUTE_HELD_FROM_ACCOUNTS).toEqual([
+      ACCOUNTS.ORGANIZER_PAYABLE,
+      ACCOUNTS.PLATFORM_FEE_REVENUE,
+    ])
+  })
+
+  it('holds from the organiser payable by default, as before', () => {
+    const opened = disputeOpenedBatch(DISPUTE)
+    const explicit = disputeOpenedBatch({ ...DISPUTE, heldFrom: ACCOUNTS.ORGANIZER_PAYABLE })
+
+    expect(explicit).toEqual(opened)
+    expect(opened.entries[0]).toMatchObject({
+      account: ACCOUNTS.ORGANIZER_PAYABLE,
+      direction: DEBIT,
+      amountCents: 538,
+    })
+  })
+
+  it('opens against the fee revenue and never touches the organiser payable', () => {
+    const opened = disputeOpenedBatch({ ...DISPUTE, heldFrom: ACCOUNTS.PLATFORM_FEE_REVENUE })
+
+    expect(opened.entries.map(({ account, direction }) => [account, direction])).toEqual([
+      [ACCOUNTS.PLATFORM_FEE_REVENUE, DEBIT],
+      [ACCOUNTS.DISPUTE_CLEARING, CREDIT],
+    ])
+    expect(opened.entries.some((line) => line.account === ACCOUNTS.ORGANIZER_PAYABLE)).toBe(false)
+  })
+
+  it('returns a won dispute to the fee revenue, and the two cancel out exactly', () => {
+    const opened = disputeOpenedBatch({ ...DISPUTE, heldFrom: ACCOUNTS.PLATFORM_FEE_REVENUE })
+    const won = disputeResolvedBatch({
+      ...DISPUTE,
+      won: true,
+      heldFrom: ACCOUNTS.PLATFORM_FEE_REVENUE,
+    })
+    const net = new Map()
+
+    expect(won.entries.map(({ account, direction }) => [account, direction])).toEqual([
+      [ACCOUNTS.DISPUTE_CLEARING, DEBIT],
+      [ACCOUNTS.PLATFORM_FEE_REVENUE, CREDIT],
+    ])
+
+    for (const line of [...opened.entries, ...won.entries]) {
+      const signed = line.direction === DEBIT ? line.amountCents : -line.amountCents
+
+      net.set(line.account, (net.get(line.account) ?? 0) + signed)
+    }
+
+    for (const [account, amount] of net) expect(amount, account).toBe(0)
+  })
+
+  it('charges a lost dispute back from processor clearing whichever account held it', () => {
+    const lost = disputeResolvedBatch({
+      ...DISPUTE,
+      won: false,
+      heldFrom: ACCOUNTS.PLATFORM_FEE_REVENUE,
+    })
+
+    expect(lost.entries.map(({ account, direction }) => [account, direction])).toEqual([
+      [ACCOUNTS.DISPUTE_CLEARING, DEBIT],
+      [ACCOUNTS.PROCESSOR_CLEARING, CREDIT],
+    ])
+  })
+
+  it.each([ACCOUNTS.TAX_PAYABLE, ACCOUNTS.PROCESSOR_CLEARING, 'nowhere'])(
+    'refuses to hold a dispute from %s',
+    (heldFrom) => {
+      expect(() => disputeOpenedBatch({ ...DISPUTE, heldFrom })).toThrow(
+        expect.objectContaining({ code: 'BAD_DISPUTE_ACCOUNT' }),
+      )
+      expect(() => disputeResolvedBatch({ ...DISPUTE, won: true, heldFrom })).toThrow(
+        expect.objectContaining({ code: 'BAD_DISPUTE_ACCOUNT' }),
+      )
+    },
+  )
 })

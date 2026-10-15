@@ -24,6 +24,7 @@ import { closeWorkers, createWorkers } from '../src/workers.js'
 import {
   DRAIN_OUTBOX_SCHEDULER_ID,
   EXPIRE_HOLDS_SCHEDULER_ID,
+  TRAFFIC_ROLLUP_SCHEDULER_ID,
   listRepeatableJobs,
   registerRepeatableJobs,
   removeRepeatableJobs,
@@ -180,8 +181,13 @@ when('worker against live Redis', () => {
 
       const result = await job.waitUntilFinished(queueEvents, WAIT_MS)
 
-      expect(result).toMatchObject({ to: 'buyer@example.com', template: 'ORDER_CONFIRMATION' })
+      expect(result).toMatchObject({ template: 'ORDER_CONFIRMATION' })
+      // The result is what BullMQ keeps in Redis after the job, so it names no
+      // recipient. The message itself still went to the right address.
+      expect(result).not.toHaveProperty('to')
+      expect(JSON.stringify(result)).not.toContain('buyer@example.com')
       expect(email.sent).toHaveLength(1)
+      expect(email.sent[0].to).toEqual(['buyer@example.com'])
       expect(email.sent[0].subject).toContain('DE-8F3K2Q')
       expect(email.sent[0].text).toContain('INR 1500.00')
     },
@@ -251,7 +257,7 @@ when('worker against live Redis', () => {
   )
 
   it(
-    'registers both repeatable jobs, and upserting again does not duplicate them',
+    'registers the three repeatable jobs, and upserting again does not duplicate them',
     async () => {
       await registerRepeatableJobs({ queues, intervalMs: 60_000 })
       await registerRepeatableJobs({ queues, intervalMs: 60_000 })
@@ -261,9 +267,10 @@ when('worker against live Redis', () => {
 
       expect(names).toContain(EXPIRE_HOLDS_SCHEDULER_ID)
       expect(names).toContain(DRAIN_OUTBOX_SCHEDULER_ID)
-      // Two, not four: the upsert is keyed by id, which is what stops a rolling
+      expect(names).toContain(TRAFFIC_ROLLUP_SCHEDULER_ID)
+      // Three, not six: the upsert is keyed by id, which is what stops a rolling
       // restart accumulating one sweep per deploy.
-      expect(schedulers).toHaveLength(2)
+      expect(schedulers).toHaveLength(3)
 
       await removeRepeatableJobs({ queues })
       expect(await listRepeatableJobs({ queues })).toHaveLength(0)

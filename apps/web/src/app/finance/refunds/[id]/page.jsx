@@ -21,6 +21,13 @@
  * `providerRefundId` is shown, because that is the string somebody needs when
  * they ring the provider. It identifies the refund, not the instrument.
  *
+ * ## An order booked to pay at the venue
+ *
+ * Its ticket price was paid at the door, to the organiser, so a refund gives
+ * back only what was paid online — the booking fee, simulated. What was taken
+ * at the door for the order (`paidAtDoorCents`) is said beside the figures: the
+ * organiser holds it, and this refund does not include it (SPEC3 §12.10).
+ *
  * ## What a direct URL gets you
  *
  * The API loads the row, works out which organisation owns the order's event,
@@ -35,22 +42,26 @@ import Link from 'next/link'
 
 import { Figure, ScrollableTable } from '../../../../components/money-figure.jsx'
 import { RefundActions } from '../../../../components/refund-actions.jsx'
-import { AsOf, Breadcrumbs, Empty, Failure, Forbidden } from '../../../../components/page-state.jsx'
+import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getRefund } from '../../../../lib/organizer-api.js'
+import { membershipsWith } from '../../../../lib/capabilities.js'
+import { formatAmount } from '../../../../lib/pricing.js'
+import { describeApiRefusal } from '../../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
 
-export const metadata = { robots: { index: false, follow: false } }
+export const metadata = { title: 'Refund', robots: { index: false, follow: false } }
 
 /** Table chrome. */
 const TABLE = 'min-w-full border-collapse text-sm'
 
 /** A header cell. */
-const TH = 'border-b border-slate-200 px-3 py-2 text-left font-semibold text-indigo-night-900'
+const TH = 'border-b border-line px-3 py-2 text-left font-semibold text-ink'
 
 /** A body cell. */
-const TD = 'border-b border-slate-100 px-3 py-2 text-slate-800'
+const TD = 'border-b border-line px-3 py-2 text-ink'
 
 /** A numeric cell. */
 const NUM = `${TD} text-right tabular-nums`
@@ -68,7 +79,10 @@ const STATES = Object.freeze({
   REQUESTED: 'Asked for. Nothing has been sent and no money has moved.',
   APPROVED: 'Agreed. Still nothing sent — sending is a separate command.',
   SUBMITTED: 'Sent to the provider. Waiting to hear what happened.',
-  SUCCEEDED: 'The money has gone back.',
+  // Both modes this build can run in — the mock and the provider's sandbox —
+  // move no real money, and the deployment refuses to start in any other.
+  SUCCEEDED:
+    'Settled: the payment provider confirmed it. The provider is simulated in this build, so no money moved.',
   DECLINED: 'The provider refused it. It can be approved again once the cause is fixed.',
   FAILED: 'It did not go. It can be approved again once the cause is fixed.',
   TIMEOUT:
@@ -93,17 +107,30 @@ export default async function RefundDetailPage({ params }) {
   const { id } = await params
   const session = await readSession()
 
+  // The list is kept per organisation, for its finance team; somebody who is
+  // not on one is not offered a crumb to a list that would have nothing for
+  // them.
+  const listCrumb =
+    membershipsWith(session, 'finance:view').length > 0
+      ? [{ href: '/finance/refunds', label: 'Refunds' }]
+      : []
+
   let refund = null
   let failure = null
 
   try {
     refund = await getRefund(id)
   } catch (error) {
-    if (error?.status === 403 || error?.status === 404) {
+    const { state } = describeApiRefusal(error)
+
+    // Refused and missing read alike. A lapsed step-up or a missing second
+    // factor is neither: it used to land here too, and "Not for you" was
+    // wrong for somebody one confirmation away from the page.
+    if (state === 'permission-denied' || state === 'not-found') {
       return <Forbidden area="This refund" backHref="/operations" backLabel="Back to operations" />
     }
 
-    failure = error?.message ?? null
+    failure = error
   }
 
   if (!refund) {
@@ -112,11 +139,12 @@ export default async function RefundDetailPage({ params }) {
         <Breadcrumbs
           trail={[
             { href: '/finance', label: 'Finance' },
+            ...listCrumb,
             { href: null, label: 'Refund' },
           ]}
         />
-        <h1 className="mt-3 text-2xl font-bold text-indigo-night-900">Refund</h1>
-        <Failure what="This refund" detail={failure} />
+        <h1 className="mt-3 text-h2 font-semibold text-ink">Refund</h1>
+        <ReadRefusal error={failure} what="This refund" action="see this refund" />
       </div>
     )
   }
@@ -133,21 +161,29 @@ export default async function RefundDetailPage({ params }) {
       <Breadcrumbs
         trail={[
           { href: '/finance', label: 'Finance' },
+          ...(listCrumb.length > 0 && organizationId
+            ? [
+                {
+                  href: `/finance/refunds?organizationId=${encodeURIComponent(organizationId)}`,
+                  label: 'Refunds',
+                },
+              ]
+            : listCrumb),
           { href: null, label: refund.orderReference ?? 'Refund' },
         ]}
       />
 
-      <h1 className="mt-3 text-2xl font-bold text-indigo-night-900">
+      <h1 className="mt-3 text-h2 font-semibold text-ink">
         Refund on {refund.orderReference ?? 'an order'}
       </h1>
-      <p className="mt-2 text-slate-700">{STATES[refund.status] ?? 'Its state is unfamiliar.'}</p>
+      <p className="mt-2 text-ink-muted">{STATES[refund.status] ?? 'Its state is unfamiliar.'}</p>
       <AsOf asOf={new Date().toISOString()} />
 
       <section aria-labelledby="amount-heading" className="mt-8">
-        <h2 id="amount-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="amount-heading" className="text-xl font-semibold text-ink">
           What goes back
         </h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-ink-muted">
           Computed from the order’s own lines when this was requested. It is not editable here, and
           the database will not accept a refund that takes an order past what it was paid.
         </p>
@@ -171,7 +207,7 @@ export default async function RefundDetailPage({ params }) {
                 label="Fee"
                 cents={refund.allocation.feeCents}
                 currency={refund.currency}
-                hint="The platform fee, given back or kept per policy."
+                hint="The booking fee, given back or kept per policy."
               />
               <Figure
                 label="Tax"
@@ -183,6 +219,13 @@ export default async function RefundDetailPage({ params }) {
           ) : null}
         </dl>
 
+        {(refund.paidAtDoorCents ?? 0) > 0 ? (
+          <p className="mt-3 max-w-prose rounded-card border border-status-info/25 bg-status-info-soft p-4 text-sm text-ink">
+            The {formatAmount(refund.paidAtDoorCents, refund.currency)} paid at the door for this
+            order is held by the organiser; this refund does not include it.
+          </p>
+        ) : null}
+
         {refund.allocation ? null : (
           <Empty
             title="No breakdown recorded"
@@ -192,7 +235,7 @@ export default async function RefundDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="lines-heading" className="mt-8">
-        <h2 id="lines-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="lines-heading" className="text-xl font-semibold text-ink">
           Which lines
         </h2>
         {refund.items.length === 0 ? (
@@ -203,7 +246,7 @@ export default async function RefundDetailPage({ params }) {
         ) : (
           <ScrollableTable label="Refunded lines">
             <table className={TABLE}>
-              <caption className="px-3 py-2 text-left text-sm font-semibold text-indigo-night-900">
+              <caption className="px-3 py-2 text-left text-sm font-semibold text-ink">
                 Refunded lines
               </caption>
               <thead>
@@ -238,49 +281,47 @@ export default async function RefundDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="why-heading" className="mt-8">
-        <h2 id="why-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="why-heading" className="text-xl font-semibold text-ink">
           Why, and what has happened to it
         </h2>
         <dl className="mt-3 space-y-2 text-sm">
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Reason</dt>
-            <dd className="text-indigo-night-900">
+            <dt className="text-ink-muted">Reason</dt>
+            <dd className="text-ink">
               {refund.reason.replace(/_/gu, ' ').toLowerCase()}
               {refund.reasonNote ? ` — ${refund.reasonNote}` : ''}
             </dd>
           </div>
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Provider reference</dt>
-            <dd className="font-mono text-indigo-night-900">
-              {refund.providerRefundId ?? 'None yet — nothing has been sent'}
+            <dt className="text-ink-muted">Provider reference</dt>
+            <dd className="font-mono text-ink">
+              {refund.providerRefundId ?? 'None — nothing has been sent'}
             </dd>
           </div>
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Attempts</dt>
-            <dd className="text-indigo-night-900">{refund.attempts}</dd>
+            <dt className="text-ink-muted">Attempts</dt>
+            <dd className="text-ink">{refund.attempts}</dd>
           </div>
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Tickets revoked</dt>
-            <dd className="text-indigo-night-900">{refund.ticketsRevoked ? 'Yes' : 'Not yet'}</dd>
+            <dt className="text-ink-muted">Tickets revoked</dt>
+            <dd className="text-ink">{refund.ticketsRevoked ? 'Yes' : 'No'}</dd>
           </div>
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Inventory returned</dt>
-            <dd className="text-indigo-night-900">
-              {refund.inventoryReturned ? 'Yes' : 'Not yet'}
-            </dd>
+            <dt className="text-ink-muted">Inventory returned</dt>
+            <dd className="text-ink">{refund.inventoryReturned ? 'Yes' : 'No'}</dd>
           </div>
           {refund.submittedAt ? (
             <div className="flex flex-wrap gap-2">
-              <dt className="text-slate-600">Sent</dt>
-              <dd className="text-indigo-night-900">
+              <dt className="text-ink-muted">Sent</dt>
+              <dd className="text-ink">
                 <time dateTime={refund.submittedAt}>{refund.submittedAt}</time>
               </dd>
             </div>
           ) : null}
           {refund.settledAt ? (
             <div className="flex flex-wrap gap-2">
-              <dt className="text-slate-600">Settled</dt>
-              <dd className="text-indigo-night-900">
+              <dt className="text-ink-muted">Settled</dt>
+              <dd className="text-ink">
                 <time dateTime={refund.settledAt}>{refund.settledAt}</time>
               </dd>
             </div>
@@ -288,7 +329,7 @@ export default async function RefundDetailPage({ params }) {
         </dl>
 
         {refund.failureCode ? (
-          <p className="mt-3 rounded-card border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+          <p className="mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger">
             The provider gave the code <span className="font-mono">{refund.failureCode}</span>.
             Whatever caused it has to be fixed before this is approved again — approving a refund
             that will fail the same way is a second failure, not a retry.
@@ -297,10 +338,10 @@ export default async function RefundDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="actions-heading" className="mt-8">
-        <h2 id="actions-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="actions-heading" className="text-xl font-semibold text-ink">
           What you can do
         </h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-ink-muted">
           Approving and sending are separate commands, and whoever asked for a refund may not
           approve their own unless they hold the capability that says one person may do both. No
           card details are shown here and none are asked for; giving money back uses the payment
@@ -312,7 +353,7 @@ export default async function RefundDetailPage({ params }) {
       <p className="mt-8 text-sm">
         <Link
           href="/operations"
-          className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           Back to operations
         </Link>

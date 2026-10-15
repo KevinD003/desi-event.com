@@ -61,8 +61,15 @@ const TAG = `prv${randomUUID().slice(0, 8)}`
 
 const { prisma, when } = await connectTestDatabase('the privacy redaction integration suite')
 
-/** Far enough ahead that an admission counts as unspent. */
-const FUTURE = new Date('2027-06-01T18:00:00Z')
+/**
+ * Far enough ahead that an admission counts as unspent: eight months from the
+ * moment the suite runs. The holds compare an event's end with the real clock
+ * (`privacy-holds.js`, `endsAt > now`), so a fixed instant here turns this
+ * suite red once it has passed: it was `2027-06-01T18:00Z`, and the
+ * unspent-admission case would have failed in CI from 22:00 that day, when the
+ * event it seeds had ended.
+ */
+const FUTURE = new Date(Date.now() + 240 * 24 * 60 * 60 * 1000)
 
 /** Far enough behind that an admission no longer blocks. */
 const PAST_START = new Date('2020-06-01T18:00:00Z')
@@ -185,6 +192,8 @@ async function paidOrder({ graph, buyer, quantity = 1, ticketStatus = 'VALID' })
       currency: 'INR',
       subtotalCents: subtotal,
       feesCents: 1_000,
+      // The fee before any waiver: no referral code, so all of it (SPEC3 §5).
+      feeGrossCents: 1_000,
       taxCents: 2_500,
       discountCents: 0,
       totalCents: subtotal + 3_500,
@@ -589,6 +598,57 @@ when()('redacting a subject who belongs to one organisation', () => {
   })
 })
 
+when()('guests’ names still waiting on an unpaid order', () => {
+  it('go with the buyer’s identity, and the redaction says it redacted something', async () => {
+    const graph = await organisation({ past: true })
+    const subject = await person('stager')
+
+    // Settled and redacted once already, so only the staging is left to find.
+    await paidOrder({ graph, buyer: subject })
+
+    const pending = await prisma.order.create({
+      data: {
+        reference: unique('DE').toUpperCase(),
+        eventId: graph.event.id,
+        userId: subject.id,
+        buyerEmail: subject.email,
+        buyerName: subject.displayName,
+        status: 'PENDING',
+        currency: 'INR',
+        subtotalCents: graph.ticketType.priceCents * 2,
+        totalCents: graph.ticketType.priceCents * 2,
+      },
+    })
+    const line = await prisma.orderItem.create({
+      data: {
+        orderId: pending.id,
+        ticketTypeId: graph.ticketType.id,
+        quantity: 2,
+        unitPriceCents: graph.ticketType.priceCents,
+        subtotalCents: graph.ticketType.priceCents * 2,
+        attendeeNames: ['Asha Patel', 'Ravi Patel'],
+      },
+    })
+
+    const outcome = await prisma.$transaction((tx) =>
+      redactSubject(tx, {
+        organizationId: graph.org.id,
+        subjectUserId: subject.id,
+        now: new Date(),
+      }),
+    )
+
+    const stored = await prisma.orderItem.findUnique({ where: { id: line.id } })
+    expect(stored.attendeeNames).toEqual([])
+    expect(JSON.stringify(outcome)).not.toContain('Asha')
+
+    // The money on the unpaid order is untouched; only names went.
+    const order = await prisma.order.findUnique({ where: { id: pending.id } })
+    expect(order.totalCents).toBe(graph.ticketType.priceCents * 2)
+    expect(order.status).toBe('PENDING')
+  })
+})
+
 when()('a subject who also deals with another organisation', () => {
   it('keeps their account identity, and says so rather than skipping silently', async () => {
     const mine = await organisation({ past: true })
@@ -699,6 +759,73 @@ when()('contact addresses', () => {
     const after = await prisma.organization.findUnique({ where: { id: graph.org.id } })
 
     expect(isRedactedValue(after.contactEmail)).toBe(true)
+  })
+
+  it('counts and replaces an event’s published contact when it is the subject’s own', async () => {
+    const graph = await organisation({ past: true })
+    const subject = await person('public-contact')
+    const other = await organisation({ past: true })
+
+    await paidOrder({ graph, buyer: subject })
+    // Stored as the organiser typed it: the match ignores case.
+    await prisma.event.update({
+      where: { id: graph.event.id },
+      data: { publicContactEmail: subject.email.toUpperCase() },
+    })
+
+    const scope = await previewScope(prisma, {
+      organizationId: graph.org.id,
+      subjectUserId: subject.id,
+    })
+    const account = scope.find((entry) => entry.category === PRIVACY_CATEGORIES.ACCOUNT_IDENTITY)
+
+    // The account itself, and the event's published contact.
+    expect(account.rows).toBe(2)
+
+    await prisma.$transaction((tx) =>
+      redactSubject(tx, {
+        organizationId: graph.org.id,
+        subjectUserId: subject.id,
+        now: new Date(),
+      }),
+    )
+
+    const after = await prisma.event.findUnique({ where: { id: graph.event.id } })
+
+    expect(isRedactedValue(after.publicContactEmail)).toBe(true)
+
+    // Another organisation's event carrying the same address is not in scope.
+    await prisma.event.update({
+      where: { id: other.event.id },
+      data: { publicContactEmail: 'box-office@elsewhere.example' },
+    })
+
+    const untouched = await prisma.event.findUnique({ where: { id: other.event.id } })
+
+    expect(untouched.publicContactEmail).toBe('box-office@elsewhere.example')
+  })
+
+  it('leaves an event’s published contact alone when it is somebody else’s', async () => {
+    const graph = await organisation({ past: true })
+    const subject = await person('not-contact')
+
+    await paidOrder({ graph, buyer: subject })
+    await prisma.event.update({
+      where: { id: graph.event.id },
+      data: { publicContactEmail: 'box-office@venue.example' },
+    })
+
+    await prisma.$transaction((tx) =>
+      redactSubject(tx, {
+        organizationId: graph.org.id,
+        subjectUserId: subject.id,
+        now: new Date(),
+      }),
+    )
+
+    const after = await prisma.event.findUnique({ where: { id: graph.event.id } })
+
+    expect(after.publicContactEmail).toBe('box-office@venue.example')
   })
 })
 
@@ -1410,5 +1537,250 @@ when()('the three gaps an adversarial read found', () => {
     const after = await prisma.notificationOutbox.findUnique({ where: { id: elsewhere.id } })
 
     expect(after.recipient).toBe(subject.email)
+  })
+})
+
+when()('an address one pattern character away from the subject’s', () => {
+  // PostgreSQL runs Prisma's case-insensitive `equals` as an `ILIKE` whose value
+  // is not escaped, so an `_` in the subject's address matches any one character.
+  // An erasure for `pat_q@…` would then reach `patxq@…` — a different person,
+  // whose order, waitlist place and delivery evidence would be overwritten with
+  // placeholders that can never be undone. These rows sit in the subject's own
+  // organisation, carry no account link, and differ from the subject's address
+  // only where the pattern is loose: exactly the rows the database lets through.
+
+  /**
+   * The subject, whose address holds an `_`, and a look-alike whose address
+   * has another character in that place.
+   *
+   * @returns {Promise<{graph: object, subject: object, lookalike: object}>} Both people and the organisation.
+   */
+  async function subjectAndLookalike() {
+    const graph = await organisation({ past: true })
+    const stem = unique('wild').replace(/-/gu, '')
+    const subject = await prisma.user.create({
+      data: {
+        email: `pat_${stem}@people.test`,
+        passwordHash: 'x'.repeat(60),
+        displayName: `Pat Underscore ${stem}`,
+        role: 'ATTENDEE',
+        emailVerified: true,
+      },
+    })
+    const lookalike = await prisma.user.create({
+      data: {
+        email: `patx${stem}@people.test`,
+        passwordHash: 'x'.repeat(60),
+        displayName: `Pat Lookalike ${stem}`,
+        role: 'ATTENDEE',
+        emailVerified: true,
+      },
+    })
+
+    await paidOrder({ graph, buyer: subject })
+
+    return { graph, subject, lookalike }
+  }
+
+  /**
+   * The look-alike's guest order, waitlist place and two messages in the
+   * subject's organisation, none linked to an account.
+   *
+   * @param {object} graph The organisation.
+   * @param {object} lookalike The other person.
+   * @returns {Promise<object>} The rows.
+   */
+  async function lookalikeRows(graph, lookalike) {
+    const order = await prisma.order.create({
+      data: {
+        reference: unique('DE').toUpperCase(),
+        eventId: graph.event.id,
+        userId: null,
+        buyerEmail: lookalike.email,
+        buyerName: lookalike.displayName,
+        status: 'PAID',
+        currency: 'INR',
+        subtotalCents: 20_000,
+        feesCents: 0,
+        taxCents: 0,
+        discountCents: 0,
+        totalCents: 20_000,
+        paidAt: new Date('2025-01-01T00:00:00Z'),
+      },
+    })
+    const entry = await prisma.waitlistEntry.create({
+      data: { eventId: graph.event.id, userId: null, email: lookalike.email, quantity: 1 },
+    })
+    const sent = await prisma.notificationOutbox.create({
+      data: {
+        template: 'order.confirmation',
+        recipient: lookalike.email,
+        userId: null,
+        organizationId: graph.org.id,
+        payload: { buyerName: lookalike.displayName },
+        status: 'SENT',
+        dedupeKey: unique('dedupe-lookalike-sent'),
+        sentAt: new Date(),
+      },
+    })
+
+    return { order, entry, sent }
+  }
+
+  it('previews and redacts only the subject’s rows, and leaves the look-alike’s exactly as they were', async () => {
+    const { graph, subject, lookalike } = await subjectAndLookalike()
+    const theirs = await lookalikeRows(graph, lookalike)
+
+    // The subject's own guest order, typed in another case: still the subject's,
+    // because addresses are stored as entered.
+    const ownGuest = await prisma.order.create({
+      data: {
+        reference: unique('DE').toUpperCase(),
+        eventId: graph.event.id,
+        userId: null,
+        buyerEmail: subject.email.toUpperCase(),
+        buyerName: subject.displayName,
+        status: 'PAID',
+        currency: 'INR',
+        subtotalCents: 30_000,
+        feesCents: 0,
+        taxCents: 0,
+        discountCents: 0,
+        totalCents: 30_000,
+        paidAt: new Date('2025-01-01T00:00:00Z'),
+      },
+    })
+    const ownEntry = await prisma.waitlistEntry.create({
+      data: { eventId: graph.event.id, userId: null, email: subject.email, quantity: 1 },
+    })
+    const ownMessage = await prisma.notificationOutbox.create({
+      data: {
+        template: 'order.confirmation',
+        recipient: subject.email,
+        userId: null,
+        organizationId: graph.org.id,
+        payload: { buyerName: subject.displayName },
+        status: 'SENT',
+        dedupeKey: unique('dedupe-subject-sent'),
+        sentAt: new Date(),
+      },
+    })
+
+    // The precondition the fix exists for: the database's own match does reach
+    // the look-alike. Without it this test could pass on a database that
+    // happened to escape the pattern, and prove nothing.
+    const loose = await prisma.order.count({
+      where: {
+        event: { organizationId: graph.org.id },
+        buyerEmail: { equals: subject.email, mode: 'insensitive' },
+      },
+    })
+
+    expect(loose).toBe(3)
+
+    const before = {
+      order: await prisma.order.findUnique({ where: { id: theirs.order.id } }),
+      entry: await prisma.waitlistEntry.findUnique({ where: { id: theirs.entry.id } }),
+      sent: await prisma.notificationOutbox.findUnique({ where: { id: theirs.sent.id } }),
+    }
+
+    const scope = await previewScope(prisma, {
+      organizationId: graph.org.id,
+      subjectUserId: subject.id,
+    })
+    const rowsOf = (category) => scope.find((entry) => entry.category === category).rows
+
+    // Two orders (the account-linked one and the guest one) and one waitlist
+    // place; one settled message. Not the look-alike's three.
+    expect(rowsOf(PRIVACY_CATEGORIES.BUYER_IDENTITY)).toBe(3)
+    expect(rowsOf(PRIVACY_CATEGORIES.NOTIFICATION_DELIVERY)).toBe(1)
+
+    const result = await prisma.$transaction((tx) =>
+      redactSubject(tx, {
+        organizationId: graph.org.id,
+        subjectUserId: subject.id,
+        now: new Date(),
+      }),
+    )
+    const doneOf = (category) => result.categories.find((entry) => entry.category === category)
+
+    // The confirmation and the write agree, now that both compare exactly.
+    expect(doneOf(PRIVACY_CATEGORIES.BUYER_IDENTITY).rows).toBe(3)
+    expect(doneOf(PRIVACY_CATEGORIES.NOTIFICATION_DELIVERY).rows).toBe(1)
+
+    // The subject's rows went.
+    const ownAfter = await prisma.order.findUnique({ where: { id: ownGuest.id } })
+    const ownEntryAfter = await prisma.waitlistEntry.findUnique({ where: { id: ownEntry.id } })
+    const ownMessageAfter = await prisma.notificationOutbox.findUnique({
+      where: { id: ownMessage.id },
+    })
+
+    expect(isRedactedValue(ownAfter.buyerEmail)).toBe(true)
+    expect(isRedactedValue(ownEntryAfter.email)).toBe(true)
+    expect(isRedactedValue(ownMessageAfter.recipient)).toBe(true)
+
+    // The look-alike's did not: every column exactly as it was.
+    expect(await prisma.order.findUnique({ where: { id: theirs.order.id } })).toEqual(before.order)
+    expect(await prisma.waitlistEntry.findUnique({ where: { id: theirs.entry.id } })).toEqual(
+      before.entry,
+    )
+    expect(await prisma.notificationOutbox.findUnique({ where: { id: theirs.sent.id } })).toEqual(
+      before.sent,
+    )
+
+    // And the look-alike's account was never in question.
+    const account = await prisma.user.findUnique({ where: { id: lookalike.id } })
+
+    expect(account.email).toBe(lookalike.email)
+    expect(account.displayName).toBe(lookalike.displayName)
+  })
+
+  it('does not refuse the subject’s erasure over a message still waiting for the look-alike', async () => {
+    const { graph, subject, lookalike } = await subjectAndLookalike()
+
+    await prisma.notificationOutbox.create({
+      data: {
+        template: 'order.reminder',
+        recipient: lookalike.email,
+        userId: null,
+        organizationId: graph.org.id,
+        payload: {},
+        status: 'QUEUED',
+        dedupeKey: unique('dedupe-lookalike-queued'),
+      },
+    })
+
+    const decided = await evaluateHolds(prisma, {
+      organizationId: graph.org.id,
+      subjectUserId: subject.id,
+      subjectEmail: subject.email,
+      now: new Date(),
+    })
+
+    expect(decided.decision).toBe(HOLD_DECISIONS.NONE_ACTIVE)
+
+    // The same message addressed to the subject, in another case and with no
+    // account link, still refuses: the exact compare is case-insensitive.
+    await prisma.notificationOutbox.create({
+      data: {
+        template: 'order.reminder',
+        recipient: subject.email.toUpperCase(),
+        userId: null,
+        organizationId: graph.org.id,
+        payload: {},
+        status: 'QUEUED',
+        dedupeKey: unique('dedupe-subject-queued'),
+      },
+    })
+
+    const blocked = await evaluateHolds(prisma, {
+      organizationId: graph.org.id,
+      subjectUserId: subject.id,
+      subjectEmail: subject.email,
+      now: new Date(),
+    })
+
+    expect(blocked.decision).toBe(HOLD_DECISIONS.OPEN_PROCESS)
+    expect(blocked.openProcessCode).toBe(OPEN_PROCESS_CODES.NOTIFICATION_UNDELIVERED)
   })
 })

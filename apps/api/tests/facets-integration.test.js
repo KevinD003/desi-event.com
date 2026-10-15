@@ -131,7 +131,7 @@ describe('facets cover the complete eligible set', () => {
 
     const facets = await loadEventFacets(prisma)
 
-    expect(facets.scope.status).toBe('PUBLISHED')
+    expect(facets.scope.status).toBe('LISTED')
     expect(facets.scope.total).toBeGreaterThanOrEqual(EVENT_COUNT)
   })
 
@@ -240,5 +240,38 @@ describe('facets cover the complete eligible set', () => {
     const restored = await prisma.event.findUnique({ where: { slug: `${TAG}-event-0` } })
 
     expect(restored.status).toBe('PUBLISHED')
+  })
+})
+
+describe('facets count every status a listing shows', () => {
+  it('keeps counting an event after its organiser opens sales', async () => {
+    if (!reachable) return
+
+    // The defect: facets counted PUBLISHED alone, so an event dropped out of
+    // its category the moment it went ON_SALE. Rolled back, like the draft
+    // case above, so no other test sees the change.
+    class Rollback extends Error {}
+
+    await expect(
+      prisma.$transaction(
+        async (tx) => {
+          const before = await loadEventFacets(tx)
+          const comedy = before.categories.find((entry) => entry.value === 'COMEDY').count
+
+          await tx.event.update({
+            where: { slug: `${TAG}-event-0` },
+            data: { status: 'ON_SALE', salesOpenedAt: new Date() },
+          })
+
+          const after = await loadEventFacets(tx)
+
+          expect(after.categories.find((entry) => entry.value === 'COMEDY').count).toBe(comedy)
+          expect(after.scope.total).toBe(before.scope.total)
+
+          throw new Rollback()
+        },
+        { isolationLevel: 'RepeatableRead' },
+      ),
+    ).rejects.toBeInstanceOf(Rollback)
   })
 })

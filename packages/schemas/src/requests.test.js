@@ -2,13 +2,23 @@ import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_PAGE, DEFAULT_PER_PAGE, MAX_PER_PAGE } from './primitives.js'
 import {
+  admissionEventsQuerySchema,
+  admissionPreviewRequestSchema,
   checkInRequestSchema,
+  groupAdmissionPreviewRequestSchema,
+  groupCheckInRequestSchema,
   createEventRequestSchema,
   createHoldRequestSchema,
   createOrderRequestSchema,
+  attendeeNameSchema,
   createPromoCodeRequestSchema,
+  createSessionRequestSchema,
   createTicketTypeRequestSchema,
   idParamSchema,
+  listPromoCodesQuerySchema,
+  organizationPromoCodeParamSchema,
+  quoteOrderRequestSchema,
+  updateSessionRequestSchema,
   joinWaitlistRequestSchema,
   listEventsQuerySchema,
   loginRequestSchema,
@@ -70,9 +80,26 @@ describe('registerRequestSchema', () => {
     })
   })
 
-  it('allows an organizer to self-register but not an admin', () => {
-    expect(registerRequestSchema.parse({ ...base(), role: 'ORGANIZER' }).role).toBe('ORGANIZER')
-    expect(registerRequestSchema.safeParse({ ...base(), role: 'SUPER_ADMIN' }).success).toBe(false)
+  it('registers attendees only: an organiser, an administrator or any staff role is refused', () => {
+    expect(registerRequestSchema.parse({ ...base(), role: 'ATTENDEE' }).role).toBe('ATTENDEE')
+    expect(registerRequestSchema.parse(base()).role).toBe('ATTENDEE')
+
+    for (const role of [
+      'ORGANIZER',
+      'ADMIN',
+      'SUPER_ADMIN',
+      'MODERATOR',
+      'SUPPORT',
+      'FINANCE_ADMIN',
+    ]) {
+      const result = registerRequestSchema.safeParse({ ...base(), role })
+
+      expect(result.success, role).toBe(false)
+      expect(result.error.issues[0].path).toEqual(['role'])
+      expect(result.error.issues[0].message).toBe(
+        'Accounts are created as attendees. Organisers join by invitation from the team at The Desi Events.',
+      )
+    }
   })
 
   it('rejects a short password and a malformed email', () => {
@@ -242,6 +269,23 @@ describe('updateEventRequestSchema', () => {
       title: 'X',
     })
   })
+
+  it('refuses an external cover address and names the upload route instead', () => {
+    for (const schema of [updateEventRequestSchema, createEventRequestSchema]) {
+      const result = schema.safeParse({
+        ...validEvent,
+        coverImageUrl: 'https://tracker.example/pixel.png',
+      })
+
+      expect(result.success).toBe(false)
+
+      const issue = result.error.issues.find((entry) => entry.path[0] === 'coverImageUrl')
+
+      expect(issue.message).toBe(
+        'Cover pictures are uploaded with POST /v1/events/:id/media; an external image address is not accepted.',
+      )
+    }
+  })
 })
 
 describe('publishEventRequestSchema', () => {
@@ -357,15 +401,22 @@ describe('createVenueRequestSchema', () => {
 })
 
 describe('createTicketTypeRequestSchema', () => {
-  it('accepts a ticket type and fills defaults', () => {
+  it('accepts a ticket type and fills defaults, leaving a currency it was not given to the server', () => {
+    // No fixed currency: the route prices a tier in the event's own, and a
+    // literal default is how a tier on a dollar event came to be in rupees.
     expect(createTicketTypeRequestSchema.parse(validTicketType)).toEqual({
       ...validTicketType,
-      currency: 'INR',
       minPerOrder: 1,
       maxPerOrder: 10,
       status: 'DRAFT',
       sortOrder: 0,
     })
+    expect(createTicketTypeRequestSchema.parse({ ...validTicketType, currency: 'USD' })).toEqual(
+      expect.objectContaining({ currency: 'USD' }),
+    )
+    expect(
+      createTicketTypeRequestSchema.safeParse({ ...validTicketType, currency: 'dollars' }).success,
+    ).toBe(false)
   })
 
   it('rejects a negative price', () => {
@@ -547,38 +598,500 @@ describe('createOrderRequestSchema', () => {
       }).success,
     ).toBe(false)
   })
+
+  it('accepts a name per ticket, trimmed, for a tier in the order', () => {
+    const parsed = createOrderRequestSchema.parse({
+      ...validOrder,
+      attendees: [
+        { ticketTypeId: TT_ID, name: '  Asha Patel ' },
+        { ticketTypeId: TT_ID, name: 'Ravi Patel' },
+      ],
+    })
+
+    expect(parsed.attendees.map((attendee) => attendee.name)).toEqual(['Asha Patel', 'Ravi Patel'])
+  })
+
+  it('refuses more general-admission names than tickets', () => {
+    expect(
+      issuePaths(
+        createOrderRequestSchema.safeParse({
+          ...validOrder,
+          attendees: [
+            { ticketTypeId: TT_ID, name: 'One' },
+            { ticketTypeId: TT_ID, name: 'Two' },
+            { ticketTypeId: TT_ID, name: 'Three' },
+          ],
+        }),
+      ),
+    ).toEqual(['attendees.2'])
+  })
+
+  it('refuses a name for a tier that is not in the order', () => {
+    expect(
+      issuePaths(
+        createOrderRequestSchema.safeParse({
+          ...validOrder,
+          attendees: [{ ticketTypeId: TT_ID_2, name: 'Stray' }],
+        }),
+      ),
+    ).toEqual(['attendees.0.ticketTypeId'])
+  })
+
+  it('refuses two names for one seat, and leaves seated counts to the server', () => {
+    const seat = 'ckl1a2b3c4d5e6f7g8h9i0zz'
+
+    expect(
+      issuePaths(
+        createOrderRequestSchema.safeParse({
+          ...validOrder,
+          attendees: [
+            { ticketTypeId: TT_ID, eventSeatId: seat, name: 'One' },
+            { ticketTypeId: TT_ID, eventSeatId: seat, name: 'Two' },
+          ],
+        }),
+      ),
+    ).toEqual(['attendees.1.eventSeatId'])
+  })
+
+  it('refuses an address as a name', () => {
+    expect(
+      createOrderRequestSchema.safeParse({
+        ...validOrder,
+        attendees: [{ ticketTypeId: TT_ID, name: 'asha@example.com' }],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('takes an expected total as a whole number of cents, never negative', () => {
+    expect(
+      createOrderRequestSchema.parse({ ...validOrder, expectedTotalCents: 4210 }),
+    ).toMatchObject({
+      expectedTotalCents: 4210,
+    })
+    expect(
+      issuePaths(createOrderRequestSchema.safeParse({ ...validOrder, expectedTotalCents: -1 })),
+    ).toEqual(['expectedTotalCents'])
+    expect(
+      issuePaths(createOrderRequestSchema.safeParse({ ...validOrder, expectedTotalCents: 12.5 })),
+    ).toEqual(['expectedTotalCents'])
+  })
 })
 
-describe('checkInRequestSchema', () => {
-  it('upper-cases the scanned code', () => {
-    // `force` used to default here and is gone: with an attendance row that is
-    // unique per ticket, the only thing it could mean is "rewrite the admission
-    // record", and a record whoever holds the scanner can rewrite is not one.
-    expect(checkInRequestSchema.parse({ code: 'de-8f3k2q-01' })).toEqual({
+describe('attendeeNameSchema', () => {
+  it('trims and keeps an ordinary name', () => {
+    expect(attendeeNameSchema.parse('  Meera Iyer  ')).toBe('Meera Iyer')
+  })
+
+  it('caps a name at 100 characters and refuses a blank one', () => {
+    expect(attendeeNameSchema.safeParse('a'.repeat(100)).success).toBe(true)
+    expect(attendeeNameSchema.safeParse('a'.repeat(101)).success).toBe(false)
+    expect(attendeeNameSchema.safeParse('   ').success).toBe(false)
+  })
+
+  it('refuses an email address anywhere in the name', () => {
+    expect(attendeeNameSchema.safeParse('Meera meera@example.com').success).toBe(false)
+  })
+
+  it('refuses control characters', () => {
+    for (const text of ['Meera\u0000', 'Me\tera', 'Meera\u007f', 'Mee\u0085ra']) {
+      expect(attendeeNameSchema.safeParse(text).success, JSON.stringify(text)).toBe(false)
+    }
+  })
+})
+
+describe('quoteOrderRequestSchema', () => {
+  const quote = { eventId: EVENT_ID, items: [{ ticketTypeId: TT_ID, quantity: 2 }] }
+
+  it('accepts lines, holds and a code, and normalises the code', () => {
+    const parsed = quoteOrderRequestSchema.parse({
+      ...quote,
+      promoCode: ' save10 ',
+      holdIds: [TT_ID_2],
+    })
+
+    expect(parsed.promoCode).toBe('SAVE10')
+    expect(parsed.holdIds).toEqual([TT_ID_2])
+  })
+
+  it('carries nothing about the buyer', () => {
+    const parsed = quoteOrderRequestSchema.parse({ ...quote, buyerEmail: 'a@example.com' })
+
+    expect(parsed).not.toHaveProperty('buyerEmail')
+  })
+
+  it('refuses an empty basket and a repeated tier', () => {
+    expect(issuePaths(quoteOrderRequestSchema.safeParse({ ...quote, items: [] }))).toEqual([
+      'items',
+    ])
+    expect(
+      issuePaths(
+        quoteOrderRequestSchema.safeParse({
+          ...quote,
+          items: [
+            { ticketTypeId: TT_ID, quantity: 1 },
+            { ticketTypeId: TT_ID, quantity: 1 },
+          ],
+        }),
+      ),
+    ).toEqual(['items.1.ticketTypeId'])
+  })
+})
+
+describe('session labels', () => {
+  const session = {
+    revision: 3,
+    startsAt: '2026-10-03T23:30:00Z',
+    endsAt: '2026-10-04T04:30:00Z',
+    timezone: 'America/Chicago',
+  }
+
+  it('accepts a short label, trimmed', () => {
+    expect(createSessionRequestSchema.parse({ ...session, label: ' Night 1 ' }).label).toBe(
+      'Night 1',
+    )
+  })
+
+  it('reads a blank label as none, and lets an update clear it', () => {
+    expect(createSessionRequestSchema.parse({ ...session, label: '  ' }).label).toBeNull()
+    expect(updateSessionRequestSchema.parse({ revision: 3, label: null })).toEqual({
+      revision: 3,
+      label: null,
+    })
+  })
+
+  it('refuses a label over 60 characters or with control characters', () => {
+    expect(
+      createSessionRequestSchema.safeParse({ ...session, label: 'n'.repeat(61) }).success,
+    ).toBe(false)
+    expect(
+      createSessionRequestSchema.safeParse({ ...session, label: 'Night\u00001' }).success,
+    ).toBe(false)
+  })
+})
+
+describe('admissionPreviewRequestSchema', () => {
+  const credential = 'a'.repeat(43)
+
+  it('upper-cases the printed code', () => {
+    expect(admissionPreviewRequestSchema.parse({ code: 'de-8f3k2q-01' })).toEqual({
       code: 'DE-8F3K2Q-01',
     })
   })
 
-  it('accepts the scanned pass on its own', () => {
-    const credential = 'a'.repeat(43)
-
-    expect(checkInRequestSchema.parse({ credential })).toEqual({ credential })
+  it('accepts the secure pass on its own, with the event the door expects', () => {
+    expect(admissionPreviewRequestSchema.parse({ credential, expectedEventId: EVENT_ID })).toEqual({
+      credential,
+      expectedEventId: EVENT_ID,
+    })
   })
 
-  it('rejects an empty code', () => {
-    expect(checkInRequestSchema.safeParse({ code: '' }).success).toBe(false)
+  it('refuses a request that presents nothing, or presents both', () => {
+    // Exactly one: two presentations would leave the server choosing which to
+    // believe, and the method it records follows from the choice.
+    expect(admissionPreviewRequestSchema.safeParse({}).success).toBe(false)
+    expect(
+      admissionPreviewRequestSchema.safeParse({ credential, code: 'DE-8F3K2Q-01' }).success,
+    ).toBe(false)
   })
 
-  it('rejects a request that presents nothing', () => {
-    expect(checkInRequestSchema.safeParse({ gate: 'North' }).success).toBe(false)
-  })
-
-  it('rejects a pass that is not base64url', () => {
+  it('refuses a pass that is not base64url and an empty code', () => {
     // The scanner sends what it read. Anything else is either a broken device
     // or somebody probing, and neither should reach a database lookup.
-    expect(checkInRequestSchema.safeParse({ credential: `${'a'.repeat(40)}+/=` }).success).toBe(
+    expect(
+      admissionPreviewRequestSchema.safeParse({ credential: `${'a'.repeat(40)}+/=` }).success,
+    ).toBe(false)
+    expect(admissionPreviewRequestSchema.safeParse({ code: '' }).success).toBe(false)
+  })
+
+  it.each([
+    ['method', { method: 'QR_SCAN' }],
+    ['eventId', { eventId: EVENT_ID }],
+    ['previewReference', { previewReference: 'x'.repeat(40) }],
+  ])('refuses %s rather than ignoring it', (_key, extra) => {
+    // Strict, so a client that thinks it can choose one of these is told so.
+    expect(
+      admissionPreviewRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', ...extra }).success,
+    ).toBe(false)
+  })
+})
+
+describe('checkInRequestSchema', () => {
+  const credential = 'a'.repeat(43)
+  const previewReference = `${'a'.repeat(40)}.${'b'.repeat(43)}`
+
+  it('needs the reference the preview returned', () => {
+    expect(checkInRequestSchema.safeParse({ code: 'DE-8F3K2Q-01' }).success).toBe(false)
+    expect(checkInRequestSchema.parse({ code: 'de-8f3k2q-01', previewReference })).toEqual({
+      code: 'DE-8F3K2Q-01',
+      previewReference,
+    })
+  })
+
+  it('accepts the secure pass with a gate and a self-reported device name', () => {
+    expect(
+      checkInRequestSchema.parse({
+        credential,
+        previewReference,
+        gate: 'North',
+        deviceId: 'ipad-3',
+      }),
+    ).toEqual({ credential, previewReference, gate: 'North', deviceId: 'ipad-3' })
+    expect(
+      checkInRequestSchema.parse({
+        credential,
+        previewReference,
+        gate: ' North Gate ',
+        deviceId: ' ipad 3 ',
+      }),
+    ).toEqual({ credential, previewReference, gate: 'North Gate', deviceId: 'ipad 3' })
+  })
+
+  it.each([
+    ['a NUL in the gate', { gate: 'North\u0000' }],
+    ['a tab inside the gate', { gate: 'North\tGate' }],
+    ['a NUL in the device name', { deviceId: '\u0000ipad' }],
+    ['DEL in the device name', { deviceId: 'ipad\u007f' }],
+  ])('refuses %s, which the database would refuse as a 500', (_name, extra) => {
+    expect(checkInRequestSchema.safeParse({ credential, previewReference, ...extra }).success).toBe(
       false,
     )
+  })
+
+  it('refuses a request that presents nothing, or presents both', () => {
+    expect(checkInRequestSchema.safeParse({ previewReference, gate: 'North' }).success).toBe(false)
+    expect(
+      checkInRequestSchema.safeParse({ credential, code: 'DE-8F3K2Q-01', previewReference })
+        .success,
+    ).toBe(false)
+  })
+
+  it('refuses a reference with characters a signed one never has', () => {
+    expect(
+      checkInRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', previewReference: 'a b.c' }).success,
+    ).toBe(false)
+    expect(
+      checkInRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', previewReference: 'short' }).success,
+    ).toBe(false)
+  })
+
+  it.each([
+    ['method', { method: 'MANUAL_CODE' }],
+    ['checkedInAt', { checkedInAt: '2026-01-01T10:00:00.000Z' }],
+    ['force', { force: true }],
+    ['eventId', { eventId: EVENT_ID }],
+  ])('refuses %s: the server decides it, not the client', (_key, extra) => {
+    // `force` used to re-stamp an admission, `checkedInAt` to backdate one, and
+    // a client-chosen method would make the record say whatever the scanner
+    // liked. Each was stripped silently once; now each is a 400.
+    expect(
+      checkInRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', previewReference, ...extra }).success,
+    ).toBe(false)
+  })
+
+  it('takes the night the door is admitting to as an id, and nothing else in its place', () => {
+    // Chosen at the door like the event, and checked by the server against the
+    // ticket's own night and the event's nights: on an event of more than one
+    // night a ticket for another is refused, and one good for every night is
+    // admitted once on each.
+    expect(
+      checkInRequestSchema.parse({
+        code: 'DE-8F3K2Q-01',
+        previewReference,
+        eventSessionId: EVENT_ID,
+      }).eventSessionId,
+    ).toBe(EVENT_ID)
+    expect(
+      admissionPreviewRequestSchema.parse({ code: 'DE-8F3K2Q-01', eventSessionId: EVENT_ID })
+        .eventSessionId,
+    ).toBe(EVENT_ID)
+
+    for (const night of ['Night 2', '', 7, null]) {
+      expect(
+        checkInRequestSchema.safeParse({
+          code: 'DE-8F3K2Q-01',
+          previewReference,
+          eventSessionId: night,
+        }).success,
+        String(night),
+      ).toBe(false)
+      expect(
+        admissionPreviewRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', eventSessionId: night })
+          .success,
+        String(night),
+      ).toBe(false)
+    }
+  })
+})
+
+describe('group door requests', () => {
+  const groupCredential = `G1.${'A'.repeat(43)}`
+  const groupCode = 'DEG-ABCDEFGH2345'
+  const previewReference = `${'a'.repeat(40)}.${'b'.repeat(43)}`
+  const ticketIds = [EVENT_ID, TT_ID]
+
+  it('takes the night the door is admitting to, as a single lookup does', () => {
+    expect(
+      groupAdmissionPreviewRequestSchema.parse({ code: groupCode, eventSessionId: EVENT_ID })
+        .eventSessionId,
+    ).toBe(EVENT_ID)
+    expect(
+      groupCheckInRequestSchema.parse({
+        code: groupCode,
+        previewReference,
+        ticketIds,
+        eventSessionId: EVENT_ID,
+      }).eventSessionId,
+    ).toBe(EVENT_ID)
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        code: groupCode,
+        previewReference,
+        ticketIds,
+        eventSessionId: 'Night 2',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('accepts a group QR or a typed group code, upper-casing the code', () => {
+    expect(groupAdmissionPreviewRequestSchema.parse({ credential: groupCredential })).toEqual({
+      credential: groupCredential,
+    })
+    expect(groupAdmissionPreviewRequestSchema.parse({ code: ' deg-abcdefgh2345 ' })).toEqual({
+      code: groupCode,
+    })
+  })
+
+  it('refuses no presentation, or two', () => {
+    expect(groupAdmissionPreviewRequestSchema.safeParse({}).success).toBe(false)
+    expect(
+      groupAdmissionPreviewRequestSchema.safeParse({ credential: groupCredential, code: groupCode })
+        .success,
+    ).toBe(false)
+    expect(groupCheckInRequestSchema.safeParse({ previewReference, ticketIds }).success).toBe(false)
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        credential: groupCredential,
+        code: groupCode,
+        previewReference,
+        ticketIds,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses a ticket pass or a ticket code where a group one is expected', () => {
+    // The shapes are disjoint by construction: a ticket credential has no `.`,
+    // a ticket code no `DEG-` prefix and twelve-character body.
+    expect(
+      groupAdmissionPreviewRequestSchema.safeParse({ credential: 'a'.repeat(43) }).success,
+    ).toBe(false)
+    expect(
+      groupAdmissionPreviewRequestSchema.safeParse({ code: 'DET-ABCDEFGH234567' }).success,
+    ).toBe(false)
+    expect(groupAdmissionPreviewRequestSchema.safeParse({ code: 'DEG-ABCDEFGH234O' }).success).toBe(
+      false,
+    )
+    expect(
+      groupAdmissionPreviewRequestSchema.safeParse({ credential: `G1.${'A'.repeat(42)}` }).success,
+    ).toBe(false)
+  })
+
+  it.each([
+    ['method', { method: 'QR_SCAN' }],
+    ['ticketIds', { ticketIds: [EVENT_ID] }],
+    ['previewReference', { previewReference }],
+  ])('refuses %s on a group preview rather than ignoring it', (_key, extra) => {
+    expect(
+      groupAdmissionPreviewRequestSchema.safeParse({ code: groupCode, ...extra }).success,
+    ).toBe(false)
+  })
+
+  it('confirms an explicit selection of one to fifty tickets, each named once', () => {
+    expect(
+      groupCheckInRequestSchema.parse({
+        code: groupCode,
+        previewReference,
+        ticketIds,
+        gate: 'North',
+      }),
+    ).toEqual({ code: groupCode, previewReference, ticketIds, gate: 'North' })
+    expect(
+      groupCheckInRequestSchema.safeParse({ code: groupCode, previewReference, ticketIds: [] })
+        .success,
+    ).toBe(false)
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        code: groupCode,
+        previewReference,
+        ticketIds: Array.from({ length: 51 }, () => EVENT_ID),
+      }).success,
+    ).toBe(false)
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        code: groupCode,
+        previewReference,
+        ticketIds: [EVENT_ID, EVENT_ID],
+      }).success,
+    ).toBe(false)
+    expect(groupCheckInRequestSchema.safeParse({ code: groupCode, ticketIds }).success).toBe(false)
+  })
+
+  it.each([
+    ['method', { method: 'MANUAL_CODE' }],
+    ['checkedInAt', { checkedInAt: '2026-01-01T10:00:00.000Z' }],
+    ['groupPassId', { groupPassId: EVENT_ID }],
+  ])('refuses %s on a group confirmation', (_key, extra) => {
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        code: groupCode,
+        previewReference,
+        ticketIds,
+        ...extra,
+      }).success,
+    ).toBe(false)
+  })
+
+  it.each([
+    ['a NUL in the gate', { gate: 'North\u0000' }],
+    ['a newline inside the gate', { gate: 'North\nGate' }],
+    ['a NUL in the device name', { deviceId: 'ipad\u00003' }],
+    ['a C1 control in the device name', { deviceId: 'ipad\u009b3' }],
+  ])('refuses %s on a group confirmation', (_name, extra) => {
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        code: groupCode,
+        previewReference,
+        ticketIds,
+        ...extra,
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('admissionEventsQuerySchema', () => {
+  it('takes an organisation and a search, both optional', () => {
+    expect(admissionEventsQuerySchema.parse({})).toEqual({})
+    expect(admissionEventsQuerySchema.parse({ organizationId: ORG_ID, q: '  garba ' })).toEqual({
+      organizationId: ORG_ID,
+      q: 'garba',
+    })
+  })
+
+  it('bounds the search and refuses anything else', () => {
+    expect(admissionEventsQuerySchema.safeParse({ q: 'x'.repeat(101) }).success).toBe(false)
+    expect(admissionEventsQuerySchema.safeParse({ q: '   ' }).success).toBe(false)
+    expect(admissionEventsQuerySchema.safeParse({ organizationId: 'not a cuid' }).success).toBe(
+      false,
+    )
+    expect(admissionEventsQuerySchema.safeParse({ page: '2' }).success).toBe(false)
+  })
+
+  it.each([
+    ['NUL', 'gar\u0000ba'],
+    ['a tab', 'gar\tba'],
+    ['DEL', 'garba\u007f'],
+    ['a C1 control', 'gar\u0085ba'],
+  ])('refuses a search with %s in it, which the database would refuse as a 500', (_name, q) => {
+    expect(admissionEventsQuerySchema.safeParse({ q }).success).toBe(false)
   })
 })
 
@@ -598,10 +1111,18 @@ describe('joinWaitlistRequestSchema', () => {
 })
 
 describe('createPromoCodeRequestSchema', () => {
-  const base = { organizationId: ORG_ID, code: 'GARBA10', type: 'PERCENTAGE', value: 1000 }
+  // The organisation is the path's (`/v1/organizations/:id/promo-codes`), so
+  // the body no longer names one.
+  const base = { code: 'GARBA10', type: 'PERCENTAGE', value: 1000 }
 
   it('accepts a percentage code in basis points', () => {
     expect(createPromoCodeRequestSchema.parse(base)).toMatchObject({ value: 1000, active: true })
+  })
+
+  it('never takes the organisation from the body', () => {
+    expect(
+      createPromoCodeRequestSchema.parse({ ...base, organizationId: ORG_ID }),
+    ).not.toHaveProperty('organizationId')
   })
 
   it('rejects a percentage above 100%', () => {
@@ -610,11 +1131,46 @@ describe('createPromoCodeRequestSchema', () => {
     ])
   })
 
-  it('allows a fixed amount larger than 10000 cents', () => {
+  it('allows a fixed amount larger than 10000 cents, in a named currency', () => {
     expect(
-      createPromoCodeRequestSchema.safeParse({ ...base, type: 'FIXED_AMOUNT', value: 50_000 })
-        .success,
+      createPromoCodeRequestSchema.safeParse({
+        ...base,
+        type: 'FIXED_AMOUNT',
+        value: 50_000,
+        currency: 'usd',
+      }).success,
     ).toBe(true)
+  })
+
+  it('requires a currency for a fixed amount and refuses one for a percentage', () => {
+    expect(
+      issuePaths(
+        createPromoCodeRequestSchema.safeParse({ ...base, type: 'FIXED_AMOUNT', value: 500 }),
+      ),
+    ).toEqual(['currency'])
+    expect(
+      issuePaths(createPromoCodeRequestSchema.safeParse({ ...base, currency: 'USD' })),
+    ).toEqual(['currency'])
+  })
+
+  it('caps a fixed amount at 100,000.00', () => {
+    const fixed = { ...base, type: 'FIXED_AMOUNT', currency: 'USD' }
+
+    expect(createPromoCodeRequestSchema.safeParse({ ...fixed, value: 10_000_000 }).success).toBe(
+      true,
+    )
+    expect(
+      issuePaths(createPromoCodeRequestSchema.safeParse({ ...fixed, value: 10_000_001 })),
+    ).toEqual(['value'])
+  })
+
+  it('needs at least one redemption when a cap is set', () => {
+    expect(
+      issuePaths(createPromoCodeRequestSchema.safeParse({ ...base, maxRedemptions: 0 })),
+    ).toEqual(['maxRedemptions'])
+    expect(createPromoCodeRequestSchema.parse({ ...base, maxRedemptions: null })).toMatchObject({
+      maxRedemptions: null,
+    })
   })
 
   it('rejects a zero value', () => {
@@ -631,6 +1187,23 @@ describe('createPromoCodeRequestSchema', () => {
         }),
       ),
     ).toEqual(['endsAt'])
+  })
+})
+
+describe('promo code listing and path parameters', () => {
+  it('filters by event and status, and pages', () => {
+    expect(
+      listPromoCodesQuerySchema.parse({ eventId: EVENT_ID, status: 'PAUSED', page: '2' }),
+    ).toMatchObject({ eventId: EVENT_ID, status: 'PAUSED', page: 2 })
+    expect(listPromoCodesQuerySchema.safeParse({ status: 'EXPIRED' }).success).toBe(false)
+  })
+
+  it('names the organisation and the code', () => {
+    expect(organizationPromoCodeParamSchema.parse({ id: ORG_ID, promoCodeId: TT_ID })).toEqual({
+      id: ORG_ID,
+      promoCodeId: TT_ID,
+    })
+    expect(organizationPromoCodeParamSchema.safeParse({ id: ORG_ID }).success).toBe(false)
   })
 })
 

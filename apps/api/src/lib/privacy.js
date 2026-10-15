@@ -32,7 +32,7 @@ import { notFound } from './errors.js'
  *
  * @type {string}
  */
-export const PRIVACY_POLICY_VERSION = '2026-09-17.1'
+export const PRIVACY_POLICY_VERSION = '2026-10-07.1'
 
 /**
  * Why a redaction was asked for.

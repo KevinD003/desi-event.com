@@ -11,11 +11,22 @@ not what they need then.
 
 ## The one rule
 
-**Nothing deletes.** Not "should not" — cannot. There is no deletion path
-anywhere in this repository. A retention sweep counts rows and writes down what
-it counted. If you are here because somebody asked you to run the retention job
-and clear out old data, the answer is that this system has no such job, and the
-durations it would use are proposals nobody has approved.
+**The retention job deletes nothing.** Not "should not" — cannot. The
+retention machinery has no deletion path. A retention sweep counts rows and
+writes down what it counted. If you are here because somebody asked you to run
+the retention job and clear out old data, the answer is that this system has no
+such job, and the durations it would use are proposals nobody has approved.
+
+**The one deletion on a timer** in this repository is not retention: the
+traffic roll-up (`packages/db/src/traffic-rollup.js`, run by the worker's
+`roll-up-traffic` job every ten minutes by default) deletes raw visit rows
+(`TrafficEvent`) once it has added them up into `TrafficDaily` and they are two
+days old, and deletes each day's hashing secret (`TrafficSalt`) when the day is
+over. Those rows hold no address, browser string or account. This is data
+minimisation decided in ADR 0013, not a retention decision; it shares no code
+with the sweep, needs no activation flag, and is not a retention class
+(`traffic_event` was deliberately not added, SPEC2 §4.N-H). A stopped roll-up
+shows on the analytics screens as stale figures, not here.
 
 Three independent things enforce that, and only the first depends on the code
 being correct:

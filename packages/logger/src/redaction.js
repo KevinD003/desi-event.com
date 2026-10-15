@@ -42,6 +42,11 @@ export const SENSITIVE_HEADER_KEYS = Object.freeze([
   'x-webhook-signature',
   'stripe-signature',
   'x-razorpay-signature',
+  // A visitor's address as the web server forwards it to the API for visit
+  // counting, and the proxy chain it was read from. The API keeps neither; this
+  // is the net for the handler that logs a whole request by accident.
+  'x-desi-client-address',
+  'x-forwarded-for',
 ])
 
 /**
@@ -72,6 +77,66 @@ export const SENSITIVE_FIELD_KEYS = Object.freeze([
   'otp',
   'cvv',
   'cardNumber',
+  // The admission pass. `credential` is the plaintext a QR carries and
+  // `credentialHash` its digest; neither is a password, so neither was caught
+  // by any entry above. The digest is not a secret in the sense the others are
+  // — it opens nothing — but it identifies a ticket by a value only its holder
+  // should know, and this net exists precisely for the handler that logs a
+  // whole row by accident.
+  'credential',
+  'credentialHash',
+  // A door's preview reference binds a confirmation to a preview. It grants
+  // nothing by itself, but it names a ticket, a scanner and an instant, and it
+  // belongs in neither a log nor an audit row.
+  'previewReference',
+  // Addresses, by the names this codebase gives them. No handler logs one
+  // today; this is the net for the one that does by accident. A log line
+  // outlives the screen that decided who may see an address, and is read by
+  // whoever is on call.
+  'email',
+  'toEmail',
+  'buyerEmail',
+  'recipient',
+  // The show-once invitation code. It is returned in one response body and
+  // nowhere else; no handler logs it, and this is the net for the one that
+  // logs a whole response by accident. Named `invitationCode` rather than
+  // `code` precisely so it can be redacted by name without blanking every
+  // error code in every log line.
+  'invitationCode',
+  // A group pass's printed code, and the digests a group pass row keeps. The
+  // code opens a door on its own; the digest identifies a pass by a value
+  // only its holder should know, like `credentialHash` above.
+  'groupCode',
+  'codeHash',
+  // A promo code is a bearer discount: whoever reads it can use it. Checkout
+  // takes it in the body, and no handler logs it; this is the net.
+  'promoCode',
+  // A referral code waives an order's whole booking fee for whoever types it
+  // (SPEC3 §0.2, §8.3). The quote and the order take it in the body, and the
+  // administrators' responses name its text `referralCode` — never `code` —
+  // precisely so it can be redacted by name, as `invitationCode` is.
+  'referralCode',
+  // Guests' names typed at checkout, and the columns that stage and print
+  // them. Personal data about people who never signed up to anything here.
+  'attendees',
+  'attendeeName',
+  'attendeeNames',
+  // SMTP credentials: the password the mail server is signed in to with, as
+  // nodemailer's `auth.pass`, under the name this codebase gives it, and as the
+  // environment variable.
+  'pass',
+  'smtpPassword',
+  'SMTP_PASSWORD',
+  // A visit's pseudonymous code, its digest, its in-memory fingerprint, the
+  // address it was made from, the referring host and the day's salt. None is
+  // logged; this is the net for the handler that logs a whole row or request
+  // by accident.
+  'visitorHash',
+  'dedupeKey',
+  'fingerprint',
+  'clientAddress',
+  'referrerHost',
+  'salt',
 ])
 
 /**
@@ -91,6 +156,44 @@ export const WILDCARD_KEYS = Object.freeze([
   'secret',
   'apiKey',
   'key_secret',
+  // `{ ticket: { credential } }` is the shape a handler logging a scan result
+  // would produce, and the check-in route takes the credential in its body.
+  'credential',
+  // `req.body.previewReference`, from the check-in confirmation.
+  'previewReference',
+  // `{ user: { email } }`, `{ order: { buyerEmail } }`: an address one level
+  // down, the shape a handler logging a whole row produces.
+  'email',
+  'buyerEmail',
+  // `{ delivery: { invitationCode } }`, the shape of the response that carries it.
+  'invitationCode',
+  // `{ data: { groupCode } }`, the shape of the group pass response, and
+  // `{ groupPass: { codeHash } }`, the shape of a group pass row logged whole.
+  'groupCode',
+  'codeHash',
+  // `req.body.promoCode` and `req.body.attendees`, from checkout and the
+  // quote; `{ ticket: { attendeeName } }`, a ticket row logged whole.
+  'promoCode',
+  // `req.body.referralCode`, from checkout and the quote; `{ data: { referralCode } }`,
+  // the shape of an administrators' referral-code response.
+  'referralCode',
+  'attendees',
+  'attendeeName',
+  'attendeeNames',
+  // `{ auth: { pass } }`, nodemailer's transport options; `{ smtp: { smtpPassword } }`;
+  // `{ env: { SMTP_PASSWORD } }`, an environment logged whole.
+  'pass',
+  'smtpPassword',
+  'SMTP_PASSWORD',
+  // `{ visitor: { fingerprint, clientAddress } }`, `{ row: { visitorHash, dedupeKey } }`,
+  // `{ beacon: { referrerHost } }` and `{ state: { salt } }`: the shapes a visit
+  // takes one level down.
+  'visitorHash',
+  'dedupeKey',
+  'fingerprint',
+  'clientAddress',
+  'referrerHost',
+  'salt',
 ])
 
 /**

@@ -104,6 +104,7 @@ describe('createProcessors', () => {
       'expire-holds',
       'index-event',
       'issue-tickets',
+      'roll-up-traffic',
       'send-email',
       'sweep-retention',
     ])

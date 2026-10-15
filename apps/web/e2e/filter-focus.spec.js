@@ -58,6 +58,14 @@ for (const { name, viewport } of WIDTHS) {
     test('the search box keeps focus and its caret after submitting', async ({ page }) => {
       await page.goto('/events')
 
+      // Before hydration a submit is a plain GET that loads a new page, which
+      // is right without JavaScript. Keeping focus is the enhanced form's job,
+      // so wait for it.
+      await expect(page.locator('form[aria-label="Filter events"]')).toHaveAttribute(
+        'data-enhanced',
+        'true',
+      )
+
       const search = page.locator('input[name="q"]')
       await search.click()
       await search.fill('garba')
@@ -117,7 +125,7 @@ test.describe('announcements and deliberate focus movement', () => {
   })
 
   test('filters do not steal focus on load', async ({ page }) => {
-    await page.goto('/events?category=COMEDY')
+    await page.goto('/events?category=WORKSHOP')
 
     const after = await activeElement(page)
     // Nothing in the filter bar grabs focus by itself.

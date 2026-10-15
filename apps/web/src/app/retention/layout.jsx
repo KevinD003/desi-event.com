@@ -28,10 +28,8 @@
  * @module app/retention/layout
  */
 
-import Link from 'next/link'
-import { redirect } from 'next/navigation'
-
-import { readSession, sessionCan } from '../../lib/session.js'
+import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
+import { enterArea } from '../../lib/area-gate.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,57 +41,19 @@ export const metadata = { robots: { index: false, follow: false } }
  */
 
 /**
- * The retention shell.
+ * The retention shell: the workspace rail around the page, or the area's refusal.
  *
  * @param {RetentionLayoutProps} props Component props.
  * @returns {Promise<JSX.Element>} The rendered shell.
  */
 export default async function RetentionLayout({ children }) {
-  const session = await readSession()
+  const { session, admitted } = await enterArea('retention')
 
-  if (!session) redirect('/sign-in?next=/retention')
-
-  if (!sessionCan(session, 'retention:view')) {
-    return (
-      <div className="mx-auto max-w-3xl px-4 py-12">
-        <h1 className="text-2xl font-bold text-indigo-night-900">Not for you</h1>
-        <p className="mt-2 text-slate-700">
-          This area shows what a retention rehearsal counted across the whole platform. It is not
-          held by any role inside an organisation, and nothing on this page can grant it to you.
-        </p>
-        <p className="mt-4">
-          <Link
-            href="/"
-            className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
-          >
-            Back to the site
-          </Link>
-        </p>
-      </div>
-    )
-  }
+  if (!admitted) return <AreaRefusal area="retention" />
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-200 pb-4">
-        <nav aria-label="Retention">
-          <ul className="flex flex-wrap items-center gap-4 text-sm">
-            <li>
-              <Link
-                href="/retention"
-                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
-              >
-                Rehearsals
-              </Link>
-            </li>
-          </ul>
-        </nav>
-        <p className="text-sm text-slate-600">
-          Signed in as <span className="font-medium">{session.user?.displayName}</span>
-        </p>
-      </div>
-
-      <div className="mt-8">{children}</div>
-    </div>
+    <WorkspaceShell session={session} area="retention">
+      {children}
+    </WorkspaceShell>
   )
 }

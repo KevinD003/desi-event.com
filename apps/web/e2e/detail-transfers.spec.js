@@ -1,11 +1,17 @@
 import { expect, test, world } from './support/detail-fixtures.mjs'
 
+// An offer made here shows its one-time code on the page: this build sends no
+// email, so the sender hands it over. A code on screen is a ticket in a
+// screenshot, a trace or a film, so none is taken in this file.
+test.use({ screenshot: 'off', trace: 'off', video: 'off' })
+
 /**
  * Handing a ticket on, in a real browser.
  *
  * This is the suite that can make claims nothing else can: that offering a
  * ticket writes a real pending transfer, that the recipient's address comes
- * back masked, that the invitation code never reaches the address bar, that a
+ * back as its domain alone, with nothing of the local part anywhere in the
+ * page's source, that the invitation code never reaches the address bar, that a
  * ticket already out on offer is not offerable again, and that withdrawing an
  * offer puts it back where it was.
  *
@@ -53,24 +59,64 @@ test.describe.serial('the ticket and transfer screens', () => {
     }
   })
 
-  test('offers a ticket, and shows the recipient masked afterwards', async ({ owner }) => {
+  test('offers a ticket, and shows the recipient by domain alone afterwards', async ({ owner }) => {
     await owner.goto(`/tickets/${ids().ticketIds[0]}`)
     await owner.getByRole('button', { name: /offer this ticket/i }).click()
-    await owner.getByLabel(/their email address/i).fill('recipient@elsewhere.test')
+    await owner.getByLabel(/their email address/i).fill('harsha.offered+tickets@elsewhere.test')
     await owner.getByRole('button', { name: /send the offer/i }).click()
 
-    await expect(owner.getByText(/offered\. they have been sent an invitation/i)).toBeVisible()
+    await expect(
+      owner.getByText('Offered. Give them the code shown below; it is shown only once.'),
+    ).toBeVisible()
+    // Nothing was delivered, and the page must not say otherwise.
+    await expect(owner.getByText(/have been sent/i)).toHaveCount(0)
+
+    // The code, shown once in a read-only field, to be handed over by the
+    // sender. It is in the page and nowhere a browser keeps things: not the
+    // address, not either storage, not a cookie.
+    const field = owner.getByLabel('Ticket transfer code', { exact: true })
+
+    await expect(field).toHaveAttribute('readonly', '')
+
+    const code = await field.inputValue()
+
+    expect(code.length).toBeGreaterThanOrEqual(16)
+    expect(owner.url()).not.toContain(code)
+
+    const stored = await owner.evaluate(() =>
+      JSON.stringify([{ ...localStorage }, { ...sessionStorage }]),
+    )
+
+    expect(stored).not.toContain(code)
+    expect(JSON.stringify(await owner.context().cookies())).not.toContain(code)
+
+    // "Handed over" drops it, and nothing brings it back.
+    await owner.getByRole('button', { name: 'I have handed it over', exact: true }).click()
+    await expect(field).toHaveCount(0)
+    expect(await owner.content()).not.toContain(code)
 
     await owner.reload()
+
+    // The page streams: "Loading your tickets…" stands in until the ticket's
+    // read arrives. Read nothing until it has, or the checks below would be
+    // about the loading state and the privacy ones would pass on an empty page.
+    await expect(owner.locator('main')).toContainText(/offered, awaiting an answer/i)
 
     const rendered = await owner.locator('main').innerText()
     const html = await owner.content()
 
-    expect(rendered).toMatch(/offered, not yet answered/i)
-    // Masked, not omitted: the sender typed the address and should recognise
-    // it, and nobody else should be able to collect it from here.
-    expect(rendered).toMatch(/\*+.*@elsewhere\.test/u)
-    expect(html).not.toContain('recipient@elsewhere.test')
+    expect(rendered).toMatch(/offered, awaiting an answer/i)
+    // Shown once means once: a reload does not draw it again.
+    expect(html).not.toContain(code)
+    await expect(owner.getByLabel('Ticket transfer code', { exact: true })).toHaveCount(0)
+    // The domain, so the sender can tell their offers apart, and nothing of the
+    // local part: not its length, not its ends, not its suffix. Searched in the
+    // page's whole source, serialised props included, so no stylesheet or
+    // hidden element is doing the hiding.
+    expect(rendered).toContain('••••@elsewhere.test')
+    expect(html).not.toContain('harsha')
+    expect(html).not.toContain('+tickets')
+    expect(html).not.toMatch(/\*+@elsewhere/u)
   })
 
   test('will not offer a ticket that is already out on offer', async ({ owner }) => {
@@ -88,6 +134,10 @@ test.describe.serial('the ticket and transfer screens', () => {
     await expect(owner.getByText(/the invitation no longer works/i)).toBeVisible()
 
     await owner.reload()
+
+    // The page streams, as it does after the offer above: read nothing until
+    // the ticket has arrived, or the read is of "Loading your tickets…".
+    await expect(owner.locator('main')).toContainText(/withdrawn by the sender/i)
 
     const rendered = await owner.locator('main').innerText()
 
@@ -123,11 +173,16 @@ test.describe.serial('the ticket and transfer screens', () => {
   })
 
   test('refuses a ticket belonging to nobody this account knows', async ({ outsider }) => {
+    // Read once the refusal is on screen, not at the load event: the area's
+    // loading boundary streams, and React reveals the finished page after
+    // `load`, so a read taken straight after `goto` can see the fallback.
     await outsider.goto(`/tickets/${ids().ticketIds[1]}`)
+    await expect(outsider.getByRole('heading', { name: 'Not for you', level: 1 })).toBeVisible()
 
     const theirs = await outsider.locator('body').innerText()
 
     await outsider.goto('/tickets/cmnotarealidentifier0000')
+    await expect(outsider.getByRole('heading', { name: 'Not for you', level: 1 })).toBeVisible()
 
     const imaginary = await outsider.locator('body').innerText()
 

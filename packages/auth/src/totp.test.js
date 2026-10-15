@@ -262,7 +262,7 @@ describe('totpUri', () => {
   const uri = totpUri({
     secret: 'JBSWY3DPEHPK3PXP',
     account: 'buyer@example.com',
-    issuer: 'Desi-Event',
+    issuer: 'The Desi Events',
   })
 
   it('is an otpauth URI an authenticator app can scan', () => {
@@ -275,7 +275,7 @@ describe('totpUri', () => {
     expect(query.get('algorithm')).toBe('SHA1')
     expect(query.get('digits')).toBe('6')
     expect(query.get('period')).toBe('30')
-    expect(query.get('issuer')).toBe('Desi-Event')
+    expect(query.get('issuer')).toBe('The Desi Events')
   })
 
   it('escapes an account that contains a URI separator', () => {

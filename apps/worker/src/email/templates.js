@@ -22,7 +22,17 @@
 import { DEMO_LABEL, DEMO_PAYMENT_NOTICE, DEMO_TICKET_NOTICE } from '@desi-event/providers'
 
 /** Sender name shown to recipients. */
-export const BRAND_NAME = 'Desi-Event'
+export const BRAND_NAME = 'The Desi Events'
+
+/**
+ * The public contact address of The Desi Events, printed under the sign-off of
+ * every email. It is the address published on thedesievents.com for anybody to
+ * write to, not a recipient's, so it is the same in every message.
+ */
+export const CONTACT_EMAIL = 'info@thedesievents.com'
+
+/** The footer line under the sign-off, in the text body. */
+export const CONTACT_LINE = `Contact us at ${CONTACT_EMAIL}.`
 
 /** HTML entities that must never survive interpolation. */
 const HTML_ESCAPES = Object.freeze({
@@ -97,7 +107,8 @@ function toHtml(heading, lines) {
     '<div style="font-family:system-ui,sans-serif;line-height:1.5;max-width:40rem">',
     `    <h1 style="font-size:1.25rem">${escapeHtml(heading)}</h1>`,
     paragraphs,
-    `    <p style="color:#666;font-size:0.875rem">— ${escapeHtml(BRAND_NAME)}</p>`,
+    `    <p style="color:#666;font-size:0.875rem">— ${escapeHtml(BRAND_NAME)}<br>`,
+    `      Contact us at <a href="mailto:${escapeHtml(CONTACT_EMAIL)}">${escapeHtml(CONTACT_EMAIL)}</a>.</p>`,
     '</div>',
   ].join('\n')
 }
@@ -186,20 +197,320 @@ function changedFieldsLine(data) {
 }
 
 /**
+ * Who made a change, as the people holding tickets are told it: the organiser,
+ * or the team at The Desi Events when it changed the event in one of its editing
+ * sittings (`data.byPlatform`). Never an administrator's name.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @param {boolean} [capitalised] Whether the phrase starts a sentence.
+ * @returns {string} The phrase.
+ */
+function byWhom(data, capitalised = false) {
+  if (data?.byPlatform === true)
+    return capitalised ? 'The Desi Events team' : 'the team at The Desi Events'
+
+  return capitalised ? 'The organiser' : 'the organiser'
+}
+
+/**
+ * Which night was cancelled, when the payload names it.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string} A line, or `''`.
+ */
+function nightLine(data) {
+  const label = field(data, 'sessionLabel', '')
+  const startsAt = field(data, 'sessionStartsAt', '')
+
+  if (label === '' && startsAt === '') return ''
+
+  return `The night cancelled: ${[label, startsAt && `starting ${startsAt}`].filter(Boolean).join(', ')}.`
+}
+
+/**
+ * What a cancelled night means for this order's tickets, one sentence per
+ * outcome the API recorded (`data.outcome`, `NIGHT_OUTCOMES` in the API's
+ * `lib/session-cancellation.js`).
+ *
+ * Each outcome has its own sentence, so nobody who paid is told their tickets
+ * were free, and nobody whose refund waits on a dispute is told it is on its
+ * way. A notice queued before outcomes were recorded falls back to the two
+ * flags it carried: `keptEveryNight`, and `refunded === false` for a free
+ * ticket.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string} The line.
+ */
+function nightOutcomeLine(data) {
+  const order = orderPhrase(data)
+
+  // A booking paid at the venue: only its booking fee was paid online, so
+  // that is what a cancelled night refunds (SPEC3 §9.9).
+  if (data?.atVenue === true && data?.outcome === 'REFUNDED') {
+    return `Your tickets from ${order} for that night are withdrawn. The booking fee you paid online for them is refunded (simulated).`
+  }
+
+  const lines = {
+    REFUNDED: `Your tickets from ${order} for that night are refunded in full.`,
+    KEPT: `Your ticket from ${order} is valid for every night, so you keep it for the others.`,
+    FREE: `Your tickets from ${order} for that night are withdrawn. They were free, so there is nothing to refund.`,
+    NOTHING_OWED: `Your tickets from ${order} for that night are withdrawn. Nothing is left to refund for them.`,
+    DISPUTED: `Your tickets from ${order} for that night are withdrawn. Your payment is under dispute, so any refund is handled with the dispute.`,
+    UNPAID: `${orderPhrase(data, true)} was not paid, so it is cancelled and nothing is charged.`,
+    NOT_SENT: `Your tickets from ${order} for that night are withdrawn. Their refund was not sent automatically, so contact the organiser about it.`,
+    NOTHING_PAID_ONLINE: `Your tickets from ${order} for that night are withdrawn. Nothing was paid online for them.`,
+    FEE_REFUNDED_EARLIER: `Your tickets from ${order} for that night are withdrawn. The booking fee you paid online was refunded earlier.`,
+  }
+
+  if (typeof data?.outcome === 'string' && Object.hasOwn(lines, data.outcome)) {
+    return lines[data.outcome]
+  }
+
+  if (data?.keptEveryNight === true) return lines.KEPT
+  if (data?.refunded === false) return lines.FREE
+
+  return lines.REFUNDED
+}
+
+/**
+ * An amount of door money, as a sentence names it, or null when there is
+ * none to name.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @param {string} key The cents field.
+ * @returns {string|null} The formatted amount, or null for nothing above 0.
+ */
+function doorAmountOf(data, key) {
+  const cents = data?.[key]
+
+  if (!Number.isInteger(cents) || cents <= 0) return null
+
+  return formatCents(cents, field(data, 'currency', 'INR'))
+}
+
+/**
+ * What a cancellation notice says about money taken at the door for a
+ * booking paid at the venue (SPEC3 §9.9, SPEC3-XI XT7): what the buyer paid
+ * there for the tickets they hold is with the organiser, and so is what people
+ * they passed tickets to paid there. The Desi Events never holds door money.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string[]} The lines; none when nothing was paid at the door.
+ */
+function doorMoneyLines(data) {
+  const own = doorAmountOf(data, 'paidAtDoorCents')
+  const others = doorAmountOf(data, 'paidAtDoorByOthersCents')
+
+  return [
+    own === null
+      ? ''
+      : `The ${own} you paid at the door is with the organiser, not with The Desi Events. Ask the organiser to return it.`,
+    others === null
+      ? ''
+      : `${others} was paid at the door by people you passed tickets to; it is with the organiser.`,
+  ]
+}
+
+/**
+ * Whether anything was paid at the door for a booking, by the buyer or by
+ * people they passed tickets to: then the notice does not say that nothing
+ * further is needed.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {boolean} True when there is door money to ask back.
+ */
+function paidAtDoor(data) {
+  return (
+    doorAmountOf(data, 'paidAtDoorCents') !== null ||
+    doorAmountOf(data, 'paidAtDoorByOthersCents') !== null
+  )
+}
+
+/**
+ * What a cancelled event means for a booking paid at the venue (SPEC3 §9.9),
+ * by what became of its booking fee paid online (`onlineRefund`): being
+ * refunded, nothing paid online, refunded earlier, kept by The Desi Events when
+ * unpaid tickets were cancelled (SPEC3-XI XU6), or held by a dispute.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string} The line.
+ */
+function venueCancelledLine(data) {
+  const reference = field(data, 'orderReference', '')
+  const opening = `Your tickets on ${reference === '' ? 'your order' : `order ${reference}`} were to be paid at the door.`
+  const lines = {
+    REQUESTED: `${opening} The booking fee you paid online is being refunded (simulated).`,
+    NONE_PAID: `${opening} Nothing was paid online for them.`,
+    ALREADY_REFUNDED: `${opening} The booking fee you paid online was refunded earlier.`,
+    FEE_KEPT: `${opening} The booking fee paid online for tickets cancelled because they were not paid for was kept by The Desi Events, and nothing else paid online is left to refund.`,
+    DISPUTED: `${opening} Your payment is under dispute, so any refund is handled with the dispute.`,
+  }
+
+  if (typeof data?.onlineRefund === 'string' && Object.hasOwn(lines, data.onlineRefund)) {
+    return lines[data.onlineRefund]
+  }
+
+  return `${opening} The booking fee paid online was not refunded automatically, so contact the organiser about it.`
+}
+
+/**
+ * What a cancellation notice tells an account that holds a ticket of
+ * somebody else's booking and paid for it at the door (SPEC3-XI XT7): that
+ * money is with the organiser. For the whole event, or for one night of it.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @param {boolean} night Whether a night was cancelled rather than the event.
+ * @returns {string[]} The body lines.
+ */
+function holderDoorLines(data, night) {
+  const title = field(data, 'eventTitle', 'The event')
+  const label = field(data, 'sessionLabel', '')
+  const amount = doorAmountOf(data, 'paidAtDoorCents') ?? 'The money'
+  const what = night
+    ? `${label === '' ? 'One night' : label} of ${title} was cancelled.`
+    : `${title} was cancelled.`
+
+  return [
+    'Hello,',
+    what,
+    `${amount === 'The money' ? amount : `The ${amount}`} you paid at the door for it is with the organiser, not with The Desi Events. Ask the organiser to return it.`,
+  ]
+}
+
+/**
+ * What a notice of unpaid tickets cancelled says (SPEC3-XI §9.9), for the buyer
+ * (`recipient: 'BUYER'`) or for another account holding some of the tickets
+ * (`'HOLDER'`). Who cancelled is "The organiser" or "The Desi Events team",
+ * never a person. Nothing here says a place is back on sale: whether it is
+ * depends on sales the notice cannot see.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string[]} The body lines.
+ */
+function venueCancellationLines(data) {
+  const currency = field(data, 'currency', 'INR')
+  const by = data?.by === 'DESI_EVENT' ? 'The Desi Events team' : 'The organiser'
+  const reason = field(data, 'reason', '')
+  const reasonLine = reason === '' ? '' : `Reason given: ${reason}`
+
+  if (data?.recipient === 'HOLDER') {
+    const count = Number.isInteger(data?.ticketCount) && data.ticketCount > 0 ? data.ticketCount : 1
+    const words = ticketWords(count)
+    const due = formatCents(data?.dueCents, currency) ?? 'the price'
+
+    return [
+      'Hello,',
+      `${by} cancelled ${words.tickets} you hold for ${field(data, 'eventTitle', 'your event')} because ${words.theyWere} not paid for at the door. You no longer owe ${due} for ${words.them}.`,
+      reasonLine,
+    ]
+  }
+
+  const reference = field(data, 'orderReference', '')
+  const onOrder = `on your order${reference === '' ? '' : ` ${reference}`}`
+  // The buyer's own tickets apart from those they passed on (SPEC3-XI XT7):
+  // only their own were owed by them. A notice queued before the split carried
+  // every cancelled ticket as the buyer's.
+  const passedOn =
+    Number.isInteger(data?.passedOnTickets) && data.passedOnTickets > 0 ? data.passedOnTickets : 0
+  const counted =
+    Number.isInteger(data?.ticketCount) && data.ticketCount >= 0 ? data.ticketCount : 1
+  const own = counted + passedOn > 0 ? counted : 1
+  const ownWords = ticketWords(own)
+  const passedWords = ticketWords(passedOn)
+  const all = ticketWords(own + passedOn)
+  const due = formatCents(data?.dueCents, currency) ?? 'the price'
+  const toOthers = passedOn === 1 ? 'someone else' : 'other people'
+  const lines = ['Hello,']
+
+  if (own > 0) {
+    lines.push(
+      `${by} cancelled ${ownWords.tickets} ${onOrder} because ${ownWords.theyWere} not paid for at the door. You no longer owe ${due} for ${ownWords.them}.`,
+    )
+
+    if (passedOn > 0) {
+      lines.push(
+        `${passedWords.tickets} you passed on to ${toOthers} ${passedOn === 1 ? 'was' : 'were'} cancelled too.`,
+      )
+    }
+  } else {
+    lines.push(
+      `${by} cancelled ${passedWords.tickets} ${onOrder} that you passed on to ${toOthers}, because ${passedWords.theyWere} not paid for at the door.`,
+    )
+  }
+
+  lines.push(onlineFeeLine(data, currency, all.them), reasonLine)
+  lines.push(
+    data?.othersRemain === true ? 'Your other tickets on this order are not affected.' : '',
+  )
+
+  return lines
+}
+
+/**
+ * "1 ticket" / "2 tickets", and the words that go with one or several.
+ *
+ * @param {number} count How many.
+ * @returns {{tickets: string, them: string, theyWere: string}} The words.
+ */
+function ticketWords(count) {
+  const several = count !== 1
+
+  return {
+    tickets: `${count} ${several ? 'tickets' : 'ticket'}`,
+    them: several ? 'them' : 'it',
+    theyWere: several ? 'they were' : 'it was',
+  }
+}
+
+/**
+ * What a buyer's notice of unpaid tickets cancelled says about the booking fee
+ * paid online (SPEC3-XI §9.9, `onlineFee`): kept for them, nothing paid online,
+ * refunded earlier, or none of it kept for them. Whether anything was paid
+ * online is never read from what was kept: a fee refunded by hand keeps
+ * nothing, and was still paid. A notice queued without `onlineFee` says what
+ * it said before.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @param {string} currency The currency.
+ * @param {string} them "it" or "them", for every cancelled ticket.
+ * @returns {string} The line.
+ */
+function onlineFeeLine(data, currency, them) {
+  const feeKept =
+    Number.isInteger(data?.feeKeptCents) && data.feeKeptCents > 0
+      ? formatCents(data.feeKeptCents, currency)
+      : null
+
+  if (feeKept !== null) {
+    return `The booking fee you paid online for ${them}, ${feeKept}, is kept by The Desi Events and is not refunded.`
+  }
+
+  if (data?.onlineFee === 'REFUNDED_EARLIER') {
+    return `The booking fee you paid online was refunded earlier, so none of it is kept for ${them}.`
+  }
+
+  if (data?.onlineFee === 'NONE_KEPT') {
+    return `None of the booking fee you paid online is kept for ${them}.`
+  }
+
+  return `Nothing was paid online for ${them}.`
+}
+
+/**
  * One renderer per template in `EMAIL_TEMPLATES`.
  *
  * @type {Readonly<Record<string, TemplateRenderer>>}
  */
 export const TEMPLATES = Object.freeze({
   ORDER_CONFIRMATION: (data) => ({
-    subject: `Your ${BRAND_NAME} order ${field(data, 'orderReference', 'is confirmed')}`,
+    subject: `Your order ${field(data, 'orderReference', 'is confirmed')} on ${BRAND_NAME}`,
     heading: 'Thanks for your order',
     lines: [
       `Hi ${field(data, 'buyerName', 'there')},`,
       `We have received ${orderPhrase(data)}.`,
       eventLine(data),
       totalLine(data),
-      'Your tickets follow in a separate email as soon as they are issued.',
+      'Your tickets follow in a separate email once they are issued.',
     ],
   }),
 
@@ -215,7 +526,7 @@ export const TEMPLATES = Object.freeze({
   }),
 
   ORDER_CANCELLED: (data) => ({
-    subject: `Your ${BRAND_NAME} order was cancelled`,
+    subject: `Your order on ${BRAND_NAME} was cancelled`,
     heading: 'Order cancelled',
     lines: [
       `Hi ${field(data, 'buyerName', 'there')},`,
@@ -231,7 +542,7 @@ export const TEMPLATES = Object.freeze({
 
   EVENT_REMINDER: (data) => ({
     subject: `Coming up: ${field(data, 'eventTitle', 'your event')}`,
-    heading: 'See you soon',
+    heading: 'See you there',
     lines: [
       `Hi ${field(data, 'buyerName', 'there')},`,
       eventLine(data),
@@ -247,23 +558,23 @@ export const TEMPLATES = Object.freeze({
       `Hi ${field(data, 'buyerName', 'there')},`,
       `${field(data, 'quantity', 'Tickets')} became available for ${field(data, 'eventTitle', 'the event you joined the waitlist for')}.`,
       eventLine(data),
-      `Claim them here: ${field(data, 'claimUrl', 'open the event page on Desi-Event')}`,
+      `Claim them here: ${field(data, 'claimUrl', 'open the event page on The Desi Events')}`,
       'Waitlist spots are first come, first served, so they may not last long.',
     ],
   }),
 
   EMAIL_VERIFICATION: (data) => ({
-    subject: `Confirm your ${BRAND_NAME} email address`,
+    subject: `Confirm your email address for ${BRAND_NAME}`,
     heading: 'Confirm your email address',
     lines: [
       `Hi ${field(data, 'displayName', 'there')},`,
       `Confirm your address to finish setting up your account: ${field(data, 'verifyUrl', 'see your account settings')}`,
-      'If you did not create a Desi-Event account, you can ignore this email.',
+      'If you did not create an account on The Desi Events, you can ignore this email.',
     ],
   }),
 
   PASSWORD_RESET: (data) => ({
-    subject: `Reset your ${BRAND_NAME} password`,
+    subject: `Reset your password for ${BRAND_NAME}`,
     heading: 'Reset your password',
     lines: [
       `Hi ${field(data, 'displayName', 'there')},`,
@@ -283,24 +594,50 @@ export const TEMPLATES = Object.freeze({
   // client, and renaming it here would mean two names for one message.
   // ---------------------------------------------------------------------
 
-  'event.cancelled': (data) => ({
-    subject: `${field(data, 'eventTitle', 'An event you booked')} has been cancelled`,
-    heading: 'The event has been cancelled',
-    lines: [
-      'Hello,',
-      `${field(data, 'eventTitle', 'The event')} has been cancelled by the organiser.`,
-      field(data, 'reason', ''),
-      `This affects ${orderPhrase(data)}.`,
-      'A refund has been requested. Nothing further is needed from you.',
-    ],
-  }),
+  'event.cancelled': (data) => {
+    const subject = `${field(data, 'eventTitle', 'An event you booked')} has been cancelled`
+    const heading = 'The event has been cancelled'
+
+    // An account that paid at the door for a ticket of somebody else's
+    // booking (SPEC3-XI XT7): only that its money is with the organiser.
+    if (data?.recipient === 'HOLDER') {
+      return { subject, heading, lines: holderDoorLines(data, false) }
+    }
+
+    if (data?.atVenue === true) {
+      return {
+        subject,
+        heading,
+        lines: [
+          'Hello,',
+          `${field(data, 'eventTitle', 'The event')} has been cancelled by ${byWhom(data)}.`,
+          field(data, 'reason', ''),
+          venueCancelledLine(data),
+          ...doorMoneyLines(data),
+          paidAtDoor(data) ? '' : 'Nothing further is needed from you.',
+        ],
+      }
+    }
+
+    return {
+      subject,
+      heading,
+      lines: [
+        'Hello,',
+        `${field(data, 'eventTitle', 'The event')} has been cancelled by ${byWhom(data)}.`,
+        field(data, 'reason', ''),
+        `This affects ${orderPhrase(data)}.`,
+        'A refund has been requested. Nothing further is needed from you.',
+      ],
+    }
+  },
 
   'event.postponed': (data) => ({
     subject: `${field(data, 'eventTitle', 'An event you booked')} has been postponed`,
     heading: 'The event has been postponed',
     lines: [
       'Hello,',
-      `${field(data, 'eventTitle', 'The event')} will no longer take place as planned.`,
+      `${field(data, 'eventTitle', 'The event')} will not take place on the date first announced.`,
       field(data, 'reason', ''),
       previousDateLine(data),
       `Your tickets from ${orderPhrase(data)} remain valid for the new date.`,
@@ -312,11 +649,29 @@ export const TEMPLATES = Object.freeze({
     heading: 'A detail of your event has changed',
     lines: [
       'Hello,',
-      `The organiser has changed something about ${field(data, 'eventTitle', 'your event')}.`,
+      `${byWhom(data, true)} has changed something about ${field(data, 'eventTitle', 'your event')}.`,
       changedFieldsLine(data),
       field(data, 'reason', ''),
       `Your tickets from ${orderPhrase(data)} are unaffected.`,
     ],
+  }),
+
+  'event.session_cancelled': (data) => ({
+    subject: `A night of ${field(data, 'eventTitle', 'an event you booked')} has been cancelled`,
+    heading: 'A night of your event has been cancelled',
+    lines:
+      // An account that paid at the door for a ticket of somebody else's
+      // booking (SPEC3-XI XT7): only that its money is with the organiser.
+      data?.recipient === 'HOLDER'
+        ? holderDoorLines(data, true)
+        : [
+            'Hello,',
+            `${byWhom(data, true)} has cancelled one night of ${field(data, 'eventTitle', 'your event')}.`,
+            nightLine(data),
+            field(data, 'reason', ''),
+            nightOutcomeLine(data),
+            ...(data?.atVenue === true ? doorMoneyLines(data) : []),
+          ],
   }),
 
   'ticket.issued': (data) => ({
@@ -330,15 +685,23 @@ export const TEMPLATES = Object.freeze({
     ],
   }),
 
-  'ticket.transfer.invited': (data) => ({
-    subject: `${field(data, 'fromName', 'Somebody')} wants to send you a ticket`,
-    heading: 'A ticket is waiting for you',
-    lines: [
-      'Hello,',
-      `${field(data, 'fromName', 'Somebody')} has offered you a ticket for ${field(data, 'eventTitle', 'an event')}.`,
-      'Open your account to accept it. The offer expires, and until you accept it the ticket stays with them.',
-    ],
-  }),
+  'ticket.transfer.invited': (data) => {
+    // A ticket booked to pay at the door keeps what it owes (SPEC3-XI XT6).
+    const due = doorAmountOf(data, 'venueDueCents')
+
+    return {
+      subject: `${field(data, 'fromName', 'Somebody')} wants to send you a ticket`,
+      heading: 'A ticket is waiting for you',
+      lines: [
+        'Hello,',
+        `${field(data, 'fromName', 'Somebody')} has offered you a ticket for ${field(data, 'eventTitle', 'an event')}.`,
+        due === null
+          ? ''
+          : `This ticket was booked to pay at the door: whoever holds it pays ${due} at the door.`,
+        'Open your account to accept it. The offer expires, and until you accept it the ticket stays with them.',
+      ],
+    }
+  },
 
   'ticket.transfer.completed': (data) => ({
     subject: `Your ticket for ${field(data, 'eventTitle', 'your event')} has been handed on`,
@@ -370,8 +733,14 @@ export const TEMPLATES = Object.freeze({
     ],
   }),
 
+  'venue_booking.cancelled': (data) => ({
+    subject: `Unpaid tickets cancelled: ${field(data, 'eventTitle', 'your event')}`,
+    heading: 'Unpaid tickets cancelled',
+    lines: venueCancellationLines(data),
+  }),
+
   'security.alert': (data) => ({
-    subject: `A security change on your ${BRAND_NAME} account`,
+    subject: `A security change on your account at ${BRAND_NAME}`,
     heading: 'Something changed on your account',
     lines: [
       'Hello,',
@@ -385,7 +754,7 @@ export const TEMPLATES = Object.freeze({
  * Templates whose subject is money or admission, and which therefore have to
  * say so when neither is real.
  *
- * Desi-Event has no payment integration: every order is settled by an
+ * The Desi Events has no payment integration: every order is settled by an
  * in-memory mock and every ticket admits nobody. A confirmation that reads like
  * a receipt, or a pass that reads like a ticket, is the point at which a
  * demonstration starts misleading somebody — so these carry the notice in the
@@ -399,11 +768,14 @@ export const DEMO_NOTICE_BY_TEMPLATE = Object.freeze({
   TICKETS_ISSUED: DEMO_TICKET_NOTICE,
   ORDER_CANCELLED: DEMO_PAYMENT_NOTICE,
   'event.cancelled': DEMO_PAYMENT_NOTICE,
+  'event.session_cancelled': DEMO_PAYMENT_NOTICE,
   'ticket.issued': DEMO_TICKET_NOTICE,
   'ticket.transfer.invited': DEMO_TICKET_NOTICE,
   'ticket.transfer.completed': DEMO_TICKET_NOTICE,
   'ticket.revoked': DEMO_TICKET_NOTICE,
   'refund.settled': DEMO_PAYMENT_NOTICE,
+  // It names a booking fee paid online and kept: no money moved for it either.
+  'venue_booking.cancelled': DEMO_PAYMENT_NOTICE,
 })
 
 /**
@@ -433,7 +805,7 @@ export function renderEmail({ template, data = {}, subject }) {
 
   return {
     subject: notice ? `[${DEMO_LABEL}] ${headline}` : headline,
-    text: [...lines, '', `— ${BRAND_NAME}`].join('\n\n'),
+    text: [...lines, '', `— ${BRAND_NAME}\n${CONTACT_LINE}`].join('\n\n'),
     html: toHtml(rendered.heading, lines),
   }
 }

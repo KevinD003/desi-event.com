@@ -3,9 +3,15 @@ import { describe, expect, it } from 'vitest'
 import {
   authResponseSchema,
   buildPaginationMeta,
+  admissionEventsResponseSchema,
+  admissionPreviewResponseSchema,
   checkInResponseSchema,
   errorResponseSchema,
   eventDetailResponseSchema,
+  groupAdmissionPreviewResponseSchema,
+  groupCheckInResponseSchema,
+  groupPassResponseSchema,
+  startedTicketTransferResponseSchema,
   eventListResponseSchema,
   healthResponseSchema,
   holdResponseSchema,
@@ -13,8 +19,12 @@ import {
   orderResponseSchema,
   organizationResponseSchema,
   paginationMetaSchema,
+  myTicketListResponseSchema,
+  ticketPassResponseSchema,
   ticketTypeListResponseSchema,
+  walletTicketSchema,
 } from './responses.js'
+import { orderTicketSchema } from './entities.js'
 import { ValidationError, parseOrThrow } from './errors.js'
 
 const ids = {
@@ -26,6 +36,7 @@ const ids = {
   order: 'ckl1a2b3c4d5e6f7g8h9i0jp',
   orderItem: 'ckl1a2b3c4d5e6f7g8h9i0jq',
   ticket: 'ckl1a2b3c4d5e6f7g8h9i0jr',
+  session: 'ckl1a2b3c4d5e6f7g8h9i0js',
 }
 
 const publicUser = {
@@ -214,7 +225,7 @@ describe('ticketTypeListResponseSchema', () => {
   })
 })
 
-describe('holdResponseSchema and checkInResponseSchema', () => {
+describe('holdResponseSchema', () => {
   it('describes a hold', () => {
     const parsed = holdResponseSchema.parse({
       data: {
@@ -226,28 +237,159 @@ describe('holdResponseSchema and checkInResponseSchema', () => {
     })
     expect(parsed.data.expiresAt).toBe('2026-08-10T12:10:00.000Z')
   })
+})
 
-  it('describes a door scan, defaulting alreadyCheckedIn', () => {
-    const parsed = checkInResponseSchema.parse({
+/**
+ * What a door is shown. Each test also sends fields a careless presenter might
+ * spread in — a credential digest, the buyer, the money, a provider id — and
+ * checks they are gone after parsing: the schema is the last thing between a
+ * row and the wire.
+ */
+const HOSTILE = {
+  credentialHash: 'f'.repeat(64),
+  credential: 'a'.repeat(43),
+  code: 'DE-8F3K2Q-01',
+  buyerEmail: 'priya@example.com',
+  email: 'priya@example.com',
+  totalCents: 150_000,
+  connectedAccountId: 'acct_123',
+  providerPaymentId: 'pi_123',
+  transferToken: 'tok_123',
+  internalNote: 'VIP — comp from the promoter',
+  metadata: { anything: true },
+}
+
+const admissionEvent = {
+  id: ids.event,
+  title: 'Navratri Nights 2026',
+  startsAt: '2026-10-01T13:00:00.000Z',
+  endsAt: '2026-10-01T18:00:00.000Z',
+  timezone: 'Asia/Kolkata',
+}
+
+describe('admissionPreviewResponseSchema', () => {
+  it('describes an admissible ticket, and nothing a door has no use for', () => {
+    const parsed = admissionPreviewResponseSchema.parse({
       data: {
-        ticket: { id: ids.ticket, orderItemId: ids.orderItem, code: 'DE-8F3K2Q-01' },
-        // Both required and both nullable: a door always gets an answer to
-        // "when was this first admitted" and "who does it say", even when the
-        // answer is "it has not been" and "nobody wrote a name".
+        ...HOSTILE,
+        outcome: 'ADMISSIBLE',
+        refusal: null,
+        method: 'QR_SCAN',
+        event: { ...admissionEvent, organizationId: ids.org, ...HOSTILE },
+        tier: { name: 'General admission', priceCents: 150_000 },
+        seat: { section: 'Stalls', row: 'C', label: 'C12', seatId: 'x' },
+        attendeeName: 'Priya Sharma',
         checkedInAt: null,
-        attendeeName: null,
+        previewReference: `${'a'.repeat(40)}.${'b'.repeat(43)}`,
+        previewExpiresAt: new Date('2026-10-01T13:02:00Z'),
       },
     })
-    expect(parsed.data.alreadyCheckedIn).toBe(false)
-    expect(parsed.data.ticket.status).toBe('VALID')
+
+    expect(Object.keys(parsed.data).sort()).toEqual([
+      'attendeeName',
+      'checkedInAt',
+      'event',
+      'method',
+      'outcome',
+      'previewExpiresAt',
+      'previewReference',
+      'refusal',
+      'seat',
+      'tier',
+    ])
+    expect(Object.keys(parsed.data.event).sort()).toEqual([
+      'endsAt',
+      'id',
+      'startsAt',
+      'timezone',
+      'title',
+    ])
+    expect(parsed.data.tier).toEqual({ name: 'General admission' })
+    expect(parsed.data.seat).toEqual({ section: 'Stalls', row: 'C', label: 'C12' })
+
+    const wire = JSON.stringify(parsed)
+
+    for (const value of [
+      'f'.repeat(64),
+      'a'.repeat(43),
+      'DE-8F3K2Q-01',
+      'priya@example.com',
+      'acct_123',
+      'pi_123',
+      'tok_123',
+      'promoter',
+    ]) {
+      expect(wire).not.toContain(value)
+    }
   })
 
-  it('carries the first admission time on a re-scan', () => {
+  it('carries a refusal only from the closed vocabulary', () => {
+    const refused = {
+      outcome: 'REFUSED',
+      refusal: 'REFUNDED',
+      method: 'MANUAL_CODE',
+      event: admissionEvent,
+      tier: null,
+      seat: null,
+      attendeeName: null,
+      checkedInAt: null,
+      previewReference: null,
+      previewExpiresAt: null,
+    }
+
+    expect(admissionPreviewResponseSchema.parse({ data: refused }).data.refusal).toBe('REFUNDED')
+    expect(
+      admissionPreviewResponseSchema.safeParse({ data: { ...refused, refusal: 'Refunded, sorry' } })
+        .success,
+    ).toBe(false)
+    expect(
+      admissionPreviewResponseSchema.safeParse({ data: { ...refused, method: 'ASSISTED' } })
+        .success,
+    ).toBe(false)
+  })
+})
+
+describe('checkInResponseSchema', () => {
+  it('describes an admission, and nothing a door has no use for', () => {
     const parsed = checkInResponseSchema.parse({
       data: {
-        ticket: { id: ids.ticket, orderItemId: ids.orderItem, code: 'DE-8F3K2Q-01' },
-        alreadyCheckedIn: true,
+        ...HOSTILE,
+        outcome: 'ADMITTED',
+        checkedInAt: new Date('2026-10-01T13:01:00Z'),
+        method: 'MANUAL_CODE',
+        checkedInByYou: true,
+        event: { ...admissionEvent, ...HOSTILE },
+        tier: { name: 'General admission' },
+        seat: null,
+        attendeeName: 'Priya Sharma',
+        scannedByUserId: ids.user,
+      },
+    })
+
+    expect(Object.keys(parsed.data).sort()).toEqual([
+      'attendeeName',
+      'checkedInAt',
+      'checkedInByYou',
+      'event',
+      'method',
+      'outcome',
+      'seat',
+      'tier',
+    ])
+    expect(parsed.data.checkedInAt).toBe('2026-10-01T13:01:00.000Z')
+    expect(JSON.stringify(parsed)).not.toContain(ids.user)
+  })
+
+  it('carries the first admission time when the ticket was already in', () => {
+    const parsed = checkInResponseSchema.parse({
+      data: {
+        outcome: 'ALREADY_CHECKED_IN',
         checkedInAt: '2026-09-16T18:30:00.000Z',
+        method: 'QR_SCAN',
+        checkedInByYou: false,
+        event: admissionEvent,
+        tier: null,
+        seat: null,
         attendeeName: 'Priya Sharma',
       },
     })
@@ -255,7 +397,403 @@ describe('holdResponseSchema and checkInResponseSchema', () => {
     // What the person on the door actually needs when a pass scans twice: when
     // it went through the first time, not merely that it did.
     expect(parsed.data.checkedInAt).toBe('2026-09-16T18:30:00.000Z')
-    expect(parsed.data.attendeeName).toBe('Priya Sharma')
+    expect(parsed.data.checkedInByYou).toBe(false)
+  })
+
+  it('refuses an outcome outside the vocabulary', () => {
+    expect(
+      checkInResponseSchema.safeParse({
+        data: {
+          outcome: 'FORCED',
+          checkedInAt: null,
+          method: null,
+          checkedInByYou: false,
+          event: admissionEvent,
+          tier: null,
+          seat: null,
+          attendeeName: null,
+        },
+      }).success,
+    ).toBe(false)
+  })
+})
+
+const membershipsMeta = { scope: 'MEMBERSHIPS', organizations: [], truncated: false }
+
+/** One night of an event, as a door list names it. */
+const doorNight = {
+  id: ids.session,
+  label: 'Night 2',
+  startsAt: '2026-10-02T13:00:00.000Z',
+  endsAt: '2026-10-02T18:00:00.000Z',
+  timezone: 'America/Chicago',
+  status: 'ON_SALE',
+}
+
+describe('admissionEventsResponseSchema', () => {
+  it('names each event with its organisation and the authority it rests on', () => {
+    const parsed = admissionEventsResponseSchema.parse({
+      data: [
+        {
+          event: { ...admissionEvent, status: 'ON_SALE', ...HOSTILE },
+          sessions: [{ ...doorNight, ...HOSTILE }],
+          organization: { id: ids.org, name: 'Rangoli', ...HOSTILE },
+          authority: 'EVENT_SCOPE',
+          role: 'SCANNER',
+          ...HOSTILE,
+        },
+      ],
+      meta: membershipsMeta,
+    })
+
+    expect(Object.keys(parsed.data[0]).sort()).toEqual([
+      'authority',
+      'event',
+      'organization',
+      'role',
+      'sessions',
+    ])
+    expect(parsed.data[0].organization).toEqual({ id: ids.org, name: 'Rangoli' })
+    // The nights, for the door to say which one it is admitting to.
+    expect(parsed.data[0].sessions).toEqual([doorNight])
+    expect(
+      admissionEventsResponseSchema.safeParse({
+        data: [{ ...parsed.data[0], sessions: undefined }],
+        meta: membershipsMeta,
+      }).success,
+    ).toBe(false)
+    expect(JSON.stringify(parsed)).not.toContain('priya@example.com')
+    expect(
+      admissionEventsResponseSchema.safeParse({
+        data: [{ ...parsed.data[0], authority: 'PLATFORM' }],
+        meta: membershipsMeta,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('carries platform authority only on SUPER_ADMIN, and SUPER_ADMIN only on platform authority', () => {
+    const entry = {
+      event: { ...admissionEvent, status: 'ON_SALE' },
+      sessions: [],
+      organization: { id: ids.org, name: 'Rangoli' },
+    }
+    const platformMeta = {
+      scope: 'PLATFORM',
+      organizations: [{ id: ids.org, name: 'Rangoli' }],
+      truncated: true,
+    }
+
+    const parsed = admissionEventsResponseSchema.parse({
+      data: [{ ...entry, authority: 'PLATFORM_ROLE', role: 'SUPER_ADMIN' }],
+      meta: platformMeta,
+    })
+
+    expect(parsed.data[0].authority).toBe('PLATFORM_ROLE')
+    expect(parsed.meta).toEqual(platformMeta)
+
+    for (const [authority, role] of [
+      ['PLATFORM_ROLE', 'OWNER'],
+      ['PLATFORM_ROLE', 'SCANNER'],
+      ['ORGANIZATION_ROLE', 'SUPER_ADMIN'],
+      ['EVENT_SCOPE', 'SUPER_ADMIN'],
+      ['PLATFORM_ROLE', 'MODERATOR'],
+    ]) {
+      expect(
+        admissionEventsResponseSchema.safeParse({
+          data: [{ ...entry, authority, role }],
+          meta: platformMeta,
+        }).success,
+        `${authority}/${role}`,
+      ).toBe(false)
+    }
+  })
+
+  it('needs the list meta, and bounds its organisations', () => {
+    const entry = {
+      event: { ...admissionEvent, status: 'ON_SALE' },
+      sessions: [doorNight],
+      organization: { id: ids.org, name: 'Rangoli' },
+      authority: 'ORGANIZATION_ROLE',
+      role: 'OWNER',
+    }
+
+    expect(admissionEventsResponseSchema.safeParse({ data: [entry] }).success).toBe(false)
+    expect(
+      admissionEventsResponseSchema.safeParse({
+        data: [entry],
+        meta: { ...membershipsMeta, scope: 'EVERYWHERE' },
+      }).success,
+    ).toBe(false)
+    expect(
+      admissionEventsResponseSchema.safeParse({
+        data: [entry],
+        meta: {
+          ...membershipsMeta,
+          organizations: Array.from({ length: 501 }, () => ({ id: ids.org, name: 'x' })),
+        },
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('the group door schemas', () => {
+  const groupTicket = {
+    ticketId: ids.ticket,
+    outcome: 'ADMISSIBLE',
+    refusal: null,
+    tier: { name: 'General admission' },
+    seat: null,
+    session: {
+      label: 'Night 2',
+      startsAt: '2026-10-02T13:00:00.000Z',
+      endsAt: '2026-10-02T18:00:00.000Z',
+      timezone: 'America/Chicago',
+    },
+    attendeeName: 'Priya Sharma',
+    checkedInAt: null,
+  }
+  const preview = {
+    outcome: 'ADMISSIBLE',
+    refusal: null,
+    method: 'QR_SCAN',
+    event: admissionEvent,
+    tickets: [groupTicket],
+    counts: { admissible: 1, alreadyIn: 0, refused: 0 },
+    handedOn: 0,
+    previewReference: `${'a'.repeat(40)}.${'b'.repeat(43)}`,
+    previewExpiresAt: '2026-10-01T13:02:00.000Z',
+  }
+
+  it('describes each ticket of a group by name, tier, seat and night, and nothing more', () => {
+    const parsed = groupAdmissionPreviewResponseSchema.parse({
+      data: { ...preview, ...HOSTILE, tickets: [{ ...groupTicket, ...HOSTILE }] },
+    })
+
+    expect(Object.keys(parsed.data.tickets[0]).sort()).toEqual([
+      'attendeeName',
+      'checkedInAt',
+      'outcome',
+      'refusal',
+      'seat',
+      'session',
+      'ticketId',
+      'tier',
+    ])
+    expect(parsed.data.tickets[0].session.label).toBe('Night 2')
+    expect(JSON.stringify(parsed)).not.toContain('priya@example.com')
+    // A ticket good for every night names no night, and says so with null.
+    expect(
+      groupAdmissionPreviewResponseSchema.parse({
+        data: { ...preview, tickets: [{ ...groupTicket, session: null }] },
+      }).data.tickets[0].session,
+    ).toBeNull()
+    expect(
+      groupAdmissionPreviewResponseSchema.safeParse({
+        data: { ...preview, tickets: [{ ...groupTicket, session: undefined }] },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses an address where an attendee name goes, in a preview and in a result', () => {
+    expect(
+      groupAdmissionPreviewResponseSchema.safeParse({
+        data: { ...preview, tickets: [{ ...groupTicket, attendeeName: 'priya@example.com' }] },
+      }).success,
+    ).toBe(false)
+
+    const result = {
+      outcome: 'ADMITTED',
+      admitted: 1,
+      alreadyIn: 0,
+      method: 'MANUAL_CODE',
+      event: admissionEvent,
+      tickets: [
+        {
+          ticketId: ids.ticket,
+          outcome: 'ADMITTED',
+          checkedInAt: '2026-10-01T13:01:00.000Z',
+          checkedInByYou: true,
+          tier: null,
+          seat: null,
+          session: null,
+          attendeeName: 'Priya Sharma',
+        },
+      ],
+    }
+
+    expect(groupCheckInResponseSchema.parse({ data: result }).data.admitted).toBe(1)
+    expect(
+      groupCheckInResponseSchema.safeParse({
+        data: { ...result, tickets: [{ ...result.tickets[0], attendeeName: 'a@b.example' }] },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('holds no more than fifty tickets, and refuses a refusal outside the vocabulary', () => {
+    expect(
+      groupAdmissionPreviewResponseSchema.safeParse({
+        data: { ...preview, tickets: Array.from({ length: 51 }, () => groupTicket) },
+      }).success,
+    ).toBe(false)
+    expect(
+      groupAdmissionPreviewResponseSchema.safeParse({
+        data: { ...preview, outcome: 'REFUSED', refusal: 'Some changed' },
+      }).success,
+    ).toBe(false)
+    expect(
+      groupAdmissionPreviewResponseSchema.parse({
+        data: { ...preview, outcome: 'REFUSED', refusal: 'GROUP_CHANGED' },
+      }).data.refusal,
+    ).toBe('GROUP_CHANGED')
+
+    for (const refusal of ['WRONG_NIGHT', 'NIGHT_REQUIRED']) {
+      expect(
+        groupAdmissionPreviewResponseSchema.parse({
+          data: { ...preview, outcome: 'REFUSED', refusal },
+        }).data.refusal,
+      ).toBe(refusal)
+    }
+  })
+
+  it('shapes the group pass: a G1 credential, a DEG code, and one to fifty tickets', () => {
+    const pass = {
+      orderReference: 'DE-8F3K2QRT',
+      credential: `G1.${'A'.repeat(43)}`,
+      groupCode: 'DEG-ABCDEFGH2345',
+      credentialVersion: 1,
+      issuedAt: null,
+      admits: 2,
+      tickets: [
+        { id: ids.ticket, status: 'VALID', tier: null, seat: null, offered: false },
+        { id: ids.order, status: 'TRANSFER_PENDING', tier: null, seat: null, offered: true },
+      ],
+    }
+
+    expect(groupPassResponseSchema.parse({ data: pass }).data.admits).toBe(2)
+    expect(
+      groupPassResponseSchema.safeParse({ data: { ...pass, credential: 'A'.repeat(43) } }).success,
+    ).toBe(false)
+    expect(
+      groupPassResponseSchema.safeParse({ data: { ...pass, groupCode: 'DEG-ABCDEFGH234O' } })
+        .success,
+    ).toBe(false)
+    // Two to take one out; once taken out it keeps showing for the last guest.
+    expect(groupPassResponseSchema.parse({ data: { ...pass, admits: 1 } }).data.admits).toBe(1)
+    expect(groupPassResponseSchema.safeParse({ data: { ...pass, admits: 0 } }).success).toBe(false)
+    expect(groupPassResponseSchema.safeParse({ data: { ...pass, admits: 51 } }).success).toBe(false)
+  })
+})
+
+describe('startedTicketTransferResponseSchema', () => {
+  const transfer = {
+    id: ids.order,
+    ticketId: ids.ticket,
+    fromUserId: ids.user,
+    toEmailMasked: '••••@example.com',
+    status: 'PENDING',
+    expiresAt: '2026-10-01T13:00:00.000Z',
+    acceptedAt: null,
+    declinedAt: null,
+    cancelledAt: null,
+    resultTicketId: null,
+    createdAt: '2026-09-28T13:00:00.000Z',
+  }
+
+  it('carries the one-time code in MANUAL mode and never in EMAIL mode', () => {
+    const code = 'A'.repeat(43)
+
+    expect(
+      startedTicketTransferResponseSchema.parse({
+        data: { ...transfer, delivery: { mode: 'MANUAL', invitationCode: code } },
+      }).data.delivery.invitationCode,
+    ).toBe(code)
+    expect(
+      startedTicketTransferResponseSchema.parse({
+        data: { ...transfer, delivery: { mode: 'EMAIL', invitationCode: null } },
+      }).data.delivery.invitationCode,
+    ).toBeNull()
+    expect(
+      startedTicketTransferResponseSchema.safeParse({
+        data: { ...transfer, delivery: { mode: 'MANUAL', invitationCode: null } },
+      }).success,
+    ).toBe(false)
+    expect(
+      startedTicketTransferResponseSchema.safeParse({
+        data: { ...transfer, delivery: { mode: 'EMAIL', invitationCode: code } },
+      }).success,
+    ).toBe(false)
+    expect(startedTicketTransferResponseSchema.safeParse({ data: transfer }).success).toBe(false)
+  })
+
+  it('never carries the token or its digest under their own names', () => {
+    const parsed = startedTicketTransferResponseSchema.parse({
+      data: {
+        ...transfer,
+        token: 'x'.repeat(43),
+        tokenHash: 'f'.repeat(64),
+        delivery: { mode: 'EMAIL', invitationCode: null },
+      },
+    })
+
+    expect(parsed.data).not.toHaveProperty('token')
+    expect(parsed.data).not.toHaveProperty('tokenHash')
+  })
+})
+
+describe('errorResponseSchema reason', () => {
+  it('accepts a closed refusal code and refuses prose in its place', () => {
+    const base = { code: 'CONFLICT', message: 'This ticket was refunded.', statusCode: 409 }
+
+    expect(errorResponseSchema.parse({ error: { ...base, reason: 'REFUNDED' } }).error.reason).toBe(
+      'REFUNDED',
+    )
+    expect(
+      errorResponseSchema.safeParse({ error: { ...base, reason: 'it was refunded' } }).success,
+    ).toBe(false)
+  })
+})
+
+describe('errorResponseSchema orderReference', () => {
+  it('carries the order a checkout answer is about, and refuses prose in its place', () => {
+    const base = { code: 'ORDER_PENDING', message: 'Still being checked.', statusCode: 409 }
+
+    expect(
+      errorResponseSchema.parse({ error: { ...base, orderReference: 'DE-7K2M9Q' } }).error
+        .orderReference,
+    ).toBe('DE-7K2M9Q')
+    expect(
+      errorResponseSchema.safeParse({ error: { ...base, orderReference: 'your last order' } })
+        .success,
+    ).toBe(false)
+  })
+})
+
+describe('errorResponseSchema details', () => {
+  it('carries only the closed keys a website refusal names, each with its own type', () => {
+    const base = { code: 'WEBSITE_CHANGED', message: 'The address changed.', statusCode: 409 }
+
+    for (const details of [
+      { currentWebsiteUrl: 'https://rangoli.example/' },
+      { currentWebsiteUrl: null },
+      { enabled: false },
+    ]) {
+      expect(errorResponseSchema.parse({ error: { ...base, details } }).error.details).toEqual(
+        details,
+      )
+    }
+
+    for (const details of [
+      { currentWebsiteUrl: '' },
+      { currentWebsiteUrl: 'x'.repeat(2049) },
+      { enabled: 'yes' },
+      { orderReference: 'DE-7K2M9Q' },
+      { problem: 'anything else' },
+    ]) {
+      expect(
+        errorResponseSchema.safeParse({ error: { ...base, details } }).success,
+        JSON.stringify(details),
+      ).toBe(false)
+    }
   })
 })
 
@@ -345,5 +883,204 @@ describe('simple envelopes', () => {
         },
       }).success,
     ).toBe(true)
+  })
+})
+
+describe('what the response schemas refuse to carry', () => {
+  /** Every forbidden item, planted on one hostile payload. */
+  const FORBIDDEN = Object.freeze({
+    ownerUserId: 'usr_somebody',
+    credential: 'THE-ACTUAL-BEARER-SECRET',
+    credentialHash: 'd'.repeat(64),
+    credentialVersion: 7,
+    credentialIssuedAt: '2026-01-01T00:00:00.000Z',
+    buyerEmail: 'buyer@example.test',
+    transferToken: 'RAW-TRANSFER-TOKEN',
+    tokenHash: 'e'.repeat(64),
+    guestToken: 'RAW-GUEST-TOKEN',
+    guestTokenHash: 'f'.repeat(64),
+    providerRef: 'pi_live_should_never_be_here',
+    connectedAccountId: 'acct_should_never_be_here',
+    providerPayoutId: 'po_should_never_be_here',
+    internalNotes: 'an internal note',
+    auditMetadata: { actorId: 'usr_admin' },
+  })
+
+  /** A minimal valid wallet row, so only the planted keys are in question. */
+  const wallet = {
+    id: 'c1aaaaaaaaaaaaaaaaaaaaaaa',
+    orderItemId: 'c1bbbbbbbbbbbbbbbbbbbbbbb',
+    code: 'DE-ABCD-1234',
+    attendeeName: 'Priya Sharma',
+    status: 'VALID',
+    checkedInAt: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    holderRelationship: 'PURCHASED',
+    admits: true,
+    admissionRefusal: null,
+    orderReference: 'DE-BUYER1',
+    event: {
+      id: 'c1ccccccccccccccccccccccc',
+      slug: 'garba-night',
+      title: 'Garba Night',
+      category: 'GARBA_DANDIYA',
+      startsAt: '2026-10-01T14:00:00.000Z',
+      endsAt: '2026-10-01T19:00:00.000Z',
+      timezone: 'Asia/Kolkata',
+      status: 'ON_SALE',
+      cancelledAt: null,
+      coverImage: null,
+    },
+    venue: { name: 'Hall', city: 'Pune', region: 'MH', country: 'IN' },
+    isOnline: false,
+    tier: { id: 'c1ddddddddddddddddddddddd', name: 'General admission' },
+    seat: null,
+    pendingTransfer: null,
+    revokedAt: null,
+    revokedReason: null,
+  }
+
+  it('strips every forbidden key from a wallet row', () => {
+    // Not "the presenter does not add them" — this is the second layer. Even a
+    // presenter that regressed and handed the raw row through would produce a
+    // payload with none of these on it, because Zod strips what it does not
+    // declare rather than erroring on it.
+    const parsed = walletTicketSchema.parse({ ...wallet, ...FORBIDDEN })
+
+    for (const key of Object.keys(FORBIDDEN)) {
+      expect(parsed[key], `${key} survived the schema`).toBeUndefined()
+    }
+
+    expect(JSON.stringify(parsed)).not.toContain('THE-ACTUAL-BEARER-SECRET')
+    expect(JSON.stringify(parsed)).not.toContain('RAW-TRANSFER-TOKEN')
+    expect(JSON.stringify(parsed)).not.toContain('buyer@example.test')
+  })
+
+  it('strips them from the list response, not merely from one row', () => {
+    const parsed = myTicketListResponseSchema.parse({
+      data: [{ ...wallet, ...FORBIDDEN }],
+      pagination: {
+        page: 1,
+        perPage: 20,
+        total: 1,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
+    })
+
+    expect(JSON.stringify(parsed)).not.toContain('THE-ACTUAL-BEARER-SECRET')
+    expect(parsed.data[0].credentialHash).toBeUndefined()
+  })
+
+  it('strips a raw token planted inside the pending transfer', () => {
+    const parsed = walletTicketSchema.parse({
+      ...wallet,
+      pendingTransfer: {
+        id: 'c1eeeeeeeeeeeeeeeeeeeeeee',
+        toEmailMasked: '••••@example.com',
+        expiresAt: '2026-02-01T00:00:00.000Z',
+        token: 'RAW-TRANSFER-TOKEN',
+        tokenHash: 'e'.repeat(64),
+        toEmail: 'priya@example.com',
+      },
+    })
+
+    expect(parsed.pendingTransfer.token).toBeUndefined()
+    expect(parsed.pendingTransfer.tokenHash).toBeUndefined()
+    expect(parsed.pendingTransfer.toEmail).toBeUndefined()
+    expect(JSON.stringify(parsed)).not.toContain('priya@example.com')
+  })
+
+  it.each(['priya@example.com', 'p***a@example.com', 'p****a@example.com', '(none)'])(
+    'refuses %s as a recipient: an address, or the old mask that kept its length and ends',
+    (toEmailMasked) => {
+      // The one place the schema does more than strip. The stand-in is a single
+      // call in a single presenter; a schema that accepted `z.string()` would
+      // notice nothing at all if that call were dropped, and the failure would
+      // be a harvestable recipient list. Now it is a 500 instead.
+      const unmasked = walletTicketSchema.safeParse({
+        ...wallet,
+        pendingTransfer: {
+          id: 'c1eeeeeeeeeeeeeeeeeeeeeee',
+          toEmailMasked,
+          expiresAt: '2026-02-01T00:00:00.000Z',
+        },
+      })
+
+      expect(unmasked.success).toBe(false)
+    },
+  )
+
+  it.each(['••••@example.com', 'Hidden email'])('accepts %s as a recipient', (toEmailMasked) => {
+    const parsed = walletTicketSchema.parse({
+      ...wallet,
+      pendingTransfer: {
+        id: 'c1eeeeeeeeeeeeeeeeeeeeeee',
+        toEmailMasked,
+        expiresAt: '2026-02-01T00:00:00.000Z',
+      },
+    })
+
+    expect(parsed.pendingTransfer.toEmailMasked).toBe(toEmailMasked)
+  })
+
+  it('strips every forbidden key from an order ticket', () => {
+    const parsed = orderTicketSchema.parse({
+      id: 'c1aaaaaaaaaaaaaaaaaaaaaaa',
+      orderItemId: 'c1bbbbbbbbbbbbbbbbbbbbbbb',
+      code: 'DE-ABCD-1234',
+      attendeeName: null,
+      status: 'TRANSFERRED',
+      checkedInAt: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      purchaserHolding: 'TRANSFERRED_AWAY',
+      supersededByLaterTicket: false,
+      ...FORBIDDEN,
+    })
+
+    for (const key of Object.keys(FORBIDDEN)) {
+      expect(parsed[key], `${key} survived the schema`).toBeUndefined()
+    }
+  })
+
+  it('will not accept an ownership classification it does not know', () => {
+    // A Boolean could be flipped by a typo and stay valid. An enum cannot.
+    const wrong = orderTicketSchema.safeParse({
+      id: 'c1aaaaaaaaaaaaaaaaaaaaaaa',
+      orderItemId: 'c1bbbbbbbbbbbbbbbbbbbbbbb',
+      code: 'DE-ABCD-1234',
+      status: 'VALID',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      purchaserHolding: 'MAYBE',
+      supersededByLaterTicket: false,
+    })
+
+    expect(wrong.success).toBe(false)
+  })
+
+  it('carries no credential on the pass response beyond the one field that is its job', () => {
+    const parsed = ticketPassResponseSchema.parse({
+      data: {
+        ticketId: 'c1aaaaaaaaaaaaaaaaaaaaaaa',
+        credential: 'THE-ACTUAL-BEARER-SECRET',
+        credentialVersion: 2,
+        issuedAt: '2026-01-01T00:00:00.000Z',
+        credentialHash: 'd'.repeat(64),
+        ownerUserId: 'usr_somebody',
+        attendeeName: 'Priya Sharma',
+      },
+    })
+
+    expect(parsed.data.credential).toBe('THE-ACTUAL-BEARER-SECRET')
+    // Everything else about the ticket is somewhere else. A payload that mixed
+    // a secret with the things a screen wants to show is a payload something
+    // eventually caches.
+    expect(parsed.data.credentialHash).toBeUndefined()
+    expect(parsed.data.ownerUserId).toBeUndefined()
+    expect(parsed.data.attendeeName).toBeUndefined()
   })
 })

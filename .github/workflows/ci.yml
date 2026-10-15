@@ -135,15 +135,16 @@ jobs:
           pnpm run db:migrate:deploy
           DATABASE_URL="$TEST_DATABASE_URL" pnpm run db:migrate:deploy
 
-      # Unit and integration tests, with a JSON report per package so the
-      # skipped-test check below has something to read.
-      - name: Test
-        run: pnpm run test -- --reporter=default --reporter=json --outputFile.json=vitest-report.json
-
-      # A skipped test is neither a pass nor a failure, and "0 failed" is read
-      # as success by everybody who does not count the other column.
-      - name: Refuse an undeclared skipped test
-        run: node scripts/check-skipped-tests.mjs $(find . -name vitest-report.json -not -path '*/node_modules/*')
+      # Unit and integration tests, and the verdict on their reports, as one
+      # command — the same one a contributor runs locally. It deletes every
+      # report first, runs every test task with Turborepo's cache refused, and
+      # then refuses any report it cannot prove this run wrote, any package that
+      # wrote none, and any case that failed, skipped or was left as a todo
+      # without an allow-list entry. `ci:check` refuses a workflow that produces
+      # or judges reports any other way, so the local command and this step
+      # cannot drift apart. See scripts/verify-tests-fresh.mjs.
+      - name: Test, with fresh reports and no undeclared skip
+        run: pnpm run verify:tests:fresh
 
       # The pure-logic packages carry coverage thresholds, and a threshold
       # nothing runs is a decoration. This step is here because the thresholds
@@ -202,6 +203,15 @@ jobs:
           for scenario in ga-hold-contention seat-hold-contention check-in-concurrency; do
             pnpm run load -- --profile ramp --scenario "$scenario" --no-write
           done
+
+      # The fresh-report table, again, as the last thing a green run prints. The
+      # test step printed it thousands of lines above the end of this log, out
+      # of reach of anything that reads only the tail. verify:tests:fresh
+      # deletes any earlier copy when it starts and writes this one from the
+      # lines it printed; if the file is missing, `cat` fails the step.
+      # `ci:check` requires this step, and that only failure-only steps follow.
+      - name: Fresh-report summary
+        run: cat test-results/verify-tests-fresh.txt
 
       - name: Upload failure artefacts
         if: failure()
@@ -286,7 +296,11 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event?schema=public
-      TEST_DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event_test?schema=public
+      # The browser suites' own database, never the unit suites' — they refuse
+      # that one by name (apps/web/e2e/support/e2e-database.mjs). Each suite's
+      # API server also migrates it before it serves; the steps below do it
+      # first so that is a no-op here.
+      E2E_DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event_e2e?schema=public
       REDIS_URL: redis://127.0.0.1:6379
       JWT_SECRET: ci-only-jwt-secret-not-used-outside-github-runner
       NEXT_PUBLIC_API_URL: http://127.0.0.1:4000
@@ -314,11 +328,11 @@ jobs:
       - name: Install Chromium
         run: pnpm --filter @desi-event/web exec playwright install --with-deps chromium
 
-      - name: Create the test database
-        run: PGPASSWORD=desi psql -h 127.0.0.1 -U desi -d desi_event -c 'CREATE DATABASE desi_event_test'
+      - name: Create the browser suites' database
+        run: PGPASSWORD=desi psql -h 127.0.0.1 -U desi -d desi_event -c 'CREATE DATABASE desi_event_e2e'
 
       - name: Apply migrations
-        run: DATABASE_URL="$TEST_DATABASE_URL" pnpm run db:migrate:deploy
+        run: DATABASE_URL="$E2E_DATABASE_URL" pnpm run db:migrate:deploy
 
       - name: Run ${{ matrix.suite.name }}
         run: pnpm run ${{ matrix.suite.script }}

@@ -52,6 +52,26 @@ beforeEach(() => {
   apiFetch.mockReset()
 })
 
+/**
+ * The refusal on screen: the live region that is not the hidden announcer.
+ *
+ * Both are polite now — only the door's outcomes interrupt — so the role alone
+ * no longer tells them apart.
+ *
+ * @returns {Promise<HTMLElement>} The refusal.
+ */
+async function findRefusal() {
+  return waitFor(() => {
+    const found = screen
+      .getAllByRole('status')
+      .find((element) => !element.classList.contains('sr-only'))
+
+    expect(found).toBeTruthy()
+
+    return found
+  })
+}
+
 describe('placing a hold', () => {
   it('sends exactly the three fields the schema allows', async () => {
     const user = userEvent.setup()
@@ -203,7 +223,7 @@ describe('refusals and step-up', () => {
     await user.click(screen.getByRole('button', { name: 'Release' }))
     await user.click(screen.getAllByRole('button', { name: 'Release' })[0])
 
-    const alert = await screen.findByRole('alert')
+    const alert = await findRefusal()
 
     expect(alert.textContent).not.toMatch(/buyer@example\.test/u)
   })

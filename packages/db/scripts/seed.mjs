@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Idempotent development seed for Desi-Event.
+ * Idempotent development seed for The Desi Events.
  *
  * Running this twice must leave the database in exactly the same shape as
  * running it once, so every write is an `upsert` keyed on a natural unique
@@ -8,7 +8,7 @@
  * `Ticket.code`, `Payment[provider, providerRef]`, …). Models that have no
  * natural key — `Venue`, `TicketType`, `OrderItem`, `TicketHold`, `AuditLog` —
  * are keyed through {@link seedId}, which hashes a readable key such as
- * `seed-venue-nsci-dome` into a stable CUID-shaped id, so the same row is
+ * `seed-venue-lamplight-expo-hall` into a stable CUID-shaped id, so the same row is
  * targeted on every run and seeded rows are shaped like real ones. There are
  * no blind `create` calls.
  *
@@ -18,20 +18,45 @@
  * guarantees the counters we write are derived from the orders we write rather
  * than hand-maintained alongside them.
  *
+ * Three things are left exactly as a re-seed finds them, because rewriting them
+ * would be wrong rather than merely redundant:
+ *
+ *   - **A deleted event** (`status = 'DELETED'`), seeded or deleted by a
+ *     developer since, is left untouched with everything under it (SPEC2-XI
+ *     O17). Its row cannot be moved anywhere but back to its restore target
+ *     (`desi_event_deletion_moves`), and only the platform restores.
+ *   - **The waiting organiser invitation** and **the waiting picture** are
+ *     created once. A re-seed does not reissue the invitation's code or put a
+ *     picture somebody has since approved or rejected back in the queue.
+ *   - **Visit totals the roll-up has written** (`demonstration = false`) are
+ *     never overwritten with demonstration figures.
+ *   - **Booking-fee decisions, pay-at-the-venue switches, referral codes, door
+ *     payments and cancelled unpaid tickets** (SPEC3 §15.5, SPEC3-XI §15) are
+ *     created once. A fee decision and a cancellation are never edited (their
+ *     triggers refuse it), so a re-seed does not try; an event's own fee and
+ *     its switch are written only together with the decision row that sets
+ *     them, so a fee or switch a developer changed since is left as they left
+ *     it. A referral code is found again by its label and the administrator
+ *     who made it, and its text is made at write time from the generated
+ *     alphabet, never written in this repository, never printed, and never
+ *     made again for a code that exists: read it at `/admin/referral-codes`.
+ *
  * Usage:
  *   DATABASE_URL=postgresql://… node scripts/seed.mjs
  *
  * @module @desi-event/db/scripts/seed
  */
 
-import { createHash } from 'node:crypto'
+import { createHash, randomInt } from 'node:crypto'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import path from 'node:path'
+import { crc32, deflateSync } from 'node:zlib'
 
 import { config as loadDotenv } from 'dotenv'
-import { hashPasswordSync } from '@desi-event/auth'
+import { hashPasswordSync, issueToken } from '@desi-event/auth'
 
 import { createPrismaClient } from '../src/index.js'
+import { ROLLUP_STATE_ID } from '../src/traffic-rollup.js'
 
 /**
  * A deterministic guest-ownership digest for a seeded hold.
@@ -52,7 +77,7 @@ function seedGuestTokenHash(key) {
  * Derive a stable, CUID-shaped primary key from a human-readable seed key.
  *
  * Models without a natural unique column still need the same row targeted on
- * every run, which argues for hand-written keys like `seed-venue-nsci-dome`.
+ * every run, which argues for hand-written keys like `seed-venue-lamplight-expo-hall`.
  * But a literal like that is not the shape `@default(cuid())` produces, and
  * seeded rows that look different from real ones hide bugs: response
  * validation rejecting a seeded id is a failure nobody sees until the API is
@@ -62,7 +87,7 @@ function seedGuestTokenHash(key) {
  * run — while producing an identifier indistinguishable in shape from one
  * Prisma generates.
  *
- * @param {string} key Stable human-readable key, e.g. `seed-venue-nsci-dome`.
+ * @param {string} key Stable human-readable key, e.g. `seed-venue-lamplight-expo-hall`.
  * @returns {string} A deterministic 25-character CUID-shaped identifier.
  */
 function seedId(key) {
@@ -90,7 +115,7 @@ const DAY_MS = 24 * HOUR_MS
  * scrypt parameters for seeded password hashes.
  *
  * Deliberately far below what a deployment uses. The seed hashes one password
- * for fifteen accounts and guards nothing: at the real cost this would add a
+ * for every seeded account and guards nothing: at the real cost this would add a
  * second and a half of CPU and 32 MiB of working set to every run, for a
  * credential printed at the end of the same script.
  *
@@ -107,8 +132,26 @@ const SEED_PASSWORD = process.env.SEED_PASSWORD ?? 'DesiEvent!2026'
 const PLATFORM_FEE_BPS = 590
 const PLATFORM_FEE_FLAT_CENTS = 99
 
-/** Indian GST on ticketing, and Ontario HST for the Canadian organisation. */
-const TAX_BPS_BY_CURRENCY = { INR: 1800, CAD: 1300 }
+/**
+ * Tax on an order, by the country the venue is in — tax follows where the
+ * supply happens, not the currency it is priced in. Mirrors the `US` entry of
+ * `DEMO_TAX_POLICIES` in `@desi-event/pricing`: deliberately zero, because US
+ * sales tax on admissions varies by state, county and city and cannot be one
+ * national rate. A DEMO figure, not a tax determination.
+ */
+const TAX_BPS_BY_COUNTRY = { US: 0 }
+
+/** US Eastern: New Jersey, New York, Pennsylvania, Georgia. */
+const EASTERN = 'America/New_York'
+
+/** US Central: Texas, Illinois. */
+const CENTRAL = 'America/Chicago'
+
+/** US Pacific: California, Washington. */
+const PACIFIC = 'America/Los_Angeles'
+
+/** How long after an event starts a seeded check-in happens. */
+const CHECK_IN_AFTER_START_MINUTES = 20
 
 /** Order statuses that consume a promo code redemption. */
 const REDEEMING_STATUSES = new Set(['PAID', 'PENDING', 'REFUNDED'])
@@ -144,6 +187,81 @@ export function offset(anchor, days, hours = 0, minutes = 0) {
 }
 
 /**
+ * How far a zone's wall clock is ahead of UTC at an instant, in minutes.
+ *
+ * @param {Date} instant The moment to measure at.
+ * @param {string} timeZone An IANA zone name.
+ * @returns {number} Minutes to add to UTC to get local time; negative west of Greenwich.
+ */
+function zoneOffsetMinutes(instant, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(instant)
+  const read = (type) => Number(parts.find((part) => part.type === type)?.value)
+  const asIfUtc = Date.UTC(
+    read('year'),
+    read('month') - 1,
+    read('day'),
+    read('hour'),
+    read('minute'),
+    read('second'),
+  )
+
+  return Math.round((asIfUtc - instant.getTime()) / MINUTE_MS)
+}
+
+/**
+ * The instant a local wall-clock time happens, a whole number of days from
+ * the anchor, in an event's own zone.
+ *
+ * Why not a fixed UTC hour: a 7:30 PM Eastern start is 23:30 UTC in October
+ * and 00:30 UTC the next day in December, so a catalogue built on UTC hours
+ * drifts by an hour every time the clocks change. The calendar day is the
+ * anchor's UTC date plus `days`, which for an evening in the Americas is the
+ * local date too.
+ *
+ * @param {Date} anchor Midnight UTC, from {@link startOfUtcDay}.
+ * @param {number} days Days from the anchor; may be negative for past events.
+ * @param {string} timeZone IANA zone the wall-clock time is in.
+ * @param {number} hour Local hour, 0–23.
+ * @param {number} [minute] Local minute.
+ * @returns {Date} The UTC instant.
+ */
+export function localTime(anchor, days, timeZone, hour, minute = 0) {
+  const day = offset(anchor, days)
+  const wall = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hour, minute)
+  const firstGuess = new Date(wall - zoneOffsetMinutes(new Date(wall), timeZone) * MINUTE_MS)
+
+  // One correction: the first guess can land on the other side of a
+  // daylight-saving boundary, where the offset is an hour different.
+  return new Date(wall - zoneOffsetMinutes(firstGuess, timeZone) * MINUTE_MS)
+}
+
+/**
+ * The first day offset, at or after `days`, that falls on a given weekday.
+ *
+ * For the one event whose title names its day: "Peachtree Garba Saturday"
+ * has to be on a Saturday whichever day the seed runs.
+ *
+ * @param {Date} anchor Midnight UTC.
+ * @param {number} days Earliest offset in days.
+ * @param {number} weekday 0 for Sunday through 6 for Saturday.
+ * @returns {number} An offset between `days` and `days + 6`.
+ */
+export function onOrAfterWeekday(anchor, days, weekday) {
+  const from = offset(anchor, days).getUTCDay()
+
+  return days + ((weekday - from + 7) % 7)
+}
+
+/**
  * Apply a basis-point rate to an integer cent amount.
  *
  * Rounding rule: half-up on the exact product, so 10 000 cents at 590 bps is
@@ -174,30 +292,60 @@ export function applyBps(cents, bps) {
  */
 
 /**
+ * @typedef {object} SeedFeeTerms
+ * @property {number} percentageBps The booking fee's percentage, in basis points.
+ * @property {number} flatCentsPerTicket Its amount per ticket, in cents.
+ */
+
+/**
  * @typedef {object} SeedOrderTotals
  * @property {number} quantity Total tickets across all lines.
  * @property {number} subtotalCents Sum of line subtotals before discount.
  * @property {number} discountCents Discount applied, never above the subtotal.
- * @property {number} feesCents Platform fee on the discounted subtotal.
- * @property {number} taxCents Tax on discounted subtotal plus fees.
- * @property {number} totalCents Amount the buyer is charged.
+ * @property {number} feeGrossCents The booking fee the terms come to, on the discounted subtotal.
+ * @property {number} feeWaivedCents The part of it a referral code removed: all of it or none.
+ * @property {number} feesCents The booking fee charged: gross less waived.
+ * @property {number} taxCents Tax charged online.
+ * @property {number} totalCents Amount the buyer pays online.
+ * @property {number} venueDueCents Ticket price to be paid at the door; 0 on a card order.
  */
+
+/** The site default's terms in US dollars, as the pricing contract states them. */
+const SITE_DEFAULT_FEE_TERMS = Object.freeze({
+  percentageBps: PLATFORM_FEE_BPS,
+  flatCentsPerTicket: PLATFORM_FEE_FLAT_CENTS,
+})
 
 /**
  * Compute order money columns from its lines, mirroring `@desi-event/pricing`.
  *
  * Fees are charged on the discounted subtotal (a discount reduces what the
- * platform earns, which is what the pricing contract specifies), and tax is
- * charged on the discounted subtotal plus fees.
+ * platform earns, which is what the pricing contract specifies), with the
+ * event's own terms when it has them (SPEC3 §6.1). A referral code removes the
+ * whole booking fee and any tax on it, and nothing else. A card order pays
+ * everything online, with tax on the discounted subtotal plus the fee charged.
+ * An order paid at the venue pays only its booking fee online and carries no
+ * tax, on the ticket price or on that fee (R1 and open question 9); the
+ * discounted ticket price is what is due at the door.
  *
  * @param {object} input Order inputs.
  * @param {SeedOrderLine[]} input.lines Lines on the order; must be non-empty.
  * @param {SeedPromo|null} [input.promo] Promo code applied, if any.
  * @param {number} input.taxBps Tax rate in basis points.
+ * @param {SeedFeeTerms} [input.fee] The booking fee's terms; the site default if left out.
+ * @param {'CARD'|'AT_VENUE'} [input.paymentMethod] How the ticket price is paid.
+ * @param {boolean} [input.waived] Whether a referral code removes the booking fee.
  * @returns {SeedOrderTotals} Integer-cent totals for the order.
  * @throws {Error} If the order has no lines.
  */
-export function computeSeedOrderTotals({ lines, promo = null, taxBps }) {
+export function computeSeedOrderTotals({
+  lines,
+  promo = null,
+  taxBps,
+  fee = SITE_DEFAULT_FEE_TERMS,
+  paymentMethod = 'CARD',
+  waived = false,
+}) {
   if (!lines || lines.length === 0) {
     throw new Error('An order needs at least one line')
   }
@@ -212,1043 +360,2179 @@ export function computeSeedOrderTotals({ lines, promo = null, taxBps }) {
   }
 
   const discountedCents = subtotalCents - discountCents
-  const feesCents = applyBps(discountedCents, PLATFORM_FEE_BPS) + PLATFORM_FEE_FLAT_CENTS * quantity
+  const feeGrossCents =
+    applyBps(discountedCents, fee.percentageBps) + fee.flatCentsPerTicket * quantity
+  const feeWaivedCents = waived ? feeGrossCents : 0
+  const feesCents = feeGrossCents - feeWaivedCents
+
+  if (paymentMethod === 'AT_VENUE') {
+    return {
+      quantity,
+      subtotalCents,
+      discountCents,
+      feeGrossCents,
+      feeWaivedCents,
+      feesCents,
+      taxCents: 0,
+      totalCents: feesCents,
+      venueDueCents: discountedCents,
+    }
+  }
+
   const taxCents = applyBps(discountedCents + feesCents, taxBps)
   const totalCents = discountedCents + feesCents + taxCents
 
-  return { quantity, subtotalCents, discountCents, feesCents, taxCents, totalCents }
+  return {
+    quantity,
+    subtotalCents,
+    discountCents,
+    feeGrossCents,
+    feeWaivedCents,
+    feesCents,
+    taxCents,
+    totalCents,
+    venueDueCents: 0,
+  }
+}
+
+/** The alphabet generated referral codes use: no 0, O, 1, I or L (SPEC3 DR3). */
+export const REFERRAL_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+
+/**
+ * A referral code's text, made the way `referralCodes.create` generates one:
+ * `XXXXX-XXXXX` from {@link REFERRAL_CODE_ALPHABET}, each letter drawn with
+ * `crypto.randomInt`. Called only when a code is written for the first time,
+ * so no text is ever written in this repository, printed, or made twice.
+ *
+ * @param {function(number): number} [draw] A uniform draw in `[0, max)` for a given `max`.
+ * @returns {string} The code, upper case.
+ */
+export function generateSeedReferralCode(draw = randomInt) {
+  const half = () =>
+    Array.from(
+      { length: 5 },
+      () => REFERRAL_CODE_ALPHABET[draw(REFERRAL_CODE_ALPHABET.length)],
+    ).join('')
+
+  return `${half()}-${half()}`
+}
+
+/**
+ * The booking fee The Desi Events keeps for unpaid tickets cancelled from a
+ * booking, as `keptShareOf` in `apps/api/src/lib/venue-bookings.js` works it
+ * out for a booking's first cancellation: the fee charged, apportioned by the
+ * door price, floored.
+ *
+ * @param {object} input The booking.
+ * @param {number} input.feesCents The booking fee charged.
+ * @param {number} input.venueDueCents What the whole booking owed at the door.
+ * @param {number} input.basisCents What the cancelled tickets owed.
+ * @returns {number} The fee kept, in cents.
+ */
+export function seedFeeKeptCents({ feesCents, venueDueCents, basisCents }) {
+  if (venueDueCents <= 0 || feesCents <= 0 || basisCents <= 0) return 0
+
+  return Math.min(feesCents, Math.floor((feesCents * basisCents) / venueDueCents))
+}
+
+/**
+ * One PNG chunk: its length, type, data and the checksum over type and data.
+ *
+ * @param {string} type The four-letter chunk type.
+ * @param {Buffer} data The chunk's data.
+ * @returns {Buffer} The chunk.
+ */
+function pngChunk(type, data) {
+  const length = Buffer.alloc(4)
+  const typed = Buffer.concat([Buffer.from(type, 'latin1'), data])
+  const checksum = Buffer.alloc(4)
+
+  length.writeUInt32BE(data.length)
+  checksum.writeUInt32BE(crc32(typed) >>> 0)
+
+  return Buffer.concat([length, typed, checksum])
+}
+
+/**
+ * A PNG of one colour: eight-bit RGB, no interlacing, and nothing but its
+ * header, its pixels and its end — no text, time or location chunk.
+ *
+ * The seeded picture is written straight into the store, as the upload
+ * pipeline would leave it after rebuilding a picture from its pixels. Building
+ * it here, byte by byte, keeps a binary file out of the repository and makes
+ * what it holds plain from its description.
+ *
+ * @param {number} width Pixels across.
+ * @param {number} height Pixels down.
+ * @param {Array<number>} rgb The colour, as red, green and blue from 0 to 255.
+ * @returns {Buffer} The file.
+ */
+export function solidSeedPng(width, height, rgb) {
+  const header = Buffer.alloc(13)
+
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header[8] = 8 // bit depth
+  header[9] = 2 // colour type: RGB
+  header[10] = 0 // compression
+  header[11] = 0 // filter
+  header[12] = 0 // no interlace
+
+  // Each row is a filter byte (0, none) and then its pixels.
+  const row = Buffer.alloc(1 + width * 3)
+
+  for (let x = 0; x < width; x += 1) row.set(rgb, 1 + x * 3)
+
+  const pixels = Buffer.concat(Array.from({ length: height }, () => row))
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(pixels)),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+/**
+ * A stable storage key in the shape the media store issues (`pg/` and a
+ * UUID), derived from a readable seed key so every run names the same bytes.
+ *
+ * @param {string} key Stable human-readable key.
+ * @returns {string} `pg/xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx`.
+ */
+export function seedStorageKey(key) {
+  const hex = createHash('sha256').update(key).digest('hex')
+
+  return `pg/${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+/**
+ * The visit totals one demonstration day shows for one event.
+ *
+ * Arithmetic only, so the figures are the same on every run for the same day
+ * and event, and they keep every rule the database checks on `TrafficDaily`:
+ * page views split exactly into their five sources, card clicks into their
+ * three places, visitors and views without a code within the views, and the
+ * visitor counts within the clicks and visits they were made from. Interest
+ * rises towards the event, with a small swell every few days.
+ *
+ * @param {object} options Options.
+ * @param {number} options.index How many days into the fortnight, 0 to 13.
+ * @param {number} options.eventIndex Which of the demonstration events, from 0.
+ * @param {boolean} options.seated Whether the event sells seats from a plan.
+ * @param {boolean} options.websiteOn Whether its website link is switched on.
+ * @returns {object} The count columns of one `TrafficDaily` row.
+ */
+export function demonstrationTrafficDay({ index, eventIndex, seated, websiteOn }) {
+  const views = 40 + eventIndex * 25 + index * 6 + ((index * 7 + eventIndex * 3) % 11)
+  const anonymousViews = Math.floor(views / 12)
+  const visitors = Math.floor(((views - anonymousViews) * 62) / 100)
+  const viewsInternal = Math.floor((views * 40) / 100)
+  const viewsSearch = Math.floor((views * 20) / 100)
+  const viewsSocial = Math.floor((views * 15) / 100)
+  const viewsOther = Math.floor((views * 5) / 100)
+  const viewsDirect = views - viewsInternal - viewsSearch - viewsSocial - viewsOther
+  const cardClicksHome = Math.floor((views * 12) / 100)
+  const cardClicksListing = Math.floor((views * 20) / 100)
+  const cardClicksSearch = Math.floor((views * 8) / 100)
+  const ticketClicks = Math.floor((visitors * 30) / 100)
+  const seatClicks = seated ? Math.floor((visitors * 10) / 100) : 0
+  const websiteRedirects = websiteOn ? Math.max(1, Math.floor((visitors * 5) / 100)) : 0
+
+  return {
+    views,
+    visitors,
+    anonymousViews,
+    viewsDirect,
+    viewsInternal,
+    viewsSearch,
+    viewsSocial,
+    viewsOther,
+    cardClicks: cardClicksHome + cardClicksListing + cardClicksSearch,
+    cardClicksHome,
+    cardClicksListing,
+    cardClicksSearch,
+    ticketClicks,
+    seatClicks,
+    ticketClickVisitors: Math.floor(((ticketClicks + seatClicks) * 80) / 100),
+    websiteRedirects,
+    websiteRedirectVisitors: websiteOn ? Math.max(1, Math.floor((websiteRedirects * 90) / 100)) : 0,
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Static dataset
 // ---------------------------------------------------------------------------
 
-/** Users: one platform admin, two organisation owners, staff and attendees. */
+/**
+ * Users: one super administrator, one platform administrator and one
+ * moderator, the owners and staff of eleven organisations, and attendees.
+ *
+ * No account is seeded with a second factor. The three platform accounts and
+ * every organiser with a privileged membership (owner, administrator, manager)
+ * must have one, so the API makes each of them set up two-step sign-in the
+ * first time they sign in, before any privileged page answers — a second
+ * factor sealed into a seed would be a shared secret printed in the
+ * repository.
+ */
 const USERS = [
   {
     key: 'admin',
-    email: 'admin@desi-event.com',
-    displayName: 'Desi-Event Platform Admin',
+    email: 'admin@desi-event.example',
+    displayName: 'The Desi Events Platform Admin',
     role: 'SUPER_ADMIN',
-    locale: 'en-IN',
-    phone: '+91 22 6100 4000',
+    locale: 'en-US',
+    phone: '+1 201 555 0100',
     emailVerified: true,
   },
+  // The platform administrator (ADMIN): invites organisers, reviews events,
+  // pictures and organisations, and switches event website links. Belongs to no
+  // organisation, and enrols a second factor at first sign-in.
   {
-    key: 'priya',
-    email: 'priya.deshmukh@rangmanchlive.in',
-    displayName: 'Priya Deshmukh',
-    role: 'ORGANIZER',
-    locale: 'en-IN',
-    phone: '+91 98200 11224',
-    emailVerified: true,
-  },
-  {
-    key: 'arjun',
-    email: 'arjun.rao@rangmanchlive.in',
-    displayName: 'Arjun Rao',
-    role: 'ORGANIZER',
-    locale: 'en-IN',
-    phone: '+91 98200 55831',
-    emailVerified: true,
-  },
-  {
-    key: 'meera',
-    email: 'meera.iyer@rangmanchlive.in',
-    displayName: 'Meera Iyer',
-    role: 'ORGANIZER',
-    locale: 'ta-IN',
-    phone: '+91 98670 23417',
-    emailVerified: true,
-  },
-  {
-    key: 'kabir',
-    email: 'kabir.shaikh@rangmanchlive.in',
-    displayName: 'Kabir Shaikh',
-    role: 'ORGANIZER',
-    locale: 'hi-IN',
-    phone: '+91 99303 77120',
-    emailVerified: false,
-  },
-  {
-    key: 'harjit',
-    email: 'harjit.gill@torontodesisociety.ca',
-    displayName: 'Harjit Gill',
-    role: 'ORGANIZER',
-    locale: 'en-CA',
-    phone: '+1 416 555 0142',
-    emailVerified: true,
-  },
-  {
-    key: 'nisha',
-    email: 'nisha.patel@torontodesisociety.ca',
-    displayName: 'Nisha Patel',
-    role: 'ORGANIZER',
-    locale: 'en-CA',
-    phone: '+1 647 555 0188',
-    emailVerified: true,
-  },
-  {
-    key: 'devang',
-    email: 'devang.sharma@torontodesisociety.ca',
-    displayName: 'Devang Sharma',
-    role: 'ORGANIZER',
-    locale: 'en-CA',
-    phone: '+1 905 555 0119',
-    emailVerified: true,
-  },
-  {
-    key: 'accounts',
-    email: 'accounts@torontodesisociety.ca',
-    displayName: 'TDCS Accounts',
-    role: 'ORGANIZER',
-    locale: 'en-CA',
+    key: 'platformAdmin',
+    email: 'platform-admin@desi-event.example',
+    displayName: 'The Desi Events Platform Administrator',
+    role: 'ADMIN',
+    locale: 'en-US',
     phone: null,
     emailVerified: true,
   },
+  // The verification queue and event reviews: moderation, and nothing else.
   {
-    key: 'aarav',
-    email: 'aarav.mehta@example.com',
-    displayName: 'Aarav Mehta',
-    role: 'ATTENDEE',
-    locale: 'en-IN',
-    phone: '+91 98195 44012',
+    key: 'moderator',
+    email: 'moderator@desi-event.example',
+    displayName: 'The Desi Events Moderator',
+    role: 'MODERATOR',
+    locale: 'en-US',
+    phone: null,
     emailVerified: true,
   },
+  // Mirrorwork Events, staffed on every role but VIEWER.
   {
-    key: 'diya',
-    email: 'diya.kapoor@example.com',
-    displayName: 'Diya Kapoor',
-    role: 'ATTENDEE',
-    locale: 'hi-IN',
-    phone: '+91 97020 31558',
-    emailVerified: true,
-  },
-  {
-    key: 'sneha',
-    email: 'sneha.reddy@example.com',
-    displayName: 'Sneha Reddy',
-    role: 'ATTENDEE',
-    locale: 'en-IN',
-    phone: '+91 91760 22903',
-    emailVerified: true,
-  },
-  {
-    key: 'vikram',
-    email: 'vikram.bose@example.com',
-    displayName: 'Vikram Bose',
-    role: 'ATTENDEE',
-    locale: 'en-IN',
-    phone: '+91 90040 76611',
+    key: 'nisha',
+    email: 'nisha.patel@mirrorwork.example',
+    displayName: 'Nisha Patel',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 732 555 0111',
     emailVerified: true,
   },
   {
     key: 'rohan',
-    email: 'rohan.singh@example.ca',
-    displayName: 'Rohan Singh',
-    role: 'ATTENDEE',
-    locale: 'en-CA',
-    phone: '+1 416 555 0173',
+    email: 'rohan.mehta@mirrorwork.example',
+    displayName: 'Rohan Mehta',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 732 555 0112',
     emailVerified: true,
   },
   {
-    key: 'ananya',
-    email: 'ananya.nair@example.ca',
-    displayName: 'Ananya Nair',
+    key: 'kavya',
+    email: 'kavya.shah@mirrorwork.example',
+    displayName: 'Kavya Shah',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 732 555 0113',
+    emailVerified: true,
+  },
+  {
+    key: 'dev',
+    email: 'dev.trivedi@mirrorwork.example',
+    displayName: 'Dev Trivedi',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 732 555 0114',
+    emailVerified: false,
+  },
+  // Chaniya Collective, staffed on every role but ADMIN — the two together
+  // cover every OrgRole.
+  {
+    key: 'anjali',
+    email: 'anjali.desai@chaniya.example',
+    displayName: 'Anjali Desai',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 713 555 0121',
+    emailVerified: true,
+  },
+  {
+    key: 'hetal',
+    email: 'hetal.joshi@chaniya.example',
+    displayName: 'Hetal Joshi',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 713 555 0122',
+    emailVerified: true,
+  },
+  {
+    key: 'jay',
+    email: 'jay.mistry@chaniya.example',
+    displayName: 'Jay Mistry',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 713 555 0123',
+    emailVerified: true,
+  },
+  {
+    key: 'accounts',
+    email: 'accounts@chaniya.example',
+    displayName: 'Chaniya Collective Accounts',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: null,
+    emailVerified: true,
+  },
+  // One owner for each of the other eight organisations.
+  {
+    key: 'priti',
+    email: 'priti.amin@lakeshore.example',
+    displayName: 'Priti Amin',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 847 555 0131',
+    emailVerified: true,
+  },
+  {
+    key: 'sameer',
+    email: 'sameer.bhatt@baylightsgarba.example',
+    displayName: 'Sameer Bhatt',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 408 555 0132',
+    emailVerified: true,
+  },
+  {
+    key: 'meera',
+    email: 'meera.pandya@peachtreeraas.example',
+    displayName: 'Meera Pandya',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 404 555 0133',
+    emailVerified: true,
+  },
+  {
+    key: 'kiran',
+    email: 'kiran.doshi@libertybell.example',
+    displayName: 'Kiran Doshi',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 215 555 0134',
+    emailVerified: true,
+  },
+  {
+    key: 'arjun',
+    email: 'arjun.nair@rainierraas.example',
+    displayName: 'Arjun Nair',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 425 555 0135',
+    emailVerified: true,
+  },
+  {
+    key: 'tara',
+    email: 'tara.kapadia@pacificdandiya.example',
+    displayName: 'Tara Kapadia',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 562 555 0136',
+    emailVerified: true,
+  },
+  {
+    key: 'vikram',
+    email: 'vikram.kothari@fiveboroughsgarba.example',
+    displayName: 'Vikram Kothari',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 718 555 0137',
+    emailVerified: true,
+  },
+  {
+    key: 'riya',
+    email: 'riya.thakkar@lonestarnavratri.example',
+    displayName: 'Riya Thakkar',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 972 555 0138',
+    emailVerified: true,
+  },
+  // Created Garden State Dandiya Club from the site and asked for it to be
+  // verified; it is waiting in the moderators' queue.
+  {
+    key: 'hemant',
+    email: 'hemant.parikh@gardenstatedandiya.example',
+    displayName: 'Hemant Parikh',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 732 555 0139',
+    emailVerified: true,
+  },
+  // Attendees.
+  {
+    key: 'aarav',
+    email: 'aarav.shah@mail.example',
+    displayName: 'Aarav Shah',
     role: 'ATTENDEE',
-    locale: 'en-CA',
-    phone: '+1 647 555 0126',
+    locale: 'en-US',
+    phone: '+1 201 555 0141',
+    emailVerified: true,
+  },
+  {
+    key: 'diya',
+    email: 'diya.patel@mail.example',
+    displayName: 'Diya Patel',
+    role: 'ATTENDEE',
+    locale: 'en-US',
+    phone: '+1 408 555 0142',
+    emailVerified: true,
+  },
+  {
+    key: 'sneha',
+    email: 'sneha.reddy@mail.example',
+    displayName: 'Sneha Reddy',
+    role: 'ATTENDEE',
+    locale: 'en-US',
+    phone: '+1 650 555 0143',
+    emailVerified: true,
+  },
+  {
+    key: 'karan',
+    email: 'karan.vora@mail.example',
+    displayName: 'Karan Vora',
+    role: 'ATTENDEE',
+    locale: 'en-US',
+    phone: '+1 404 555 0144',
+    emailVerified: true,
+  },
+  {
+    key: 'ishaan',
+    email: 'ishaan.gupta@mail.example',
+    displayName: 'Ishaan Gupta',
+    role: 'ATTENDEE',
+    locale: 'en-US',
+    phone: '+1 718 555 0145',
+    emailVerified: true,
+  },
+  {
+    key: 'maya',
+    email: 'maya.chokshi@mail.example',
+    displayName: 'Maya Chokshi',
+    role: 'ATTENDEE',
+    locale: 'en-US',
+    phone: '+1 281 555 0146',
     emailVerified: false,
   },
 ]
 
-/** The two seeded organisations and their staff, covering every OrgRole. */
+/** Refund wording several organisers share. */
+const STANDARD_REFUNDS =
+  'Full refund up to seven days before the event. After that, tickets cannot be refunded but may be transferred to someone else.'
+
+/**
+ * The ten organisations of the USA catalogue, and one more waiting to be
+ * verified. All invented, all on `.example` domains, all paid out in US
+ * dollars. Mirrorwork Events and Chaniya Collective carry full teams so that
+ * every OrgRole is exercised; the rest have an owner each. Liberty Bell
+ * Navratri is deliberately unverified, so the public pages have an organiser
+ * without a badge to show honestly.
+ *
+ * Garden State Dandiya Club is the eleventh: created from the site by its
+ * owner, who then asked for it to be verified, so the moderators' queue has
+ * something in it. It has no events — until it is verified it could not
+ * publish one — and the web catalogue, which shows published events, has no
+ * copy of it.
+ */
 const ORGANIZATIONS = [
   {
-    key: 'rangmanch',
-    id: seedId('seed-org-rangmanch-live'),
-    slug: 'rangmanch-live',
-    name: 'Rangmanch Live',
+    key: 'mirrorwork',
+    id: seedId('seed-org-mirrorwork-events'),
+    slug: 'mirrorwork-events',
+    name: 'Mirrorwork Events',
     description:
-      'Mumbai concert promoter producing Sufi, Bollywood and indie live music across Maharashtra since 2011.',
-    contactEmail: 'box.office@rangmanchlive.in',
-    websiteUrl: 'https://rangmanchlive.in',
-    verified: true,
-    payoutCurrency: 'INR',
+      'Navratri nights, beginner garba classes and live-band concerts in central New Jersey.',
+    contactEmail: 'hello@mirrorwork.example',
+    websiteUrl: 'https://mirrorwork.example',
+    verificationStatus: 'VERIFIED',
+    timezone: EASTERN,
+    refundPolicy: STANDARD_REFUNDS,
     members: [
-      { userKey: 'priya', role: 'OWNER' },
-      { userKey: 'arjun', role: 'ADMIN' },
-      { userKey: 'meera', role: 'MANAGER' },
-      { userKey: 'kabir', role: 'STAFF' },
+      { userKey: 'nisha', role: 'OWNER' },
+      { userKey: 'rohan', role: 'ADMIN' },
+      { userKey: 'kavya', role: 'MANAGER' },
+      { userKey: 'dev', role: 'STAFF' },
     ],
   },
   {
-    key: 'tdcs',
-    id: seedId('seed-org-toronto-desi-society'),
-    slug: 'toronto-desi-cultural-society',
-    name: 'Toronto Desi Cultural Society',
+    key: 'chaniya',
+    id: seedId('seed-org-chaniya-collective'),
+    slug: 'chaniya-collective',
+    name: 'Chaniya Collective',
     description:
-      'Not-for-profit society in the Greater Toronto Area running Diwali melas, Punjabi folk nights and diaspora arts programming.',
-    contactEmail: 'hello@torontodesisociety.ca',
-    websiteUrl: 'https://torontodesisociety.ca',
-    verified: true,
-    payoutCurrency: 'CAD',
+      'Houston dancers and volunteers running dandiya nights and free children’s classes.',
+    contactEmail: 'team@chaniya.example',
+    websiteUrl: 'https://chaniya.example',
+    verificationStatus: 'VERIFIED',
+    timezone: CENTRAL,
+    refundPolicy:
+      'Refunds up to 72 hours before doors open. After that, tickets can be transferred but not refunded.',
     members: [
-      { userKey: 'harjit', role: 'OWNER' },
-      { userKey: 'nisha', role: 'MANAGER' },
-      { userKey: 'devang', role: 'STAFF' },
+      { userKey: 'anjali', role: 'OWNER' },
+      { userKey: 'hetal', role: 'MANAGER' },
+      { userKey: 'jay', role: 'STAFF' },
       { userKey: 'accounts', role: 'VIEWER' },
     ],
   },
+  {
+    key: 'lakeshore',
+    id: seedId('seed-org-lakeshore-raas'),
+    slug: 'lakeshore-raas',
+    name: 'Lakeshore Raas',
+    description: 'Navratri garba and raas in the northwest suburbs of Chicago.',
+    contactEmail: 'raas@lakeshore.example',
+    websiteUrl: 'https://lakeshore.example',
+    verificationStatus: 'VERIFIED',
+    timezone: CENTRAL,
+    refundPolicy: STANDARD_REFUNDS,
+    members: [{ userKey: 'priti', role: 'OWNER' }],
+  },
+  {
+    key: 'bay-lights',
+    id: seedId('seed-org-bay-lights-garba-co'),
+    slug: 'bay-lights-garba-co',
+    name: 'Bay Lights Garba Co.',
+    description: 'Garba and dandiya nights in the South Bay, with live bands every night.',
+    contactEmail: 'tickets@baylightsgarba.example',
+    websiteUrl: 'https://baylightsgarba.example',
+    verificationStatus: 'VERIFIED',
+    timezone: PACIFIC,
+    refundPolicy:
+      'Full refund up to fourteen days before the event, half the face value up to seven days before, and transfers at any time.',
+    members: [{ userKey: 'sameer', role: 'OWNER' }],
+  },
+  {
+    key: 'peachtree',
+    id: seedId('seed-org-peachtree-raas-club'),
+    slug: 'peachtree-raas-club',
+    name: 'Peachtree Raas Club',
+    description: 'A volunteer-run garba club in Atlanta, with family-friendly Navratri nights.',
+    contactEmail: 'club@peachtreeraas.example',
+    websiteUrl: 'https://peachtreeraas.example',
+    verificationStatus: 'VERIFIED',
+    timezone: EASTERN,
+    refundPolicy: STANDARD_REFUNDS,
+    members: [{ userKey: 'meera', role: 'OWNER' }],
+  },
+  {
+    key: 'liberty-bell',
+    id: seedId('seed-org-liberty-bell-navratri'),
+    slug: 'liberty-bell-navratri',
+    name: 'Liberty Bell Navratri',
+    description: 'Community evenings of aarti and garba in Philadelphia.',
+    contactEmail: 'navratri@libertybell.example',
+    websiteUrl: 'https://libertybell.example',
+    verificationStatus: 'UNVERIFIED',
+    timezone: EASTERN,
+    refundPolicy:
+      'Refunds up to 48 hours before the event. If an event is postponed, tickets stay valid for the new date or can be refunded in full.',
+    members: [{ userKey: 'kiran', role: 'OWNER' }],
+  },
+  {
+    key: 'rainier',
+    id: seedId('seed-org-rainier-raas'),
+    slug: 'rainier-raas',
+    name: 'Rainier Raas',
+    description: 'Family garba evenings on the Eastside of Seattle.',
+    contactEmail: 'hello@rainierraas.example',
+    websiteUrl: 'https://rainierraas.example',
+    verificationStatus: 'VERIFIED',
+    timezone: PACIFIC,
+    refundPolicy: STANDARD_REFUNDS,
+    members: [{ userKey: 'arjun', role: 'OWNER' }],
+  },
+  {
+    key: 'pacific',
+    id: seedId('seed-org-pacific-dandiya-society'),
+    slug: 'pacific-dandiya-society',
+    name: 'Pacific Dandiya Society',
+    description: 'Dandiya raas nights in Southern California, always to a live band.',
+    contactEmail: 'society@pacificdandiya.example',
+    websiteUrl: 'https://pacificdandiya.example',
+    verificationStatus: 'VERIFIED',
+    timezone: PACIFIC,
+    refundPolicy:
+      'Refunds up to ten days before the event. VIP Lounge tickets can be exchanged for general admission at any time.',
+    members: [{ userKey: 'tara', role: 'OWNER' }],
+  },
+  {
+    key: 'five-boroughs',
+    id: seedId('seed-org-five-boroughs-garba'),
+    slug: 'five-boroughs-garba',
+    name: 'Five Boroughs Garba',
+    description: 'Garba across New York City, from mela evenings to an all-night marathon.',
+    contactEmail: 'info@fiveboroughsgarba.example',
+    websiteUrl: 'https://fiveboroughsgarba.example',
+    verificationStatus: 'VERIFIED',
+    timezone: EASTERN,
+    refundPolicy: STANDARD_REFUNDS,
+    members: [{ userKey: 'vikram', role: 'OWNER' }],
+  },
+  {
+    key: 'lone-star',
+    id: seedId('seed-org-lone-star-navratri'),
+    slug: 'lone-star-navratri',
+    name: 'Lone Star Navratri',
+    description: 'Navratri, Sharad Poonam and student showcase nights in Dallas–Fort Worth.',
+    contactEmail: 'contact@lonestarnavratri.example',
+    websiteUrl: 'https://lonestarnavratri.example',
+    verificationStatus: 'VERIFIED',
+    timezone: CENTRAL,
+    refundPolicy:
+      'Full refund up to five days before the event. If an event is cancelled, every ticket is refunded in full.',
+    members: [{ userKey: 'riya', role: 'OWNER' }],
+  },
+  {
+    key: 'garden-state',
+    id: seedId('seed-org-garden-state-dandiya-club'),
+    slug: 'garden-state-dandiya-club',
+    name: 'Garden State Dandiya Club',
+    description: 'A volunteer-run dandiya club planning Navratri nights in New Brunswick.',
+    contactEmail: 'hello@gardenstatedandiya.example',
+    websiteUrl: 'https://gardenstatedandiya.example',
+    verificationStatus: 'PENDING',
+    timezone: EASTERN,
+    refundPolicy: STANDARD_REFUNDS,
+    members: [{ userKey: 'hemant', role: 'OWNER' }],
+    // Made from the site, so it records who made it, and what they wrote when
+    // they asked for the check.
+    createdByKey: 'hemant',
+    legalName: 'Garden State Dandiya Club Inc.',
+    verificationRequest: {
+      submittedDays: -2,
+      note: 'We are a volunteer club in New Brunswick, New Jersey, and run two dandiya nights each Navratri. Our website lists the committee.',
+    },
+  },
 ]
-
-/** Venues across Indian host cities and the North American diaspora. */
-const VENUES = [
-  {
-    key: 'nsci',
-    id: seedId('seed-venue-nsci-dome'),
-    name: 'NSCI Dome',
-    addressLine1: 'Lala Lajpatrai Marg, Worli',
-    addressLine2: 'National Sports Club of India',
-    city: 'Mumbai',
-    region: 'Maharashtra',
-    postalCode: '400018',
-    country: 'IN',
-    latitude: 18.9906,
-    longitude: 72.8177,
-    capacity: 8000,
-  },
-  {
-    key: 'jio-garden',
-    id: seedId('seed-venue-jio-world-garden'),
-    name: 'Jio World Garden',
-    addressLine1: 'G Block Road, Bandra Kurla Complex',
-    addressLine2: 'Bandra East',
-    city: 'Mumbai',
-    region: 'Maharashtra',
-    postalCode: '400051',
-    country: 'IN',
-    latitude: 19.064,
-    longitude: 72.8686,
-    capacity: 12000,
-  },
-  {
-    key: 'shanmukhananda',
-    id: seedId('seed-venue-shanmukhananda-hall'),
-    name: 'Shanmukhananda Fine Arts & Sangeetha Sabha',
-    addressLine1: '292, Comrade Harbanslal Marg, Sion East',
-    addressLine2: null,
-    city: 'Mumbai',
-    region: 'Maharashtra',
-    postalCode: '400022',
-    country: 'IN',
-    latitude: 19.0402,
-    longitude: 72.8617,
-    capacity: 2765,
-  },
-  {
-    key: 'gucec',
-    id: seedId('seed-venue-gu-convention-centre'),
-    name: 'Gujarat University Convention & Exhibition Centre',
-    addressLine1: 'Gujarat University Campus, Navrangpura',
-    addressLine2: 'Opposite Ahmedabad Management Association',
-    city: 'Ahmedabad',
-    region: 'Gujarat',
-    postalCode: '380009',
-    country: 'IN',
-    latitude: 23.0365,
-    longitude: 72.546,
-    capacity: 5000,
-  },
-  {
-    key: 'meridian',
-    id: seedId('seed-venue-meridian-hall'),
-    name: 'Meridian Hall',
-    addressLine1: '1 Front Street East',
-    addressLine2: null,
-    city: 'Toronto',
-    region: 'Ontario',
-    postalCode: 'M5E 1B2',
-    country: 'CA',
-    latitude: 43.6465,
-    longitude: -79.376,
-    capacity: 3191,
-  },
-  {
-    key: 'sangam',
-    id: seedId('seed-venue-sangam-banquet'),
-    name: 'Sangam Banquet & Convention Centre',
-    addressLine1: '6991 Millcreek Drive, Unit 2',
-    addressLine2: 'Meadowvale Business Park',
-    city: 'Mississauga',
-    region: 'Ontario',
-    postalCode: 'L5N 6B9',
-    country: 'CA',
-    latitude: 43.6108,
-    longitude: -79.718,
-    capacity: 1200,
-  },
-]
-
-const IST = 'Asia/Kolkata'
-const TORONTO = 'America/Toronto'
 
 /**
- * Events with their ticket types. `days` is an offset in whole days from
- * midnight UTC today, so the mix of past and future events stays correct
- * however long the repository sits unused. Times are UTC instants chosen to
- * land on a sensible local evening in the event's own `timezone`.
+ * Venues in eleven US cities. The cities are real; the buildings, the street
+ * addresses and their names are invented, which is why no venue carries
+ * coordinates — a latitude for an invented building would be published in the
+ * venue page's structured data as a claim about a real place.
+ */
+const VENUES = [
+  {
+    key: 'lamplight',
+    slug: 'lamplight-expo-hall',
+    id: seedId('seed-venue-lamplight-expo-hall'),
+    name: 'Lamplight Expo Hall',
+    addressLine1: '450 Festival Plaza',
+    city: 'Edison',
+    region: 'NJ',
+    postalCode: '08837',
+    capacity: 5000,
+    timezone: EASTERN,
+    accessibility: [
+      'STEP_FREE_ENTRANCE',
+      'ACCESSIBLE_TOILET',
+      'ACCESSIBLE_PARKING',
+      'WHEELCHAIR_SPACES',
+    ],
+  },
+  {
+    key: 'hudson',
+    slug: 'hudson-riverside-pavilion',
+    id: seedId('seed-venue-hudson-riverside-pavilion'),
+    name: 'Hudson Riverside Pavilion',
+    addressLine1: '12 Harborview Walk',
+    city: 'Jersey City',
+    region: 'NJ',
+    postalCode: '07310',
+    capacity: 900,
+    timezone: EASTERN,
+    accessibility: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'LIFT_ACCESS'],
+  },
+  {
+    key: 'lantern-row',
+    slug: 'lantern-row-event-hall',
+    id: seedId('seed-venue-lantern-row-event-hall'),
+    name: 'Lantern Row Event Hall',
+    addressLine1: '8800 Lantern Row',
+    city: 'Houston',
+    region: 'TX',
+    postalCode: '77036',
+    capacity: 4000,
+    timezone: CENTRAL,
+    accessibility: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'ACCESSIBLE_PARKING'],
+  },
+  {
+    key: 'trinity',
+    slug: 'trinity-convention-hall',
+    id: seedId('seed-venue-trinity-convention-hall'),
+    name: 'Trinity Convention Hall',
+    addressLine1: '2100 Garland Commons',
+    city: 'Irving',
+    region: 'TX',
+    postalCode: '75038',
+    capacity: 3500,
+    timezone: CENTRAL,
+    accessibility: [
+      'STEP_FREE_ENTRANCE',
+      'ACCESSIBLE_TOILET',
+      'WHEELCHAIR_SPACES',
+      'ACCESSIBLE_PARKING',
+    ],
+  },
+  {
+    key: 'lakeshore',
+    slug: 'lakeshore-pavilion',
+    id: seedId('seed-venue-lakeshore-pavilion'),
+    name: 'Lakeshore Pavilion',
+    addressLine1: '1500 Meadow Circle',
+    city: 'Schaumburg',
+    region: 'IL',
+    postalCode: '60173',
+    capacity: 3000,
+    timezone: CENTRAL,
+    accessibility: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'],
+  },
+  {
+    key: 'santa-clara',
+    slug: 'santa-clara-valley-expo',
+    id: seedId('seed-venue-santa-clara-valley-expo'),
+    name: 'Santa Clara Valley Expo',
+    addressLine1: '300 Orchard Commons',
+    city: 'Santa Clara',
+    region: 'CA',
+    postalCode: '95054',
+    capacity: 4500,
+    timezone: PACIFIC,
+    accessibility: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'ACCESSIBLE_PARKING', 'QUIET_SPACE'],
+  },
+  {
+    key: 'midtown',
+    slug: 'midtown-grand-hall',
+    id: seedId('seed-venue-midtown-grand-hall'),
+    name: 'Midtown Grand Hall',
+    addressLine1: '77 Peach Blossom Ave',
+    city: 'Atlanta',
+    region: 'GA',
+    postalCode: '30308',
+    capacity: 2500,
+    timezone: EASTERN,
+    accessibility: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'LIFT_ACCESS'],
+  },
+  {
+    key: 'delaware',
+    slug: 'delaware-river-pavilion',
+    id: seedId('seed-venue-delaware-river-pavilion'),
+    name: 'Delaware River Pavilion',
+    addressLine1: '40 Wharf Street',
+    city: 'Philadelphia',
+    region: 'PA',
+    postalCode: '19106',
+    capacity: 1800,
+    timezone: EASTERN,
+    accessibility: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'],
+  },
+  {
+    key: 'cedar-lane',
+    slug: 'cedar-lane-hall',
+    id: seedId('seed-venue-cedar-lane-hall'),
+    name: 'Cedar Lane Hall',
+    addressLine1: '600 Cedar Lane',
+    city: 'Bellevue',
+    region: 'WA',
+    postalCode: '98004',
+    capacity: 1200,
+    timezone: PACIFIC,
+    accessibility: [
+      'STEP_FREE_ENTRANCE',
+      'STEP_FREE_TO_SEATING',
+      'ACCESSIBLE_TOILET',
+      'QUIET_SPACE',
+    ],
+  },
+  {
+    key: 'cerritos',
+    slug: 'cerritos-garden-pavilion',
+    id: seedId('seed-venue-cerritos-garden-pavilion'),
+    name: 'Cerritos Garden Pavilion',
+    addressLine1: '18000 Lotus Court',
+    city: 'Cerritos',
+    region: 'CA',
+    postalCode: '90703',
+    capacity: 2200,
+    timezone: PACIFIC,
+    accessibility: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'ACCESSIBLE_PARKING'],
+  },
+  {
+    key: 'queens',
+    slug: 'queens-community-arena',
+    id: seedId('seed-venue-queens-community-arena'),
+    name: 'Queens Community Arena',
+    addressLine1: '92-10 Utsav Plaza',
+    city: 'Queens',
+    region: 'NY',
+    postalCode: '11355',
+    capacity: 3000,
+    timezone: EASTERN,
+    accessibility: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'LIFT_ACCESS', 'WHEELCHAIR_SPACES'],
+  },
+]
+
+/**
+ * Events with their ticket types: the twenty-event USA catalogue the web app
+ * also falls back to, plus three rows only a database needs — an online
+ * workshop (a joining URL and no venue) and two drafts nobody can see yet.
+ *
+ * `days` is an offset in whole days from midnight UTC today, so the mix of past
+ * and future events stays correct however long the repository sits unused.
+ * `localStart` is the wall-clock start in the event's own `timezone`, converted
+ * to UTC for that zone's offset on that date by {@link localTime} — a 7:30 PM
+ * start stays 7:30 PM either side of a daylight-saving change.
+ *
+ * Some allocations are small on purpose. `quantitySold` is derived from the
+ * orders below and nothing else, so a tier that is sold out here has to be
+ * bought out by seeded orders: the Early Bird at Bay Lights Garba's opening
+ * night and the whole of the Five Boroughs Garba Marathon. For the same reason
+ * a tier with only a few left has to be allocated only a few: Night One's VIP
+ * Circle (12) and the Nine Nights Season Pass (19) are sized so that the event
+ * page's "Only N left" shows against a live database, with the same N the web
+ * catalogue's fallback shows (150 less 138 sold, and 300 less 281).
+ *
+ * Two events carry more than one row of their own. The Nine Nights Season
+ * Pass lists its nine nights (`nights`), labelled as the web catalogue labels
+ * them; its passes name no night, so they are good for every one. The live-band
+ * night sells its balcony seat by seat: `seatMap` names the published plan in
+ * {@link SEAT_MAPS} its one session sells, and the tier marked `reserved`
+ * prices that plan's zone, with every seat in it bound to the tier and
+ * available. Nothing is sold from it here, so no order has to agree with a
+ * seat.
+ *
+ * The live-band night also carries the event page's own content — line-up,
+ * running order, questions, dress code and a public contact — the same as the
+ * web catalogue's copy of it, so the page shows every section against a live
+ * database too.
  */
 const EVENTS = [
   {
-    key: 'sufi',
-    id: seedId('seed-event-sufi-nights'),
-    slug: 'mumbai-sufi-nights',
-    orgKey: 'rangmanch',
-    venueKey: 'nsci',
-    title: 'Mumbai Sufi Nights',
-    summary: 'An evening of qawwali and contemporary Sufi rock under the NSCI Dome.',
-    description:
-      'Rangmanch Live presents three hours of qawwali, kalaam and contemporary Sufi rock. The evening opens with a traditional harmonium and tabla set before the headline ensemble takes the stage. Doors open ninety minutes before the first act.',
-    category: 'MUSIC_CONCERT',
-    status: 'PUBLISHED',
-    days: 45,
-    startHour: 13,
-    startMinute: 30,
+    key: 'warm-up',
+    id: seedId('seed-event-garba-warm-up-night-atlanta'),
+    slug: 'garba-warm-up-night-atlanta',
+    orgKey: 'peachtree',
+    venueKey: 'midtown',
+    title: 'Garba Warm-Up Night',
+    summary:
+      'A relaxed warm-up garba at Midtown Grand Hall before Navratri, for anyone who has not danced since last year.',
+    description: [
+      'Before Navratri begins, Peachtree Raas Club holds a warm-up night at Midtown Grand Hall for everyone who has not danced since last season. The music is recorded, the pace is gentle, and the evening opens with a teaching round for anyone who has forgotten which foot goes first.',
+      'It is also the easiest way to meet the volunteers who run the club’s Navratri nights, ask them anything, and pick up a pair of dandiya sticks before the season starts in earnest.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'COMPLETED',
+    days: -9,
+    localStart: [19, 30],
     durationHours: 4,
-    timezone: IST,
-    languages: ['Hindi', 'Urdu', 'English'],
+    timezone: EASTERN,
+    languages: ['Gujarati', 'English'],
     isOnline: false,
-    publishedDays: -50,
-    currency: 'INR',
+    publishedDays: -40,
+    currency: 'USD',
     ticketTypes: [
       {
-        key: 'sufi-early',
-        name: 'Early Bird',
-        description: 'Limited release at the lowest price. Non-transferable.',
-        priceCents: 129900,
-        quantityTotal: 400,
+        key: 'warm-up-general',
+        name: 'General Admission',
+        description: 'Entry for the evening, teaching round included.',
+        priceCents: 1500,
+        quantityTotal: 800,
         minPerOrder: 1,
-        maxPerOrder: 6,
-        salesStartDays: -50,
+        maxPerOrder: 8,
+        salesStartDays: -40,
+        salesEndDays: -9,
+        status: 'CLOSED',
+        sortOrder: 0,
+      },
+    ],
+  },
+  {
+    key: 'beginner-workshop',
+    id: seedId('seed-event-beginner-garba-workshop-jersey-city'),
+    slug: 'beginner-garba-workshop-jersey-city',
+    orgKey: 'mirrorwork',
+    venueKey: 'hudson',
+    title: 'Beginner Garba Workshop: Two-Taali, Three-Taali and Dodhiyu',
+    summary:
+      'A two-hour class in Jersey City for complete beginners, covering the three steps you will meet most over Navratri.',
+    description: [
+      'If you have ever stood at the edge of a garba circle trying to work out when to clap, this class is for you. In two hours at Hudson Riverside Pavilion, a Mirrorwork Events teacher takes a small group through the three steps you will see most over the nine nights.',
+      'Two-taali comes first, then three-taali, then dodhiyu — the travelling step with the turn that catches most people out. Each one is taught slowly, then to music, then in a practice circle where getting it wrong is the point.',
+      'No partner and no experience needed. Wear comfortable shoes and clothes you can turn in; the floor is sprung wood and the room is step-free.',
+    ].join('\n\n'),
+    category: 'WORKSHOP',
+    status: 'ON_SALE',
+    days: 10,
+    localStart: [19, 0],
+    durationHours: 2,
+    timezone: EASTERN,
+    languages: ['English', 'Gujarati'],
+    isOnline: false,
+    publishedDays: -30,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'beginner-class',
+        name: 'Class Ticket',
+        description: 'One place in the two-hour class.',
+        priceCents: 2000,
+        quantityTotal: 60,
+        minPerOrder: 1,
+        maxPerOrder: 4,
+        salesStartDays: -30,
         salesEndDays: 10,
         status: 'ON_SALE',
         sortOrder: 0,
       },
+    ],
+  },
+  {
+    key: 'kids-hour',
+    id: seedId('seed-event-dandiya-kids-hour-houston'),
+    slug: 'dandiya-kids-hour-houston',
+    orgKey: 'chaniya',
+    // An address the organiser gave and nobody has decided about yet, so the
+    // administrators' list of website links has something waiting.
+    website: { url: 'https://chaniya.example/', on: false, reason: null },
+    venueKey: 'lantern-row',
+    title: 'Dandiya Kids’ Hour',
+    summary:
+      'A free hour of dandiya for children at Lantern Row Event Hall, with soft practice sticks and patient teachers.',
+    description: [
+      'Dandiya Kids’ Hour is Chaniya Collective’s way of making sure the youngest dancers arrive at Navratri knowing what to do with their sticks. For one hour the side hall at Lantern Row Event Hall belongs to children and the grown-ups who brought them.',
+      'Teachers start with rhythm games and clapping patterns, then hand out soft foam practice sticks for the first raas lines. The hour ends with one short raas for the whole room, parents included.',
+      'Entry is free, but each child needs a ticket so the teachers know how many to plan for. Best for ages four to eleven, and an adult stays with every child.',
+    ].join('\n\n'),
+    category: 'WORKSHOP',
+    status: 'ON_SALE',
+    days: 12,
+    localStart: [19, 0],
+    durationHours: 1,
+    timezone: CENTRAL,
+    languages: ['English', 'Gujarati', 'Hindi'],
+    isOnline: false,
+    publishedDays: -28,
+    currency: 'USD',
+    ticketTypes: [
       {
-        key: 'sufi-general',
-        name: 'General Admission',
-        description: 'Unreserved standing on the arena floor.',
-        priceCents: 149900,
-        quantityTotal: 5200,
-        minPerOrder: 1,
-        maxPerOrder: 10,
-        salesStartDays: -40,
-        salesEndDays: 45,
-        status: 'ON_SALE',
-        sortOrder: 1,
-      },
-      {
-        key: 'sufi-vip',
-        name: 'VIP Gold Circle',
-        description: 'Reserved seating in the first eight rows plus interval refreshments.',
-        priceCents: 349900,
-        quantityTotal: 600,
+        key: 'kids-hour-free',
+        name: 'Child Place (free)',
+        description: 'Free. One ticket per child; accompanying adults do not need one.',
+        priceCents: 0,
+        quantityTotal: 80,
         minPerOrder: 1,
         maxPerOrder: 4,
-        salesStartDays: -40,
-        salesEndDays: 45,
+        salesStartDays: -28,
+        salesEndDays: 12,
         status: 'ON_SALE',
-        sortOrder: 2,
-      },
-      {
-        key: 'sufi-front-row',
-        name: 'Front Row Table (4 seats)',
-        description: 'Four-seat table at the lip of the stage. Extremely limited.',
-        priceCents: 1499900,
-        quantityTotal: 4,
-        minPerOrder: 1,
-        maxPerOrder: 2,
-        salesStartDays: -40,
-        salesEndDays: 45,
-        status: 'ON_SALE',
-        sortOrder: 3,
+        sortOrder: 0,
       },
     ],
   },
   {
-    key: 'garba',
-    id: seedId('seed-event-garba-dhamaal'),
-    slug: 'navratri-garba-dhamaal-mumbai',
-    orgKey: 'rangmanch',
-    venueKey: 'jio-garden',
-    title: 'Navratri Garba Dhamaal',
-    summary: 'Nine nights of live dhol, raas and dandiya in Bandra Kurla Complex.',
-    description:
-      'A full-scale Navratri ground with a live orchestra, traditional raas circles and a dandiya arena. Traditional attire is encouraged; sticks are available on site. Food stalls serve Gujarati thali, chaat and falooda until close.',
+    key: 'night-one',
+    id: seedId('seed-event-navratri-night-one-edison'),
+    slug: 'navratri-night-one-edison',
+    orgKey: 'mirrorwork',
+    venueKey: 'lamplight',
+    title: 'Navratri Night One: Garba Under the Lights',
+    summary:
+      'The first night of Navratri at Lamplight Expo Hall: a live band, a lit garbo at the centre of the floor, and room for every circle.',
+    description: [
+      'Navratri opens the way it should — an aarti at the garbo, a moment of quiet, and then the first beat of the dhol. Mirrorwork Events lays out the Lamplight Expo Hall floor as one great ring around a lit garbo, with room for slow circles at the edge and fast ones towards the middle.',
+      'The music is live all night: a Gujarati folk band with dhol, shehnai and two singers, moving from slow garba through two-taali and three-taali, then into dandiya raas after the break. Sticks are sold at the door if you forget yours.',
+      'Couple Entry admits two. VIP Circle holders have a reserved area beside the band and a separate entrance. Traditional dress is welcome and never required; comfortable shoes are strongly advised.',
+    ].join('\n\n'),
     category: 'GARBA_DANDIYA',
-    status: 'PUBLISHED',
-    days: 75,
-    startHour: 13,
-    startMinute: 0,
-    durationHours: 6,
-    timezone: IST,
-    languages: ['Gujarati', 'Hindi'],
+    status: 'ON_SALE',
+    days: 18,
+    localStart: [19, 30],
+    durationHours: 5,
+    timezone: EASTERN,
+    languages: ['Gujarati', 'English'],
     isOnline: false,
-    publishedDays: -35,
-    currency: 'INR',
+    publishedDays: -42,
+    currency: 'USD',
     ticketTypes: [
       {
-        key: 'garba-season',
-        name: 'Season Pass (9 nights)',
-        description: 'Entry to all nine nights. Photo identification required at the gate.',
-        priceCents: 899900,
-        quantityTotal: 900,
+        key: 'night-one-general',
+        name: 'General Admission',
+        description: 'Entry to the main floor for the night.',
+        priceCents: 3500,
+        quantityTotal: 3000,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -42,
+        salesEndDays: 18,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+      {
+        key: 'night-one-couple',
+        name: 'Couple Entry',
+        description: 'Admits two to the main floor.',
+        priceCents: 6000,
+        quantityTotal: 600,
+        minPerOrder: 1,
+        maxPerOrder: 4,
+        salesStartDays: -42,
+        salesEndDays: 17,
+        status: 'ON_SALE',
+        sortOrder: 1,
+      },
+      {
+        key: 'night-one-vip-circle',
+        name: 'VIP Circle',
+        description: 'A reserved area beside the band, and a separate entrance.',
+        priceCents: 8500,
+        // Few left, and genuinely so: see the note above EVENTS.
+        quantityTotal: 12,
         minPerOrder: 1,
         maxPerOrder: 4,
         salesStartDays: -35,
-        salesEndDays: 70,
-        status: 'ON_SALE',
-        sortOrder: 0,
-      },
-      {
-        key: 'garba-single',
-        name: 'Single Night',
-        description: 'Entry for one night of your choosing.',
-        priceCents: 149900,
-        quantityTotal: 6000,
-        minPerOrder: 1,
-        maxPerOrder: 10,
-        salesStartDays: -30,
-        salesEndDays: 75,
-        status: 'ON_SALE',
-        sortOrder: 1,
-      },
-      {
-        key: 'garba-couple',
-        name: 'Couple Pass',
-        description: 'Admits two on any single night.',
-        priceCents: 249900,
-        quantityTotal: 1500,
-        minPerOrder: 1,
-        maxPerOrder: 5,
-        salesStartDays: -30,
-        salesEndDays: 75,
+        salesEndDays: 18,
         status: 'ON_SALE',
         sortOrder: 2,
       },
     ],
   },
   {
-    key: 'bollywood',
-    id: seedId('seed-event-bollywood-retro'),
-    slug: 'bollywood-retro-night-worli',
-    orgKey: 'rangmanch',
-    venueKey: 'nsci',
-    title: 'Bollywood Retro Night: 90s Rewind',
-    summary: 'A live band and DJ set working through three decades of Hindi film music.',
-    description:
-      'Nine musicians, two vocalists and a DJ run a chronological set from the late seventies to the turn of the millennium. Expect a dance floor rather than seating; a small licensed lounge is open all evening.',
-    category: 'BOLLYWOOD_NIGHT',
-    status: 'PUBLISHED',
-    days: 20,
-    startHour: 15,
-    startMinute: 0,
-    durationHours: 5,
-    timezone: IST,
-    languages: ['Hindi', 'English'],
+    key: 'nine-nights',
+    id: seedId('seed-event-mirrorwork-nine-nights-pass'),
+    slug: 'mirrorwork-nine-nights-pass',
+    orgKey: 'mirrorwork',
+    venueKey: 'lamplight',
+    title: 'Mirrorwork Navratri: Nine Nights Season Pass',
+    summary:
+      'One pass for all nine nights of Mirrorwork’s Navratri at Lamplight Expo Hall, from the opening aarti to the last raas.',
+    description: [
+      'If you already know you will be back every night, this is the pass for it. One wristband covers all nine nights of Mirrorwork Events’ Navratri at Lamplight Expo Hall, from the opening aarti to the final dandiya raas.',
+      'Each night keeps the same shape: aarti at the garbo, garba until the break, dandiya after it, all to a live band. The wristband is collected once, on your first night, with photo ID matching the name on the order.',
+      'The Family Pass covers four people from one household for all nine nights. Wristbands are not swapped between people on different nights; each one stays with the person wearing it.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    days: 18,
+    localStart: [19, 30],
+    durationHours: 8 * 24 + 5,
+    timezone: EASTERN,
+    languages: ['Gujarati', 'English'],
     isOnline: false,
-    publishedDays: -25,
-    currency: 'INR',
+    publishedDays: -42,
+    currency: 'USD',
+    // One session a night, from the first evening: see the note above EVENTS.
+    nights: 9,
     ticketTypes: [
       {
-        key: 'bollywood-general',
-        name: 'General Admission',
-        description: 'Standing entry to the main floor.',
-        priceCents: 99900,
-        quantityTotal: 3000,
-        minPerOrder: 1,
-        maxPerOrder: 10,
-        salesStartDays: -25,
-        salesEndDays: 20,
-        status: 'ON_SALE',
-        sortOrder: 0,
-      },
-      {
-        key: 'bollywood-vip',
-        name: 'VIP Lounge',
-        description: 'Elevated lounge access with a dedicated bar and cloakroom.',
-        priceCents: 249900,
-        quantityTotal: 300,
-        minPerOrder: 2,
-        maxPerOrder: 8,
-        salesStartDays: -25,
-        salesEndDays: 20,
-        status: 'ON_SALE',
-        sortOrder: 1,
-      },
-    ],
-  },
-  {
-    key: 'bharatanatyam',
-    id: seedId('seed-event-bharatanatyam-margam'),
-    slug: 'bharatanatyam-margam-shanmukhananda',
-    orgKey: 'rangmanch',
-    venueKey: 'shanmukhananda',
-    title: 'Bharatanatyam Margam: The Full Arc',
-    summary: 'A complete traditional margam performed with a live Carnatic ensemble.',
-    description:
-      'A full margam from alarippu through varnam to thillana, accompanied by nattuvangam, mridangam, violin and vocals. A short pre-performance talk explains the structure for newcomers.',
-    category: 'CLASSICAL_DANCE',
-    status: 'PUBLISHED',
-    days: 32,
-    startHour: 12,
-    startMinute: 30,
-    durationHours: 3,
-    timezone: IST,
-    languages: ['Tamil', 'English'],
-    isOnline: false,
-    publishedDays: -18,
-    currency: 'INR',
-    ticketTypes: [
-      {
-        key: 'bharatanatyam-balcony',
-        name: 'Balcony',
-        description: 'Upper tier, unreserved.',
-        priceCents: 49900,
-        quantityTotal: 900,
-        minPerOrder: 1,
-        maxPerOrder: 8,
-        salesStartDays: -18,
-        salesEndDays: 32,
-        status: 'ON_SALE',
-        sortOrder: 0,
-      },
-      {
-        key: 'bharatanatyam-stalls',
-        name: 'Stalls',
-        description: 'Reserved seating on the main level.',
-        priceCents: 99900,
-        quantityTotal: 1400,
-        minPerOrder: 1,
-        maxPerOrder: 8,
-        salesStartDays: -18,
-        salesEndDays: 32,
-        status: 'ON_SALE',
-        sortOrder: 1,
-      },
-      {
-        key: 'bharatanatyam-patron',
-        name: 'Patron Seat',
-        description: 'Front stalls, programme booklet and post-show reception.',
-        priceCents: 249900,
-        quantityTotal: 120,
+        key: 'nine-nights-season',
+        name: 'Season Pass — All Nine Nights',
+        description: 'One wristband, every night.',
+        priceCents: 22000,
+        // Few left, and genuinely so: see the note above EVENTS.
+        quantityTotal: 19,
         minPerOrder: 1,
         maxPerOrder: 4,
-        salesStartDays: -18,
-        salesEndDays: 30,
+        salesStartDays: -42,
+        salesEndDays: 18,
         status: 'ON_SALE',
-        sortOrder: 2,
-      },
-    ],
-  },
-  {
-    key: 'comedy',
-    id: seedId('seed-event-desi-diaries-comedy'),
-    slug: 'desi-diaries-standup-mumbai',
-    orgKey: 'rangmanch',
-    venueKey: 'shanmukhananda',
-    title: 'Desi Diaries: Stand-Up Showcase',
-    summary: 'Four comics, one hour each, mostly in Hinglish.',
-    description:
-      'A touring showcase of stand-up built around family, migration and the daily absurdities of life in a metro. Strong language throughout; recommended for ages sixteen and over.',
-    category: 'COMEDY',
-    status: 'PUBLISHED',
-    days: -30,
-    startHour: 14,
-    startMinute: 0,
-    durationHours: 3,
-    timezone: IST,
-    languages: ['Hindi', 'English'],
-    isOnline: false,
-    publishedDays: -90,
-    currency: 'INR',
-    ticketTypes: [
-      {
-        key: 'comedy-general',
-        name: 'General Admission',
-        description: 'Unreserved seating.',
-        priceCents: 79900,
-        quantityTotal: 1600,
-        minPerOrder: 1,
-        maxPerOrder: 8,
-        salesStartDays: -90,
-        salesEndDays: -30,
-        status: 'CLOSED',
         sortOrder: 0,
       },
       {
-        key: 'comedy-front',
-        name: 'Front Block',
-        description: 'First six rows, reserved.',
-        priceCents: 139900,
-        quantityTotal: 300,
-        minPerOrder: 1,
-        maxPerOrder: 6,
-        salesStartDays: -90,
-        salesEndDays: -30,
-        status: 'CLOSED',
-        sortOrder: 1,
-      },
-    ],
-  },
-  {
-    key: 'rasotsav',
-    id: seedId('seed-event-rasotsav-food-festival'),
-    slug: 'rasotsav-ahmedabad-food-festival',
-    orgKey: 'rangmanch',
-    venueKey: 'gucec',
-    title: 'Rasotsav: Ahmedabad Food Festival',
-    summary: 'Sixty regional kitchens, live counters and a Gujarati thali masterclass.',
-    description:
-      'A weekend of regional Indian cooking with sixty kitchens under one roof, hourly live demonstrations and a ticketed thali masterclass. Entry tickets include a tasting card loaded with twelve tokens.',
-    category: 'FOOD_FESTIVAL',
-    status: 'PUBLISHED',
-    days: -60,
-    startHour: 5,
-    startMinute: 30,
-    durationHours: 10,
-    timezone: IST,
-    languages: ['Gujarati', 'Hindi', 'English'],
-    isOnline: false,
-    publishedDays: -120,
-    currency: 'INR',
-    ticketTypes: [
-      {
-        key: 'rasotsav-day',
-        name: 'Day Pass',
-        description: 'Entry for one day with a twelve-token tasting card.',
-        priceCents: 49900,
-        quantityTotal: 4000,
-        minPerOrder: 1,
-        maxPerOrder: 10,
-        salesStartDays: -120,
-        salesEndDays: -60,
-        status: 'CLOSED',
-        sortOrder: 0,
-      },
-      {
-        key: 'rasotsav-weekend',
-        name: 'Weekend Pass',
-        description: 'Both days plus priority entry to live demonstrations.',
-        priceCents: 89900,
-        quantityTotal: 1500,
-        minPerOrder: 1,
-        maxPerOrder: 8,
-        salesStartDays: -120,
-        salesEndDays: -60,
-        status: 'CLOSED',
-        sortOrder: 1,
-      },
-      {
-        key: 'rasotsav-masterclass',
-        name: 'Thali Masterclass',
-        description: 'Ninety-minute hands-on class, includes the day pass.',
-        priceCents: 179900,
-        quantityTotal: 60,
+        key: 'nine-nights-family',
+        name: 'Family Pass (4 people)',
+        description: 'Four wristbands for one household, every night.',
+        priceCents: 64000,
+        quantityTotal: 80,
         minPerOrder: 1,
         maxPerOrder: 2,
-        salesStartDays: -120,
-        salesEndDays: -62,
-        status: 'CLOSED',
-        sortOrder: 2,
-      },
-    ],
-  },
-  {
-    key: 'tabla',
-    id: seedId('seed-event-tabla-masterclass'),
-    slug: 'tabla-masterclass-online',
-    orgKey: 'rangmanch',
-    venueKey: null,
-    title: 'Tabla Masterclass: Teentaal from Scratch',
-    summary: 'A live online workshop on the sixteen-beat cycle for absolute beginners.',
-    description:
-      'Two hours of live instruction covering bol vocabulary, hand position and a first teentaal kaida. A recording stays available to ticket holders for thirty days. No instrument required for the first half.',
-    category: 'WORKSHOP',
-    status: 'PUBLISHED',
-    days: 28,
-    startHour: 11,
-    startMinute: 30,
-    durationHours: 2,
-    timezone: IST,
-    languages: ['Hindi', 'English'],
-    isOnline: true,
-    onlineUrl: 'https://live.rangmanchlive.in/tabla-teentaal',
-    publishedDays: -14,
-    currency: 'INR',
-    ticketTypes: [
-      {
-        key: 'tabla-standard',
-        name: 'Live Access',
-        description: 'Join the live session and keep the recording for thirty days.',
-        priceCents: 39900,
-        quantityTotal: 500,
-        minPerOrder: 1,
-        maxPerOrder: 4,
-        salesStartDays: -14,
-        salesEndDays: 28,
-        status: 'ON_SALE',
-        sortOrder: 0,
-      },
-      {
-        key: 'tabla-mentored',
-        name: 'Live Access + Feedback',
-        description: 'Includes a fifteen-minute one-to-one review of your recorded practice.',
-        priceCents: 129900,
-        quantityTotal: 40,
-        minPerOrder: 1,
-        maxPerOrder: 1,
-        salesStartDays: -14,
-        salesEndDays: 21,
+        salesStartDays: -42,
+        salesEndDays: 18,
         status: 'ON_SALE',
         sortOrder: 1,
       },
     ],
   },
   {
-    key: 'wedding-expo',
-    id: seedId('seed-event-mumbai-wedding-expo'),
-    slug: 'mumbai-wedding-expo',
-    orgKey: 'rangmanch',
-    venueKey: 'jio-garden',
-    title: 'Mumbai Wedding Expo',
-    summary: 'Two hundred exhibitors across couture, catering, jewellery and venues.',
-    description:
-      'Draft listing. Floor plan, exhibitor list and the bridal runway schedule are still being confirmed with the venue. Do not publish until the anchor sponsor contract is signed.',
-    category: 'WEDDING_EXPO',
-    status: 'DRAFT',
-    days: 150,
-    startHour: 4,
-    startMinute: 30,
-    durationHours: 9,
-    timezone: IST,
-    languages: ['Hindi', 'Gujarati', 'English'],
+    key: 'lakeshore-opening',
+    id: seedId('seed-event-lakeshore-raas-opening-night'),
+    slug: 'lakeshore-raas-opening-night',
+    orgKey: 'lakeshore',
+    venueKey: 'lakeshore',
+    title: 'Lakeshore Raas: Opening Night',
+    summary:
+      'The first night of Lakeshore Raas’s Navratri season at Lakeshore Pavilion in Schaumburg, with a live band and an aarti at the garbo.',
+    description: [
+      'Opening night at Lakeshore Pavilion is the start of Lakeshore Raas’s Navratri season: an aarti at the garbo, a live band on the stage, and a floor laid out as one wide circle so that nobody dances with their back to the lamp.',
+      'The band plays traditional garba for the first half and moves into dandiya after the break. The pavilion is heated, the floor is sprung, and there is a coat check by the main doors — useful in a Chicago October.',
+      'VIP tickets include a reserved table at the edge of the floor and priority entry. Traditional dress is welcome and never required.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    days: 18,
+    localStart: [19, 30],
+    durationHours: 4.5,
+    timezone: CENTRAL,
+    languages: ['Gujarati', 'Hindi', 'English'],
     isOnline: false,
-    publishedDays: null,
-    currency: 'INR',
+    publishedDays: -38,
+    currency: 'USD',
     ticketTypes: [
       {
-        key: 'wedding-visitor',
-        name: 'Visitor Entry',
-        description: 'Single-day entry for two.',
-        priceCents: 29900,
-        quantityTotal: 8000,
-        minPerOrder: 1,
-        maxPerOrder: 10,
-        salesStartDays: 30,
-        salesEndDays: 150,
-        status: 'DRAFT',
-        sortOrder: 0,
-      },
-      {
-        key: 'wedding-trade',
-        name: 'Trade Buyer',
-        description: 'Industry badge with early access and the buyer lounge.',
-        priceCents: 149900,
-        quantityTotal: 600,
-        minPerOrder: 1,
-        maxPerOrder: 4,
-        salesStartDays: 30,
-        salesEndDays: 148,
-        status: 'DRAFT',
-        sortOrder: 1,
-      },
-    ],
-  },
-  {
-    key: 'diwali',
-    id: seedId('seed-event-toronto-diwali-mela'),
-    slug: 'toronto-diwali-mela',
-    orgKey: 'tdcs',
-    venueKey: 'meridian',
-    title: 'Toronto Diwali Mela',
-    summary: 'A full-day mela of music, dance, street food and a rooftop diya lighting.',
-    description:
-      'The society’s flagship event: an afternoon market of craft and food stalls, a main-stage programme of classical and folk performance, and a communal diya lighting at dusk. Family friendly throughout.',
-    category: 'CULTURAL_FESTIVAL',
-    status: 'PUBLISHED',
-    days: 90,
-    startHour: 20,
-    startMinute: 0,
-    durationHours: 7,
-    timezone: TORONTO,
-    languages: ['English', 'Hindi', 'Punjabi', 'Gujarati'],
-    isOnline: false,
-    publishedDays: -60,
-    currency: 'CAD',
-    ticketTypes: [
-      {
-        key: 'diwali-early',
-        name: 'Early Bird',
-        description: 'Discounted general entry, released in a single block.',
-        priceCents: 2500,
-        quantityTotal: 800,
-        minPerOrder: 1,
-        maxPerOrder: 6,
-        salesStartDays: -60,
-        salesEndDays: 20,
-        status: 'ON_SALE',
-        sortOrder: 0,
-      },
-      {
-        key: 'diwali-general',
+        key: 'lakeshore-general',
         name: 'General Admission',
-        description: 'Entry to the market and the main-stage programme.',
-        priceCents: 4500,
-        quantityTotal: 2400,
+        description: 'Entry to the floor for the night.',
+        priceCents: 3200,
+        quantityTotal: 2200,
         minPerOrder: 1,
         maxPerOrder: 8,
-        salesStartDays: -40,
-        salesEndDays: 90,
+        salesStartDays: -38,
+        salesEndDays: 18,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+      {
+        key: 'lakeshore-vip',
+        name: 'VIP',
+        description: 'A reserved table at the edge of the floor, and priority entry.',
+        priceCents: 7500,
+        quantityTotal: 100,
+        minPerOrder: 1,
+        maxPerOrder: 4,
+        salesStartDays: -38,
+        salesEndDays: 18,
+        status: 'ON_SALE',
+        sortOrder: 1,
+      },
+    ],
+  },
+  {
+    key: 'bay-lights-opening',
+    id: seedId('seed-event-bay-lights-garba-opening'),
+    slug: 'bay-lights-garba-opening',
+    orgKey: 'bay-lights',
+    venueKey: 'santa-clara',
+    title: 'Bay Lights Garba: Opening Night',
+    summary:
+      'Bay Lights Garba Co. opens Navratri at Santa Clara Valley Expo with a live band, a lit garbo and dandiya after the break.',
+    description: [
+      'Bay Lights Garba Co. opens its Navratri at Santa Clara Valley Expo with everything a first night needs: an aarti at the garbo, a live band, and a floor wide enough for the slow circles and the fast ones at the same time.',
+      'The first half is garba, from the gentle opening rounds to three-taali at full speed. After the break the lights come up a little for dandiya raas. Sticks are available at the merchandise table if you would rather not bring your own.',
+      'The Early Bird allocation has gone; General Admission and VIP remain. VIP includes a reserved lounge with seating, a separate entrance and water all evening.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    days: 18,
+    localStart: [19, 30],
+    durationHours: 4.5,
+    timezone: PACIFIC,
+    languages: ['Gujarati', 'English'],
+    isOnline: false,
+    publishedDays: -45,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'bay-lights-early',
+        name: 'Early Bird',
+        description: 'General admission at the early price.',
+        priceCents: 2800,
+        quantityTotal: 6,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -45,
+        salesEndDays: 18,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+      {
+        key: 'bay-lights-general',
+        name: 'General Admission',
+        description: 'Entry to the floor for the night.',
+        priceCents: 4000,
+        quantityTotal: 3200,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -45,
+        salesEndDays: 18,
         status: 'ON_SALE',
         sortOrder: 1,
       },
       {
-        key: 'diwali-family',
-        name: 'Family Pack (2 adults, 3 children)',
-        description: 'Best value for households; children must be under fourteen.',
-        priceCents: 12000,
-        quantityTotal: 500,
-        minPerOrder: 1,
-        maxPerOrder: 3,
-        salesStartDays: -40,
-        salesEndDays: 90,
-        status: 'ON_SALE',
-        sortOrder: 2,
-      },
-      {
-        key: 'diwali-vip',
-        name: 'VIP Rooftop',
-        description: 'Reserved rooftop terrace for the diya lighting, with catering.',
-        priceCents: 18000,
+        key: 'bay-lights-vip',
+        name: 'VIP',
+        description: 'Reserved lounge with seating, a separate entrance and water all evening.',
+        priceCents: 9500,
         quantityTotal: 150,
         minPerOrder: 1,
         maxPerOrder: 4,
-        salesStartDays: -40,
-        salesEndDays: 85,
-        status: 'PAUSED',
-        sortOrder: 3,
+        salesStartDays: -45,
+        salesEndDays: 18,
+        status: 'ON_SALE',
+        sortOrder: 2,
       },
     ],
   },
   {
-    key: 'punjabi-folk',
-    id: seedId('seed-event-punjabi-folk-night'),
-    slug: 'punjabi-folk-night-mississauga',
-    orgKey: 'tdcs',
-    venueKey: 'sangam',
-    title: 'Punjabi Folk Night',
-    summary: 'Tumbi, dhol and a live bhangra troupe in Meadowvale.',
-    description:
-      'A seated first half of folk singing with tumbi and algoze, followed by a standing bhangra set with a six-piece dhol line. Late-night langar-style dinner is included with every ticket.',
-    category: 'MUSIC_CONCERT',
-    status: 'PUBLISHED',
-    days: 55,
-    startHour: 23,
-    startMinute: 0,
+    key: 'dandiya-dhol',
+    id: seedId('seed-event-dandiya-dhol-houston'),
+    slug: 'dandiya-dhol-houston',
+    orgKey: 'chaniya',
+    venueKey: 'lantern-row',
+    title: 'Dandiya Raas with a Live Dhol Ensemble',
+    summary:
+      'Chaniya Collective brings a full dhol ensemble to Lantern Row Event Hall for a night that is all dandiya, all live.',
+    description: [
+      'Some nights are garba nights. This one is for dandiya. Chaniya Collective clears the Lantern Row Event Hall floor for raas lines, and a live dhol ensemble keeps the tempo climbing from the first pair of sticks to the last.',
+      'The evening opens with a short aarti and a slow warm-up round so newcomers can find the pattern before the pace picks up. Volunteers in the Collective’s green sashes will happily partner anyone who arrives without one.',
+      'Student tickets need a current student ID at the door. VIP includes seating off the floor for when your arms give out, and bottled water all night.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    days: 19,
+    localStart: [19, 30],
     durationHours: 5,
-    timezone: TORONTO,
-    languages: ['Punjabi', 'English'],
+    timezone: CENTRAL,
+    languages: ['Gujarati', 'Hindi', 'English'],
     isOnline: false,
-    publishedDays: -45,
-    currency: 'CAD',
+    publishedDays: -40,
+    currency: 'USD',
     ticketTypes: [
       {
-        key: 'punjabi-general',
+        key: 'dhol-general',
         name: 'General Admission',
-        description: 'Standing entry with dinner included.',
-        priceCents: 6500,
-        quantityTotal: 900,
+        description: 'Entry to the floor for the night.',
+        priceCents: 3000,
+        quantityTotal: 2500,
         minPerOrder: 1,
-        maxPerOrder: 10,
-        salesStartDays: -45,
-        salesEndDays: 55,
+        maxPerOrder: 8,
+        salesStartDays: -40,
+        salesEndDays: 19,
         status: 'ON_SALE',
         sortOrder: 0,
       },
       {
-        key: 'punjabi-table',
-        name: 'Reserved Table (8 seats)',
-        description: 'A full table of eight with table service through the evening.',
-        priceCents: 60000,
-        quantityTotal: 60,
+        key: 'dhol-student',
+        name: 'Student',
+        description: 'General admission with a current student ID, checked at the door.',
+        priceCents: 1800,
+        quantityTotal: 400,
         minPerOrder: 1,
         maxPerOrder: 2,
-        salesStartDays: -45,
-        salesEndDays: 50,
+        salesStartDays: -40,
+        salesEndDays: 19,
         status: 'ON_SALE',
         sortOrder: 1,
       },
-    ],
-  },
-  {
-    key: 'founders',
-    id: seedId('seed-event-desi-founders-mixer'),
-    slug: 'desi-founders-mixer-toronto',
-    orgKey: 'tdcs',
-    venueKey: null,
-    title: 'Desi Founders Mixer (Online)',
-    summary: 'A moderated online mixer for South Asian founders and operators in Canada.',
-    description:
-      'Ninety minutes of structured small-group introductions followed by an open room. Attendance is capped so that every breakout stays under eight people. A joining link is emailed one hour before the start.',
-    category: 'NETWORKING',
-    status: 'PUBLISHED',
-    days: 12,
-    startHour: 23,
-    startMinute: 30,
-    durationHours: 2,
-    timezone: TORONTO,
-    languages: ['English'],
-    isOnline: true,
-    onlineUrl: 'https://meet.torontodesisociety.ca/founders-mixer',
-    publishedDays: -10,
-    currency: 'CAD',
-    ticketTypes: [
       {
-        key: 'founders-member',
-        name: 'Society Member',
-        description: 'Discounted rate for current society members.',
-        priceCents: 1500,
+        key: 'dhol-vip',
+        name: 'VIP',
+        description: 'Seating off the floor and bottled water all night.',
+        priceCents: 7000,
         quantityTotal: 120,
         minPerOrder: 1,
-        maxPerOrder: 2,
-        salesStartDays: -10,
-        salesEndDays: 12,
+        maxPerOrder: 4,
+        salesStartDays: -40,
+        salesEndDays: 19,
         status: 'ON_SALE',
-        sortOrder: 0,
-      },
-      {
-        key: 'founders-standard',
-        name: 'Standard',
-        description: 'Open registration.',
-        priceCents: 3000,
-        quantityTotal: 200,
-        minPerOrder: 1,
-        maxPerOrder: 2,
-        salesStartDays: -10,
-        salesEndDays: 12,
-        status: 'ON_SALE',
-        sortOrder: 1,
+        sortOrder: 2,
       },
     ],
   },
   {
-    key: 'tamil-theatre',
-    id: seedId('seed-event-tamil-theatre-toronto'),
-    slug: 'tamil-theatre-toronto-oorukku-vanakkam',
-    orgKey: 'tdcs',
-    venueKey: 'meridian',
-    title: 'Oorukku Vanakkam: A Tamil Play',
-    summary: 'A two-act play about three generations of a Scarborough family.',
-    description:
-      'Draft listing. Rights are cleared but the cast is not finalised and the surtitle translation is still in review. Hold publication until the director confirms the run dates.',
-    category: 'THEATRE',
-    status: 'DRAFT',
-    days: 120,
-    startHour: 23,
-    startMinute: 0,
-    durationHours: 3,
-    timezone: TORONTO,
-    languages: ['Tamil', 'English'],
+    key: 'delaware-aarti',
+    id: seedId('seed-event-garba-and-aarti-on-the-delaware'),
+    slug: 'garba-and-aarti-on-the-delaware',
+    orgKey: 'liberty-bell',
+    venueKey: 'delaware',
+    title: 'Garba & Aarti on the Delaware',
+    summary:
+      'An unhurried evening of aarti and garba at Delaware River Pavilion in Philadelphia, gentle on beginners and open to all.',
+    description: [
+      'Liberty Bell Navratri keeps its evening simple: a full aarti at the start, then garba in the round at Delaware River Pavilion, with the river outside the windows and a pace that suits people who have never joined a circle before.',
+      'The music is recorded rather than live, and the first few rounds are slowed down on purpose so that everyone can find the steps. Experienced dancers are asked to form an outer ring once the tempo picks up.',
+      'Prasad is shared after the closing aarti.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    days: 21,
+    localStart: [19, 0],
+    durationHours: 4,
+    timezone: EASTERN,
+    languages: ['Gujarati', 'Hindi', 'English'],
     isOnline: false,
-    publishedDays: null,
-    currency: 'CAD',
+    publishedDays: -30,
+    currency: 'USD',
     ticketTypes: [
       {
-        key: 'tamil-stalls',
-        name: 'Stalls',
-        description: 'Main level, reserved seating with English surtitles.',
-        priceCents: 5500,
+        key: 'delaware-general',
+        name: 'General Admission',
+        description: 'Entry for the evening, aarti included.',
+        priceCents: 2000,
         quantityTotal: 1200,
         minPerOrder: 1,
         maxPerOrder: 8,
+        salesStartDays: -30,
+        salesEndDays: 21,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+    ],
+  },
+  {
+    key: 'live-band',
+    id: seedId('seed-event-mirrorwork-live-band-night'),
+    slug: 'mirrorwork-live-band-night',
+    orgKey: 'mirrorwork',
+    // The organiser's website, beside `content` rather than in it: the switch
+    // needs the deciding administrator's id, which static data cannot hold.
+    website: {
+      url: 'https://mirrorwork.example/',
+      on: true,
+      reason: 'Mirrorwork Events’ own site, checked by the platform team.',
+    },
+    venueKey: 'lamplight',
+    title: 'Live Garba Band Night with the Mirrorwork Ensemble',
+    summary:
+      'The Mirrorwork Ensemble plays a concert of garba and Gujarati folk songs at Lamplight Expo Hall, with a standing floor and a seated balcony.',
+    description: [
+      'The band behind Mirrorwork Events’ Navratri nights takes the stage for a concert of its own. The Mirrorwork Ensemble — dhol, tabla, harmonium, shehnai and three singers — plays the garba and folk songs of the season, arranged for listening as well as for dancing.',
+      'The floor at Lamplight Expo Hall is standing and open to anyone who wants to dance. The balcony is seated, for anyone who would rather listen.',
+      'The concert runs in two halves with an interval. Food and drink are served in the lobby and stay off the dance floor.',
+    ].join('\n\n'),
+    category: 'MUSIC_CONCERT',
+    status: 'ON_SALE',
+    days: 22,
+    localStart: [19, 30],
+    durationHours: 4,
+    timezone: EASTERN,
+    languages: ['Gujarati', 'English'],
+    isOnline: false,
+    publishedDays: -36,
+    currency: 'USD',
+    // The balcony: see the note above EVENTS and SEAT_MAPS.
+    seatMap: 'lamplight-balcony',
+    // The page's own content, as the web catalogue's copy of this event has it.
+    content: {
+      artists: ['The Mirrorwork Ensemble'],
+      performers: [
+        {
+          name: 'The Mirrorwork Ensemble',
+          role: 'Dhol, tabla, harmonium, shehnai and three singers',
+          bio: 'The band behind Mirrorwork Events’ Navratri nights, playing the garba and folk songs of the season arranged for listening as well as dancing.',
+        },
+      ],
+      runningOrder: [
+        { time: '19:00', title: 'Doors open', note: 'Food and drink in the lobby.' },
+        { time: '19:30', title: 'First half', note: null },
+        { time: '20:30', title: 'Interval', note: null },
+        { time: '20:50', title: 'Second half', note: 'The standing floor is open for garba.' },
+      ],
+      faq: [
+        {
+          question: 'Can I dance in the balcony?',
+          answer:
+            'The balcony is seated, for listening. The standing floor is open to anyone who wants to dance.',
+        },
+        {
+          question: 'Can I bring food onto the dance floor?',
+          answer: 'Food and drink are served in the lobby and stay off the dance floor.',
+        },
+      ],
+      // The website has its own column now, behind an administrator's switch;
+      // see `website` above.
+      socialLinks: {},
+      dressCode: 'Whatever you can dance in. Traditional dress is welcome and never required.',
+      publicContactEmail: 'tickets@mirrorwork.example',
+    },
+    ticketTypes: [
+      {
+        key: 'live-band-floor',
+        name: 'General Admission — Standing Floor',
+        description: 'Standing entry to the dance floor.',
+        priceCents: 4500,
+        quantityTotal: 1500,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -36,
+        salesEndDays: 22,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+      {
+        key: 'live-band-balcony',
+        name: 'Balcony — Reserved Seating',
+        description: 'A numbered seat in the balcony.',
+        priceCents: 6500,
+        // Sold seat by seat: its allocation is the seats in its zone, counted
+        // from the plan rather than written here.
+        reserved: true,
+        quantityTotal: null,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -36,
+        salesEndDays: 22,
+        status: 'ON_SALE',
+        sortOrder: 1,
+      },
+    ],
+  },
+  {
+    key: 'rainier-family',
+    id: seedId('seed-event-rainier-family-garba'),
+    slug: 'rainier-family-garba',
+    orgKey: 'rainier',
+    venueKey: 'cedar-lane',
+    title: 'Rainier Raas: Family Garba Evening',
+    summary:
+      'An easy-going garba evening in Bellevue for families, with a teaching round at the start and a finish that suits younger dancers.',
+    description: [
+      'Rainier Raas built this evening for families who want Navratri without a one-in-the-morning finish. Cedar Lane Hall opens with a teaching round in which a volunteer walks everyone through the basic steps, and the music stays at a pace small feet can follow.',
+      'After the first hour the circles split: a gentle one for children and grandparents near the stage, a faster one for everyone else. The evening closes with an aarti at the garbo.',
+      'Child tickets are for ages three to twelve. There is a quiet room off the lobby for anyone who needs a break from the music, and the hall is step-free throughout.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    days: 22,
+    localStart: [19, 0],
+    durationHours: 3.5,
+    timezone: PACIFIC,
+    languages: ['English', 'Gujarati'],
+    isOnline: false,
+    publishedDays: -33,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'rainier-adult',
+        name: 'Adult',
+        description: 'Entry for one adult.',
+        priceCents: 2200,
+        quantityTotal: 900,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -33,
+        salesEndDays: 22,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+      {
+        key: 'rainier-child',
+        name: 'Child (3–12)',
+        description: 'Entry for a child aged three to twelve, with an adult.',
+        priceCents: 800,
+        quantityTotal: 300,
+        minPerOrder: 1,
+        maxPerOrder: 6,
+        salesStartDays: -33,
+        salesEndDays: 22,
+        status: 'ON_SALE',
+        sortOrder: 1,
+      },
+    ],
+  },
+  {
+    key: 'pacific-dandiya',
+    id: seedId('seed-event-pacific-dandiya-night'),
+    slug: 'pacific-dandiya-night',
+    orgKey: 'pacific',
+    venueKey: 'cerritos',
+    title: 'Pacific Dandiya Night',
+    summary:
+      'A late dandiya night at Cerritos Garden Pavilion with a live band, a garden terrace for breathers and a VIP lounge above the floor.',
+    description: [
+      'Pacific Dandiya Society’s dandiya night at Cerritos Garden Pavilion starts late and runs later: a live band, long raas lines, and a garden terrace outside for when you need air between rounds.',
+      'The first set is garba to warm up. After that it is dandiya until close, with the band calling the changes in pattern so that nobody is left clacking sticks at the wrong moment.',
+      'The VIP Lounge overlooks the floor, with seating, its own entrance and chai all night.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    days: 23,
+    localStart: [20, 0],
+    durationHours: 5,
+    timezone: PACIFIC,
+    languages: ['Gujarati', 'Hindi', 'English'],
+    isOnline: false,
+    publishedDays: -37,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'pacific-general',
+        name: 'General Admission',
+        description: 'Entry to the floor and the garden terrace.',
+        priceCents: 3800,
+        quantityTotal: 1800,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -37,
+        salesEndDays: 23,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+      {
+        key: 'pacific-vip-lounge',
+        name: 'VIP Lounge',
+        description: 'Lounge seating above the floor, its own entrance and chai all night.',
+        priceCents: 11000,
+        quantityTotal: 80,
+        minPerOrder: 1,
+        maxPerOrder: 4,
+        salesStartDays: -37,
+        salesEndDays: 23,
+        status: 'ON_SALE',
+        sortOrder: 1,
+      },
+    ],
+  },
+  {
+    key: 'marathon',
+    id: seedId('seed-event-five-boroughs-garba-marathon'),
+    slug: 'five-boroughs-garba-marathon',
+    orgKey: 'five-boroughs',
+    venueKey: 'queens',
+    title: 'Five Boroughs Garba Marathon',
+    summary:
+      'Six hours of garba at Queens Community Arena, with two live bands trading sets so the music never stops.',
+    description: [
+      'Five Boroughs Garba runs this one as a marathon: six hours at Queens Community Arena, two live bands trading sets so that the music does not stop between them, and a circle that keeps turning from the first aarti to the last.',
+      'There are water stations on every side of the floor and a rest area with seating on the upper concourse. Pace yourself; the fastest three-taali rounds are saved for the final hour.',
+      'Doors open an hour before the first set, and the wristband you are given at the door lets you out and back in.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'SOLD_OUT',
+    days: 24,
+    localStart: [19, 0],
+    durationHours: 6,
+    timezone: EASTERN,
+    languages: ['Gujarati', 'Hindi', 'English'],
+    isOnline: false,
+    publishedDays: -50,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'marathon-general',
+        name: 'General Admission',
+        description: 'Entry for the whole marathon, with re-entry.',
+        priceCents: 3000,
+        quantityTotal: 6,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -50,
+        salesEndDays: 24,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+    ],
+  },
+  {
+    key: 'garba-for-good',
+    id: seedId('seed-event-garba-for-good-philadelphia'),
+    slug: 'garba-for-good-philadelphia',
+    orgKey: 'liberty-bell',
+    venueKey: 'delaware',
+    title: 'Garba for Good: Charity Navratri Night',
+    summary:
+      'A Navratri garba night at Delaware River Pavilion raising money for a neighbourhood food pantry, with a live band and a raffle.',
+    description: [
+      'Garba for Good is Liberty Bell Navratri’s charity night: the same garba and aarti as any other evening at Delaware River Pavilion, with the organiser pledging the evening’s proceeds to a neighbourhood food pantry in Philadelphia.',
+      'A live band plays garba and dandiya, volunteers run a snack stall, and a raffle of donated prizes is drawn before the final raas.',
+      'Everyone is welcome, whatever their experience; the first round is taught.',
+    ].join('\n\n'),
+    category: 'CULTURAL_FESTIVAL',
+    status: 'POSTPONED',
+    postponedDays: -3,
+    days: 24,
+    localStart: [19, 0],
+    durationHours: 5,
+    timezone: EASTERN,
+    languages: ['English', 'Gujarati'],
+    isOnline: false,
+    publishedDays: -30,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'garba-for-good-general',
+        name: 'General Admission',
+        description: 'Entry for the evening, raffle ticket included.',
+        priceCents: 2500,
+        quantityTotal: 1000,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -30,
+        salesEndDays: 24,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+    ],
+  },
+  {
+    key: 'peachtree-saturday',
+    id: seedId('seed-event-peachtree-garba-saturday'),
+    slug: 'peachtree-garba-saturday',
+    orgKey: 'peachtree',
+    venueKey: 'midtown',
+    title: 'Peachtree Garba Saturday',
+    summary:
+      'A Saturday of garba at Midtown Grand Hall in Atlanta, with a live band, a kids’ circle and a food court from local caterers.',
+    description: [
+      'Peachtree Raas Club gives Navratri a proper Saturday night at Midtown Grand Hall: a live band, an aarti at the garbo, and a circle that starts slow and gets a little faster with every round.',
+      'Families are the point of this one. A separate kids’ circle at the side of the hall has its own volunteer leads, so younger dancers can learn the steps without being swept into the fast rounds.',
+      'Kids tickets are for ages five to twelve. Local caterers run a food court in the lobby with Gujarati snacks, chaat and chai, paid for separately.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    days: 20,
+    // The title names the day, so the date is the first Saturday on or after
+    // `days` rather than whatever weekday `days` happens to land on.
+    weekday: 6,
+    localStart: [19, 30],
+    durationHours: 4.5,
+    timezone: EASTERN,
+    languages: ['Gujarati', 'English'],
+    isOnline: false,
+    publishedDays: -35,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'peachtree-general',
+        name: 'General Admission',
+        description: 'Entry for the evening.',
+        priceCents: 2500,
+        quantityTotal: 1800,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -35,
+        salesEndDays: 20,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+      {
+        key: 'peachtree-kids',
+        name: 'Kids 5–12',
+        description: 'Entry for a child aged five to twelve, with an adult.',
+        priceCents: 1000,
+        quantityTotal: 400,
+        minPerOrder: 1,
+        maxPerOrder: 6,
+        salesStartDays: -35,
+        salesEndDays: 20,
+        status: 'ON_SALE',
+        sortOrder: 1,
+      },
+    ],
+  },
+  {
+    key: 'glow-night',
+    id: seedId('seed-event-garba-glow-night-santa-clara'),
+    slug: 'garba-glow-night-santa-clara',
+    orgKey: 'bay-lights',
+    venueKey: 'santa-clara',
+    title: 'Garba Glow Night (All-White Dress Code)',
+    summary:
+      'Garba under ultraviolet light at Santa Clara Valley Expo, with an all-white dress code and a live band.',
+    description: [
+      'For one night Bay Lights Garba Co. turns the lights down and the ultraviolet up at Santa Clara Valley Expo. Come dressed in white and the whole circle glows, from the dandiya sticks to the mirrorwork on your dupatta.',
+      'The band plays a full set of garba and dandiya, and the lighting crew changes the colour of the room between rounds. Glow sticks and white dandiya sticks are sold at the merchandise table.',
+      'The dress code is a request, not a rule at the door: white or pale clothes glow best, and anything with mirrorwork catches the light.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'SALES_PAUSED',
+    days: 25,
+    localStart: [20, 0],
+    durationHours: 4.5,
+    timezone: PACIFIC,
+    languages: ['English', 'Gujarati'],
+    isOnline: false,
+    publishedDays: -34,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'glow-night-general',
+        name: 'General Admission',
+        description: 'Entry to the floor for the night.',
+        priceCents: 4500,
+        quantityTotal: 2000,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -34,
+        salesEndDays: 25,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+    ],
+  },
+  {
+    key: 'mela-queens',
+    id: seedId('seed-event-navratri-mela-queens'),
+    slug: 'navratri-mela-queens',
+    orgKey: 'five-boroughs',
+    venueKey: 'queens',
+    title: 'Navratri Mela & Garba',
+    summary:
+      'A Navratri mela at Queens Community Arena — food stalls, crafts and henna — followed by live garba on the arena floor.',
+    description: [
+      'The Navratri Mela fills the Queens Community Arena concourse with stalls: Gujarati snacks and chaat, chaniya choli and jewellery sellers, henna artists, and a stall for dandiya sticks. The arena floor opens for garba later in the evening.',
+      'Mela Entry covers the stalls and the performances on the concourse stage, including a children’s dance showcase. Mela + Garba adds the arena floor for the live garba that follows.',
+      'Stalls are run by independent sellers, who take their own payments.',
+    ].join('\n\n'),
+    category: 'CULTURAL_FESTIVAL',
+    status: 'ON_SALE',
+    days: 26,
+    localStart: [19, 0],
+    durationHours: 5.5,
+    timezone: EASTERN,
+    languages: ['Gujarati', 'Hindi', 'English'],
+    isOnline: false,
+    publishedDays: -39,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'mela-entry',
+        name: 'Mela Entry',
+        description: 'The stalls and the concourse stage.',
+        priceCents: 1000,
+        quantityTotal: 2000,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -39,
+        salesEndDays: 26,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+      {
+        key: 'mela-and-garba',
+        name: 'Mela + Garba',
+        description: 'The stalls, the concourse stage and the garba on the arena floor.',
+        priceCents: 2800,
+        quantityTotal: 2500,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -39,
+        salesEndDays: 26,
+        status: 'ON_SALE',
+        sortOrder: 1,
+      },
+    ],
+  },
+  {
+    key: 'dussehra-finale',
+    id: seedId('seed-event-dussehra-raas-finale-schaumburg'),
+    slug: 'dussehra-raas-finale-schaumburg',
+    orgKey: 'lakeshore',
+    venueKey: 'lakeshore',
+    title: 'Dussehra Raas Finale',
+    summary:
+      'Lakeshore Raas closes its Navratri season on Dussehra at Lakeshore Pavilion, with a live band and one last long raas.',
+    description: [
+      'Dussehra follows Navratri’s ninth night, and Lakeshore Raas uses it to close the season properly: one more evening at Lakeshore Pavilion, one more aarti at the garbo, and a live band playing until the last circle breaks up.',
+      'Expect the fast rounds to be very fast. By this point in the season most of the room knows every step, and the band plays like it.',
+      'General admission only. The coat check by the main doors is included with every ticket.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    days: 27,
+    localStart: [19, 30],
+    durationHours: 4.5,
+    timezone: CENTRAL,
+    languages: ['Gujarati', 'Hindi', 'English'],
+    isOnline: false,
+    publishedDays: -38,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'dussehra-general',
+        name: 'General Admission',
+        description: 'Entry for the night, coat check included.',
+        priceCents: 3500,
+        quantityTotal: 2600,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -38,
+        salesEndDays: 27,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+    ],
+  },
+  {
+    key: 'collegiate',
+    id: seedId('seed-event-collegiate-raas-showcase-irving'),
+    slug: 'collegiate-raas-showcase-irving',
+    orgKey: 'lone-star',
+    venueKey: 'trinity',
+    title: 'Raas-Garba Collegiate Showcase',
+    summary:
+      'College raas and garba teams from across Texas perform their competition sets at Trinity Convention Hall.',
+    description: [
+      'Collegiate raas-garba is its own world: student teams, costumes made by hand, and eight-minute sets choreographed to the second. Lone Star Navratri’s showcase brings college teams from across Texas to the Trinity Convention Hall stage.',
+      'It is a showcase rather than a competition — no judges and no trophies, just each team’s set performed for an audience that knows what it is watching. Spectator tickets are unreserved seating.',
+    ].join('\n\n'),
+    category: 'CULTURAL_FESTIVAL',
+    status: 'CANCELLED',
+    cancelledDays: -2,
+    cancellationReason: 'The venue could not confirm the date for the student teams.',
+    days: 30,
+    localStart: [19, 0],
+    durationHours: 3.5,
+    timezone: CENTRAL,
+    languages: ['English', 'Gujarati'],
+    isOnline: false,
+    publishedDays: -32,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'collegiate-spectator',
+        name: 'Spectator',
+        description: 'Unreserved seating for the showcase.',
+        priceCents: 2200,
+        quantityTotal: 2000,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -32,
+        salesEndDays: 30,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+    ],
+  },
+  {
+    key: 'sharad-poonam',
+    id: seedId('seed-event-lone-star-sharad-poonam-garba'),
+    slug: 'lone-star-sharad-poonam-garba',
+    orgKey: 'lone-star',
+    venueKey: 'trinity',
+    title: 'Lone Star Navratri: Sharad Poonam Garba',
+    summary:
+      'Garba on the night of the Sharad Poonam full moon at Trinity Convention Hall in Irving, closing with doodh-pauva for everyone.',
+    description: [
+      'Sharad Poonam, the full moon that follows Navratri, is traditionally a night for one more garba. Lone Star Navratri marks it at Trinity Convention Hall with a live band and the courtyard doors open, so that the moon is part of the evening.',
+      'The music leans traditional — slow garba, two-taali and three-taali, and a long raas to finish. Near midnight the organisers serve doodh-pauva, the sweetened milk and flattened rice eaten on Sharad Poonam, to everyone in the hall.',
+      'One ticket type, general admission, for the whole evening.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    days: 33,
+    localStart: [19, 30],
+    durationHours: 4.5,
+    timezone: CENTRAL,
+    languages: ['Gujarati', 'Hindi', 'English'],
+    isOnline: false,
+    publishedDays: -29,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'sharad-poonam-general',
+        name: 'General Admission',
+        description: 'Entry for the evening, doodh-pauva included.',
+        priceCents: 2800,
+        quantityTotal: 3000,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -29,
+        salesEndDays: 33,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+    ],
+  },
+  {
+    key: 'garba-basics-online',
+    id: seedId('seed-event-garba-basics-online'),
+    slug: 'garba-basics-online',
+    orgKey: 'chaniya',
+    venueKey: null,
+    title: 'Garba Basics Online: Learn the Steps at Home',
+    summary:
+      'A ninety-minute live class online for anyone who wants to learn the basic garba steps before their first night out.',
+    description: [
+      'A live class, taught on video by two Chaniya Collective teachers, for anyone who would rather learn the steps in their living room than at the edge of a circle. It covers two-taali, three-taali and how to join a moving circle without stopping it.',
+      'The joining link is sent to ticket holders before the class starts. Keep a few feet of clear floor and wear shoes you can turn in.',
+    ].join('\n\n'),
+    category: 'WORKSHOP',
+    status: 'ON_SALE',
+    days: 8,
+    localStart: [19, 0],
+    durationHours: 1.5,
+    timezone: CENTRAL,
+    languages: ['English', 'Gujarati'],
+    isOnline: true,
+    onlineUrl: 'https://live.chaniya.example/garba-basics',
+    publishedDays: -20,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'online-live',
+        name: 'Live Class',
+        description: 'Join the class live.',
+        priceCents: 1200,
+        quantityTotal: 200,
+        minPerOrder: 1,
+        maxPerOrder: 4,
+        salesStartDays: -20,
+        salesEndDays: 8,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+      {
+        key: 'online-live-feedback',
+        name: 'Live Class + Video Feedback',
+        description: 'The live class, plus written feedback on a short video of your practice.',
+        priceCents: 3000,
+        quantityTotal: 20,
+        minPerOrder: 1,
+        maxPerOrder: 1,
+        salesStartDays: -20,
+        salesEndDays: 6,
+        // Paused by the organiser while the teachers confirm how many reviews
+        // they can write, which is the tier-level pause the rest of the
+        // catalogue does not otherwise exercise.
+        status: 'PAUSED',
+        sortOrder: 1,
+      },
+    ],
+  },
+  {
+    key: 'diwali-raas-draft',
+    id: seedId('seed-event-mirrorwork-diwali-raas-social'),
+    slug: 'mirrorwork-diwali-raas-social',
+    orgKey: 'mirrorwork',
+    venueKey: 'lamplight',
+    title: 'Diwali Raas Social',
+    summary: 'A Diwali evening of raas, sweets and a live band at Lamplight Expo Hall.',
+    description:
+      'Draft listing. The band and the caterer are confirmed; the hall booking is not. Do not send for review until the venue confirms the date in writing.',
+    category: 'CULTURAL_FESTIVAL',
+    status: 'DRAFT',
+    days: 45,
+    localStart: [19, 0],
+    durationHours: 4,
+    timezone: EASTERN,
+    languages: ['Gujarati', 'Hindi', 'English'],
+    isOnline: false,
+    publishedDays: null,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'diwali-raas-general',
+        name: 'General Admission',
+        description: 'Entry for the evening.',
+        priceCents: 3000,
+        quantityTotal: 1500,
+        minPerOrder: 1,
+        maxPerOrder: 8,
         salesStartDays: 20,
-        salesEndDays: 120,
+        salesEndDays: 45,
         status: 'DRAFT',
         sortOrder: 0,
       },
       {
-        key: 'tamil-mezzanine',
-        name: 'Mezzanine',
-        description: 'Upper tier, reserved seating.',
-        priceCents: 3500,
-        quantityTotal: 800,
+        key: 'diwali-raas-family',
+        name: 'Family (4 people)',
+        description: 'Entry for four people from one household.',
+        priceCents: 10_000,
+        quantityTotal: 200,
         minPerOrder: 1,
-        maxPerOrder: 8,
+        maxPerOrder: 2,
         salesStartDays: 20,
-        salesEndDays: 120,
+        salesEndDays: 44,
         status: 'DRAFT',
         sortOrder: 1,
+      },
+    ],
+  },
+  {
+    key: 'houston-sharad-draft',
+    id: seedId('seed-event-houston-sharad-poonam-raas'),
+    slug: 'houston-sharad-poonam-raas',
+    orgKey: 'chaniya',
+    venueKey: 'lantern-row',
+    title: 'Sharad Poonam Raas',
+    summary: 'One more raas under the full moon after Navratri, at Lantern Row Event Hall.',
+    description:
+      'Draft listing. Waiting on the dhol ensemble to confirm the date before this goes to review. Prices are placeholders.',
+    category: 'GARBA_DANDIYA',
+    status: 'DRAFT',
+    days: 34,
+    localStart: [19, 30],
+    durationHours: 4,
+    timezone: CENTRAL,
+    languages: ['Gujarati', 'English'],
+    isOnline: false,
+    publishedDays: null,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'houston-sharad-general',
+        name: 'General Admission',
+        description: 'Entry for the night.',
+        priceCents: 2500,
+        quantityTotal: 2000,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: 10,
+        salesEndDays: 34,
+        status: 'DRAFT',
+        sortOrder: 0,
+      },
+    ],
+  },
+  // Deleted from on sale by the platform administrator, with nothing sold, so
+  // the outcome was REMOVED (SPEC2-XI §4.9): the deleted-events list, the
+  // organiser's "Deleted" row and a restore have something to show. It is
+  // kept rather than erased, and its web address stays retired because it was
+  // public. A re-seed leaves the row exactly as it finds it (O17).
+  {
+    key: 'deleted-showcase',
+    id: seedId('seed-event-mirrorwork-sharad-purnima-showcase'),
+    slug: 'mirrorwork-sharad-purnima-showcase',
+    orgKey: 'mirrorwork',
+    venueKey: 'lamplight',
+    title: 'Sharad Purnima Garba Showcase',
+    summary:
+      'A full-moon showcase of garba circles from three New Jersey dance schools, at Lamplight Expo Hall.',
+    description: [
+      'Three New Jersey dance schools bring their best circles to the Lamplight Expo Hall floor for one full-moon evening, with an open circle for everyone after the last showcase.',
+      'Listed by Mirrorwork Events and taken down by the team at The Desi Events before anybody bought a ticket.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'DELETED',
+    deletion: {
+      statusBefore: 'ON_SALE',
+      outcome: 'REMOVED',
+      authority: 'PLATFORM',
+      byKey: 'platformAdmin',
+      days: -2,
+      hour: 16,
+      reason:
+        'Listed twice by mistake: the same showcase is already on the site as the Navratri Night One programme.',
+    },
+    days: 25,
+    localStart: [19, 30],
+    durationHours: 4,
+    timezone: EASTERN,
+    languages: ['Gujarati', 'English'],
+    isOnline: false,
+    publishedDays: -6,
+    currency: 'USD',
+    ticketTypes: [
+      {
+        key: 'showcase-general',
+        name: 'General Admission',
+        description: 'Entry for the showcase and the open circle after it.',
+        priceCents: 2500,
+        quantityTotal: 400,
+        minPerOrder: 1,
+        maxPerOrder: 6,
+        salesStartDays: -6,
+        salesEndDays: 25,
+        status: 'ON_SALE',
+        sortOrder: 0,
       },
     ],
   },
 ]
 
-/** Promo codes of both types, one organisation-wide and one event-scoped each. */
+/**
+ * Published seat plans, each drawn once and then frozen.
+ *
+ * A published map version cannot be changed or deleted — the database refuses
+ * it by trigger — so the writer draws a plan only when its version is absent,
+ * and afterwards checks the kept one is the plan described here rather than
+ * rewriting it. Every seat is in the plan's one price zone.
+ *
+ * The Lamplight Expo Hall balcony: three rows of eight, A1 to C8.
+ */
+const SEAT_MAPS = [
+  {
+    key: 'lamplight-balcony',
+    venueKey: 'lamplight',
+    name: 'Balcony',
+    section: 'Balcony',
+    zone: 'Balcony',
+    rows: [
+      ['A', 8],
+      ['B', 8],
+      ['C', 8],
+    ],
+    publishedDays: -40,
+  },
+]
+
+/**
+ * Promo codes of both types, one organisation-wide and one event-scoped each,
+ * and one for the live-band night, whose balcony is sold through the seat
+ * picker.
+ */
 const PROMO_CODES = [
   {
-    key: 'earlydesi',
-    id: seedId('seed-promo-earlydesi'),
-    orgKey: 'rangmanch',
+    key: 'navratri10',
+    id: seedId('seed-promo-navratri10'),
+    orgKey: 'mirrorwork',
     eventKey: null,
-    code: 'EARLYDESI',
+    code: 'NAVRATRI10',
     type: 'PERCENTAGE',
-    value: 1500,
+    value: 1000,
     maxRedemptions: 200,
     startsDays: -30,
     endsDays: 30,
     active: true,
   },
   {
-    key: 'garba500',
-    id: seedId('seed-promo-garba500'),
-    orgKey: 'rangmanch',
-    eventKey: 'garba',
-    code: 'GARBA500',
+    key: 'nightone5',
+    id: seedId('seed-promo-nightone5'),
+    orgKey: 'mirrorwork',
+    eventKey: 'night-one',
+    code: 'NIGHTONE5',
     type: 'FIXED_AMOUNT',
-    // A flat discount is denominated: ₹500 off, never CA$500 off. The
+    // A flat discount is denominated: $5 off, never ₹5 off. The
     // `promo_code_fixed_amount_currency` check constraint rejects the row
     // without this.
-    currency: 'INR',
-    value: 50000,
-    maxRedemptions: 500,
-    startsDays: -20,
-    endsDays: 60,
-    active: true,
-  },
-  {
-    key: 'diwali10',
-    id: seedId('seed-promo-diwali10'),
-    orgKey: 'tdcs',
-    eventKey: 'diwali',
-    code: 'DIWALI10',
-    type: 'PERCENTAGE',
-    value: 1000,
+    currency: 'USD',
+    value: 500,
     maxRedemptions: 300,
-    startsDays: -40,
-    endsDays: 80,
+    startsDays: -20,
+    endsDays: 18,
     active: true,
   },
   {
-    key: 'tdcswelcome',
-    id: seedId('seed-promo-tdcs-welcome'),
-    orgKey: 'tdcs',
+    key: 'dhol15',
+    id: seedId('seed-promo-dhol15'),
+    orgKey: 'chaniya',
+    eventKey: 'dandiya-dhol',
+    code: 'DHOL15',
+    type: 'PERCENTAGE',
+    value: 1500,
+    maxRedemptions: 100,
+    startsDays: -25,
+    endsDays: 19,
+    active: true,
+  },
+  {
+    key: 'bandnight5',
+    id: seedId('seed-promo-bandnight5'),
+    orgKey: 'mirrorwork',
+    eventKey: 'live-band',
+    code: 'BANDNIGHT5',
+    type: 'FIXED_AMOUNT',
+    currency: 'USD',
+    value: 500,
+    maxRedemptions: 50,
+    startsDays: -10,
+    endsDays: 22,
+    active: true,
+  },
+  {
+    key: 'chaniya-welcome',
+    id: seedId('seed-promo-chaniya-welcome'),
+    orgKey: 'chaniya',
     eventKey: null,
     code: 'WELCOME5',
     type: 'FIXED_AMOUNT',
-    // Toronto Desi Cultural Society sells in CAD, so CA$5 off.
-    currency: 'CAD',
+    currency: 'USD',
     value: 500,
     maxRedemptions: 100,
     startsDays: -200,
@@ -1264,143 +2548,138 @@ const PROMO_CODES = [
  */
 const ORDERS = [
   {
-    key: 'o1',
-    reference: 'DE-MUM-100001',
-    eventKey: 'bollywood',
+    key: 'us01',
+    reference: 'DE-US-200001',
+    eventKey: 'night-one',
     userKey: 'aarav',
-    buyerName: 'Aarav Mehta',
-    buyerEmail: 'aarav.mehta@example.com',
+    buyerName: 'Aarav Shah',
+    buyerEmail: 'aarav.shah@mail.example',
     status: 'PAID',
-    promoKey: 'earlydesi',
+    promoKey: 'nightone5',
     placedDays: -12,
-    lines: [{ ticketTypeKey: 'bollywood-general', quantity: 2 }],
-    attendees: ['Aarav Mehta', 'Ishita Mehta'],
+    lines: [{ ticketTypeKey: 'night-one-general', quantity: 2 }],
+    attendees: ['Aarav Shah', 'Riddhi Shah'],
     ticketStatus: 'VALID',
     payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
     hold: { status: 'CONVERTED', offsetMinutes: 10 },
   },
   {
-    key: 'o2',
-    reference: 'DE-MUM-100002',
-    eventKey: 'sufi',
+    key: 'us02',
+    reference: 'DE-US-200002',
+    eventKey: 'bay-lights-opening',
     userKey: 'diya',
-    buyerName: 'Diya Kapoor',
-    buyerEmail: 'diya.kapoor@example.com',
+    buyerName: 'Diya Patel',
+    buyerEmail: 'diya.patel@mail.example',
     status: 'PAID',
     promoKey: null,
-    placedDays: -9,
-    lines: [
-      { ticketTypeKey: 'sufi-vip', quantity: 1 },
-      { ticketTypeKey: 'sufi-general', quantity: 2 },
-    ],
-    attendees: ['Diya Kapoor', 'Rhea Kapoor', 'Nikhil Kapoor'],
+    placedDays: -30,
+    lines: [{ ticketTypeKey: 'bay-lights-early', quantity: 4 }],
+    attendees: ['Diya Patel', 'Mihir Patel', 'Asha Patel', 'Nirav Patel'],
     ticketStatus: 'VALID',
     payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
     hold: { status: 'CONVERTED', offsetMinutes: 10 },
   },
   {
-    key: 'o3',
-    reference: 'DE-MUM-100003',
-    eventKey: 'garba',
+    key: 'us03',
+    reference: 'DE-US-200003',
+    eventKey: 'bay-lights-opening',
     userKey: 'sneha',
     buyerName: 'Sneha Reddy',
-    buyerEmail: 'sneha.reddy@example.com',
-    status: 'PAID',
-    promoKey: 'garba500',
-    placedDays: -7,
-    lines: [{ ticketTypeKey: 'garba-couple', quantity: 2 }],
-    attendees: ['Sneha Reddy', 'Karthik Reddy'],
-    ticketStatus: 'VALID',
-    payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
-    hold: { status: 'CONVERTED', offsetMinutes: 10 },
-  },
-  {
-    key: 'o4',
-    reference: 'DE-AMD-100004',
-    eventKey: 'rasotsav',
-    userKey: 'vikram',
-    buyerName: 'Vikram Bose',
-    buyerEmail: 'vikram.bose@example.com',
+    buyerEmail: 'sneha.reddy@mail.example',
     status: 'PAID',
     promoKey: null,
-    placedDays: -70,
+    placedDays: -26,
+    // Together with DE-US-200002 this takes the whole Early Bird allocation,
+    // so that tier is genuinely sold out rather than merely labelled that way.
     lines: [
-      { ticketTypeKey: 'rasotsav-day', quantity: 3 },
-      { ticketTypeKey: 'rasotsav-masterclass', quantity: 1 },
+      { ticketTypeKey: 'bay-lights-early', quantity: 2 },
+      { ticketTypeKey: 'bay-lights-vip', quantity: 1 },
     ],
-    attendees: ['Vikram Bose', 'Ritu Bose', 'Aniket Bose', 'Vikram Bose'],
+    attendees: ['Sneha Reddy', 'Karthik Reddy', 'Sneha Reddy'],
+    ticketStatus: 'VALID',
+    payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
+    hold: { status: 'CONVERTED', offsetMinutes: 10 },
+  },
+  {
+    key: 'us04',
+    reference: 'DE-US-200004',
+    eventKey: 'warm-up',
+    userKey: 'karan',
+    buyerName: 'Karan Vora',
+    buyerEmail: 'karan.vora@mail.example',
+    status: 'PAID',
+    promoKey: null,
+    placedDays: -20,
+    lines: [{ ticketTypeKey: 'warm-up-general', quantity: 3 }],
+    attendees: ['Karan Vora', 'Pooja Vora', 'Anika Vora'],
     ticketStatus: 'CHECKED_IN',
-    checkedInDays: -60,
     payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
     hold: { status: 'CONVERTED', offsetMinutes: 10 },
   },
   {
-    key: 'o5',
-    reference: 'DE-MUM-100005',
-    eventKey: 'sufi',
-    userKey: 'vikram',
-    buyerName: 'Vikram Bose',
-    buyerEmail: 'vikram.bose@example.com',
+    key: 'us05',
+    reference: 'DE-US-200005',
+    eventKey: 'marathon',
+    userKey: 'ishaan',
+    buyerName: 'Ishaan Gupta',
+    buyerEmail: 'ishaan.gupta@mail.example',
     status: 'PAID',
-    promoKey: 'earlydesi',
-    placedDays: -4,
-    // Takes the whole Front Row Table allocation, so that ticket type is
-    // genuinely sold out rather than merely labelled that way.
-    lines: [{ ticketTypeKey: 'sufi-front-row', quantity: 4 }],
-    attendees: ['Vikram Bose', 'Ritu Bose', 'Neel Bose', 'Aniket Bose'],
+    promoKey: null,
+    placedDays: -25,
+    lines: [{ ticketTypeKey: 'marathon-general', quantity: 4 }],
+    attendees: ['Ishaan Gupta', 'Tanvi Gupta', 'Rahul Menon', 'Priya Menon'],
     ticketStatus: 'VALID',
     payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
     hold: { status: 'CONVERTED', offsetMinutes: 10 },
   },
   {
-    key: 'o6',
-    reference: 'DE-TOR-100006',
-    eventKey: 'diwali',
-    userKey: 'ananya',
-    buyerName: 'Ananya Nair',
-    buyerEmail: 'ananya.nair@example.ca',
+    key: 'us06',
+    reference: 'DE-US-200006',
+    eventKey: 'marathon',
+    userKey: 'aarav',
+    buyerName: 'Aarav Shah',
+    buyerEmail: 'aarav.shah@mail.example',
     status: 'PAID',
-    promoKey: 'diwali10',
-    placedDays: -6,
-    lines: [
-      { ticketTypeKey: 'diwali-general', quantity: 2 },
-      { ticketTypeKey: 'diwali-family', quantity: 1 },
-    ],
-    attendees: ['Ananya Nair', 'Sunil Nair', 'Nair Family'],
+    promoKey: null,
+    placedDays: -12,
+    // The last two places: with DE-US-200005 the marathon is sold out, which
+    // is why the event itself is SOLD_OUT.
+    lines: [{ ticketTypeKey: 'marathon-general', quantity: 2 }],
+    attendees: ['Aarav Shah', 'Riddhi Shah'],
     ticketStatus: 'VALID',
     payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
     hold: { status: 'CONVERTED', offsetMinutes: 10 },
   },
   {
-    key: 'o7',
-    reference: 'DE-TOR-100007',
-    eventKey: 'diwali',
-    userKey: 'rohan',
-    buyerName: 'Rohan Singh',
-    buyerEmail: 'rohan.singh@example.ca',
+    key: 'us07',
+    reference: 'DE-US-200007',
+    eventKey: 'dandiya-dhol',
+    userKey: 'maya',
+    buyerName: 'Maya Chokshi',
+    buyerEmail: 'maya.chokshi@mail.example',
     status: 'PENDING',
     promoKey: null,
     placedDays: 0,
-    lines: [{ ticketTypeKey: 'diwali-early', quantity: 2 }],
-    attendees: ['Rohan Singh', 'Gurpreet Singh'],
+    lines: [{ ticketTypeKey: 'dhol-general', quantity: 2 }],
+    attendees: ['Maya Chokshi', 'Sahil Chokshi'],
     // A PENDING order has not issued tickets yet; inventory is held instead.
     issueTickets: false,
     payments: [{ suffix: 'a', status: 'INITIATED', amount: 'total' }],
     hold: { status: 'ACTIVE', liveExpiryMinutes: 10 },
   },
   {
-    key: 'o8',
-    reference: 'DE-TOR-100008',
-    eventKey: 'punjabi-folk',
-    userKey: 'rohan',
-    buyerName: 'Rohan Singh',
-    buyerEmail: 'rohan.singh@example.ca',
+    key: 'us08',
+    reference: 'DE-US-200008',
+    eventKey: 'lakeshore-opening',
+    userKey: 'karan',
+    buyerName: 'Karan Vora',
+    buyerEmail: 'karan.vora@mail.example',
     status: 'REFUNDED',
     promoKey: null,
-    placedDays: -15,
-    refundedDays: -8,
-    lines: [{ ticketTypeKey: 'punjabi-general', quantity: 4 }],
-    attendees: ['Rohan Singh', 'Gurpreet Singh', 'Jaspreet Kaur', 'Manav Singh'],
+    placedDays: -10,
+    refundedDays: -3,
+    lines: [{ ticketTypeKey: 'lakeshore-general', quantity: 4 }],
+    attendees: ['Karan Vora', 'Pooja Vora', 'Anika Vora', 'Dhruv Vora'],
     ticketStatus: 'REFUNDED',
     payments: [
       { suffix: 'a', status: 'SUCCEEDED', amount: 'total' },
@@ -1409,83 +2688,382 @@ const ORDERS = [
     hold: { status: 'CONVERTED', offsetMinutes: 10 },
   },
   {
-    key: 'o9',
-    reference: 'DE-TOR-100009',
-    eventKey: 'punjabi-folk',
-    userKey: 'ananya',
-    buyerName: 'Ananya Nair',
-    buyerEmail: 'ananya.nair@example.ca',
+    key: 'us09',
+    reference: 'DE-US-200009',
+    eventKey: 'pacific-dandiya',
+    userKey: 'diya',
+    buyerName: 'Diya Patel',
+    buyerEmail: 'diya.patel@mail.example',
     status: 'CANCELLED',
     promoKey: null,
-    placedDays: -11,
-    cancelledDays: -11,
-    lines: [{ ticketTypeKey: 'punjabi-table', quantity: 1 }],
-    attendees: ['Nair Party of Eight'],
+    placedDays: -6,
+    cancelledDays: -6,
+    lines: [{ ticketTypeKey: 'pacific-vip-lounge', quantity: 1 }],
+    attendees: ['Diya Patel'],
     ticketStatus: 'VOID',
     payments: [{ suffix: 'a', status: 'FAILED', amount: 'total', failureCode: 'card_declined' }],
     hold: { status: 'RELEASED', offsetMinutes: 10 },
   },
   {
-    key: 'o10',
-    reference: 'DE-MUM-100010',
-    eventKey: 'bharatanatyam',
+    key: 'us10',
+    reference: 'DE-US-200010',
+    eventKey: 'rainier-family',
     userKey: null,
-    buyerName: 'Lakshmi Subramanian',
-    buyerEmail: 'lakshmi.subramanian@example.com',
+    buyerName: 'Leela Sharma',
+    buyerEmail: 'leela.sharma@mail.example',
     status: 'EXPIRED',
     promoKey: null,
-    placedDays: -3,
-    lines: [{ ticketTypeKey: 'bharatanatyam-stalls', quantity: 2 }],
-    attendees: ['Lakshmi Subramanian', 'Guest'],
+    placedDays: -2,
+    lines: [{ ticketTypeKey: 'rainier-adult', quantity: 2 }],
+    attendees: ['Leela Sharma', 'Guest'],
     issueTickets: false,
     payments: [],
     hold: { status: 'EXPIRED', offsetMinutes: 10 },
   },
   {
-    key: 'o11',
-    reference: 'DE-MUM-100011',
-    eventKey: 'tabla',
-    userKey: 'diya',
-    buyerName: 'Diya Kapoor',
-    buyerEmail: 'diya.kapoor@example.com',
+    key: 'us11',
+    reference: 'DE-US-200011',
+    eventKey: 'garba-basics-online',
+    userKey: 'sneha',
+    buyerName: 'Sneha Reddy',
+    buyerEmail: 'sneha.reddy@mail.example',
     status: 'PAID',
     promoKey: null,
     placedDays: -5,
-    lines: [{ ticketTypeKey: 'tabla-mentored', quantity: 1 }],
-    attendees: ['Diya Kapoor'],
+    lines: [{ ticketTypeKey: 'online-live', quantity: 1 }],
+    attendees: ['Sneha Reddy'],
     ticketStatus: 'VALID',
     payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
     hold: { status: 'CONVERTED', offsetMinutes: 10 },
   },
   {
-    key: 'o12',
-    reference: 'DE-TOR-100012',
-    eventKey: 'founders',
-    userKey: 'ananya',
-    buyerName: 'Ananya Nair',
-    buyerEmail: 'ananya.nair@example.ca',
+    key: 'us12',
+    reference: 'DE-US-200012',
+    eventKey: 'nine-nights',
+    userKey: 'ishaan',
+    buyerName: 'Ishaan Gupta',
+    buyerEmail: 'ishaan.gupta@mail.example',
     status: 'PAID',
-    promoKey: null,
-    placedDays: -2,
-    lines: [{ ticketTypeKey: 'founders-standard', quantity: 1 }],
-    attendees: ['Ananya Nair'],
+    promoKey: 'navratri10',
+    placedDays: -8,
+    lines: [{ ticketTypeKey: 'nine-nights-family', quantity: 1 }],
+    attendees: ['Gupta household'],
     ticketStatus: 'VALID',
     payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
     hold: { status: 'CONVERTED', offsetMinutes: 10 },
   },
+  {
+    key: 'us13',
+    reference: 'DE-US-200013',
+    eventKey: 'dandiya-dhol',
+    userKey: 'aarav',
+    buyerName: 'Aarav Shah',
+    buyerEmail: 'aarav.shah@mail.example',
+    status: 'PAID',
+    promoKey: 'dhol15',
+    placedDays: -4,
+    lines: [
+      { ticketTypeKey: 'dhol-student', quantity: 2 },
+      { ticketTypeKey: 'dhol-general', quantity: 1 },
+    ],
+    attendees: ['Aarav Shah', 'Riddhi Shah', 'Neel Shah'],
+    ticketStatus: 'VALID',
+    payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
+    hold: { status: 'CONVERTED', offsetMinutes: 10 },
+  },
+  // Booking fees, referral codes and paying at the venue (SPEC3 §15.5,
+  // SPEC3-XI §15). A card order on the Garba night after its own booking fee
+  // was set, with the fee waived by the all-events referral code: the tickets
+  // are paid for, the booking fee is not.
+  {
+    key: 'us14',
+    reference: 'DE-US-200014',
+    eventKey: 'night-one',
+    userKey: 'aarav',
+    buyerName: 'Aarav Shah',
+    buyerEmail: 'aarav.shah@mail.example',
+    status: 'PAID',
+    promoKey: null,
+    referralKey: 'all-events',
+    placedDays: -1,
+    lines: [{ ticketTypeKey: 'night-one-general', quantity: 2 }],
+    attendees: ['Aarav Shah', 'Riddhi Shah'],
+    ticketStatus: 'VALID',
+    payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
+    hold: { status: 'CONVERTED', offsetMinutes: 10 },
+  },
+  // A booking to pay at the door for the warm-up night, which has happened.
+  // Only its booking fee was paid online. At the door one ticket was paid for
+  // and let in, one was cancelled unpaid by the team at The Desi Events once the doors
+  // had opened (its place freed, its share of the booking fee kept), and one
+  // was never paid: its holder did not come.
+  {
+    key: 'us15',
+    reference: 'DE-US-200015',
+    eventKey: 'warm-up',
+    userKey: 'diya',
+    buyerName: 'Diya Patel',
+    buyerEmail: 'diya.patel@mail.example',
+    status: 'PAID',
+    paymentMethod: 'AT_VENUE',
+    promoKey: null,
+    placedDays: -16,
+    lines: [{ ticketTypeKey: 'warm-up-general', quantity: 3 }],
+    attendees: ['Diya Patel', 'Mihir Patel', 'Asha Patel'],
+    ticketStatus: 'VALID',
+    payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
+    hold: { status: 'CONVERTED', offsetMinutes: 10 },
+    // The ticket paid for at the door, by its position on the order, and who
+    // took the payment: the organisation's owner, on the door's own authority.
+    doorPayment: {
+      ticketIndexes: [0],
+      recordedByKey: 'meera',
+      authority: 'ORGANIZATION_ROLE',
+      role: 'OWNER',
+      gate: 'Main doors',
+      afterStartMinutes: CHECK_IN_AFTER_START_MINUTES,
+    },
+    unpaidCancellation: {
+      ticketIndexes: [1],
+      cancelledByKey: 'platformAdmin',
+      authority: 'PLATFORM_ROLE',
+      role: 'ADMIN',
+      reason: 'Demo: not paid before the doors opened',
+      afterStartMinutes: 45,
+    },
+  },
+  // Two bookings by the demo attendee to pay at the door for the Houston
+  // dandiya night, still to come: one paid its booking fee online, one had it
+  // waived by the all-events referral code and paid nothing online. Every
+  // ticket still owes its price at the door.
+  {
+    key: 'us16',
+    reference: 'DE-US-200016',
+    eventKey: 'dandiya-dhol',
+    userKey: 'aarav',
+    buyerName: 'Aarav Shah',
+    buyerEmail: 'aarav.shah@mail.example',
+    status: 'PAID',
+    paymentMethod: 'AT_VENUE',
+    promoKey: null,
+    placedDays: -3,
+    lines: [{ ticketTypeKey: 'dhol-general', quantity: 2 }],
+    attendees: ['Aarav Shah', 'Riddhi Shah'],
+    ticketStatus: 'VALID',
+    payments: [{ suffix: 'a', status: 'SUCCEEDED', amount: 'total' }],
+    hold: { status: 'CONVERTED', offsetMinutes: 10 },
+  },
+  {
+    key: 'us17',
+    reference: 'DE-US-200017',
+    eventKey: 'dandiya-dhol',
+    userKey: 'aarav',
+    buyerName: 'Aarav Shah',
+    buyerEmail: 'aarav.shah@mail.example',
+    status: 'PAID',
+    paymentMethod: 'AT_VENUE',
+    promoKey: null,
+    referralKey: 'all-events',
+    placedDays: -2,
+    lines: [{ ticketTypeKey: 'dhol-general', quantity: 1 }],
+    attendees: ['Aarav Shah'],
+    ticketStatus: 'VALID',
+    // Nothing is paid online: the booking fee was waived and the ticket price
+    // is paid at the door, so there is no payment at all.
+    payments: [],
+    hold: { status: 'CONVERTED', offsetMinutes: 10 },
+  },
 ]
 
-/** Waitlist interest, including on the sold-out Front Row Table allocation. */
-const WAITLIST = [
-  { eventKey: 'sufi', userKey: 'aarav', email: 'aarav.mehta@example.com', quantity: 4 },
-  { eventKey: 'sufi', userKey: null, email: 'zara.qureshi@example.com', quantity: 2 },
-  { eventKey: 'garba', userKey: 'sneha', email: 'sneha.reddy@example.com', quantity: 6 },
-  { eventKey: 'diwali', userKey: null, email: 'harpreet.bains@example.ca', quantity: 5 },
+/**
+ * Events with their own booking fee, each set by one decision of the team
+ * at The Desi Events (SPEC3 §15.5): the first demonstration organisation's Garba
+ * night, at 3.00% plus $1.49 a ticket, set two days before the seed.
+ */
+const EVENT_FEE_SETTINGS = [
+  {
+    key: 'night-one-own-fee',
+    eventKey: 'night-one',
+    percentageBps: 300,
+    flatCentsPerTicket: 149,
+    reason: 'Demo: this event’s own booking fee',
+    setByKey: 'platformAdmin',
+    setDays: -2,
+    setHour: 15,
+  },
 ]
+
+/**
+ * Events where tickets can be paid for at the venue, each switched on by the team
+ * at The Desi Events with a limit and a reason: the Houston dandiya night, still
+ * on sale, and the warm-up night, which has happened.
+ */
+const VENUE_PAYMENT_SWITCHES = [
+  {
+    key: 'dandiya-dhol-at-venue',
+    eventKey: 'dandiya-dhol',
+    limit: 50,
+    reason: 'Demo: paying at the door',
+    changedByKey: 'platformAdmin',
+    changedDays: -6,
+    changedHour: 16,
+  },
+  {
+    key: 'warm-up-at-venue',
+    eventKey: 'warm-up',
+    // It was on sale when the switch went on; it has happened since.
+    statusThen: 'ON_SALE',
+    limit: 50,
+    reason: 'Demo: paying at the door',
+    changedByKey: 'platformAdmin',
+    changedDays: -24,
+    changedHour: 16,
+  },
+]
+
+/**
+ * Referral codes made by the platform administrator (SPEC3 §15.5): one for
+ * every event with a limit of 100 uses, one for the Garba night only that
+ * stops working 60 days after the seed first runs. Their texts are not here:
+ * each is made when its row is first written. A code is found again by its
+ * label and the administrator who made it.
+ */
+const REFERRAL_CODES = [
+  {
+    key: 'all-events',
+    label: 'Demo: every event, 100 uses',
+    scope: 'ALL_EVENTS',
+    eventKeys: [],
+    maxUses: 100,
+    expiresDays: null,
+    createdByKey: 'platformAdmin',
+    createdDays: -9,
+    createdHour: 11,
+  },
+  {
+    key: 'night-one-only',
+    label: 'Demo: Navratri Night One only',
+    scope: 'SELECTED_EVENTS',
+    eventKeys: ['night-one'],
+    maxUses: null,
+    expiresDays: 60,
+    createdByKey: 'platformAdmin',
+    createdDays: -9,
+    createdHour: 11,
+  },
+]
+
+/** Waitlist interest, including on the sold-out marathon. */
+const WAITLIST = [
+  { eventKey: 'marathon', userKey: 'diya', email: 'diya.patel@mail.example', quantity: 4 },
+  { eventKey: 'marathon', userKey: null, email: 'neha.bhatt@mail.example', quantity: 2 },
+  { eventKey: 'glow-night', userKey: 'sneha', email: 'sneha.reddy@mail.example', quantity: 2 },
+  { eventKey: 'garba-for-good', userKey: null, email: 'nikhil.joshi@mail.example', quantity: 3 },
+]
+
+/** How long an organiser invitation's code works, as the API issues it. */
+const ORGANIZER_INVITATION_LIFETIME_MS = 14 * DAY_MS
+
+/**
+ * One organiser invitation waiting to be accepted, issued by the platform
+ * administrator (SPEC2 §8 Stage C), so the invitations list has a row to
+ * reissue, withdraw or watch expire.
+ *
+ * Its code is made at seed time and thrown away at once: only the digest is
+ * stored, as for every code, and nobody ever sees the code. To use the
+ * invitation, sign in as `platform-admin@desi-event.example` and choose
+ * "Issue a new code" on it at `/admin/organizer-invitations`. That gives a
+ * usable code, shown once, and withdraws this one.
+ */
+const ORGANIZER_INVITATIONS = [
+  {
+    key: 'kathiawar',
+    email: 'new-organiser@desi-event.example',
+    organizationName: 'Kathiawar Folk Nights',
+    organizationDescription:
+      'Dayro evenings, Kathiawadi folk songs and garba to live dhol, in central New Jersey.',
+    organizationWebsiteUrl: 'https://kathiawar-folk-nights.example/',
+    note: 'As agreed on the phone: this code lets you set up Kathiawar Folk Nights on The Desi Events.',
+    invitedByKey: 'platformAdmin',
+    issuedDays: -1,
+    issuedHour: 15,
+  },
+]
+
+/**
+ * One picture waiting for review on a live event of the first demonstration
+ * organisation, uploaded by its owner (SPEC2-XI §4.9): the picture queue at
+ * `/moderation/pictures` has something in it, and the owner's Media step
+ * shows a picture waiting. The owner cannot approve it themselves; the
+ * moderator or a platform administrator can.
+ */
+const WAITING_PICTURES = [
+  {
+    key: 'beginner-workshop-circle',
+    eventKey: 'beginner-workshop',
+    uploadedByKey: 'nisha',
+    kind: 'EVENT_GALLERY',
+    position: 0,
+    altText: 'A plain saffron card, standing in for a photograph of the practice circle.',
+    width: 1200,
+    height: 800,
+    rgb: [214, 120, 43],
+    uploadedDays: -1,
+    uploadedHour: 11,
+  },
+]
+
+/**
+ * Events given fourteen days of demonstration visit totals (SPEC2 §8 Stage C),
+ * so the analytics screens have figures to draw before anybody has visited.
+ * Every row is marked `demonstration`, and the screens say so.
+ */
+const TRAFFIC_DEMONSTRATION_EVENT_KEYS = Object.freeze(['night-one', 'live-band'])
+
+/** How many whole UTC days of demonstration totals, ending yesterday. */
+const TRAFFIC_DEMONSTRATION_DAYS = 14
 
 // ---------------------------------------------------------------------------
 // Dataset assembly
 // ---------------------------------------------------------------------------
+
+/**
+ * The deletion columns of a seeded deleted event, with the person who deleted
+ * it named by email, as `deleteEvent` (`apps/api/src/lib/event-deletion.js`)
+ * would have written them.
+ *
+ * @param {object} event The event, from `EVENTS`.
+ * @param {Map<string, object>} userByKey Seeded users by key.
+ * @param {Date} anchor The day the seed is anchored to.
+ * @returns {object} The deletion record.
+ * @throws {Error} If the record names an unknown user, or one the database
+ *   would refuse.
+ */
+function resolveDeletion(event, userByKey, anchor) {
+  const { deletion } = event
+  const deletedBy = userByKey.get(deletion.byKey)
+
+  if (!deletedBy) throw new Error(`Unknown user key "${deletion.byKey}" deleting "${event.key}"`)
+  if (event.status !== 'DELETED') {
+    throw new Error(`Event "${event.key}" has a deletion record but is ${event.status}`)
+  }
+  // `event_deletion_consistency`: only a cancelled event can have been
+  // deleted with its refunds.
+  if (deletion.outcome === 'CANCELLED_AND_REFUNDED' && deletion.statusBefore !== 'CANCELLED') {
+    throw new Error(
+      `Event "${event.key}" cannot be CANCELLED_AND_REFUNDED from ${deletion.statusBefore}`,
+    )
+  }
+
+  return {
+    statusBeforeDeletion: deletion.statusBefore,
+    deletionOutcome: deletion.outcome,
+    deletionAuthority: deletion.authority,
+    deletionReason: deletion.reason,
+    deletedByEmail: deletedBy.email,
+    deletedAt: offset(anchor, deletion.days, deletion.hour),
+  }
+}
 
 /**
  * @typedef {object} SeedData
@@ -1499,6 +3077,11 @@ const WAITLIST = [
  * @property {object[]} orders Orders with totals, items, tickets, payments, holds.
  * @property {object[]} waitlist Waitlist entries.
  * @property {object[]} auditLogs Audit trail rows for the organiser actions above.
+ * @property {object[]} moderationActions Status moves recorded against events (the deletion).
+ * @property {object[]} organizerInvitations Organiser invitations waiting to be accepted.
+ * @property {object[]} pictures Pictures waiting for review, with their bytes.
+ * @property {object[]} trafficDaily Demonstration visit totals, one row per event and UTC day.
+ * @property {{lastCompletedAt: Date}} trafficRollup When the visit totals were last brought up to date.
  */
 
 /**
@@ -1531,17 +3114,60 @@ export function buildSeedData(now = new Date()) {
   }))
   const userByKey = new Map(users.map((user) => [user.key, user]))
 
-  const organizations = ORGANIZATIONS.map((org) => ({
-    ...org,
-    members: org.members.map((member) => {
-      const user = userByKey.get(member.userKey)
-      if (!user) throw new Error(`Unknown user key "${member.userKey}" in org "${org.key}"`)
-      return { email: user.email, role: member.role }
-    }),
-  }))
+  const organizations = ORGANIZATIONS.map((org) => {
+    const { createdByKey, verificationRequest, ...rest } = org
+    const creator = createdByKey ? userByKey.get(createdByKey) : null
+    if (createdByKey && !creator) {
+      throw new Error(`Unknown user key "${createdByKey}" as creator of org "${org.key}"`)
+    }
+
+    return {
+      ...rest,
+      // Derived from the verification state rather than written beside it, so the
+      // denormalised column and the state the public badge reads cannot disagree.
+      verified: org.verificationStatus === 'VERIFIED',
+      payoutCurrency: 'USD',
+      legalName: org.legalName ?? null,
+      createdByEmail: creator ? creator.email : null,
+      // When the state last moved: the queue is ordered by it, oldest first.
+      verificationUpdatedAt: verificationRequest
+        ? offset(anchor, verificationRequest.submittedDays, 14)
+        : null,
+      members: org.members.map((member) => {
+        const user = userByKey.get(member.userKey)
+        if (!user) throw new Error(`Unknown user key "${member.userKey}" in org "${org.key}"`)
+        return { email: user.email, role: member.role }
+      }),
+    }
+  })
   const orgById = new Map(organizations.map((org) => [org.key, org]))
 
-  const venueById = new Map(VENUES.map((venue) => [venue.key, venue]))
+  // The step that put each waiting organisation in the queue, written as the
+  // submit route writes it: from UNVERIFIED to PENDING, by its owner, with the
+  // note they left for the moderator.
+  const verificationEvents = ORGANIZATIONS.filter((org) => org.verificationRequest).map((org) => {
+    const owner = org.members.find((member) => member.role === 'OWNER')
+
+    return {
+      id: seedId(`seed-verification-${org.key}-submitted`),
+      organizationId: org.id,
+      fromStatus: 'UNVERIFIED',
+      toStatus: 'PENDING',
+      actorEmail: userByKey.get(owner.userKey).email,
+      reason: org.verificationRequest.note,
+      createdAt: offset(anchor, org.verificationRequest.submittedDays, 14),
+    }
+  })
+
+  const venues = VENUES.map((venue) => ({
+    ...venue,
+    addressLine2: venue.addressLine2 ?? null,
+    country: 'US',
+    latitude: null,
+    longitude: null,
+    accessibility: { features: venue.accessibility, note: null },
+  }))
+  const venueById = new Map(venues.map((venue) => [venue.key, venue]))
 
   const events = EVENTS.map((event) => {
     const org = orgById.get(event.orgKey)
@@ -1550,7 +3176,9 @@ export function buildSeedData(now = new Date()) {
       throw new Error(`Unknown venue key "${event.venueKey}" on event "${event.key}"`)
     }
 
-    const startsAt = offset(anchor, event.days, event.startHour, event.startMinute)
+    const days =
+      event.weekday === undefined ? event.days : onOrAfterWeekday(anchor, event.days, event.weekday)
+    const startsAt = localTime(anchor, days, event.timezone, ...event.localStart)
 
     return {
       key: event.key,
@@ -1566,15 +3194,149 @@ export function buildSeedData(now = new Date()) {
       startsAt,
       endsAt: new Date(startsAt.getTime() + event.durationHours * HOUR_MS),
       timezone: event.timezone,
-      coverImageUrl: `https://images.desi-event.com/events/${event.slug}/cover.jpg`,
+      // No pictures: the web app draws each event's poster from its slug. A
+      // cover is an uploaded MediaAsset, and the seed writes none.
       isOnline: event.isOnline,
       onlineUrl: event.onlineUrl ?? null,
       languages: event.languages,
       publishedAt: event.publishedDays === null ? null : offset(anchor, event.publishedDays, 9),
+      // Sales opened the day it was published for everything that has been on
+      // sale; a draft has done neither.
+      salesOpenedAt: event.publishedDays === null ? null : offset(anchor, event.publishedDays, 10),
+      // What the lifecycle writes on postponement: the date it was going to be
+      // on, until a new one is set.
+      postponedAt: event.status === 'POSTPONED' ? offset(anchor, event.postponedDays, 15) : null,
+      previousStartsAt: event.status === 'POSTPONED' ? startsAt : null,
+      cancelledAt: event.status === 'CANCELLED' ? offset(anchor, event.cancelledDays, 15) : null,
+      cancellationReason: event.status === 'CANCELLED' ? event.cancellationReason : null,
       currency: event.currency,
+      venueCountry: event.venueKey ? venueById.get(event.venueKey).country : null,
+      // The page's own content, where an event has it: only the columns it
+      // names, which the writer sets; every other column is left as it is. A
+      // JSON column is never written as null here, because Prisma would store
+      // JSON's `null` rather than no value, and the shape CHECKs refuse that.
+      content: event.content ? { ...event.content } : null,
+      // The organiser's website and the switch, as the administrators' screens
+      // leave them: on with the deciding administrator and their reason, or
+      // waiting for a decision since a fixed time. Null for an event with none.
+      website: event.website
+        ? {
+            url: event.website.url,
+            on: event.website.on,
+            reason: event.website.reason,
+            decidedByEmail: event.website.on ? userByKey.get('platformAdmin').email : null,
+            decidedAt: event.website.on ? offset(anchor, -35, 12) : null,
+            submittedAt: event.website.on ? null : offset(anchor, -3, 12),
+          }
+        : null,
+      // The deletion record, as `deleteEvent` writes it, for a deleted event;
+      // null for every other. The columns go in with the row on a first seed
+      // and are never rewritten (O17).
+      deletion: event.deletion ? resolveDeletion(event, userByKey, anchor) : null,
     }
   })
   const eventByKey = new Map(events.map((event) => [event.key, event]))
+
+  // Seat plans: one section, lettered rows, every seat in the one zone.
+  const seatMaps = SEAT_MAPS.map((plan) => {
+    const venue = venueById.get(plan.venueKey)
+    if (!venue) throw new Error(`Unknown venue key "${plan.venueKey}" on seat map "${plan.key}"`)
+
+    const zoneId = seedId(`seed-zone-${plan.key}`)
+    const rows = plan.rows.map(([label, count], rowIndex) => ({
+      id: seedId(`seed-seat-row-${plan.key}-${label}`),
+      label,
+      sortOrder: rowIndex,
+      seats: Array.from({ length: count }, (_, index) => ({
+        id: seedId(`seed-seat-${plan.key}-${label}${index + 1}`),
+        label: `${label}${index + 1}`,
+        sortOrder: rowIndex * 100 + index + 1,
+        priceZoneId: zoneId,
+      })),
+    }))
+    const seats = rows.flatMap((row) => row.seats)
+
+    return {
+      key: plan.key,
+      id: seedId(`seed-map-${plan.key}`),
+      venueId: venue.id,
+      name: plan.name,
+      version: {
+        id: seedId(`seed-map-version-${plan.key}-1`),
+        number: 1,
+        publishedAt: offset(anchor, plan.publishedDays, 9),
+        seatCount: seats.length,
+      },
+      section: { id: seedId(`seed-section-${plan.key}`), name: plan.section, kind: 'SEATED' },
+      zone: { id: zoneId, name: plan.zone },
+      rows,
+      seats,
+    }
+  })
+  const seatMapByKey = new Map(seatMaps.map((plan) => [plan.key, plan]))
+
+  // Sessions: one a night for a run of nights, or the one evening a seated
+  // event sells its plan on. Other events have none, as before.
+  /** @type {object[]} */
+  const eventSessions = []
+  for (const source of EVENTS) {
+    const event = eventByKey.get(source.key)
+    const days =
+      source.weekday === undefined
+        ? source.days
+        : onOrAfterWeekday(anchor, source.days, source.weekday)
+
+    if (source.nights) {
+      for (let night = 0; night < source.nights; night += 1) {
+        // Doors at 19:00, the start at 19:30 and the end five hours later,
+        // local time — the web catalogue's nights, to the minute.
+        const startsAt = localTime(anchor, days + night, source.timezone, 19, 30)
+
+        eventSessions.push({
+          key: `${source.key}-night-${night + 1}`,
+          id: seedId(`seed-session-${source.key}-night-${night + 1}`),
+          eventId: event.id,
+          eventKey: source.key,
+          label: `Night ${night + 1}`,
+          doorsOpenAt: localTime(anchor, days + night, source.timezone, 19, 0),
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + 5 * HOUR_MS),
+          timezone: source.timezone,
+          status: 'SCHEDULED',
+          venueMapVersionId: null,
+          seatMapKey: null,
+          sortOrder: night,
+        })
+      }
+    }
+
+    if (source.seatMap) {
+      const plan = seatMapByKey.get(source.seatMap)
+      if (!plan) throw new Error(`Unknown seat map "${source.seatMap}" on event "${source.key}"`)
+
+      eventSessions.push({
+        key: `${source.key}-evening`,
+        id: seedId(`seed-session-${source.key}-evening`),
+        eventId: event.id,
+        eventKey: source.key,
+        // One evening: the page needs no name to tell it from another.
+        label: null,
+        doorsOpenAt: new Date(event.startsAt.getTime() - 30 * MINUTE_MS),
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        timezone: source.timezone,
+        status: 'SCHEDULED',
+        venueMapVersionId: plan.version.id,
+        seatMapKey: plan.key,
+        sortOrder: 0,
+      })
+    }
+  }
+  const seatedSessionByEventKey = new Map(
+    eventSessions
+      .filter((session) => session.seatMapKey)
+      .map((session) => [session.eventKey, session]),
+  )
 
   /** @type {Map<string, object>} */
   const ticketTypeByKey = new Map()
@@ -1584,6 +3346,14 @@ export function buildSeedData(now = new Date()) {
       if (ticketTypeByKey.has(ticketType.key)) {
         throw new Error(`Duplicate ticket type key "${ticketType.key}"`)
       }
+      // A reserved tier sells the seats of its event's seated session, in the
+      // plan's one zone, and is allocated exactly those.
+      const session = ticketType.reserved ? seatedSessionByEventKey.get(source.key) : null
+      if (ticketType.reserved && !session) {
+        throw new Error(`Reserved ticket type "${ticketType.key}" has no seated session`)
+      }
+      const plan = session ? seatMapByKey.get(session.seatMapKey) : null
+
       ticketTypeByKey.set(ticketType.key, {
         key: ticketType.key,
         id: seedId(`seed-tt-${ticketType.key}`),
@@ -1593,7 +3363,10 @@ export function buildSeedData(now = new Date()) {
         description: ticketType.description ?? null,
         priceCents: ticketType.priceCents,
         currency: event.currency,
-        quantityTotal: ticketType.quantityTotal,
+        reserved: Boolean(ticketType.reserved),
+        eventSessionId: session ? session.id : null,
+        priceZoneId: plan ? plan.zone.id : null,
+        quantityTotal: plan ? plan.seats.length : ticketType.quantityTotal,
         quantitySold: 0,
         minPerOrder: ticketType.minPerOrder,
         maxPerOrder: ticketType.maxPerOrder,
@@ -1638,8 +3411,104 @@ export function buildSeedData(now = new Date()) {
     }),
   )
 
+  // An event's own booking fee: one decision by the team at The Desi Events, in the
+  // event's one currency, the first in its history (SPEC3 §5.2, DF3).
+  const feeSettings = EVENT_FEE_SETTINGS.map((setting) => {
+    const event = eventByKey.get(setting.eventKey)
+    if (!event) {
+      throw new Error(`Unknown event key "${setting.eventKey}" on fee setting "${setting.key}"`)
+    }
+    const setBy = userByKey.get(setting.setByKey)
+    if (!setBy) throw new Error(`Unknown user key "${setting.setByKey}" setting "${setting.key}"`)
+
+    return {
+      key: setting.key,
+      id: seedId(`seed-fee-setting-${setting.key}`),
+      eventId: event.id,
+      eventKey: event.key,
+      eventStatus: event.status,
+      sequence: 1,
+      source: 'EVENT',
+      percentageBps: setting.percentageBps,
+      flatCentsPerTicket: setting.flatCentsPerTicket,
+      currency: event.currency,
+      reason: setting.reason,
+      setByEmail: setBy.email,
+      createdAt: offset(anchor, setting.setDays, setting.setHour),
+    }
+  })
+  const feeSettingByEventKey = new Map(feeSettings.map((setting) => [setting.eventKey, setting]))
+
+  // Paying at the venue switched on, with its limit and reason, by the team
+  // at The Desi Events (SPEC3 §9.1): never for an online event.
+  const venuePaymentChanges = VENUE_PAYMENT_SWITCHES.map((change) => {
+    const event = eventByKey.get(change.eventKey)
+    if (!event) {
+      throw new Error(`Unknown event key "${change.eventKey}" on venue switch "${change.key}"`)
+    }
+    if (event.isOnline) throw new Error(`Event "${event.slug}" is online and has no door`)
+    const changedBy = userByKey.get(change.changedByKey)
+    if (!changedBy) {
+      throw new Error(`Unknown user key "${change.changedByKey}" on venue switch "${change.key}"`)
+    }
+
+    return {
+      key: change.key,
+      id: seedId(`seed-venue-payment-change-${change.key}`),
+      eventId: event.id,
+      eventKey: event.key,
+      eventStatus: change.statusThen ?? event.status,
+      enabled: true,
+      limit: change.limit,
+      reason: change.reason,
+      changedByEmail: changedBy.email,
+      createdAt: offset(anchor, change.changedDays, change.changedHour),
+    }
+  })
+  const venueSwitchByEventKey = new Map(
+    venuePaymentChanges.map((change) => [change.eventKey, change]),
+  )
+
+  // Referral codes, without their text: it is made when the row is written.
+  const referralCodes = REFERRAL_CODES.map((code) => {
+    const createdBy = userByKey.get(code.createdByKey)
+    if (!createdBy) throw new Error(`Unknown user key "${code.createdByKey}" on code "${code.key}"`)
+    const eventIds = code.eventKeys.map((key) => {
+      const event = eventByKey.get(key)
+      if (!event) throw new Error(`Unknown event key "${key}" in the scope of code "${code.key}"`)
+      return event.id
+    })
+    if ((code.scope === 'SELECTED_EVENTS') !== eventIds.length > 0) {
+      throw new Error(
+        `Referral code "${code.key}" names events only when its scope is chosen events`,
+      )
+    }
+
+    return {
+      key: code.key,
+      id: seedId(`seed-referral-code-${code.key}`),
+      label: code.label,
+      scope: code.scope,
+      eventIds,
+      maxUses: code.maxUses,
+      expiresAt: code.expiresDays === null ? null : offset(anchor, code.expiresDays),
+      createdByEmail: createdBy.email,
+      createdAt: offset(anchor, code.createdDays, code.createdHour),
+      // Derived below from the orders that used it, none of which gave it back.
+      useCount: 0,
+    }
+  })
+  const referralByKey = new Map(referralCodes.map((code) => [code.key, code]))
+
   const seenReferences = new Set()
   const seenTicketCodes = new Set()
+
+  /** @type {object[]} */
+  const venuePayments = []
+  /** @type {object[]} */
+  const checkIns = []
+  /** @type {object[]} */
+  const venueCancellations = []
 
   const orders = ORDERS.map((order) => {
     if (seenReferences.has(order.reference)) {
@@ -1657,6 +3526,46 @@ export function buildSeedData(now = new Date()) {
     if (promo && promo.eventId && promo.eventId !== event.id) {
       throw new Error(`Promo "${promo.code}" is not valid for event "${event.slug}"`)
     }
+
+    const placedAt = offset(anchor, order.placedDays, 6, 45)
+    const paymentMethod = order.paymentMethod ?? 'CARD'
+    const buyerEmail = order.userKey ? userByKey.get(order.userKey).email : null
+
+    // Checkout's rules, so that no seeded order is one checkout would refuse.
+    const referral = order.referralKey ? referralByKey.get(order.referralKey) : null
+    if (order.referralKey && !referral) {
+      throw new Error(`Unknown referral code "${order.referralKey}" on order ${order.reference}`)
+    }
+    if (referral) {
+      if (referral.scope === 'SELECTED_EVENTS' && !referral.eventIds.includes(event.id)) {
+        throw new Error(`Referral code "${referral.key}" does not apply to event "${event.slug}"`)
+      }
+      // Naming a code needs an account (DR9), and its maker cannot use it (DR13).
+      if (!buyerEmail || buyerEmail === referral.createdByEmail) {
+        throw new Error(`Order ${order.reference} may not use referral code "${referral.key}"`)
+      }
+      if (
+        placedAt < referral.createdAt ||
+        (referral.expiresAt !== null && placedAt >= referral.expiresAt)
+      ) {
+        throw new Error(`Referral code "${referral.key}" was not live for order ${order.reference}`)
+      }
+    }
+    if (paymentMethod === 'AT_VENUE') {
+      const venueSwitch = venueSwitchByEventKey.get(event.key)
+      if (!venueSwitch || placedAt < venueSwitch.createdAt) {
+        throw new Error(`Event "${event.slug}" took no payment at the venue for ${order.reference}`)
+      }
+      if (!buyerEmail) throw new Error(`Order ${order.reference} pays at the venue with no account`)
+      // The door price per ticket is its unit price; a promo's share across
+      // door prices is the pricing package's to apportion, not the seed's.
+      if (promo) throw new Error(`Order ${order.reference} pays at the venue with a promo code`)
+    }
+
+    // New orders only (A4): an order placed after the event's own fee was set
+    // is priced with it; one placed before keeps the site default it had.
+    const ownFee = feeSettingByEventKey.get(event.key)
+    const feeTerms = ownFee && placedAt >= ownFee.createdAt ? ownFee : null
 
     const lines = order.lines.map((line) => {
       const ticketType = ticketTypeByKey.get(line.ticketTypeKey)
@@ -1676,11 +3585,32 @@ export function buildSeedData(now = new Date()) {
       }
     })
 
-    const taxBps = TAX_BPS_BY_CURRENCY[event.currency] ?? 0
-    const totals = computeSeedOrderTotals({ lines, promo, taxBps })
+    // An online event has no venue; every organisation here is American, so
+    // its supply is taxed as a US one.
+    const taxBps = TAX_BPS_BY_COUNTRY[event.venueCountry ?? 'US'] ?? 0
+    const totals = computeSeedOrderTotals({
+      lines,
+      promo,
+      taxBps,
+      fee: feeTerms ?? SITE_DEFAULT_FEE_TERMS,
+      paymentMethod,
+      waived: Boolean(referral),
+    })
+    // A code is not consumed with nothing to waive (DR2), and a booking to pay
+    // at the venue has a ticket price to pay there (DV2).
+    if (referral && totals.feeGrossCents <= 0) {
+      throw new Error(`Order ${order.reference} has no booking fee for its referral code to waive`)
+    }
+    if (paymentMethod === 'AT_VENUE' && totals.venueDueCents <= 0) {
+      throw new Error(`Order ${order.reference} has nothing to pay at the venue`)
+    }
 
-    const placedAt = offset(anchor, order.placedDays, 6, 45)
     const issueTickets = order.issueTickets !== false
+    const atVenue = paymentMethod === 'AT_VENUE'
+    // The orders this phase adds are written as checkout writes one now: each
+    // ticket held by the buyer's account. The older demonstration orders keep
+    // the shape they had.
+    const newShape = atVenue || Boolean(referral)
 
     const items = lines.map((line, index) => ({
       id: seedId(`seed-item-${order.key}-${index}`),
@@ -1689,6 +3619,10 @@ export function buildSeedData(now = new Date()) {
       quantity: line.quantity,
       unitPriceCents: line.unitPriceCents,
       subtotalCents: line.quantity * line.unitPriceCents,
+      // No promo on a booking to pay at the venue here, so a line's door price
+      // is its subtotal, and each of its tickets owes the unit price.
+      venueDueCents: atVenue ? line.quantity * line.unitPriceCents : 0,
+      venueCancelledQuantity: 0,
     }))
 
     /** @type {object[]} */
@@ -1700,19 +3634,169 @@ export function buildSeedData(now = new Date()) {
           const code = `${order.reference}-T${String(index + 1)}${String(n + 1).padStart(2, '0')}`
           if (seenTicketCodes.has(code)) throw new Error(`Duplicate ticket code "${code}"`)
           seenTicketCodes.add(code)
+          const status = order.ticketStatus ?? 'VALID'
           tickets.push({
+            ...(newShape ? { id: seedId(`seed-ticket-${code}`) } : {}),
             orderItemId: item.id,
+            ticketTypeKey: item.ticketTypeKey,
             code,
             attendeeName: order.attendees[seat] ?? order.buyerName,
-            status: order.ticketStatus ?? 'VALID',
+            ownerEmail: newShape ? buyerEmail : null,
+            // What a door payment or a cancellation moves it from, when one
+            // does; otherwise the status it is written with.
+            initialStatus: status,
+            status,
+            // Through the door twenty minutes after the start, in whatever
+            // zone and season the event fell in — a fixed UTC hour would put
+            // some check-ins before the doors opened.
             checkedInAt:
               order.ticketStatus === 'CHECKED_IN'
-                ? offset(anchor, order.checkedInDays ?? order.placedDays, 6)
+                ? new Date(event.startsAt.getTime() + CHECK_IN_AFTER_START_MINUTES * MINUTE_MS)
                 : null,
+            venueDueCents: atVenue ? item.unitPriceCents : 0,
+            venuePaymentId: null,
+            venueCancellationId: null,
+            revokedAt: null,
+            revokedReason: null,
           })
           seat += 1
         }
       }
+    }
+
+    const orderId = seedId(`seed-order-${order.key}`)
+
+    /**
+     * The tickets named by position on the order, each owing at the door.
+     *
+     * @param {number[]} indexes Positions, from 0.
+     * @param {string} what What names them, for the error.
+     * @returns {object[]} The tickets.
+     */
+    const ticketsAt = (indexes, what) =>
+      indexes.map((position) => {
+        const ticket = tickets[position]
+        if (!ticket || ticket.venueDueCents <= 0) {
+          throw new Error(`${what} on order ${order.reference} names no ticket owing at the door`)
+        }
+        if (ticket.status !== 'VALID') {
+          throw new Error(`${what} on order ${order.reference} names a ticket already moved`)
+        }
+        return ticket
+      })
+
+    // A payment taken at the door, recorded in the step that let its tickets
+    // in (DV7): the payment, each ticket pointed at it, its admission.
+    if (order.doorPayment) {
+      if (!atVenue) throw new Error(`Order ${order.reference} is not paid at the venue`)
+      const door = order.doorPayment
+      const recordedBy = userByKey.get(door.recordedByKey)
+      if (!recordedBy) throw new Error(`Unknown user key "${door.recordedByKey}" at the door`)
+      const paid = ticketsAt(door.ticketIndexes, 'A door payment')
+      const recordedAt = new Date(event.startsAt.getTime() + door.afterStartMinutes * MINUTE_MS)
+      const id = seedId(`seed-venue-payment-${order.key}`)
+
+      for (const ticket of paid) {
+        ticket.status = 'CHECKED_IN'
+        ticket.checkedInAt = recordedAt
+        ticket.venuePaymentId = id
+        checkIns.push({
+          id: seedId(`seed-check-in-${ticket.code}`),
+          ticketId: ticket.id,
+          ticketCode: ticket.code,
+          // An event with no nights admits without naming one.
+          eventSessionId: null,
+          scannedByEmail: recordedBy.email,
+          method: 'QR_SCAN',
+          scannedAt: recordedAt,
+          gate: door.gate,
+        })
+      }
+      venuePayments.push({
+        key: order.key,
+        id,
+        orderId,
+        eventId: event.id,
+        eventSessionId: null,
+        organizationId: event.organizationId,
+        amountCents: paid.reduce((sum, ticket) => sum + ticket.venueDueCents, 0),
+        currency: event.currency,
+        ticketCount: paid.length,
+        via: paid.length > 1 ? 'DOOR_GROUP' : 'DOOR_TICKET',
+        authority: door.authority,
+        role: door.role,
+        recordedByEmail: recordedBy.email,
+        recordedAt,
+        gate: door.gate,
+        ticketIds: paid.map((ticket) => ticket.id),
+      })
+    }
+
+    // Unpaid tickets cancelled (SPEC3-XI XU1): withdrawn, their places freed,
+    // their share of the booking fee kept, nothing refunded.
+    let venueCancelledBasisCents = 0
+    let venueFeeKeptCents = 0
+
+    if (order.unpaidCancellation) {
+      if (!atVenue) throw new Error(`Order ${order.reference} is not paid at the venue`)
+      const cancel = order.unpaidCancellation
+      const cancelledBy = userByKey.get(cancel.cancelledByKey)
+      if (!cancelledBy) throw new Error(`Unknown user key "${cancel.cancelledByKey}" cancelling`)
+      const cancelled = ticketsAt(cancel.ticketIndexes, 'A cancellation')
+      const createdAt = new Date(event.startsAt.getTime() + cancel.afterStartMinutes * MINUTE_MS)
+      if (createdAt >= event.endsAt) {
+        throw new Error(`Order ${order.reference} is cancelled after its event ended`)
+      }
+      const id = seedId(`seed-venue-cancellation-${order.key}`)
+      const basisCents = cancelled.reduce((sum, ticket) => sum + ticket.venueDueCents, 0)
+      const feeKeptCents = seedFeeKeptCents({
+        feesCents: totals.feesCents,
+        venueDueCents: totals.venueDueCents,
+        basisCents,
+      })
+      const returned = new Map()
+
+      for (const ticket of cancelled) {
+        ticket.status = 'REVOKED'
+        ticket.revokedAt = createdAt
+        ticket.revokedReason = `venue-unpaid:${id}`
+        ticket.venueCancellationId = id
+        items.find((item) => item.id === ticket.orderItemId).venueCancelledQuantity += 1
+        const tier = ticketTypeByKey.get(ticket.ticketTypeKey)
+        returned.set(tier.id, (returned.get(tier.id) ?? 0) + 1)
+      }
+      venueCancelledBasisCents = basisCents
+      venueFeeKeptCents = feeKeptCents
+
+      // Whether the places freed sell again: only while their tier sells.
+      const onSale = [...returned.keys()].map((tierId) => {
+        const tier = [...ticketTypeByKey.values()].find((type) => type.id === tierId)
+        return (
+          tier.status === 'ON_SALE' &&
+          (tier.salesStartAt === null || tier.salesStartAt <= createdAt) &&
+          (tier.salesEndAt === null || createdAt < tier.salesEndAt)
+        )
+      })
+
+      venueCancellations.push({
+        key: order.key,
+        id,
+        orderId,
+        eventId: event.id,
+        organizationId: event.organizationId,
+        ticketCount: cancelled.length,
+        basisCents,
+        feeKeptCents,
+        currency: event.currency,
+        authority: cancel.authority,
+        role: cancel.role,
+        reason: cancel.reason,
+        cancelledByEmail: cancelledBy.email,
+        createdAt,
+        ticketIds: cancelled.map((ticket) => ticket.id),
+        placesReturned: Object.fromEntries(returned),
+        placesOnSale: onSale.every(Boolean) ? 'ALL' : onSale.some(Boolean) ? 'SOME' : 'NONE',
+      })
     }
 
     const payments = order.payments.map((payment) => ({
@@ -1723,6 +3807,9 @@ export function buildSeedData(now = new Date()) {
       currency: event.currency,
       failureCode: payment.failureCode ?? null,
     }))
+    if (payments.length > 0 && totals.totalCents <= 0) {
+      throw new Error(`Order ${order.reference} pays nothing online and has a payment`)
+    }
 
     const holdQuantity = lines.reduce((sum, line) => sum + line.quantity, 0)
     const hold = order.hold
@@ -1739,7 +3826,7 @@ export function buildSeedData(now = new Date()) {
           //
           // User ids are assigned by the database, so the owner travels as an
           // email here and is resolved when the row is written.
-          userEmail: order.userKey ? userByKey.get(order.userKey).email : null,
+          userEmail: buyerEmail,
           guestTokenHash: order.userKey ? null : seedGuestTokenHash(order.key),
           // An ACTIVE hold must be genuinely unexpired for the availability
           // logic to treat it as reserved, so it tracks the wall clock rather
@@ -1752,22 +3839,37 @@ export function buildSeedData(now = new Date()) {
 
     return {
       key: order.key,
-      id: seedId(`seed-order-${order.key}`),
+      id: orderId,
       reference: order.reference,
       eventId: event.id,
       eventKey: event.key,
       buyerEmail: order.buyerEmail,
       buyerName: order.buyerName,
-      userEmail: order.userKey ? userByKey.get(order.userKey).email : null,
+      userEmail: buyerEmail,
       status: order.status,
       currency: event.currency,
+      paymentMethod,
       subtotalCents: totals.subtotalCents,
       discountCents: totals.discountCents,
+      // The terms the fee was worked out with, as checkout records them: the
+      // event's own decision, or the site default's numbers (SPEC3 §5.4).
+      feeSource: feeTerms ? 'EVENT' : 'SITE_DEFAULT',
+      feeSettingId: feeTerms ? feeTerms.id : null,
+      feePercentageBps: (feeTerms ?? SITE_DEFAULT_FEE_TERMS).percentageBps,
+      feeFlatCentsPerTicket: (feeTerms ?? SITE_DEFAULT_FEE_TERMS).flatCentsPerTicket,
+      feeGrossCents: totals.feeGrossCents,
+      feeWaivedCents: totals.feeWaivedCents,
       feesCents: totals.feesCents,
       taxCents: totals.taxCents,
       totalCents: totals.totalCents,
+      venueDueCents: totals.venueDueCents,
+      venueCancelledBasisCents,
+      venueFeeKeptCents,
+      referralCodeId: referral ? referral.id : null,
+      referralKey: referral ? referral.key : null,
       promoCodeId: promo ? promo.id : null,
       promoKey: promo ? promo.key : null,
+      placedAt,
       expiresAt:
         order.status === 'PENDING'
           ? new Date(now.getTime() + 10 * MINUTE_MS)
@@ -1788,16 +3890,29 @@ export function buildSeedData(now = new Date()) {
     }
   })
 
-  // Derive inventory and redemption counters from the orders above.
+  // Derive inventory, redemption and referral-use counters from the orders
+  // above. A tier's sold count falls by the unpaid tickets cancelled from it,
+  // the one decrement anywhere (SPEC3-XI XU5).
   for (const order of orders) {
     if (order.status === 'PAID') {
       for (const item of order.items) {
         const ticketType = ticketTypeByKey.get(item.ticketTypeKey)
-        ticketType.quantitySold += item.quantity
+        ticketType.quantitySold += item.quantity - item.venueCancelledQuantity
       }
     }
     if (order.promoKey && REDEEMING_STATUSES.has(order.status)) {
       promoByKey.get(order.promoKey).redemptionCount += 1
+    }
+    // Every seeded order that used a code still stands, so none has given its
+    // use back (SPEC3-XI XR1).
+    if (order.referralKey) {
+      referralByKey.get(order.referralKey).useCount += 1
+    }
+  }
+
+  for (const code of referralCodes) {
+    if (code.maxUses !== null && code.useCount > code.maxUses) {
+      throw new Error(`Referral code "${code.key}" is used more than its limit`)
     }
   }
 
@@ -1821,6 +3936,25 @@ export function buildSeedData(now = new Date()) {
     return promo
   })
 
+  // Every seat of each seated session, bound to the reserved tier that prices
+  // its zone and on sale — what `bindReservedSeats` does when sales open.
+  const eventSeats = ticketTypes
+    .filter((type) => type.reserved)
+    .flatMap((type) => {
+      const session = eventSessions.find((candidate) => candidate.id === type.eventSessionId)
+      const plan = seatMapByKey.get(session.seatMapKey)
+
+      return plan.seats
+        .filter((seat) => seat.priceZoneId === type.priceZoneId)
+        .map((seat) => ({
+          id: seedId(`seed-event-seat-${session.key}-${seat.label}`),
+          eventSessionId: session.id,
+          seatId: seat.id,
+          ticketTypeId: type.id,
+          status: 'AVAILABLE',
+        }))
+    })
+
   const waitlist = WAITLIST.map((entry, index) => {
     const event = eventByKey.get(entry.eventKey)
     if (!event) throw new Error(`Unknown event key "${entry.eventKey}" on waitlist entry ${index}`)
@@ -1833,56 +3967,310 @@ export function buildSeedData(now = new Date()) {
     }
   })
 
+  // The deletion's entry in the event's history, as `deleteEvent` writes it.
+  const moderationActions = events
+    .filter((event) => event.deletion)
+    .map((event) => ({
+      id: seedId(`seed-moderation-${event.key}-deleted`),
+      eventId: event.id,
+      actorEmail: event.deletion.deletedByEmail,
+      fromStatus: event.deletion.statusBeforeDeletion,
+      toStatus: 'DELETED',
+      reason: event.deletion.deletionReason,
+      createdAt: event.deletion.deletedAt,
+    }))
+
+  const organizerInvitations = ORGANIZER_INVITATIONS.map((invitation) => {
+    const invitedBy = userByKey.get(invitation.invitedByKey)
+    if (!invitedBy) {
+      throw new Error(`Unknown user key "${invitation.invitedByKey}" inviting "${invitation.key}"`)
+    }
+    const createdAt = offset(anchor, invitation.issuedDays, invitation.issuedHour)
+
+    return {
+      key: invitation.key,
+      id: seedId(`seed-organizer-invitation-${invitation.key}`),
+      email: invitation.email.toLowerCase(),
+      organizationName: invitation.organizationName,
+      organizationDescription: invitation.organizationDescription,
+      organizationWebsiteUrl: invitation.organizationWebsiteUrl,
+      note: invitation.note,
+      invitedByEmail: invitedBy.email,
+      // Handed over by whoever issued it, as a code shown once: this
+      // environment sends no email.
+      deliveryMode: 'MANUAL',
+      createdAt,
+      expiresAt: new Date(createdAt.getTime() + ORGANIZER_INVITATION_LIFETIME_MS),
+    }
+  })
+
+  const pictures = WAITING_PICTURES.map((picture) => {
+    const event = eventByKey.get(picture.eventKey)
+    if (!event)
+      throw new Error(`Unknown event key "${picture.eventKey}" on picture "${picture.key}"`)
+    const uploadedBy = userByKey.get(picture.uploadedByKey)
+    if (!uploadedBy) {
+      throw new Error(`Unknown user key "${picture.uploadedByKey}" uploading "${picture.key}"`)
+    }
+    const bytes = solidSeedPng(picture.width, picture.height, picture.rgb)
+    const uploadedAt = offset(anchor, picture.uploadedDays, picture.uploadedHour)
+
+    return {
+      key: picture.key,
+      id: seedId(`seed-picture-${picture.key}`),
+      eventId: event.id,
+      kind: picture.kind,
+      position: picture.position,
+      altText: picture.altText,
+      storageKey: seedStorageKey(`seed-picture-${picture.key}`),
+      contentType: 'image/png',
+      width: picture.width,
+      height: picture.height,
+      bytes,
+      byteSize: bytes.length,
+      checksum: createHash('sha256').update(bytes).digest('hex'),
+      uploadedByEmail: uploadedBy.email,
+      // Rebuilt and checked as the upload pipeline leaves a picture, and not
+      // yet decided: nobody has looked at it.
+      sanitisedAt: uploadedAt,
+      scanStatus: 'CLEAN',
+      moderationStatus: 'PENDING',
+      createdAt: uploadedAt,
+    }
+  })
+
+  // Fourteen whole UTC days of visit totals, ending yesterday, for two public
+  // events of the first demonstration organisation. Each is marked as a
+  // demonstration, which the analytics screens announce.
+  const trafficDaily = TRAFFIC_DEMONSTRATION_EVENT_KEYS.flatMap((key, eventIndex) => {
+    const event = eventByKey.get(key)
+    if (!event) throw new Error(`Unknown event key "${key}" for demonstration visits`)
+    const source = EVENTS.find((entry) => entry.key === key)
+
+    return Array.from({ length: TRAFFIC_DEMONSTRATION_DAYS }, (_, index) => {
+      const back = TRAFFIC_DEMONSTRATION_DAYS - index
+
+      return {
+        eventId: event.id,
+        day: offset(anchor, -back),
+        ...demonstrationTrafficDay({
+          index,
+          eventIndex,
+          seated: Boolean(source.seatMap),
+          websiteOn: Boolean(event.website?.on),
+        }),
+        demonstration: true,
+        // As the roll-up stamps a day: just after it ended.
+        computedAt: offset(anchor, -back + 1, 0, 5),
+      }
+    })
+  })
+
   const auditLogs = [
     {
-      id: seedId('seed-audit-publish-sufi'),
-      actorEmail: userByKey.get('priya').email,
-      action: 'event.publish',
-      entityType: 'Event',
-      entityId: eventByKey.get('sufi').id,
-      metadata: { slug: 'mumbai-sufi-nights', channel: 'dashboard' },
-      createdAt: offset(anchor, -50, 9),
-    },
-    {
-      id: seedId('seed-audit-publish-diwali'),
-      actorEmail: userByKey.get('harjit').email,
-      action: 'event.publish',
-      entityType: 'Event',
-      entityId: eventByKey.get('diwali').id,
-      metadata: { slug: 'toronto-diwali-mela', channel: 'dashboard' },
-      createdAt: offset(anchor, -60, 14),
-    },
-    {
-      id: seedId('seed-audit-refund-o8'),
+      id: seedId('seed-audit-publish-night-one'),
       actorEmail: userByKey.get('nisha').email,
+      action: 'event.publish',
+      entityType: 'Event',
+      entityId: eventByKey.get('night-one').id,
+      metadata: { slug: 'navratri-night-one-edison', channel: 'dashboard' },
+      createdAt: offset(anchor, -42, 9),
+    },
+    {
+      id: seedId('seed-audit-publish-dandiya-dhol'),
+      actorEmail: userByKey.get('anjali').email,
+      action: 'event.publish',
+      entityType: 'Event',
+      entityId: eventByKey.get('dandiya-dhol').id,
+      metadata: { slug: 'dandiya-dhol-houston', channel: 'dashboard' },
+      createdAt: offset(anchor, -40, 14),
+    },
+    {
+      id: seedId('seed-audit-refund-us08'),
+      actorEmail: userByKey.get('priti').email,
       action: 'order.refund',
       entityType: 'Order',
-      entityId: seedId('seed-order-o8'),
-      metadata: { reference: 'DE-TOR-100007', reason: 'buyer_request' },
-      createdAt: offset(anchor, -8, 8),
+      entityId: seedId('seed-order-us08'),
+      metadata: { reference: 'DE-US-200008', reason: 'buyer_request' },
+      createdAt: offset(anchor, -3, 8),
     },
     {
-      id: seedId('seed-audit-checkin-rasotsav'),
-      actorEmail: userByKey.get('kabir').email,
+      id: seedId('seed-audit-checkin-warm-up'),
+      actorEmail: userByKey.get('meera').email,
       action: 'ticket.check_in',
       entityType: 'Order',
-      entityId: seedId('seed-order-o4'),
-      metadata: { reference: 'DE-AMD-100004', gate: 'North' },
-      createdAt: offset(anchor, -60, 6),
+      entityId: seedId('seed-order-us04'),
+      metadata: { reference: 'DE-US-200004', gate: 'Main doors' },
+      createdAt: new Date(
+        eventByKey.get('warm-up').startsAt.getTime() + CHECK_IN_AFTER_START_MINUTES * MINUTE_MS,
+      ),
     },
+    // What issuing the waiting invitation records: how the code went out, and
+    // nothing that identifies the person or opens the invitation.
+    ...organizerInvitations.map((invitation) => ({
+      id: seedId(`seed-audit-organizer-invitation-${invitation.key}-issued`),
+      actorEmail: invitation.invitedByEmail,
+      action: 'organizer_invitation.issued',
+      entityType: 'OrganizerInvitation',
+      entityId: invitation.id,
+      metadata: { role: 'OWNER', deliveryMode: invitation.deliveryMode },
+      createdAt: invitation.createdAt,
+    })),
+    // The deletion, with its reason and outcome, as `deleteEvent` audits it.
+    ...events
+      .filter((event) => event.deletion)
+      .map((event) => ({
+        id: seedId(`seed-audit-${event.key}-deleted`),
+        actorEmail: event.deletion.deletedByEmail,
+        action: 'event.deleted',
+        entityType: 'Event',
+        entityId: event.id,
+        metadata: {
+          from: event.deletion.statusBeforeDeletion,
+          outcome: 'REMOVE',
+          authority: event.deletion.deletionAuthority,
+          reason: event.deletion.deletionReason,
+          counts: { paidOrders: 0, ordersCancelled: 0, holdsReleased: 0, ticketsWithdrawn: 0 },
+          slugReleased: false,
+        },
+        createdAt: event.deletion.deletedAt,
+      })),
+    // Each booking-fee decision and pay-at-the-venue switch, as
+    // `lib/payment-terms.js` audits it: the terms and the reason, by a
+    // platform administrator.
+    ...feeSettings.map((setting) => ({
+      id: seedId(`seed-audit-${setting.key}`),
+      actorEmail: setting.setByEmail,
+      action: 'event.platform_fee_changed',
+      entityType: 'Event',
+      entityId: setting.eventId,
+      metadata: {
+        sequence: setting.sequence,
+        source: setting.source,
+        percentageBps: setting.percentageBps,
+        flatCentsPerTicket: setting.flatCentsPerTicket,
+        currency: setting.currency,
+        previous: null,
+        reason: setting.reason,
+        eventStatus: setting.eventStatus,
+        platformRole: 'ADMIN',
+      },
+      createdAt: setting.createdAt,
+    })),
+    ...venuePaymentChanges.map((change) => ({
+      id: seedId(`seed-audit-${change.key}`),
+      actorEmail: change.changedByEmail,
+      action: 'event.venue_payment_changed',
+      entityType: 'Event',
+      entityId: change.eventId,
+      metadata: {
+        enabled: change.enabled,
+        limit: change.limit,
+        previousEnabled: false,
+        previousLimit: null,
+        reason: change.reason,
+        eventStatus: change.eventStatus,
+        platformRole: 'ADMIN',
+      },
+      createdAt: change.createdAt,
+    })),
+    // Making a referral code records its terms and that it has a label, never
+    // its text or the label's words.
+    ...referralCodes.map((code) => ({
+      id: seedId(`seed-audit-referral-code-${code.key}-created`),
+      actorEmail: code.createdByEmail,
+      action: 'referral_code.created',
+      entityType: 'ReferralCode',
+      entityId: code.id,
+      metadata: {
+        referralCodeId: code.id,
+        generated: true,
+        scope: code.scope,
+        eventIds: code.eventIds,
+        expiresAt: code.expiresAt ? code.expiresAt.toISOString() : null,
+        maxUses: code.maxUses,
+        labelSet: true,
+      },
+      createdAt: code.createdAt,
+    })),
+    // The payment taken at the door, and the unpaid ticket cancelled: ids,
+    // amounts and authority, never the buyer.
+    ...venuePayments.map((payment) => ({
+      id: seedId(`seed-audit-venue-payment-${payment.key}`),
+      actorEmail: payment.recordedByEmail,
+      action: 'venue_payment.recorded',
+      entityType: 'VenuePayment',
+      entityId: payment.id,
+      metadata: {
+        venuePaymentId: payment.id,
+        orderId: payment.orderId,
+        eventId: payment.eventId,
+        eventSessionId: payment.eventSessionId,
+        ticketCount: payment.ticketCount,
+        amountCents: payment.amountCents,
+        currency: payment.currency,
+        via: payment.via,
+        authority: payment.authority,
+        role: payment.role,
+        organizationId: payment.organizationId,
+      },
+      createdAt: payment.recordedAt,
+    })),
+    ...venueCancellations.map((cancellation) => ({
+      id: seedId(`seed-audit-venue-cancellation-${cancellation.key}`),
+      actorEmail: cancellation.cancelledByEmail,
+      action: 'venue_booking.cancelled',
+      entityType: 'VenueBookingCancellation',
+      entityId: cancellation.id,
+      metadata: {
+        cancellationId: cancellation.id,
+        orderId: cancellation.orderId,
+        eventId: cancellation.eventId,
+        organizationId: cancellation.organizationId,
+        ticketIds: cancellation.ticketIds,
+        ticketCount: cancellation.ticketCount,
+        basisCents: cancellation.basisCents,
+        feeKeptCents: cancellation.feeKeptCents,
+        currency: cancellation.currency,
+        seatsReturned: 0,
+        placesReturned: cancellation.placesReturned,
+        placesOnSale: cancellation.placesOnSale,
+        authority: cancellation.authority,
+        role: cancellation.role,
+        reason: cancellation.reason,
+      },
+      createdAt: cancellation.createdAt,
+    })),
   ]
 
   return {
     anchor,
     users,
     organizations,
-    venues: VENUES,
+    verificationEvents,
+    venues,
+    seatMaps,
     events,
+    eventSessions,
     ticketTypes,
+    eventSeats,
     promoCodes,
     orders,
     waitlist,
     auditLogs,
+    moderationActions,
+    organizerInvitations,
+    pictures,
+    trafficDaily,
+    feeSettings,
+    venuePaymentChanges,
+    referralCodes,
+    venuePayments,
+    checkIns,
+    venueCancellations,
+    // The roll-up last finished as the seed ran, so the screens read the
+    // demonstration totals as current rather than "never added up".
+    trafficRollup: { lastCompletedAt: now },
   }
 }
 
@@ -1894,6 +4282,262 @@ export function buildSeedData(now = new Date()) {
 // written as a bare name rather than `import('@prisma/client').PrismaClient`
 // because the repository's shared ESLint config runs eslint-plugin-jsdoc in
 // standard `jsdoc` mode, which rejects TypeScript-style import types.
+
+/**
+ * Write one seat plan, once.
+ *
+ * A published version is frozen by trigger: its sections, rows, seats and
+ * zones cannot change and it cannot be deleted. So a plan whose version is
+ * already published is checked against this one and left alone, and one that
+ * was never published — a run that stopped part-way — is removed and drawn
+ * again, which a draft allows. Everything is keyed on seed ids, so no plan an
+ * organiser drew is ever touched.
+ *
+ * @param {PrismaClient} prisma Client to write through.
+ * @param {object} plan One entry of `seatMaps` from {@link buildSeedData}.
+ * @returns {Promise<void>}
+ * @throws {Error} When a kept, published version is not the plan described here.
+ */
+async function writeSeatMap(prisma, plan) {
+  const map = await prisma.venueMap.findUnique({ where: { id: plan.id }, select: { id: true } })
+
+  if (!map) {
+    await prisma.venueMap.create({ data: { id: plan.id, venueId: plan.venueId, name: plan.name } })
+  }
+
+  const kept = await prisma.venueMapVersion.findUnique({
+    where: { id: plan.version.id },
+    select: { id: true, publishedAt: true, _count: { select: { seats: true } } },
+  })
+
+  if (kept?.publishedAt) {
+    if (kept._count.seats !== plan.seats.length) {
+      throw new Error(
+        `Seat plan "${plan.key}" is published with ${kept._count.seats} seats, not ${plan.seats.length}; reset the database to redraw it.`,
+      )
+    }
+
+    return
+  }
+
+  // A draft left by a run that stopped part-way: a draft may still be deleted.
+  if (kept) await prisma.venueMapVersion.delete({ where: { id: kept.id } })
+
+  const versionId = plan.version.id
+
+  await prisma.venueMapVersion.create({
+    data: {
+      id: versionId,
+      venueMapId: plan.id,
+      version: plan.version.number,
+      seatCount: plan.seats.length,
+    },
+  })
+  await prisma.section.create({
+    data: {
+      id: plan.section.id,
+      venueMapVersionId: versionId,
+      name: plan.section.name,
+      kind: plan.section.kind,
+    },
+  })
+  await prisma.priceZone.create({
+    data: { id: plan.zone.id, venueMapVersionId: versionId, name: plan.zone.name },
+  })
+
+  for (const row of plan.rows) {
+    await prisma.seatRow.create({
+      data: {
+        id: row.id,
+        venueMapVersionId: versionId,
+        sectionId: plan.section.id,
+        label: row.label,
+        sortOrder: row.sortOrder,
+      },
+    })
+
+    for (const seat of row.seats) {
+      await prisma.seat.create({
+        data: {
+          id: seat.id,
+          venueMapVersionId: versionId,
+          sectionId: plan.section.id,
+          rowId: row.id,
+          label: seat.label,
+          sortOrder: seat.sortOrder,
+          priceZoneId: seat.priceZoneId,
+        },
+      })
+    }
+  }
+
+  // The freeze, last: from here the layout cannot change, and a session may
+  // sell it.
+  await prisma.venueMapVersion.update({
+    where: { id: versionId },
+    data: { publishedAt: plan.version.publishedAt },
+  })
+}
+
+/** Statuses the public can see, as the review gate (`desi_event_status_requires_review`) lists them. */
+const PUBLIC_EVENT_STATUSES = Object.freeze([
+  'PUBLISHED',
+  'ON_SALE',
+  'SALES_PAUSED',
+  'SOLD_OUT',
+  'COMPLETED',
+  'POSTPONED',
+  'CANCELLED',
+])
+
+/**
+ * The statuses an event has to pass through to reach `target` from `current`
+ * by moves the review gate allows.
+ *
+ * The gate refuses APPROVED except from REVIEW_PENDING, and a public status
+ * except from APPROVED or another public status. A row a developer moved back
+ * to DRAFT is walked through review again; every other move is direct.
+ *
+ * @param {string} current The status the row holds.
+ * @param {string} target The status the seed wants.
+ * @returns {string[]} The statuses to write, in order, ending with `target`.
+ */
+export function eventStatusPath(current, target) {
+  if (current === target) return []
+
+  const publicNow = PUBLIC_EVENT_STATUSES.includes(current)
+  const toReview = current === 'REVIEW_PENDING' ? [] : ['REVIEW_PENDING']
+
+  if (PUBLIC_EVENT_STATUSES.includes(target) && !publicNow && current !== 'APPROVED') {
+    return [...toReview, 'APPROVED', target]
+  }
+
+  if (target === 'APPROVED' && current !== 'REVIEW_PENDING') return [...toReview, 'APPROVED']
+
+  return [target]
+}
+
+/**
+ * Bring an existing event to the seed's status by moves the review gate allows.
+ *
+ * Only the re-seed path needs it: a first seed inserts each event in its
+ * status, which the gate does not cover. A seed is not a user path, and this
+ * walk is what keeps it from needing a way round the gate that the API could
+ * one day use too.
+ *
+ * A deleted row is skipped (SPEC2-XI O17): `desi_event_deletion_moves` lets
+ * it leave DELETED only for its restore target, and only the platform
+ * restores. Deleting is not a status walk either; the writer records a
+ * deletion with its columns (see {@link eventWritePlan}).
+ *
+ * @param {object} prisma A Prisma client.
+ * @param {string} eventId The event.
+ * @param {string} target The status the seed wants.
+ * @returns {Promise<string[]>} The statuses written, in order.
+ * @throws {Error} If asked to walk an event into DELETED.
+ */
+export async function settleEventStatus(prisma, eventId, target) {
+  if (target === 'DELETED') {
+    throw new Error('A deletion is written with its record, not walked to.')
+  }
+
+  const row = await prisma.event.findUnique({ where: { id: eventId }, select: { status: true } })
+
+  if (row.status === 'DELETED') return []
+
+  const path = eventStatusPath(row.status, target)
+
+  for (const status of path) {
+    await prisma.event.update({ where: { id: eventId }, data: { status } })
+  }
+
+  return path
+}
+
+/**
+ * What the writer does with one seeded event, given the row the database
+ * already holds under its slug, if any.
+ *
+ * - No row: create it, in its status, with its deletion record if it has one.
+ * - A deleted row: leave it, and everything under it, exactly as it is
+ *   (SPEC2-XI O17) — whether the seed deleted it or a developer did since.
+ * - Any other row: update its content; then delete it again when the dataset
+ *   says it is deleted (recording the status it really had), or walk it to
+ *   the dataset's status.
+ *
+ * @param {{id: string, status: string}|null} existing The row under the slug.
+ * @param {{status: string}} event The event, from {@link buildSeedData}.
+ * @returns {{write: 'create'|'update'|'none', deleteFrom: string|null}} The plan.
+ */
+export function eventWritePlan(existing, event) {
+  if (!existing) return { write: 'create', deleteFrom: null }
+  if (existing.status === 'DELETED') return { write: 'none', deleteFrom: null }
+
+  return { write: 'update', deleteFrom: event.status === 'DELETED' ? existing.status : null }
+}
+
+/**
+ * The `Event` columns of a deletion record, or none for an event that is not
+ * deleted. Set together, as `event_deletion_consistency` requires.
+ *
+ * @param {object|null} deletion The event's `deletion`, from {@link buildSeedData}.
+ * @param {Map<string, string>} userIdByEmail Seeded user ids by email.
+ * @returns {object} The columns.
+ */
+export function deletionColumns(deletion, userIdByEmail) {
+  if (!deletion) return {}
+
+  return {
+    status: 'DELETED',
+    deletedAt: deletion.deletedAt,
+    deletedById: userIdByEmail.get(deletion.deletedByEmail) ?? null,
+    deletionReason: deletion.deletionReason,
+    deletionOutcome: deletion.deletionOutcome,
+    deletionAuthority: deletion.deletionAuthority,
+    statusBeforeDeletion: deletion.statusBeforeDeletion,
+    // It was public, so its web address stays retired with it.
+    deletedSlug: null,
+  }
+}
+
+/**
+ * The website columns for one event, written explicitly on every seed so a
+ * re-seed puts the switch back where the dataset says.
+ *
+ * The database's trigger recomputes whether a decision is waiting from these
+ * same values, so what is written here and what it would derive agree.
+ *
+ * @param {object|null} website The event's `website`, from {@link buildSeedData}.
+ * @param {Map<string, string>} userIdByEmail Seeded user ids by email.
+ * @returns {object} The `Event` columns.
+ */
+function websiteColumns(website, userIdByEmail) {
+  if (!website) {
+    return {
+      websiteUrl: null,
+      websiteRedirectEnabled: false,
+      websiteDecidedUrl: null,
+      websiteDecisionPending: false,
+      websiteSubmittedAt: null,
+      websiteRedirectChangedAt: null,
+      websiteRedirectChangedById: null,
+      websiteRedirectReason: null,
+    }
+  }
+
+  return {
+    websiteUrl: website.url,
+    websiteRedirectEnabled: website.on,
+    websiteDecidedUrl: website.on ? website.url : null,
+    websiteDecisionPending: !website.on,
+    websiteSubmittedAt: website.submittedAt,
+    websiteRedirectChangedAt: website.decidedAt,
+    websiteRedirectChangedById: website.decidedByEmail
+      ? userIdByEmail.get(website.decidedByEmail)
+      : null,
+    websiteRedirectReason: website.reason,
+  }
+}
 
 /**
  * Write the dataset produced by {@link buildSeedData} to PostgreSQL.
@@ -1926,6 +4570,15 @@ export async function writeSeedData(prisma, data) {
    */
   const real = (id) => (id == null ? id : (realId.get(id) ?? id))
 
+  /**
+   * Computed ids of events found deleted, which this run leaves untouched
+   * together with their sessions, ticket types, seats, promo codes, orders,
+   * waiting list, pictures and visit totals (SPEC2-XI O17).
+   *
+   * @type {Set<string>}
+   */
+  const untouched = new Set()
+
   for (const user of data.users) {
     const fields = {
       passwordHash: user.passwordHash,
@@ -1951,7 +4604,18 @@ export async function writeSeedData(prisma, data) {
       contactEmail: org.contactEmail,
       websiteUrl: org.websiteUrl,
       verified: org.verified,
+      // The public badge reads this, not `verified`; left to its default, every
+      // seeded organiser would show as unverified and could not publish.
+      verificationStatus: org.verificationStatus,
       payoutCurrency: org.payoutCurrency,
+      // Both default to India in the schema, from before the catalogue moved.
+      timezone: org.timezone,
+      refundPolicy: org.refundPolicy,
+      // Only an organisation made from the site, and waiting on a check, says
+      // who made it and when it asked; the others leave these as they are.
+      ...(org.createdByEmail ? { createdById: userIdByEmail.get(org.createdByEmail) } : {}),
+      ...(org.legalName ? { legalName: org.legalName } : {}),
+      ...(org.verificationUpdatedAt ? { verificationUpdatedAt: org.verificationUpdatedAt } : {}),
     }
     const row = await prisma.organization.upsert({
       where: { slug: org.slug },
@@ -1982,8 +4646,27 @@ export async function writeSeedData(prisma, data) {
     }
   }
 
+  for (const step of data.verificationEvents) {
+    const fields = {
+      organizationId: real(step.organizationId),
+      fromStatus: step.fromStatus,
+      toStatus: step.toStatus,
+      actorId: userIdByEmail.get(step.actorEmail) ?? null,
+      reason: step.reason,
+      createdAt: step.createdAt,
+    }
+    await prisma.organizationVerificationEvent.upsert({
+      where: { id: step.id },
+      update: fields,
+      create: { id: step.id, ...fields },
+    })
+  }
+
   for (const venue of data.venues) {
     const fields = {
+      // A venue with no slug has no public page and is left out of the venue
+      // directory, so the demo's six venues had neither until Phase 4.
+      slug: venue.slug,
       name: venue.name,
       addressLine1: venue.addressLine1,
       addressLine2: venue.addressLine2,
@@ -1994,12 +4677,19 @@ export async function writeSeedData(prisma, data) {
       latitude: venue.latitude,
       longitude: venue.longitude,
       capacity: venue.capacity,
+      // The column defaults to Asia/Kolkata; a US venue has to say its own zone.
+      timezone: venue.timezone,
+      accessibility: venue.accessibility,
     }
     await prisma.venue.upsert({
       where: { id: venue.id },
       update: fields,
       create: { id: venue.id, ...fields },
     })
+  }
+
+  for (const plan of data.seatMaps) {
+    await writeSeatMap(prisma, plan)
   }
 
   for (const event of data.events) {
@@ -2014,26 +4704,100 @@ export async function writeSeedData(prisma, data) {
       startsAt: event.startsAt,
       endsAt: event.endsAt,
       timezone: event.timezone,
-      coverImageUrl: event.coverImageUrl,
       isOnline: event.isOnline,
       onlineUrl: event.onlineUrl,
       languages: event.languages,
       publishedAt: event.publishedAt,
+      salesOpenedAt: event.salesOpenedAt,
+      postponedAt: event.postponedAt,
+      previousStartsAt: event.previousStartsAt,
+      cancelledAt: event.cancelledAt,
+      cancellationReason: event.cancellationReason,
+      ...(event.content ?? {}),
+      ...websiteColumns(event.website, userIdByEmail),
     }
-    const eventRow = await prisma.event.upsert({
+    // The status goes in with the row on a first seed, and is walked there
+    // separately on a re-seed, because the review gate refuses a jump from a
+    // status a developer left the row in straight to a public one.
+    const { status, ...unchanging } = fields
+    const existing = await prisma.event.findUnique({
       where: { slug: event.slug },
-      update: fields,
-      create: { id: event.id, slug: event.slug, ...fields },
-      select: { id: true },
+      select: { id: true, status: true },
     })
+    const plan = eventWritePlan(existing, event)
+
+    if (plan.write === 'create') {
+      await prisma.event.create({
+        data: {
+          id: event.id,
+          slug: event.slug,
+          ...fields,
+          ...deletionColumns(event.deletion, userIdByEmail),
+        },
+      })
+    } else if (plan.write === 'update') {
+      await prisma.event.update({ where: { id: existing.id }, data: unchanging })
+
+      if (plan.deleteFrom) {
+        // Back to deleted, recording the status it really had, as the
+        // deletion route would (`desi_event_deletion_moves`).
+        await prisma.event.update({
+          where: { id: existing.id },
+          data: {
+            ...deletionColumns(event.deletion, userIdByEmail),
+            statusBeforeDeletion: plan.deleteFrom,
+          },
+        })
+      } else if (existing.status !== status) {
+        await settleEventStatus(prisma, existing.id, status)
+      }
+    } else {
+      // O17: a deleted row is left exactly as it is, and so is everything the
+      // seed would otherwise write under it.
+      untouched.add(event.id)
+    }
 
     // Same reasoning as organizations: the slug matched an existing row, whose
     // id is authoritative regardless of what this run computed.
-    realId.set(event.id, eventRow.id)
+    realId.set(event.id, existing?.id ?? event.id)
+  }
+
+  // Sessions after their events and seat plans, before the tiers that name them.
+  for (const session of data.eventSessions) {
+    if (untouched.has(session.eventId)) continue
+
+    const fields = {
+      eventId: real(session.eventId),
+      label: session.label,
+      doorsOpenAt: session.doorsOpenAt,
+      startsAt: session.startsAt,
+      endsAt: session.endsAt,
+      timezone: session.timezone,
+      status: session.status,
+      venueMapVersionId: session.venueMapVersionId,
+      sortOrder: session.sortOrder,
+    }
+    await prisma.eventSession.upsert({
+      where: { id: session.id },
+      update: fields,
+      create: { id: session.id, ...fields },
+    })
   }
 
   // Promo codes are written before orders because orders reference them.
   for (const promo of data.promoCodes) {
+    if (promo.eventId && untouched.has(promo.eventId)) {
+      const kept = await prisma.promoCode.findUnique({
+        where: {
+          organizationId_code: { organizationId: real(promo.organizationId), code: promo.code },
+        },
+        select: { id: true },
+      })
+
+      if (kept) realId.set(promo.id, kept.id)
+      continue
+    }
+
     const fields = {
       eventId: real(promo.eventId),
       type: promo.type,
@@ -2063,6 +4827,8 @@ export async function writeSeedData(prisma, data) {
   }
 
   for (const ticketType of data.ticketTypes) {
+    if (untouched.has(ticketType.eventId)) continue
+
     const fields = {
       eventId: real(ticketType.eventId),
       name: ticketType.name,
@@ -2077,6 +4843,14 @@ export async function writeSeedData(prisma, data) {
       salesEndAt: ticketType.salesEndAt,
       status: ticketType.status,
       sortOrder: ticketType.sortOrder,
+      // A reserved tier names its session and zone; the others leave both unset.
+      ...(ticketType.reserved
+        ? {
+            reserved: true,
+            eventSessionId: ticketType.eventSessionId,
+            priceZoneId: ticketType.priceZoneId,
+          }
+        : {}),
     }
     await prisma.ticketType.upsert({
       where: { id: ticketType.id },
@@ -2085,12 +4859,203 @@ export async function writeSeedData(prisma, data) {
     })
   }
 
+  // Seats on sale for each seated session. A seat that is already there is left
+  // exactly as it is: a re-run must not put a seat somebody has bought back on
+  // sale.
+  const sessionEvent = new Map(data.eventSessions.map((session) => [session.id, session.eventId]))
+
+  for (const seat of data.eventSeats) {
+    if (untouched.has(sessionEvent.get(seat.eventSessionId))) continue
+
+    await prisma.eventSeat.upsert({
+      where: {
+        eventSessionId_seatId: { eventSessionId: seat.eventSessionId, seatId: seat.seatId },
+      },
+      update: {},
+      create: {
+        id: seat.id,
+        eventSessionId: seat.eventSessionId,
+        seatId: seat.seatId,
+        ticketTypeId: seat.ticketTypeId,
+        status: seat.status,
+      },
+    })
+  }
+
+  // An event's own booking fee: its decision is created once and never
+  // edited (`desi_event_fee_setting_append_only`), and the event's terms are
+  // written in the same transaction as the decision that sets them. An event
+  // with a decision of its own already — the seed's, or one a developer made
+  // since — is left exactly as it is.
+  /** Computed ids of decisions this seed could not make, so no order names one. */
+  const skippedFeeSettings = new Set()
+  let feeSettingCount = 0
+
+  for (const setting of data.feeSettings) {
+    if (untouched.has(setting.eventId)) {
+      skippedFeeSettings.add(setting.id)
+      continue
+    }
+
+    const own = await prisma.eventFeeSetting.findUnique({
+      where: { id: setting.id },
+      select: { id: true },
+    })
+    if (own) continue
+
+    const other = await prisma.eventFeeSetting.findFirst({
+      where: { eventId: real(setting.eventId) },
+      select: { id: true },
+    })
+    if (other) {
+      skippedFeeSettings.add(setting.id)
+      continue
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.eventFeeSetting.create({
+        data: {
+          id: setting.id,
+          eventId: real(setting.eventId),
+          sequence: setting.sequence,
+          source: setting.source,
+          percentageBps: setting.percentageBps,
+          flatCentsPerTicket: setting.flatCentsPerTicket,
+          currency: setting.currency,
+          reason: setting.reason,
+          setById: userIdByEmail.get(setting.setByEmail) ?? null,
+          createdAt: setting.createdAt,
+        },
+      })
+      await tx.event.update({
+        where: { id: real(setting.eventId) },
+        data: {
+          feeSource: setting.source,
+          feePercentageBps: setting.percentageBps,
+          feeFlatCentsPerTicket: setting.flatCentsPerTicket,
+          feeCurrency: setting.currency,
+          feeSettingId: setting.id,
+        },
+      })
+    })
+    feeSettingCount += 1
+  }
+
+  // Paying at the venue switched on: the change row and the event's switch,
+  // limit and reason together, once. An event whose switch has a history
+  // already is left as it is.
+  let venuePaymentChangeCount = 0
+
+  for (const change of data.venuePaymentChanges) {
+    if (untouched.has(change.eventId)) continue
+
+    const present = await prisma.eventVenuePaymentChange.findFirst({
+      where: { eventId: real(change.eventId) },
+      select: { id: true },
+    })
+    if (present) continue
+
+    const changedById = userIdByEmail.get(change.changedByEmail) ?? null
+
+    await prisma.$transaction(async (tx) => {
+      await tx.eventVenuePaymentChange.create({
+        data: {
+          id: change.id,
+          eventId: real(change.eventId),
+          enabled: change.enabled,
+          limit: change.limit,
+          reason: change.reason,
+          changedById,
+          createdAt: change.createdAt,
+        },
+      })
+      await tx.event.update({
+        where: { id: real(change.eventId) },
+        data: {
+          venuePaymentEnabled: change.enabled,
+          venuePaymentLimit: change.limit,
+          venuePaymentChangedAt: change.createdAt,
+          venuePaymentChangedById: changedById,
+          venuePaymentReason: change.reason,
+        },
+      })
+    })
+    venuePaymentChangeCount += 1
+  }
+
+  // Referral codes, found again by their label and maker (or by the id the
+  // seed gave them) and otherwise made now, with their text drawn here and
+  // never shown. A code the seed finds is left exactly as it is.
+  let referralCodeCount = 0
+
+  for (const code of data.referralCodes) {
+    const createdById = userIdByEmail.get(code.createdByEmail) ?? null
+    const found =
+      (await prisma.referralCode.findFirst({
+        where: { label: code.label, createdById },
+        select: { id: true },
+      })) ??
+      (await prisma.referralCode.findUnique({ where: { id: code.id }, select: { id: true } }))
+
+    if (found) {
+      realId.set(code.id, found.id)
+      continue
+    }
+
+    let made = null
+
+    // Five draws, as `referralCodes.create` makes, before giving up on a
+    // clash with a code that exists.
+    for (let attempt = 0; attempt < 5 && !made; attempt += 1) {
+      try {
+        made = await prisma.$transaction(async (tx) => {
+          const row = await tx.referralCode.create({
+            data: {
+              id: code.id,
+              code: generateSeedReferralCode(),
+              label: code.label,
+              scope: code.scope,
+              expiresAt: code.expiresAt,
+              maxUses: code.maxUses,
+              createdById,
+              createdAt: code.createdAt,
+            },
+            select: { id: true },
+          })
+
+          for (const eventId of code.eventIds) {
+            await tx.referralCodeEvent.create({
+              data: { referralCodeId: row.id, eventId: real(eventId), addedAt: code.createdAt },
+            })
+          }
+
+          return row
+        })
+      } catch (error) {
+        // A clash on the text is drawn again; anything else is a fault. The
+        // error is rethrown without its text, which never reaches a log.
+        if (error?.code !== 'P2002') {
+          throw new Error(`Referral code "${code.key}" could not be written (${error?.code})`)
+        }
+      }
+    }
+
+    if (!made) throw new Error(`Referral code "${code.key}" clashed five times; seed again`)
+    realId.set(code.id, made.id)
+    referralCodeCount += 1
+  }
+
   let orderItemCount = 0
   let ticketCount = 0
   let paymentCount = 0
   let holdCount = 0
+  let venuePaymentCount = 0
+  let checkInCount = 0
+  let venueCancellationCount = 0
 
   for (const order of data.orders) {
+    if (untouched.has(order.eventId)) continue
+
     const fields = {
       eventId: real(order.eventId),
       userId: order.userEmail ? userIdByEmail.get(order.userEmail) : null,
@@ -2098,11 +5063,27 @@ export async function writeSeedData(prisma, data) {
       buyerName: order.buyerName,
       status: order.status,
       currency: order.currency,
+      paymentMethod: order.paymentMethod,
       subtotalCents: order.subtotalCents,
       discountCents: order.discountCents,
+      feeSource: order.feeSource,
+      feeSettingId:
+        order.feeSettingId && !skippedFeeSettings.has(order.feeSettingId)
+          ? order.feeSettingId
+          : null,
+      feePercentageBps: order.feePercentageBps,
+      feeFlatCentsPerTicket: order.feeFlatCentsPerTicket,
       feesCents: order.feesCents,
+      feeGrossCents: order.feeGrossCents,
+      feeWaivedCents: order.feeWaivedCents,
       taxCents: order.taxCents,
       totalCents: order.totalCents,
+      // Fixed for the life of the row (`desi_order_referral_fixed`): the same
+      // code on every run.
+      referralCodeId: real(order.referralCodeId),
+      venueDueCents: order.venueDueCents,
+      venueCancelledBasisCents: order.venueCancelledBasisCents,
+      venueFeeKeptCents: order.venueFeeKeptCents,
       promoCodeId: real(order.promoCodeId),
       expiresAt: order.expiresAt,
       paidAt: order.paidAt,
@@ -2124,6 +5105,8 @@ export async function writeSeedData(prisma, data) {
         quantity: item.quantity,
         unitPriceCents: item.unitPriceCents,
         subtotalCents: item.subtotalCents,
+        venueDueCents: item.venueDueCents,
+        venueCancelledQuantity: item.venueCancelledQuantity,
       }
       await prisma.orderItem.upsert({
         where: { id: item.id },
@@ -2133,19 +5116,151 @@ export async function writeSeedData(prisma, data) {
       orderItemCount += 1
     }
 
+    /** @type {Map<string, string>} ticket code -> Ticket.id */
+    const ticketIdByCode = new Map()
+
     for (const ticket of order.tickets) {
+      // A ticket a door payment or a cancellation moves is written as it was
+      // before, and moved by that step below; a re-seed leaves its status to
+      // the triggers that hold it there. What it owes is written once
+      // (`desi_ticket_venue_due_guard`).
+      const staged = ticket.status !== ticket.initialStatus
+      const ownerUserId = ticket.ownerEmail ? userIdByEmail.get(ticket.ownerEmail) : null
       const ticketFields = {
         orderItemId: ticket.orderItemId,
         attendeeName: ticket.attendeeName,
-        status: ticket.status,
-        checkedInAt: ticket.checkedInAt,
+        ...(staged ? {} : { status: ticket.status, checkedInAt: ticket.checkedInAt }),
+        ...(ticket.ownerEmail ? { ownerUserId } : {}),
       }
-      await prisma.ticket.upsert({
+      const row = await prisma.ticket.upsert({
         where: { code: ticket.code },
         update: ticketFields,
-        create: { code: ticket.code, ...ticketFields },
+        create: {
+          ...(ticket.id ? { id: ticket.id } : {}),
+          code: ticket.code,
+          ...ticketFields,
+          status: ticket.initialStatus,
+          checkedInAt: staged ? null : ticket.checkedInAt,
+          venueDueCents: ticket.venueDueCents,
+        },
+        select: { id: true },
       })
+      ticketIdByCode.set(ticket.code, row.id)
       ticketCount += 1
+    }
+
+    const realTicket = (id) => {
+      const ticket = order.tickets.find((candidate) => candidate.id === id)
+      return ticketIdByCode.get(ticket.code)
+    }
+
+    // The payment taken at the door and the admission it paid for, in one
+    // transaction as the door records them (DV7): the payment's sum is
+    // checked at commit (`desi_venue_payment_sum`), and a ticket is let in
+    // only once it points at it (`check_in_payment_due`). Once.
+    for (const payment of data.venuePayments.filter((entry) => entry.orderId === order.id)) {
+      const present = await prisma.venuePayment.findUnique({
+        where: { id: payment.id },
+        select: { id: true },
+      })
+      if (present) continue
+
+      const recordedById = userIdByEmail.get(payment.recordedByEmail) ?? null
+
+      await prisma.$transaction(async (tx) => {
+        await tx.venuePayment.create({
+          data: {
+            id: payment.id,
+            orderId,
+            eventId: real(payment.eventId),
+            eventSessionId: payment.eventSessionId,
+            organizationId: real(payment.organizationId),
+            amountCents: payment.amountCents,
+            currency: payment.currency,
+            ticketCount: payment.ticketCount,
+            via: payment.via,
+            authority: payment.authority,
+            role: payment.role,
+            recordedById,
+            recordedAt: payment.recordedAt,
+            gate: payment.gate,
+          },
+        })
+
+        for (const ticketId of payment.ticketIds.map(realTicket)) {
+          await tx.ticket.update({ where: { id: ticketId }, data: { venuePaymentId: payment.id } })
+        }
+        for (const checkIn of data.checkIns.filter((entry) =>
+          payment.ticketIds.includes(entry.ticketId),
+        )) {
+          await tx.checkIn.create({
+            data: {
+              id: checkIn.id,
+              ticketId: realTicket(checkIn.ticketId),
+              eventSessionId: checkIn.eventSessionId,
+              scannedByUserId: userIdByEmail.get(checkIn.scannedByEmail) ?? null,
+              method: checkIn.method,
+              scannedAt: checkIn.scannedAt,
+              gate: checkIn.gate,
+            },
+          })
+          await tx.ticket.update({
+            where: { id: realTicket(checkIn.ticketId) },
+            data: { status: 'CHECKED_IN', checkedInAt: checkIn.scannedAt },
+          })
+          checkInCount += 1
+        }
+      })
+      venuePaymentCount += 1
+    }
+
+    // Unpaid tickets cancelled, as `cancelUnpaidVenueTickets` withdraws them:
+    // the cancellation and each ticket's move to REVOKED together, its pass
+    // cleared and its version moved on; the sum is checked at commit
+    // (`desi_venue_booking_cancellation_sum`). Once.
+    for (const cancellation of data.venueCancellations.filter(
+      (entry) => entry.orderId === order.id,
+    )) {
+      const present = await prisma.venueBookingCancellation.findUnique({
+        where: { id: cancellation.id },
+        select: { id: true },
+      })
+      if (present) continue
+
+      await prisma.$transaction(async (tx) => {
+        await tx.venueBookingCancellation.create({
+          data: {
+            id: cancellation.id,
+            orderId,
+            eventId: real(cancellation.eventId),
+            organizationId: real(cancellation.organizationId),
+            ticketCount: cancellation.ticketCount,
+            basisCents: cancellation.basisCents,
+            feeKeptCents: cancellation.feeKeptCents,
+            currency: cancellation.currency,
+            authority: cancellation.authority,
+            role: cancellation.role,
+            reason: cancellation.reason,
+            cancelledById: userIdByEmail.get(cancellation.cancelledByEmail) ?? null,
+            createdAt: cancellation.createdAt,
+          },
+        })
+
+        for (const ticketId of cancellation.ticketIds.map(realTicket)) {
+          await tx.ticket.update({
+            where: { id: ticketId },
+            data: {
+              status: 'REVOKED',
+              revokedAt: cancellation.createdAt,
+              revokedReason: `venue-unpaid:${cancellation.id}`,
+              credentialHash: null,
+              credentialVersion: { increment: 1 },
+              venueCancellationId: cancellation.id,
+            },
+          })
+        }
+      })
+      venueCancellationCount += 1
     }
 
     for (const payment of order.payments) {
@@ -2189,7 +5304,25 @@ export async function writeSeedData(prisma, data) {
     }
   }
 
+  // Each code's uses: the orders that name it and have not given their use
+  // back (the identity `lib/referral-uses.js` keeps, SPEC3-XI XR3), whoever
+  // placed them. Written only when it differs, so the row's `updatedAt` moves
+  // only when the count does.
+  for (const code of data.referralCodes) {
+    const id = real(code.id)
+    const uses = await prisma.order.count({
+      where: { referralCodeId: id, referralUseReturnedAt: null },
+    })
+
+    await prisma.referralCode.updateMany({
+      where: { id, NOT: { useCount: uses } },
+      data: { useCount: uses },
+    })
+  }
+
   for (const entry of data.waitlist) {
+    if (untouched.has(entry.eventId)) continue
+
     const fields = {
       userId: entry.userEmail ? userIdByEmail.get(entry.userEmail) : null,
       quantity: entry.quantity,
@@ -2201,6 +5334,176 @@ export async function writeSeedData(prisma, data) {
       create: { eventId: real(entry.eventId), email: entry.email, ...fields },
     })
   }
+
+  // History rows are written once and never rewritten: a status move recorded
+  // against an event is a fact about the past.
+  for (const action of data.moderationActions) {
+    const present = await prisma.eventModerationAction.findUnique({
+      where: { id: action.id },
+      select: { id: true },
+    })
+
+    if (present) continue
+
+    await prisma.eventModerationAction.create({
+      data: {
+        id: action.id,
+        eventId: real(action.eventId),
+        actorId: userIdByEmail.get(action.actorEmail) ?? null,
+        fromStatus: action.fromStatus,
+        toStatus: action.toStatus,
+        reason: action.reason,
+        createdAt: action.createdAt,
+      },
+    })
+  }
+
+  // The waiting organiser invitation is created once. Its code is made here
+  // and thrown away at once: only the digest is stored, and nobody ever sees
+  // the code. Reissuing the invitation from /admin/organizer-invitations gives
+  // a usable one. A re-seed leaves the row as it finds it — reissued,
+  // withdrawn, accepted or expired — and creates none while another invitation
+  // to the same address is waiting (the one-waiting-per-address index).
+  let organizerInvitationCount = 0
+
+  for (const invitation of data.organizerInvitations) {
+    const present = await prisma.organizerInvitation.findUnique({
+      where: { id: invitation.id },
+      select: { id: true },
+    })
+    const waiting = present
+      ? null
+      : await prisma.organizerInvitation.findFirst({
+          where: { email: invitation.email, status: 'PENDING' },
+          select: { id: true },
+        })
+
+    if (present || waiting) continue
+
+    const { hash } = issueToken()
+
+    await prisma.organizerInvitation.create({
+      data: {
+        id: invitation.id,
+        email: invitation.email,
+        organizationName: invitation.organizationName,
+        organizationDescription: invitation.organizationDescription,
+        organizationWebsiteUrl: invitation.organizationWebsiteUrl,
+        note: invitation.note,
+        tokenHash: hash,
+        invitedById: userIdByEmail.get(invitation.invitedByEmail),
+        deliveryMode: invitation.deliveryMode,
+        createdAt: invitation.createdAt,
+        expiresAt: invitation.expiresAt,
+      },
+    })
+    organizerInvitationCount += 1
+  }
+
+  // The waiting picture is created once, with its bytes, as the upload
+  // pipeline leaves a picture. A re-seed does not put a picture somebody has
+  // approved or rejected since back in the queue.
+  for (const picture of data.pictures) {
+    if (untouched.has(picture.eventId)) continue
+
+    const present = await prisma.mediaAsset.findUnique({
+      where: { id: picture.id },
+      select: { id: true },
+    })
+
+    if (present) continue
+
+    await prisma.mediaAsset.create({
+      data: {
+        id: picture.id,
+        ownerType: 'EVENT',
+        ownerId: real(picture.eventId),
+        eventId: real(picture.eventId),
+        kind: picture.kind,
+        storageKey: picture.storageKey,
+        contentType: picture.contentType,
+        byteSize: picture.byteSize,
+        width: picture.width,
+        height: picture.height,
+        checksum: picture.checksum,
+        altText: picture.altText,
+        position: picture.position,
+        sanitisedAt: picture.sanitisedAt,
+        scanStatus: picture.scanStatus,
+        moderationStatus: picture.moderationStatus,
+        uploadedById: userIdByEmail.get(picture.uploadedByEmail) ?? null,
+        createdAt: picture.createdAt,
+      },
+    })
+    await prisma.mediaBlob.upsert({
+      where: { storageKey: picture.storageKey },
+      update: {},
+      create: {
+        storageKey: picture.storageKey,
+        bytes: picture.bytes,
+        byteSize: picture.byteSize,
+        checksum: picture.checksum,
+      },
+    })
+  }
+
+  // Demonstration visit totals. A day the roll-up has written real totals for
+  // (`demonstration = false`) is left alone; demonstration rows of these
+  // events outside the fortnight are removed, so a re-seed on a later day
+  // still leaves exactly fourteen days of them.
+  const demonstrationEvents = [...new Set(data.trafficDaily.map((row) => row.eventId))].filter(
+    (eventId) => !untouched.has(eventId),
+  )
+
+  if (demonstrationEvents.length > 0) {
+    await prisma.trafficDaily.deleteMany({
+      where: {
+        eventId: { in: demonstrationEvents.map(real) },
+        demonstration: true,
+        day: {
+          notIn: [...new Set(data.trafficDaily.map((row) => row.day.getTime()))].map(
+            (at) => new Date(at),
+          ),
+        },
+      },
+    })
+  }
+
+  let trafficDailyCount = 0
+
+  for (const row of data.trafficDaily) {
+    if (untouched.has(row.eventId)) continue
+
+    const eventId = real(row.eventId)
+    const present = await prisma.trafficDaily.findUnique({
+      where: { eventId_day: { eventId, day: row.day } },
+      select: { demonstration: true },
+    })
+
+    if (present && !present.demonstration) continue
+
+    const { eventId: _computed, day, ...counts } = row
+
+    await prisma.trafficDaily.upsert({
+      where: { eventId_day: { eventId, day } },
+      update: counts,
+      create: { eventId, day, ...counts },
+    })
+    trafficDailyCount += 1
+  }
+
+  // The roll-up's last completion, moved forward only: a later real run is
+  // not set back. The lease columns are the roll-up's and are not touched.
+  await prisma.trafficRollupState.updateMany({
+    where: {
+      id: ROLLUP_STATE_ID,
+      OR: [
+        { lastCompletedAt: null },
+        { lastCompletedAt: { lt: data.trafficRollup.lastCompletedAt } },
+      ],
+    },
+    data: { lastCompletedAt: data.trafficRollup.lastCompletedAt },
+  })
 
   // Audit rows are append-only at the database — `desi_audit_log_immutable`
   // refuses an UPDATE — so re-seeding creates the ones that are missing and
@@ -2234,7 +5537,10 @@ export async function writeSeedData(prisma, data) {
     organizations: data.organizations.length,
     memberships: membershipCount,
     venues: data.venues.length,
+    seatMaps: data.seatMaps.length,
     events: data.events.length,
+    eventSessions: data.eventSessions.length,
+    eventSeats: data.eventSeats.length,
     ticketTypes: data.ticketTypes.length,
     promoCodes: data.promoCodes.length,
     orders: data.orders.length,
@@ -2244,6 +5550,17 @@ export async function writeSeedData(prisma, data) {
     ticketHolds: holdCount,
     waitlistEntries: data.waitlist.length,
     auditLogs: data.auditLogs.length,
+    moderationActions: data.moderationActions.length,
+    organizerInvitations: organizerInvitationCount,
+    pictures: data.pictures.length,
+    trafficDaily: trafficDailyCount,
+    eventsLeftDeleted: untouched.size,
+    eventFeeSettings: feeSettingCount,
+    eventVenuePaymentChanges: venuePaymentChangeCount,
+    referralCodes: referralCodeCount,
+    venuePayments: venuePaymentCount,
+    checkIns: checkInCount,
+    venueBookingCancellations: venueCancellationCount,
   }
 }
 
@@ -2260,7 +5577,10 @@ export async function countRows(prisma) {
     organizations,
     memberships,
     venues,
+    seats,
     events,
+    eventSessions,
+    eventSeats,
     ticketTypes,
     ticketHolds,
     promoCodes,
@@ -2270,12 +5590,26 @@ export async function countRows(prisma) {
     payments,
     waitlistEntries,
     auditLogs,
+    eventModerationActions,
+    organizerInvitations,
+    mediaAssets,
+    trafficDaily,
+    eventFeeSettings,
+    eventVenuePaymentChanges,
+    referralCodes,
+    referralCodeEvents,
+    venuePayments,
+    checkIns,
+    venueBookingCancellations,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.organization.count(),
     prisma.membership.count(),
     prisma.venue.count(),
+    prisma.seat.count(),
     prisma.event.count(),
+    prisma.eventSession.count(),
+    prisma.eventSeat.count(),
     prisma.ticketType.count(),
     prisma.ticketHold.count(),
     prisma.promoCode.count(),
@@ -2285,6 +5619,17 @@ export async function countRows(prisma) {
     prisma.payment.count(),
     prisma.waitlistEntry.count(),
     prisma.auditLog.count(),
+    prisma.eventModerationAction.count(),
+    prisma.organizerInvitation.count(),
+    prisma.mediaAsset.count(),
+    prisma.trafficDaily.count(),
+    prisma.eventFeeSetting.count(),
+    prisma.eventVenuePaymentChange.count(),
+    prisma.referralCode.count(),
+    prisma.referralCodeEvent.count(),
+    prisma.venuePayment.count(),
+    prisma.checkIn.count(),
+    prisma.venueBookingCancellation.count(),
   ])
 
   return {
@@ -2292,7 +5637,10 @@ export async function countRows(prisma) {
     organizations,
     memberships,
     venues,
+    seats,
     events,
+    eventSessions,
+    eventSeats,
     ticketTypes,
     ticketHolds,
     promoCodes,
@@ -2302,6 +5650,17 @@ export async function countRows(prisma) {
     payments,
     waitlistEntries,
     auditLogs,
+    eventModerationActions,
+    organizerInvitations,
+    mediaAssets,
+    trafficDaily,
+    eventFeeSettings,
+    eventVenuePaymentChanges,
+    referralCodes,
+    referralCodeEvents,
+    venuePayments,
+    checkIns,
+    venueBookingCancellations,
   }
 }
 
@@ -2322,13 +5681,14 @@ export async function runSeed(options = {}) {
     const written = await writeSeedData(prisma, data)
     const counts = await countRows(prisma)
 
-    const published = data.events.filter((event) => event.status === 'PUBLISHED').length
+    const published = data.events.filter((event) => event.publishedAt !== null).length
+    const deleted = data.events.filter((event) => event.status === 'DELETED').length
     const online = data.events.filter((event) => event.isOnline).length
     const paidOrders = data.orders.filter((order) => order.status === 'PAID')
     const grossCents = paidOrders.reduce((sum, order) => sum + order.totalCents, 0)
     const soldOut = data.ticketTypes.filter((type) => type.status === 'SOLD_OUT').length
 
-    console.log('Desi-Event seed complete.')
+    console.log('The Desi Events seed complete.')
     console.log(`  anchor (midnight UTC)   ${data.anchor.toISOString()}`)
     console.log(`  written this run        ${JSON.stringify(written)}`)
     console.log('')
@@ -2338,11 +5698,27 @@ export async function runSeed(options = {}) {
     }
     console.log('')
     console.log(
-      `  events                  ${published} published, ${data.events.length - published} draft, ${online} online`,
+      `  events                  ${published} public at some point (${deleted} since deleted), ${data.events.length - published} draft, ${online} online`,
+    )
+    console.log(
+      `  waiting for someone     ${data.organizerInvitations.length} organiser invitation (reissue it for a usable code), ${data.pictures.length} picture to review`,
+    )
+    console.log(
+      `  visit totals            ${data.trafficDaily.length} demonstration days across ${TRAFFIC_DEMONSTRATION_EVENT_KEYS.length} events`,
     )
     console.log(`  ticket types            ${soldOut} sold out`)
     console.log(
-      `  paid orders             ${paidOrders.length} worth ${grossCents} cents gross (mixed INR/CAD)`,
+      `  booking fees            ${data.feeSettings.length} event with its own booking fee, ${data.orders.filter((order) => order.referralKey).length} orders with their booking fee waived by a referral code`,
+    )
+    console.log(
+      `  paying at the venue     ${data.venuePaymentChanges.length} events, ${data.orders.filter((order) => order.paymentMethod === 'AT_VENUE').length} bookings, ${data.venuePayments.length} payment taken at the door, ${data.venueCancellations.length} cancellation of unpaid tickets`,
+    )
+    // Never the codes themselves: they are read on the administrators' page.
+    console.log(
+      `  referral codes          ${data.referralCodes.length} referral codes (read them at /admin/referral-codes)`,
+    )
+    console.log(
+      `  paid orders             ${paidOrders.length} worth ${grossCents} cents gross (USD)`,
     )
     console.log(`  seeded login password   ${SEED_PASSWORD} (development only)`)
 

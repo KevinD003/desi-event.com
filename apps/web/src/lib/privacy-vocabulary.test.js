@@ -79,7 +79,7 @@ describe('every server vocabulary has a label', () => {
 
   it('describes every request state', () => {
     for (const state of PRIVACY_REQUEST_STATES) {
-      expect(requestStateDescription(state)).not.toBe('This state has no description yet.')
+      expect(requestStateDescription(state)).not.toBe('This state has no description.')
     }
   })
 })

@@ -35,6 +35,7 @@ import {
   slugSchema,
   timestampSchema,
   timezoneSchema,
+  withoutControlCharacters,
 } from './primitives.js'
 
 /**
@@ -142,10 +143,12 @@ export const updateVenueRequestSchema = z
 
 /** `GET /v1/venues` — search, for an organiser choosing where to put an event. */
 export const listVenuesQuerySchema = z.object({
-  q: z.string().trim().max(120).optional(),
-  city: z.string().trim().max(120).optional(),
-  region: z.string().trim().max(120).optional(),
-  country: z.string().trim().length(2).optional(),
+  // Each reaches PostgreSQL as a search term or a filter, so none may carry a
+  // NUL or any other control character: a 400 here, not a 500 from the database.
+  q: withoutControlCharacters(z.string().trim().max(120)).optional(),
+  city: withoutControlCharacters(z.string().trim().max(120)).optional(),
+  region: withoutControlCharacters(z.string().trim().max(120)).optional(),
+  country: withoutControlCharacters(z.string().trim().length(2)).optional(),
   organizationId: cuidSchema.optional(),
   /**
    * Restrict to venues asserting every one of these.

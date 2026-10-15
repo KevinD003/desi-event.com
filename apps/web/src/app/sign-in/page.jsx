@@ -1,8 +1,8 @@
 /**
  * Sign in.
  *
- * The only unauthenticated page in the organiser half of the site, and the door
- * every other organiser screen sends people to.
+ * The door every signed-in page sends people to, and the way back: `next`
+ * carries the page they asked for, and they return to it.
  *
  * @module app/sign-in/page
  */
@@ -10,7 +10,10 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
+import { AuthFrame } from '../../components/auth-frame.jsx'
+import { TEXT_LINK } from '../../components/link-classes.js'
 import { SignInForm } from '../../components/sign-in-form.jsx'
+import { DEFAULT_NEXT_PATH, safeNextPath } from '../../lib/next-path.js'
 import { readSession } from '../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
@@ -23,18 +26,13 @@ export const metadata = {
 }
 
 /**
- * Where to go after signing in.
+ * The account-creation page, carrying the same `next`.
  *
- * Only a path on this site is accepted. An absolute URL in `next` is the open
- * redirect that turns a sign-in page into somebody else's phishing hop.
- *
- * @param {unknown} value The `next` query parameter.
- * @returns {string} A safe path.
+ * @param {string} next A path already checked by `safeNextPath`.
+ * @returns {string} The link.
  */
-export function safeNext(value) {
-  const candidate = typeof value === 'string' ? value : ''
-
-  return candidate.startsWith('/') && !candidate.startsWith('//') ? candidate : '/organizer/events'
+function registerHref(next) {
+  return next === DEFAULT_NEXT_PATH ? '/register' : `/register?next=${encodeURIComponent(next)}`
 }
 
 /**
@@ -46,30 +44,35 @@ export function safeNext(value) {
  */
 export default async function SignInPage({ searchParams }) {
   const query = await searchParams
-  const next = safeNext(query?.next)
+  // Only a path on this site, checked the way a browser will read it; see
+  // `lib/next-path.js` for the backslash and whitespace tricks the old check
+  // let through. With no usable `next`, the account page.
+  const next = safeNextPath(query?.next)
 
   // Already signed in: there is nothing to do here.
   if (await readSession()) redirect(next)
 
   return (
-    <div className="mx-auto max-w-md px-4 py-16">
-      <h1 className="text-3xl font-bold text-indigo-night-900">Sign in</h1>
-      <p className="mt-3 text-slate-700">
-        For organisers and staff. Buying a ticket does not need an account.
-      </p>
+    <AuthFrame
+      headingId="sign-in-heading"
+      title="Sign in"
+      lead="Your tickets live in your account, and so does the workspace if you run events."
+    >
+      <SignInForm next={next} />
 
-      <div className="mt-8">
-        <SignInForm next={next} />
+      <div className="mt-8 border-t border-line pt-6 text-sm text-ink-muted">
+        <p>
+          New here?{' '}
+          <Link href={registerHref(next)} className={TEXT_LINK}>
+            Create an account
+          </Link>
+        </p>
+        <p className="mt-2">
+          <Link href="/events" className={`${TEXT_LINK} inline-flex min-h-11 items-center`}>
+            Back to what&rsquo;s on
+          </Link>
+        </p>
       </div>
-
-      <p className="mt-8 text-sm text-slate-600">
-        <Link
-          href="/events"
-          className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
-        >
-          Back to what&rsquo;s on
-        </Link>
-      </p>
-    </div>
+    </AuthFrame>
   )
 }

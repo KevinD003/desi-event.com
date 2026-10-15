@@ -40,6 +40,7 @@ import {
   nonEmptyStringSchema,
   paginationQuerySchema,
   timestampSchema,
+  withoutControlCharacters,
 } from './primitives.js'
 import { paginationMetaSchema } from './responses.js'
 
@@ -407,7 +408,8 @@ export const retentionSweepListResponseSchema = z.object({
 
 /** Filters for the sweep list. */
 export const retentionSweepListQuerySchema = paginationQuerySchema.extend({
-  retentionClass: nonEmptyStringSchema.optional(),
+  // A filter PostgreSQL compares: no NUL, no other control character.
+  retentionClass: withoutControlCharacters(nonEmptyStringSchema).optional(),
   state: retentionSweepStateSchema.optional(),
 })
 

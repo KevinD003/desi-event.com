@@ -11,7 +11,7 @@
 
 import { z } from 'zod'
 
-import { eventSeatStatusSchema, sectionKindSchema } from './enums.js'
+import { eventSeatStatusSchema, eventSessionStatusSchema, sectionKindSchema } from './enums.js'
 import { centsSchema, cuidSchema, nonEmptyStringSchema, timestampSchema } from './primitives.js'
 
 /**
@@ -60,15 +60,51 @@ export const seatSectionSchema = z.object({
   seats: z.array(publicSeatSchema),
 })
 
+/**
+ * A price zone of the map, by name. Zones are told apart in words and a filter,
+ * never by colour alone, so the colour token stays with the organiser.
+ */
+export const seatMapZoneSchema = z.object({
+  id: cuidSchema,
+  name: nonEmptyStringSchema,
+  sortOrder: z.int(),
+})
+
+/**
+ * A reserved tier selling seats at this session: its name, its price and
+ * whether a buyer could buy it now. A seat's own `priceCents` overrides the
+ * price when set.
+ */
+export const seatMapTierSchema = z.object({
+  id: cuidSchema,
+  name: nonEmptyStringSchema,
+  priceCents: centsSchema,
+  currency: z.string().length(3),
+  priceZoneId: cuidSchema.nullable(),
+  minPerOrder: z.int().min(1),
+  maxPerOrder: z.int().min(1),
+  onSale: z.boolean(),
+})
+
 /** `GET /v1/sessions/:id/seats`. */
 export const seatMapResponseSchema = z.object({
   data: z.object({
     sessionId: cuidSchema,
     eventId: cuidSchema,
     venueMapVersionId: cuidSchema.nullish(),
+    /** The organiser's short name for the night, or null when its date labels it. */
+    label: z.string().max(60).nullable(),
     startsAt: timestampSchema,
     endsAt: timestampSchema,
+    doorsOpenAt: timestampSchema.nullable(),
     timezone: nonEmptyStringSchema,
+    status: eventSessionStatusSchema,
+    salesStartAt: timestampSchema.nullable(),
+    salesEndAt: timestampSchema.nullable(),
+    /** The most seats one hold may take, companions included. */
+    maxSeatsPerOrder: z.int().min(1).max(10),
+    zones: z.array(seatMapZoneSchema),
+    tiers: z.array(seatMapTierSchema),
     counts: z.object({
       total: z.int().min(0),
       available: z.int().min(0),

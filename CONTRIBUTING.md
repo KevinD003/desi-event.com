@@ -64,12 +64,15 @@ pnpm verify
 
 which is:
 
-| Step | Command             | Why it is where it is                                                                            |
-| ---- | ------------------- | ------------------------------------------------------------------------------------------------ |
-| 1    | `pnpm policy:check` | Cheapest gate, and the rule this repository exists to enforce. It needs no database and no build |
-| 2    | `pnpm lint`         | ESLint across every workspace. **Zero errors.** Warnings are tolerated                           |
-| 3    | `pnpm test`         | Vitest everywhere, with coverage thresholds on the pure-logic packages                           |
-| 4    | `pnpm build`        | Prisma client, `openapi.json`, `next build`                                                      |
+| Step | Command                   | Why it is where it is                                                                                                                                                  |
+| ---- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `pnpm policy:check`       | Cheapest gate, and the rule this repository exists to enforce. It needs no database and no build                                                                       |
+| 2    | `pnpm ci:check`           | The workflow's own invariants, read from `.github/workflows` and `turbo.json`                                                                                          |
+| 3    | `pnpm secrets:scan`       | Nothing credential-shaped in a tracked file                                                                                                                            |
+| 4    | `pnpm format:check`       | Prettier, unchanged                                                                                                                                                    |
+| 5    | `pnpm lint`               | ESLint across every workspace. **Zero errors.** Warnings are tolerated                                                                                                 |
+| 6    | `pnpm verify:tests:fresh` | Every test task with the cache refused, then every report proved fresh, complete and free of undeclared skips — what CI runs. It needs the test database, as CI's does |
+| 7    | `pnpm build`              | Prisma client, `openapi.json`, `next build`                                                                                                                            |
 
 If you exported `.env` into your shell, run it as
 `NODE_ENV=production pnpm verify`. The `.env` template sets
@@ -88,6 +91,36 @@ pnpm test:e2e         # after changing apps/web
 Do not push with a failing verify and a note saying you will fix it. If
 something is genuinely broken upstream of your change, say so in the pull
 request.
+
+## Browser specs
+
+Every Playwright spec must be collected by exactly one CI browser job, and
+`pnpm ci:check` refuses one that is not. So:
+
+- **A new browser spec** is named `apps/web/e2e/detail-<feature>.spec.js`.
+  `playwright.detail.config.js` collects it, the public config ignores it, and
+  the required check "Browser — commerce and operations detail" runs it. A
+  spec that needs servers of its own instead gets its own Playwright config, a
+  matrix leg in `.github/workflows/ci.yml` and a required context in
+  `docs/BRANCH_PROTECTION.md`.
+- **A new Playwright config** that runs the development server builds that
+  entry with `nextDevServer()` and lists `withDevRoutes()` first in its
+  `globalSetup` (`apps/web/e2e/support/next-dev.mjs`), so its routes are
+  proved before any test; `pnpm ci:check` refuses one that starts `next dev`
+  any other way. One that starts the API serves it from `E2E_DATABASE_URL`
+  with `API_SERVER_COMMAND` (`e2e-database.mjs`), never from the unit suites'
+  `TEST_DATABASE_URL`.
+- **An accessibility case** goes in `accessibility-sweep.spec.js`, the only
+  file the sweep job collects.
+- **No `test.skip`, `test.fixme`, `test.fail` or `.only`**, in a spec or in a
+  support module, and no skip through the test-info argument, `test.step.skip`
+  or a `skip` annotation. A case that cannot pass is fixed or deleted, never
+  hidden.
+
+`ci:check` also refuses a config no CI job runs, and a job or config narrowed
+to fewer specs or cases than it collects (`DETAIL_E2E_SPEC=`, a file filter,
+`grep` or `shard`). The rules, and why each fails closed, are in
+`scripts/lib/spec-collection.mjs`.
 
 ## The language policy, briefly
 

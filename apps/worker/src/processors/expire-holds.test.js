@@ -227,3 +227,176 @@ describe('createExpireHoldsProcessor', () => {
     expect(() => createExpireHoldsProcessor({})).toThrow(TypeError)
   })
 })
+
+describe('createExpireHoldsProcessor, for seat holds', () => {
+  const lapsedAt = new Date('2026-02-01T00:00:00.000Z')
+
+  /**
+   * An `EventSeat` row.
+   *
+   * @param {string} id The seat.
+   * @param {object} [overrides] Fields to set.
+   * @returns {object} The row.
+   */
+  const seat = (id, overrides = {}) => ({ id, status: 'HELD', holdId: null, ...overrides })
+
+  it('puts the seats of the holds it expires back on sale, in one transaction', async () => {
+    const prisma = createFakePrisma({
+      holds: [
+        buildHold({ id: 'lapsed', expiresAt: lapsedAt, quantity: 2 }),
+        buildHold({ id: 'fresh', expiresAt: new Date('2026-03-01T12:05:00.000Z') }),
+      ],
+      seats: [
+        seat('s1', { holdId: 'lapsed' }),
+        seat('s2', { holdId: 'lapsed' }),
+        seat('s3', { holdId: 'fresh' }),
+      ],
+    })
+
+    const process = createExpireHoldsProcessor({ prisma, clock: () => NOW })
+    const result = await process(job())
+
+    expect(result.seatsReleased).toBe(2)
+
+    const byId = Object.fromEntries(prisma.rows.seats.map((row) => [row.id, row]))
+    expect(byId.s1).toMatchObject({ status: 'AVAILABLE', holdId: null })
+    expect(byId.s2).toMatchObject({ status: 'AVAILABLE', holdId: null })
+    // A live hold keeps its seat.
+    expect(byId.s3).toMatchObject({ status: 'HELD', holdId: 'fresh' })
+
+    // The status flip and the seat release share one transaction.
+    const opened = prisma.calls.findIndex((call) => call.method === '$transaction')
+    const released = prisma.calls.findIndex((call) => call.model === 'eventSeat')
+    expect(opened).toBeGreaterThanOrEqual(0)
+    expect(released).toBeGreaterThan(opened)
+
+    const release = prisma.calls[released]
+    expect(release.args.where).toEqual({
+      holdId: { in: ['lapsed'] },
+      status: 'HELD',
+      hold: { status: 'EXPIRED' },
+    })
+    expect(release.args.data).toEqual({ status: 'AVAILABLE', holdId: null })
+  })
+
+  it('leaves alone the seats of a hold another writer converted in the meantime', async () => {
+    const prisma = createFakePrisma({
+      holds: [
+        buildHold({ id: 'sold', expiresAt: lapsedAt }),
+        buildHold({ id: 'lapsed', expiresAt: lapsedAt }),
+      ],
+      seats: [
+        // Checkout sold this one: it is no longer HELD.
+        seat('paid', { status: 'SOLD', holdId: 'sold' }),
+        // And this one it had not sold yet, but the hold is CONVERTED now.
+        seat('converting', { holdId: 'sold' }),
+        seat('free', { holdId: 'lapsed' }),
+      ],
+    })
+
+    const process = createExpireHoldsProcessor({ prisma, clock: () => NOW })
+
+    // A checkout converts hold `sold` between the sweep's read and its write.
+    const realFindMany = prisma.ticketHold.findMany
+    prisma.ticketHold.findMany = async (args) => {
+      const found = await realFindMany(args)
+      prisma.rows.holds.find((hold) => hold.id === 'sold').status = 'CONVERTED'
+      return found
+    }
+
+    const result = await process(job())
+
+    expect(result).toMatchObject({ expired: 2, updated: 1, seatsReleased: 1 })
+
+    const byId = Object.fromEntries(prisma.rows.seats.map((row) => [row.id, row]))
+    expect(byId.paid).toMatchObject({ status: 'SOLD', holdId: 'sold' })
+    expect(byId.converting).toMatchObject({ status: 'HELD', holdId: 'sold' })
+    expect(byId.free).toMatchObject({ status: 'AVAILABLE', holdId: null })
+  })
+
+  it('reports the seats it released in its summary line', async () => {
+    const logger = createFakeLogger()
+    const prisma = createFakePrisma({
+      holds: [buildHold({ id: 'lapsed', expiresAt: lapsedAt })],
+      seats: [seat('s1', { holdId: 'lapsed' })],
+    })
+
+    const process = createExpireHoldsProcessor({ prisma, logger, clock: () => NOW })
+    await process(job())
+
+    expect(logger.at('info')[0].fields).toMatchObject({ seatsReleased: 1 })
+  })
+
+  it('leaves alone a hold whose order is still waiting on its payment, and its seats', async () => {
+    const prisma = createFakePrisma({
+      holds: [
+        buildHold({ id: 'awaiting', orderId: 'order-pending', expiresAt: lapsedAt }),
+        buildHold({ id: 'declined', orderId: 'order-cancelled', expiresAt: lapsedAt }),
+        buildHold({ id: 'abandoned', expiresAt: lapsedAt }),
+      ],
+      orders: [
+        { id: 'order-pending', status: 'PENDING' },
+        { id: 'order-cancelled', status: 'CANCELLED' },
+      ],
+      seats: [
+        seat('paying', { holdId: 'awaiting' }),
+        seat('retry', { holdId: 'declined' }),
+        seat('left', { holdId: 'abandoned' }),
+      ],
+    })
+
+    const process = createExpireHoldsProcessor({ prisma, clock: () => NOW })
+    const result = await process(job())
+
+    // The PENDING order's hold is not even read: a timed-out capture is
+    // reconciliation's to settle, and its seats are the buyer's until then.
+    expect(result).toMatchObject({ scanned: 2, expired: 2, updated: 2, seatsReleased: 2 })
+
+    const holds = Object.fromEntries(prisma.rows.holds.map((hold) => [hold.id, hold.status]))
+    expect(holds).toEqual({ awaiting: 'ACTIVE', declined: 'EXPIRED', abandoned: 'EXPIRED' })
+
+    const seats = Object.fromEntries(prisma.rows.seats.map((row) => [row.id, row]))
+    expect(seats.paying).toMatchObject({ status: 'HELD', holdId: 'awaiting' })
+    expect(seats.retry).toMatchObject({ status: 'AVAILABLE', holdId: null })
+    expect(seats.left).toMatchObject({ status: 'AVAILABLE', holdId: null })
+
+    // The write carries the same guard, for an order attached after the read.
+    const update = prisma.calls.find(
+      (call) => call.model === 'ticketHold' && call.method === 'updateMany',
+    )
+    expect(update.args.where.OR).toEqual([
+      { orderId: null },
+      { order: { is: { status: { not: 'PENDING' } } } },
+    ])
+  })
+
+  it('does not expire a hold an order attached between the read and the write', async () => {
+    const prisma = createFakePrisma({
+      holds: [buildHold({ id: 'caught', expiresAt: lapsedAt })],
+      orders: [{ id: 'order-new', status: 'PENDING' }],
+      seats: [seat('s1', { holdId: 'caught' })],
+    })
+
+    const realFindMany = prisma.ticketHold.findMany
+    prisma.ticketHold.findMany = async (args) => {
+      const found = await realFindMany(args)
+      prisma.rows.holds[0].orderId = 'order-new'
+      return found
+    }
+
+    const result = await createExpireHoldsProcessor({ prisma, clock: () => NOW })(job())
+
+    expect(result).toMatchObject({ expired: 1, updated: 0, seatsReleased: 0 })
+    expect(prisma.rows.holds[0].status).toBe('ACTIVE')
+    expect(prisma.rows.seats[0]).toMatchObject({ status: 'HELD', holdId: 'caught' })
+  })
+
+  it('reports none for a sweep that expired only general-admission holds', async () => {
+    const prisma = createFakePrisma({ holds: [buildHold({ id: 'lapsed', expiresAt: lapsedAt })] })
+
+    const process = createExpireHoldsProcessor({ prisma, clock: () => NOW })
+    const result = await process(job())
+
+    expect(result.seatsReleased).toBe(0)
+  })
+})

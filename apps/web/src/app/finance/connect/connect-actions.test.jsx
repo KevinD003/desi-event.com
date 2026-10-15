@@ -56,6 +56,26 @@ beforeEach(() => {
   apiFetch.mockReset()
 })
 
+/**
+ * The refusal on screen: the live region that is not the hidden announcer.
+ *
+ * Both are polite now — only the door's outcomes interrupt — so the role alone
+ * no longer tells them apart.
+ *
+ * @returns {Promise<HTMLElement>} The refusal.
+ */
+async function findRefusal() {
+  return waitFor(() => {
+    const found = screen
+      .getAllByRole('status')
+      .find((element) => !element.classList.contains('sr-only'))
+
+    expect(found).toBeTruthy()
+
+    return found
+  })
+}
+
 describe('which actions are offered', () => {
   it('offers only the start from NOT_STARTED', () => {
     render(<ConnectActions organizationId={ORGANIZATION} state="NOT_STARTED" />)
@@ -183,7 +203,7 @@ describe('what it does with an answer', () => {
     expect(await screen.findByLabelText(/password/iu)).toBeInTheDocument()
   })
 
-  it('reports a refused step as recoverable, in an alert', async () => {
+  it('reports a refused step as recoverable, without interrupting', async () => {
     const user = userEvent.setup()
 
     apiFetch.mockResolvedValue(answer(409, { error: { code: 'CONFLICT' } }))
@@ -193,7 +213,7 @@ describe('what it does with an answer', () => {
     await user.click(screen.getByRole('button', { name: /simulate reaching the final step/iu }))
     await user.click(screen.getByRole('button', { name: 'Record it' }))
 
-    const alert = await screen.findByRole('alert')
+    const alert = await findRefusal()
 
     expect(alert).toHaveTextContent(/that step is not available/iu)
   })
@@ -208,7 +228,7 @@ describe('what it does with an answer', () => {
     await user.click(screen.getByRole('button', { name: /start the simulated setup/iu }))
     await user.click(screen.getByRole('button', { name: 'Record it' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/nothing has been recorded/iu)
+    expect(await findRefusal()).toHaveTextContent(/nothing has been recorded/iu)
   })
 })
 

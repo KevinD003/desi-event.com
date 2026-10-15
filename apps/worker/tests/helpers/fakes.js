@@ -67,16 +67,20 @@ export function createFakeLogger() {
 /**
  * Compare a row field against one Prisma `where` clause value.
  *
- * Supports the operators the worker actually uses: equality, `{ in: [...] }`
- * and `{ lte: date }`.
+ * Supports the operators the worker actually uses: equality (a null clause
+ * matching a missing column too), `{ in: [...] }`, `{ lte: date }`,
+ * `{ gt: date }` and `{ not: value }`.
  *
  * @param {unknown} value The row's value.
  * @param {unknown} clause The clause from the `where` object.
  * @returns {boolean} Whether the row matches.
  */
 function matchesClause(value, clause) {
+  // Prisma reads a missing column as null.
+  if (clause === null) return value === null || value === undefined
   if (clause !== null && typeof clause === 'object') {
     const criteria = /** @type {Record<string, unknown>} */ (clause)
+    if ('not' in criteria) return !matchesClause(value, criteria.not)
     if (Array.isArray(criteria.in)) return criteria.in.includes(value)
     if (criteria.lte !== undefined)
       return new Date(value).getTime() <= new Date(criteria.lte).getTime()
@@ -104,6 +108,7 @@ function applyWhere(rows, where = {}) {
  * @property {Array<object>} [holds] `TicketHold` rows.
  * @property {Array<object>} [orders] `Order` rows, each with an `items` array.
  * @property {Array<object>} [tickets] `Ticket` rows.
+ * @property {Array<object>} [seats] `EventSeat` rows.
  */
 
 /**
@@ -117,11 +122,57 @@ export function createFakePrisma(seed = {}) {
     holds: (seed.holds ?? []).map((hold) => ({ ...hold })),
     orders: (seed.orders ?? []).map((order) => ({ ...order })),
     tickets: (seed.tickets ?? []).map((ticket) => ({ ...ticket })),
+    seats: (seed.seats ?? []).map((seat) => ({ ...seat })),
   }
 
   /** @type {Array<object>} */
   const calls = []
   let nextTicketId = rows.tickets.length + 1
+
+  /**
+   * Filter holds by a `where` clause, with the two shapes the sweep adds on
+   * top of plain columns: `OR`, and the `order: { is: {…} }` relation filter
+   * matched against the order rows (a hold with no order matches none).
+   *
+   * @param {object} [where] The `where` clause.
+   * @returns {Array<object>} Matching holds.
+   */
+  const whereHolds = (where = {}) => {
+    const { OR: anyOf, order: orderClause, ...columns } = where
+
+    return applyWhere(rows.holds, columns).filter((hold) => {
+      if (anyOf && !anyOf.some((part) => whereHoldsOne(hold, part))) return false
+      if (orderClause && !orderMatches(hold, orderClause)) return false
+      return true
+    })
+  }
+
+  /**
+   * One hold against one `OR` branch.
+   *
+   * @param {object} hold The hold.
+   * @param {object} part The branch.
+   * @returns {boolean} Whether it matches.
+   */
+  const whereHoldsOne = (hold, part) => {
+    const { order: orderClause, ...columns } = part
+
+    if (applyWhere([hold], columns).length === 0) return false
+    return orderClause ? orderMatches(hold, orderClause) : true
+  }
+
+  /**
+   * A hold's order against `{ is: {…} }` (or the bare clause).
+   *
+   * @param {object} hold The hold.
+   * @param {object} clause The relation clause.
+   * @returns {boolean} Whether the hold has an order that matches.
+   */
+  const orderMatches = (hold, clause) => {
+    const order = rows.orders.find((candidate) => candidate.id === hold.orderId)
+
+    return Boolean(order) && applyWhere([order], clause.is ?? clause).length === 1
+  }
 
   const client = {
     rows,
@@ -134,7 +185,7 @@ export function createFakePrisma(seed = {}) {
        */
       findMany: async (args = {}) => {
         calls.push({ model: 'ticketHold', method: 'findMany', args })
-        let found = applyWhere(rows.holds, args.where)
+        let found = whereHolds(args.where)
 
         if (args.orderBy?.expiresAt === 'asc') {
           found = [...found].sort(
@@ -156,7 +207,28 @@ export function createFakePrisma(seed = {}) {
        */
       updateMany: async (args = {}) => {
         calls.push({ model: 'ticketHold', method: 'updateMany', args })
-        const matched = applyWhere(rows.holds, args.where)
+        const matched = whereHolds(args.where)
+        for (const row of matched) Object.assign(row, args.data)
+        return { count: matched.length }
+      },
+    },
+
+    eventSeat: {
+      /**
+       * `updateMany`, with the one relation filter the hold sweep uses:
+       * `hold: { status }`, matched against the hold rows.
+       *
+       * @param {object} args Prisma `updateMany` arguments.
+       * @returns {Promise<{count: number}>} How many seats the `where` clause matched.
+       */
+      updateMany: async (args = {}) => {
+        calls.push({ model: 'eventSeat', method: 'updateMany', args })
+        const { hold: holdClause, ...where } = args.where ?? {}
+        const matched = applyWhere(rows.seats, where).filter((seat) => {
+          if (!holdClause) return true
+          const hold = rows.holds.find((candidate) => candidate.id === seat.holdId)
+          return Boolean(hold) && hold.status === holdClause.status
+        })
         for (const row of matched) Object.assign(row, args.data)
         return { count: matched.length }
       },

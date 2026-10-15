@@ -17,10 +17,13 @@
  * @module components/step-up-prompt
  */
 
-import { useRef, useState } from 'react'
+import Link from 'next/link'
+import { useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalFromResponse } from '../lib/refusal.js'
 
 /**
  * @typedef {object} StepUpPromptProps
@@ -40,7 +43,11 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [needsEnrolment, setNeedsEnrolment] = useState(false)
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
+  // Per instance, so two prompts on one page do not share a label target.
+  const id = useId()
 
   /**
    * Send the second factor.
@@ -50,8 +57,13 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
    */
   async function onSubmit(submitted) {
     submitted.preventDefault()
+    // A submit bubbles, through React's tree as through the page's: drawn
+    // inside a screen's own form by mistake, confirming would send that form
+    // too, and the write it waits for would go twice.
+    submitted.stopPropagation()
     setBusy(true)
     setError(null)
+    setNeedsEnrolment(false)
 
     try {
       const response = await apiFetch('/v1/auth/step-up', {
@@ -67,13 +79,23 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
         return
       }
 
-      const body = await response.json().catch(() => null)
+      const refusal = await refusalFromResponse(response)
 
-      setError(body?.error?.message ?? 'That did not confirm your identity.')
-      queueMicrotask(() => errorRef.current?.focus())
+      if (refusal.code === 'MFA_ENROLMENT_REQUIRED') {
+        // The API's own words name the enrolment endpoint, which is no use to
+        // a person. There is a page for it now.
+        setNeedsEnrolment(true)
+        setError(
+          'A role this account holds needs two-step sign-in before it can confirm anything, and it has not been set up.',
+        )
+      } else {
+        setError(refusal.message ?? 'That did not confirm your identity.')
+      }
+
+      focusAfterRender(errorRef)
     } catch {
       setError('The service is not responding. Nothing has happened.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } finally {
       setBusy(false)
     }
@@ -82,13 +104,13 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
   return (
     <form
       onSubmit={onSubmit}
-      aria-labelledby="step-up-heading"
-      className="rounded-card border-2 border-indigo-night-900 bg-white p-4"
+      aria-labelledby={`${id}-heading`}
+      className="rounded-card border-2 border-ink bg-surface-raised p-4"
     >
-      <h3 id="step-up-heading" className="text-lg font-semibold text-indigo-night-900">
+      <h3 id={`${id}-heading`} className="text-lg font-semibold text-ink">
         Confirm it is you
       </h3>
-      <p className="mt-1 text-sm text-slate-700">
+      <p className="mt-1 text-sm text-ink-muted">
         You are signed in, but it has been a while. Confirm your identity to {action}.
       </p>
 
@@ -96,12 +118,22 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
         <div ref={errorRef} tabIndex={-1} className="mt-3">
           <Alert variant="error" title="Not confirmed">
             <p>{error}</p>
+            {needsEnrolment ? (
+              <p className="mt-2">
+                <Link
+                  href="/account/security"
+                  className="font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none rounded-sm"
+                >
+                  Set up two-step sign-in
+                </Link>
+              </p>
+            ) : null}
           </Alert>
         </div>
       ) : null}
 
       <div className="mt-3 space-y-4">
-        <FormField label="Your password" id="step-up-password" required>
+        <FormField label="Your password" id={`${id}-password`} required>
           <Input
             type="password"
             autoComplete="current-password"
@@ -112,7 +144,7 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
 
         <FormField
           label="Code from your authenticator"
-          id="step-up-code"
+          id={`${id}-code`}
           description="Six digits, or one of your recovery codes."
         >
           <Input

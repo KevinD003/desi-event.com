@@ -1,4 +1,4 @@
-# Desi-Event Status Reading Guide
+# The Desi Events Status Reading Guide
 
 Written 2026-09-17, against merged `main` at `510d75a`.
 
@@ -151,9 +151,13 @@ invalidation or deletion (`ExportArtifact` is schema), and retention **execution
 > **The three sentences at the top of this document are unchanged, and they are
 > the ones that matter:** no personal data has been redacted by this system, no
 > retention deletion has ever run, and no real Stripe call has ever been made.
-> Nothing in this update touches any of them. There is still no deletion path
-> anywhere in this repository, and the durations remain
-> `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`.
+> Nothing in this update touches any of them. The retention machinery still has
+> no deletion path, and the durations remain
+> `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`. (Updated by SPEC2: the one
+> deletion on a timer in the repository is the traffic roll-up's, of raw visit
+> rows it has already added up into daily totals. Those rows hold no address,
+> browser description or account, and the roll-up is not a retention sweep;
+> see `docs/PRIVACY_AND_RETENTION.md`, "Visit counting".)
 
 ---
 
@@ -489,3 +493,39 @@ Nothing about the underlying system changed here. No status was invented: each
 new cell is ported from the report named beside it. The `EXTERNAL VERIFICATION
 PENDING` rows, the `MOCK` payment mode, the proposed retention durations and
 every open owner decision stand exactly as they did.
+
+---
+
+## Reading the feature-completion work — 2026-09-29
+
+`docs/PHASE4_FEATURE_COMPLETION_REPORT.md` records the work that followed the
+Phase 4 report on this branch: organisation self-creation and team invitations,
+platform roles, event pictures, full event authoring and editing after
+publication, nights, the seat picker, promo codes, guests' names, the group
+pass, super-administrator door authority and reserved-seat transfer. Its
+§Limitations table is the list `/limitations` mirrors, and where it and
+`docs/PHASE4_IMPLEMENTATION_REPORT.md` §P4-17 or §P4-20 disagree, the
+feature-completion report is the later one. The decisions it rests on are ADR
+0006 to ADR 0009 in `docs/adr/`.
+
+It changes no status in the three tables above. `PAYMENT_MODE` is still `MOCK`,
+real payments are still `EXTERNAL VERIFICATION PENDING`, and its Verification
+section is filled in by the integrator, not by the stage that wrote it.
+
+## Reading the onboarding, analytics, full-control and import work — 2026-10-06
+
+`docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md` records the work that followed the
+feature-completion report: invitation-only organisers and the review gate,
+SMTP delivery of show-once codes, the administrator-switched website link,
+first-party visit counting, full control of posted events (editing, deleting,
+restoring, cancelling one night) with the refund repair it rested on, and the
+import of Sulekha's Texas listings. Its §Limitations table is now the list
+`/limitations` mirrors, and where it and the feature-completion report
+disagree, it is the later one. The decisions it rests on are ADR 0010 to ADR
+0015 in `docs/adr/`.
+
+It changes no status in the three tables above either. `PAYMENT_MODE` is still
+`MOCK`, real payments are still `EXTERNAL VERIFICATION PENDING`, and email moved
+from `NOT IMPLEMENTED` to `EXTERNAL VERIFICATION PENDING` on the limitations
+page only because a deployment can now switch it on; no real mail provider has
+been tried.

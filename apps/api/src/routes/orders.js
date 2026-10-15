@@ -22,44 +22,64 @@
  * hold item at checkout, because by settlement the zone override may have moved
  * and there would be no way to tell.
  *
+ * Booking fees, referral codes and paying at the venue (SPEC3 §6): the order
+ * records the fee terms it was priced with, what a referral code waived (and
+ * which code, for administrators only), how the ticket price is paid and what
+ * is owed at the door; the order and each line write `venueDueCents` here, the
+ * tickets at settlement (`lib/checkout.js`). A referral code's use is taken in
+ * the order's first transaction under the code's lock. A wrong referral code
+ * spends from a budget shared by the quote and the charge, counted only when
+ * the answer is `NOT_ACCEPTED`.
+ *
  * @module @desi-event/api/routes/orders
  */
 
-import {
-  authorizeHoldRelease,
-  holdExpiresAt,
-  resolveHoldOwnership,
-  salesWindowState,
-  validateQuantityRequest,
-} from '@desi-event/inventory'
+import { holdExpiresAt, resolveHoldOwnership } from '@desi-event/inventory'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
-import {
-  assertTaxPolicyUsable,
-  buildPricingSnapshot,
-  computeOrderTotals,
-  feeConfigForCurrency,
-  resolveTaxPolicy,
-} from '@desi-event/pricing'
+import { buildPricingSnapshot } from '@desi-event/pricing'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
-import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
-import { generateOrderReference, generateTicketCode } from '../lib/identifiers.js'
-import { lockTicketTypes, readAvailability } from '../lib/inventory.js'
-import { toOrder } from '../lib/presenters.js'
+import { changesForOrder } from '../lib/event-change-notices.js'
+import { feeConfigFor, priceCheckout, toOrderQuote } from '../lib/checkout-pricing.js'
+import { EVENT_COVER_INCLUDE } from '../lib/event-media.js'
 import {
-  assertSeatsCoherent,
-  loadSeatedHoldItems,
-  priceLines,
-  stampHoldItems,
-} from '../lib/seated-checkout.js'
+  conflict,
+  databaseErrorCode,
+  exposedServerError,
+  httpError,
+  notFound,
+  paymentTermsRefusal,
+} from '../lib/errors.js'
+import { memberHolds } from '../lib/event-authority.js'
+import { generateOrderReference, generateTicketCode } from '../lib/identifiers.js'
+import { toOrder } from '../lib/presenters.js'
+import { consumeReferralUse } from '../lib/referral-uses.js'
+import { stampHoldItems } from '../lib/seated-checkout.js'
 import {
   CAPTURE_OUTCOMES,
   captureOutsideTransaction,
   compensateCheckout,
   recordCaptureTimeout,
+  recordUnsettledCapture,
   settleCheckout,
 } from '../lib/checkout.js'
 import { defineRoute } from '../lib/register.js'
+import {
+  groupPassIssued,
+  groupPassSummary,
+  retrieveGroupPass,
+  rotateGroupPass,
+} from '../lib/group-passes.js'
+import {
+  passRateLimit,
+  promoAttemptRateLimit,
+  quoteRateLimit,
+  referralAttemptBudget,
+} from '../plugins/rate-limit.js'
+
+// Re-exported: routes/events.js prices listing cards with it, and it has always
+// been reached through this module.
+export { feeConfigFor }
 
 /** Everything an order payload needs, in one query. */
 /**
@@ -86,125 +106,126 @@ import { defineRoute } from '../lib/register.js'
 const CHECKOUT_TRANSACTION_OPTIONS = Object.freeze({ timeout: 10_000, maxWait: 5_000 })
 const SETTLEMENT_TRANSACTION_OPTIONS = Object.freeze({ timeout: 10_000, maxWait: 5_000 })
 
+/** Which night a line is for, as its tier names it. */
+const LINE_SESSION_SELECT = Object.freeze({
+  id: true,
+  label: true,
+  startsAt: true,
+  endsAt: true,
+  doorsOpenAt: true,
+  timezone: true,
+})
+
 const ORDER_INCLUDE = Object.freeze({
-  items: { include: { tickets: true } },
-  event: { include: { venue: true, organization: true, ticketTypes: true } },
+  items: {
+    include: {
+      tickets: true,
+      ticketType: {
+        select: { name: true, eventSessionId: true, eventSession: { select: LINE_SESSION_SELECT } },
+      },
+    },
+  },
+  // The approved cover rides along so an order shows the event's picture; the
+  // summary presenter filters it again.
+  event: {
+    include: { venue: true, organization: true, ticketTypes: true, ...EVENT_COVER_INCLUDE },
+  },
+  // Its unpaid pay-at-the-venue tickets cancelled, oldest first, with who
+  // cancelled: the presenter names them to organisation readers only.
+  venueCancellations: {
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    include: { cancelledBy: { select: { displayName: true } } },
+  },
 })
 
 /**
- * Build the platform fee configuration for one order.
- *
- * The terms come from `@desi-event/pricing` so that the total quoted on the
- * checkout page and the total charged here are computed from the same table.
- * They used to be computed from different ones, and the buyer was shown a
- * figure that was never what got billed.
- *
- * The flat component is denominated in a currency, so the deployment's
- * configured flat fee applies only to the base currency; other currencies take
- * their own figure. `computeOrderTotals` rejects a mismatch rather than
- * quietly charging an INR fee on a USD order.
- *
- * @param {object} env The parsed API environment.
- * @param {string} currency The order currency.
- * @returns {{percentageBps: number, flatCents: number, currency: string}} A fee configuration.
+ * The order statuses a checkout attempt sold into. A retry of the attempt
+ * answers 201 with the order as it stands now: a refund since then does not
+ * make the sale the attempt made any less its outcome.
  */
-export function feeConfigFor(env, currency) {
-  return feeConfigForCurrency(currency, {
-    percentageBps: env.PLATFORM_FEE_BPS,
-    flatCents: env.PLATFORM_FEE_FLAT_CENTS,
-  })
+const SOLD_STATUSES = new Set(['PAID', 'REFUNDED'])
+
+/** What a checkout that ended without a sale answers, first time and on a retry. */
+const ORDER_CANCELLED_MESSAGE =
+  'The order could not be completed, so it was cancelled. Nothing was charged; reserve the tickets again to carry on.'
+
+/**
+ * The 409 for an attempt whose order ended without a sale and without a
+ * declined card: a free order whose settlement refused, or one that lapsed.
+ * Nothing was charged, and the holds it named are not to be relied on, so
+ * the buyer reserves again.
+ *
+ * @returns {Error} A 409 `ORDER_CANCELLED`.
+ */
+function orderCancelled() {
+  return httpError(409, 'ORDER_CANCELLED', ORDER_CANCELLED_MESSAGE)
 }
 
 /**
- * Resolve the promo code named by a checkout request, if any.
+ * What a retried checkout answers, from the order its `Idempotency-Key`
+ * already placed.
  *
- * An unknown code is refused outright. A *known* code that has expired, been
- * switched off or been exhausted is not an error — `computeDiscount` returns a
- * zero discount for it — because the buyer should still be able to complete
- * the purchase at full price.
+ * A key names one attempt, and a retry of it is answered with that attempt's
+ * outcome — never with a second order or a second charge, and never with a
+ * success the attempt did not have. The outcome is read from the order now,
+ * because the attempt may have settled since it first answered:
  *
- * @param {object} tx A Prisma transaction client.
- * @param {string|undefined} code The promo code from the request.
- * @param {object} event The event being bought into.
- * @returns {Promise<object|null>} The `PromoCode` row, or `null` when none was supplied.
- * @throws {Error} A 422 when the code does not exist for this event's organisation.
+ * - sold (`PAID`, or `REFUNDED` since): 201 and the order, as a first answer
+ *   that got through would have been;
+ * - `PENDING`: the payment is still being checked — the first request is still
+ *   running, its capture timed out, or it was captured and the order could not
+ *   be completed. 409 `ORDER_PENDING` with the order's reference: the attempt
+ *   is not finished, and the buyer must not be sent to pay again;
+ * - `CANCELLED` after a declined card: 402 `PAYMENT_DECLINED`, the answer the
+ *   attempt got. Trying again is a new attempt, with a new key;
+ * - any other `CANCELLED` or `EXPIRED`: 409 `ORDER_CANCELLED`, the answer a
+ *   free order whose settlement refused got.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} existing The order, with `ORDER_INCLUDE`.
+ * @param {object} log The request logger.
+ * @returns {Promise<{data: object}>} The sold order, for a 201.
+ * @throws {Error} 409 `ORDER_PENDING`, 402 `PAYMENT_DECLINED` or 409 `ORDER_CANCELLED`.
  */
-async function resolvePromoCode(tx, code, event) {
-  if (!code) return null
+async function replayCheckout(prisma, existing, log) {
+  log.info(
+    { orderId: existing.id, reference: existing.reference, status: existing.status },
+    'checkout replayed; answering with the original order',
+  )
 
-  const promoCode = await tx.promoCode.findFirst({
-    where: {
-      code,
-      organizationId: event.organizationId,
-      OR: [{ eventId: event.id }, { eventId: null }],
-    },
+  if (SOLD_STATUSES.has(existing.status)) return { data: toOrder(existing) }
+
+  if (existing.status === 'PENDING') {
+    throw httpError(
+      409,
+      'ORDER_PENDING',
+      `This attempt already placed order ${existing.reference}, and whether its payment went through is still being checked. Nothing more has been charged; please do not pay again. The order's page shows where it stands.`,
+      { orderReference: existing.reference },
+    )
+  }
+
+  const declined = await prisma.payment.findFirst({
+    where: { orderId: existing.id, status: 'FAILED' },
+    select: { id: true },
   })
 
-  if (!promoCode) throw unprocessable(`Promo code "${code}" is not valid for this event.`)
+  if (declined) throw paymentDeclined()
 
-  return promoCode
+  throw orderCancelled()
 }
 
 /**
- * Validate the holds a checkout request claims, and group them by ticket type.
+ * The answer to a declined card: nothing was taken, the order is cancelled,
+ * and the holds stay with the buyer for another attempt.
  *
- * Ownership is checked here for the same reason it is checked on release:
- * spending a hold consumes somebody's reservation. A caller who guessed or
- * observed another buyer's hold id could otherwise convert it into their own
- * order. An unowned hold answers 404 exactly as a non-existent one does, so
- * this cannot be used to discover which ids are real.
- *
- * @param {object} tx A Prisma transaction client.
- * @param {string[]} holdIds Hold ids from the request.
- * @param {Set<string>} ticketTypeIds Ticket type ids the order is for.
- * @param {Date} now The instant the request is being evaluated at.
- * @param {object} owner Caller identity.
- * @param {{id: string}|null} [owner.actor] The verified server actor.
- * @param {string|null} [owner.guestToken] The one-time token for a guest hold.
- * @returns {Promise<Map<string, object[]>>} Live holds grouped by ticket type id.
- * @throws {Error} A 404 for an unknown or unowned hold, 410 for a lapsed one, 409 for one already spent.
+ * @returns {Error} A 402 `PAYMENT_DECLINED`.
  */
-async function resolveHolds(tx, holdIds, ticketTypeIds, now, owner = {}) {
-  /** @type {Map<string, object[]>} */
-  const byTicketType = new Map()
-
-  if (!holdIds || holdIds.length === 0) return byTicketType
-
-  const holds = await tx.ticketHold.findMany({ where: { id: { in: holdIds } } })
-  const found = new Set(holds.map((hold) => hold.id))
-
-  for (const id of holdIds) {
-    if (!found.has(id)) throw notFound(`No such hold: ${id}.`)
-  }
-
-  for (const hold of holds) {
-    const { allowed } = authorizeHoldRelease({
-      hold,
-      actor: owner.actor,
-      guestToken: owner.guestToken,
-    })
-
-    if (!allowed) throw notFound(`No such hold: ${hold.id}.`)
-
-    if (hold.status === 'CONVERTED') {
-      throw conflict(`Hold ${hold.id} has already been used for another order.`)
-    }
-    if (hold.status !== 'ACTIVE') {
-      throw httpError(410, 'HOLD_EXPIRED', `Hold ${hold.id} is no longer active.`)
-    }
-    if (new Date(hold.expiresAt).getTime() <= now.getTime()) {
-      throw httpError(410, 'HOLD_EXPIRED', `Hold ${hold.id} expired; please try again.`)
-    }
-    if (!ticketTypeIds.has(hold.ticketTypeId)) {
-      throw conflict(`Hold ${hold.id} is for a ticket type that is not in this order.`)
-    }
-
-    const bucket = byTicketType.get(hold.ticketTypeId) ?? []
-    bucket.push(hold)
-    byTicketType.set(hold.ticketTypeId, bucket)
-  }
-
-  return byTicketType
+function paymentDeclined() {
+  return httpError(
+    402,
+    'PAYMENT_DECLINED',
+    'The payment was declined, and nothing was charged. Your reservation is kept, so you can try again.',
+  )
 }
 
 /**
@@ -238,294 +259,307 @@ function ownsOrder(actor, order) {
  * @param {object} deps.prisma The Prisma client.
  * @param {object} deps.providers The provider registry.
  * @param {object} deps.env The parsed API environment.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the pass rate limit, which the group pass shares; supplied by tests.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.quoteLimit] Overrides for the checkout-quote rate limit, and for the promo-attempt limit on a checkout that names a code; supplied by tests.
+ * @param {{actorMax?: number, addressMax?: number, sharedMax?: number, timeWindow?: string|number}} [deps.referralAttemptLimit] Overrides for the wrong referral codes budget the quote and the charge share.
  * @returns {void} Nothing.
  */
-export function registerOrderRoutes(app, { prisma, providers, env }) {
+export function registerOrderRoutes(
+  app,
+  { prisma, providers, env, passLimit, quoteLimit, referralAttemptLimit },
+) {
+  // One budget for both routes, so a wrong code tried through either counts
+  // once (SPEC3 §4.4). Its hook runs after the session guard and refuses only
+  // a request that names a code while a bucket is full; the handlers count a
+  // `NOT_ACCEPTED` answer, and nothing else.
+  const referralBudget = referralAttemptBudget(referralAttemptLimit ?? {})
+
   defineRoute(app, 'orders.create', {
+    // Counted only when the body names a promo code: see promoAttemptRateLimit.
+    config: { rateLimit: promoAttemptRateLimit(quoteLimit) },
+    preHandler: [referralBudget.hook],
     handler: async (request) => {
       const body = request.body
       const now = new Date()
       // An idempotency key lets a retried checkout resolve to the original
       // order instead of creating and charging a second one.
       const idempotencyKey = request.headers['idempotency-key'] ?? null
-      const requestedIds = body.items.map((item) => item.ticketTypeId)
 
       // A retry carrying the same key must not produce a second charge. The
       // unique index on Order.idempotencyKey is the real guarantee; this read
-      // just turns the common case into a clean replay instead of a 409.
+      // answers the common case, and the index's refusal below answers two
+      // requests that both got past it. Either way the retry is answered with
+      // the attempt's own outcome (`replayCheckout`).
       if (idempotencyKey) {
         const existing = await prisma.order.findUnique({
           where: { idempotencyKey },
           include: ORDER_INCLUDE,
         })
 
-        if (existing) {
-          request.log.info(
-            { orderId: existing.id, reference: existing.reference },
-            'checkout replayed; returning the original order',
-          )
-
-          return { data: toOrder(existing) }
-        }
+        if (existing) return replayCheckout(prisma, existing, request.log)
       }
 
-      const begun = await prisma.$transaction(async (tx) => {
-        // Same discipline as holds.create: lock every tier involved, in sorted
-        // order so two concurrent multi-tier orders cannot deadlock, and only
-        // then read anything.
-        await lockTicketTypes(tx, requestedIds)
-
-        const event = await tx.event.findUnique({ where: { id: body.eventId } })
-        if (!event) throw notFound('No such event.')
-        if (event.status !== 'PUBLISHED') throw unprocessable('This event is not on sale.')
-
-        const ticketTypes = await tx.ticketType.findMany({ where: { id: { in: requestedIds } } })
-        const byId = new Map(ticketTypes.map((ticketType) => [ticketType.id, ticketType]))
-
-        for (const id of requestedIds) {
-          const ticketType = byId.get(id)
-          if (!ticketType || ticketType.eventId !== event.id) {
-            throw notFound(`No such ticket type for this event: ${id}.`)
-          }
-        }
-
-        const currencies = new Set(ticketTypes.map((ticketType) => ticketType.currency))
-        if (currencies.size > 1) {
-          throw unprocessable('Every ticket type in an order must share one currency.')
-        }
-        const currency = ticketTypes[0].currency
-
-        const holdsByType = await resolveHolds(tx, body.holdIds, new Set(requestedIds), now, {
-          actor: request.actor,
-          guestToken: request.headers['x-hold-token'] ?? null,
-        })
-
-        // Reserved seating, if any. Read after the tier row locks are held, so
-        // the seat states below cannot move under the order being built, and
-        // checked before anything is priced: a seat that is not this hold's to
-        // sell must not reach the pricing step at all.
-        const holdsById = new Map()
-        for (const bucket of holdsByType.values()) {
-          for (const hold of bucket) holdsById.set(hold.id, hold)
-        }
-
-        const seatedItems = await loadSeatedHoldItems(tx, [...holdsById.keys()])
-        assertSeatsCoherent(seatedItems, holdsById, body.eventSessionId ?? null)
-
-        for (const seated of seatedItems) {
-          const seatSession = await tx.eventSession.findUnique({
-            where: { id: seated.eventSeat.eventSessionId },
-            select: { eventId: true },
-          })
-
-          // A hold whose seats belong to another event's session. The trigger
-          // that keeps an order's lines to one event cannot see this, because
-          // the line is for a tier of the right event; only the seat is wrong.
-          if (seatSession?.eventId !== event.id) {
-            throw unprocessable('Those seats are not on sale at this event.', {
-              seatSession: seated.eventSeat.eventSessionId,
-            })
-          }
-        }
-
-        for (const item of body.items) {
-          const ticketType = byId.get(item.ticketTypeId)
-
-          const windowState = salesWindowState({
-            status: ticketType.status,
-            salesStartAt: ticketType.salesStartAt,
-            salesEndAt: ticketType.salesEndAt,
+      const begun = await prisma
+        .$transaction(async (tx) => {
+          // Everything the quote computes, computed the same way, under the
+          // checkout locks: tiers, then nights, then the promo code.
+          const priced = await priceCheckout(tx, {
+            body,
+            actor: request.actor,
+            guestToken: request.headers['x-hold-token'] ?? null,
             now,
+            env,
+            lock: true,
           })
-          if (windowState !== 'ON_SALE') {
-            throw unprocessable(`"${ticketType.name}" is not on sale.`, { windowState })
+          const {
+            event,
+            currency,
+            holdsByType,
+            seatedTiers,
+            seatsByLineKey,
+            taxPolicy,
+            promoCode,
+            promoApplied,
+            totals,
+            attendees,
+            paymentMethod,
+            fee,
+            referral,
+          } = priced
+
+          // A referral code that is not accepted at the charge is refused
+          // whatever figures the buyer sent (SPEC3 §6.5): the booking fee is
+          // back, so the total moved. One answer for every cause, and the
+          // wrong-codes budget counts it.
+          if (referral?.reason === 'NOT_ACCEPTED') {
+            referralBudget.recordRefusal(request)
+
+            throw paymentTermsRefusal('REFERRAL_NOT_ACCEPTED')
           }
 
-          // The buyer's own holds already reserve stock for them, so they are
-          // excluded from the held total rather than counted against the very
-          // request they exist to protect.
-          const ownHolds = holdsByType.get(ticketType.id) ?? []
-          const { availableQuantity } = await readAvailability(tx, ticketType, {
-            now,
-            ignoreHoldIds: ownHolds.map((hold) => hold.id),
-          })
-
-          validateQuantityRequest({
-            quantity: item.quantity,
-            minPerOrder: ticketType.minPerOrder,
-            maxPerOrder: ticketType.maxPerOrder,
-            availableQuantity,
-          })
-        }
-
-        // Tax follows the jurisdiction of the supply — where the event is held
-        // — not the currency it is priced in. A Toronto event priced in rupees
-        // is taxed in Ontario, and the previous currency-keyed lookup would
-        // have charged it Indian GST.
-        const venue = event.venueId
-          ? await tx.venue.findUnique({
-              where: { id: event.venueId },
-              select: { country: true, region: true },
-            })
-          : null
-
-        const taxPolicy = resolveTaxPolicy({
-          country: venue?.country ?? null,
-          region: venue?.region ?? null,
-          at: now,
-        })
-
-        // Fails closed in production: charging a buyer an unverified rate, and
-        // telling an organiser they owe it, is worse than refusing the sale.
-        assertTaxPolicyUsable(taxPolicy, {
-          environment: env.NODE_ENV,
-          allowDemo: env.ALLOW_DEMO_TAX_IN_PRODUCTION === true,
-        })
-
-        const promoCode = await resolvePromoCode(tx, body.promoCode, event)
-
-        // A seated tier is priced seat by seat: a selection spanning two zones
-        // is two lines of one ticket type, because an order line carries one
-        // unit price and those seats did not cost the same.
-        const { lines: pricedLines, seatsByLineKey } = priceLines({
-          items: body.items,
-          ticketTypesById: byId,
-          seatedItems,
-        })
-
-        const totals = computeOrderTotals({
-          items: pricedLines,
-          promoCode,
-          feeConfig: feeConfigFor(env, currency),
-          taxRateBps: taxPolicy.rateBps,
-          currency,
-          now,
-        })
-
-        // A promo that exists but is inactive, out of window or exhausted
-        // yields a zero discount. It must not consume a redemption or be
-        // stamped on the order: doing so burns a campaign for buyers who never
-        // received the discount, and misattributes full-price revenue to it.
-        const promoApplied = Boolean(promoCode) && totals.discountCents > 0
-
-        const created = await tx.order.create({
-          data: {
-            reference: generateOrderReference(),
-            idempotencyKey,
-            pricingSnapshot: buildPricingSnapshot({
-              feeConfig: feeConfigFor(env, currency),
-              taxPolicy,
-              currency,
-            }),
-            eventId: event.id,
-            // Ownership follows the authenticated caller only. Honouring a
-            // userId from the body would let an anonymous request attach an
-            // order to any account.
-            userId: request.actor?.id ?? null,
-            buyerEmail: body.buyerEmail,
-            buyerName: body.buyerName,
-            status: 'PENDING',
-            currency: totals.currency,
-            subtotalCents: totals.subtotalCents,
-            discountCents: totals.discountCents,
-            feesCents: totals.feesCents,
-            taxCents: totals.taxCents,
-            totalCents: totals.totalCents,
-            promoCodeId: promoApplied ? promoCode.id : null,
-          },
-        })
-
-        const orderItems = []
-
-        for (const line of totals.lineItems) {
-          orderItems.push(
-            await tx.orderItem.create({
-              data: {
-                orderId: created.id,
-                ticketTypeId: line.ticketTypeId,
-                quantity: line.quantity,
-                unitPriceCents: line.unitPriceCents,
-                subtotalCents: line.subtotalCents,
+          // A precondition, never a price. The buyer was shown a figure; if the
+          // server's figure is different now — a code used up meanwhile, a tax
+          // change, a booking fee an administrator changed — refuse before
+          // anything is written, rather than charging an amount nobody agreed
+          // to. The door figure of a booking to pay at the venue is held to
+          // what the buyer saw the same way.
+          if (
+            (body.expectedTotalCents !== undefined &&
+              body.expectedTotalCents !== totals.totalCents) ||
+            (body.expectedVenueDueCents !== undefined &&
+              body.expectedVenueDueCents !== totals.venueDueCents)
+          ) {
+            throw httpError(
+              409,
+              'PRICE_CHANGED',
+              'The total changed since it was shown. Nothing has been charged.',
+              {
+                totalCents: totals.totalCents,
+                venueDueCents: totals.venueDueCents,
+                feesCents: totals.feesCents,
               },
-            }),
-          )
-        }
-
-        // Attach the buyer's holds to the order so the settlement step can
-        // convert them, and reserve anything not already held. Inventory has
-        // to stay reserved for the whole time the provider is being called:
-        // without this an unheld line would be free for somebody else to buy
-        // while this buyer's card is authorising.
-        const seatedTypes = new Set(seatedItems.map((seated) => seated.ticketTypeId))
-
-        for (const item of body.items) {
-          const held = (holdsByType.get(item.ticketTypeId) ?? []).reduce(
-            (sum, hold) => sum + hold.quantity,
-            0,
-          )
-
-          for (const hold of holdsByType.get(item.ticketTypeId) ?? []) {
-            await tx.ticketHold.update({ where: { id: hold.id }, data: { orderId: created.id } })
+            )
           }
 
-          // A seated line's quantity is its seats, and `priceLines` has already
-          // refused any other number. Topping it up with a quantity hold would
-          // reserve stock with no seat behind it, which reserved seating does
-          // not have.
-          const unheld = seatedTypes.has(item.ticketTypeId) ? 0 : item.quantity - held
-          if (unheld > 0) {
-            const { ownership } = resolveHoldOwnership({ actor: request.actor })
-            await tx.ticketHold.create({
-              data: {
-                ticketTypeId: item.ticketTypeId,
-                orderId: created.id,
-                quantity: unheld,
-                status: 'ACTIVE',
-                expiresAt: holdExpiresAt(now, env.TICKET_HOLD_TTL_SECONDS),
-                userId: ownership.userId,
-                guestTokenHash: ownership.guestTokenHash,
-              },
+          const referralApplied = Boolean(referral?.applied) && totals.feeWaivedCents > 0
+
+          const created = await tx.order.create({
+            data: {
+              reference: generateOrderReference(),
+              idempotencyKey,
+              pricingSnapshot: buildPricingSnapshot({
+                feeConfig: fee,
+                taxPolicy,
+                currency,
+                fee: {
+                  source: fee.source,
+                  settingId: fee.settingId,
+                  grossCents: totals.feeGrossCents,
+                  waivedCents: totals.feeWaivedCents,
+                  chargedCents: totals.feesCents,
+                },
+                paymentMethod,
+                taxAppliedTo: totals.taxAppliedTo,
+              }),
+              eventId: event.id,
+              // The night, when every line is for the same one.
+              eventSessionId: priced.eventSessionId,
+              // Ownership follows the authenticated caller only. Honouring a
+              // userId from the body would let an anonymous request attach an
+              // order to any account.
+              userId: request.actor?.id ?? null,
+              buyerEmail: body.buyerEmail,
+              buyerName: body.buyerName,
+              status: 'PENDING',
+              currency: totals.currency,
+              subtotalCents: totals.subtotalCents,
+              discountCents: totals.discountCents,
+              feesCents: totals.feesCents,
+              taxCents: totals.taxCents,
+              // What is paid online: the whole total by card, or the booking
+              // fee and any tax on it for a booking to pay at the venue.
+              totalCents: totals.totalCents,
+              promoCodeId: promoApplied ? promoCode.id : null,
+              // The terms it was priced with, for good (SPEC3 §5.2): new
+              // orders only ever see a fee change.
+              paymentMethod,
+              feeSource: fee.source,
+              feeSettingId: fee.settingId,
+              feePercentageBps: fee.percentageBps,
+              feeFlatCentsPerTicket: fee.flatCents,
+              // The fee the terms came to, and what a referral code waived
+              // (CHECKs \`order_fee_parts\`, \`order_fee_waiver_whole\`).
+              feeGrossCents: totals.feeGrossCents,
+              feeWaivedCents: totals.feeWaivedCents,
+              referralCodeId: referralApplied ? referral.row.id : null,
+              // The ticket price after the promo, owed at the door; 0 by card.
+              venueDueCents: totals.venueDueCents,
+            },
+          })
+
+          const orderItems = []
+
+          for (const line of totals.lineItems) {
+            orderItems.push(
+              await tx.orderItem.create({
+                data: {
+                  orderId: created.id,
+                  ticketTypeId: line.ticketTypeId,
+                  quantity: line.quantity,
+                  unitPriceCents: line.unitPriceCents,
+                  subtotalCents: line.subtotalCents,
+                  // What the line's tickets owe at the door in all, split
+                  // across them at settlement; 0 by card.
+                  venueDueCents: line.venueDueCents ?? 0,
+                  // Staged until settlement puts them on the tickets. A
+                  // general-admission tier is one line; a seated tier's names
+                  // travel with its seats instead, on the hold items.
+                  attendeeNames: attendees.gaNamesByTicketType.get(line.ticketTypeId) ?? [],
+                },
+              }),
+            )
+          }
+
+          // Attach the buyer's holds to the order so the settlement step can
+          // convert them, and reserve anything not already held. Inventory has
+          // to stay reserved for the whole time the provider is being called:
+          // without this an unheld line would be free for somebody else to buy
+          // while this buyer's card is authorising.
+          const seatedTypes = seatedTiers
+
+          for (const item of body.items) {
+            const held = (holdsByType.get(item.ticketTypeId) ?? []).reduce(
+              (sum, hold) => sum + hold.quantity,
+              0,
+            )
+
+            for (const hold of holdsByType.get(item.ticketTypeId) ?? []) {
+              // Conditional on what was read under the hold's row lock: still
+              // active, and still with the order it had (none, or one whose card
+              // was declined). Anything else means the hold moved on, and the
+              // order is refused before it is charged.
+              const { count } = await tx.ticketHold.updateMany({
+                where: { id: hold.id, status: 'ACTIVE', orderId: hold.orderId ?? null },
+                data: { orderId: created.id },
+              })
+
+              if (count !== 1) {
+                throw conflict(
+                  `Hold ${hold.id} changed while this order was being placed. Nothing has been charged.`,
+                  { holdId: hold.id },
+                )
+              }
+            }
+
+            // A seated line's quantity is its seats, and `priceLines` has already
+            // refused any other number. Topping it up with a quantity hold would
+            // reserve stock with no seat behind it, which reserved seating does
+            // not have.
+            const unheld = seatedTypes.has(item.ticketTypeId) ? 0 : item.quantity - held
+            if (unheld > 0) {
+              const { ownership } = resolveHoldOwnership({ actor: request.actor })
+              await tx.ticketHold.create({
+                data: {
+                  ticketTypeId: item.ticketTypeId,
+                  orderId: created.id,
+                  quantity: unheld,
+                  status: 'ACTIVE',
+                  expiresAt: holdExpiresAt(now, env.TICKET_HOLD_TTL_SECONDS),
+                  userId: ownership.userId,
+                  guestTokenHash: ownership.guestTokenHash,
+                },
+              })
+            }
+          }
+
+          // Which line pays for which seat, written down now rather than derived
+          // at settlement from prices that may have moved since.
+          await stampHoldItems(tx, {
+            seatsByLineKey,
+            orderItems,
+            namesByEventSeatId: attendees.namesByEventSeatId,
+          })
+
+          if (promoApplied) {
+            // Under the promo row lock `priceCheckout` took, after re-reading the
+            // row, so the count this increments is the one the discount was
+            // judged against. `increment` all the same, and the table's CHECK
+            // refuses a count past the cap whatever happens here.
+            await tx.promoCode.update({
+              where: { id: promoCode.id },
+              data: { redemptionCount: { increment: 1 } },
             })
           }
-        }
 
-        // Which line pays for which seat, written down now rather than derived
-        // at settlement from prices that may have moved since.
-        await stampHoldItems(tx, { seatsByLineKey, orderItems })
+          if (referralApplied) {
+            // The code's use, taken now the order naming it is written, under
+            // the code's row lock `evaluateReferral` took. The CHECK
+            // `referral_code_use_within_limit` refuses a use past the limit
+            // whatever happens here (409 REFERRAL_NOT_ACCEPTED).
+            await consumeReferralUse(tx, { referralCodeId: referral.row.id })
+          }
 
-        if (promoApplied) {
-          // `increment` rather than a read-modify-write: two checkouts that
-          // resolved the same promo row concurrently would otherwise both
-          // write the same count and lose a redemption.
-          await tx.promoCode.update({
-            where: { id: promoCode.id },
-            data: { redemptionCount: { increment: 1 } },
+          // A zero-total order (a 100% promo, a free event) moves no money, so
+          // there is nothing to attempt and no attempt row to write.
+          const zeroTotal = totals.totalCents === 0
+
+          // Otherwise the payment attempt is written and committed BEFORE the
+          // provider is called, so a process that dies mid-call still leaves
+          // evidence that a charge may exist.
+          const payment = zeroTotal
+            ? null
+            : await tx.payment.create({
+                data: {
+                  orderId: created.id,
+                  provider: providers.payments.name,
+                  status: 'INITIATED',
+                  amountCents: totals.totalCents,
+                  currency: totals.currency,
+                  idempotencyKey: idempotencyKey ? `${idempotencyKey}:1` : null,
+                  attemptNumber: 1,
+                },
+              })
+
+          return { order: created, payment, zeroTotal }
+        }, CHECKOUT_TRANSACTION_OPTIONS)
+        .catch(async (error) => {
+          // Two requests with one key that both missed the read above — a
+          // double submission — meet here: the second's order collides with
+          // the first's on the key's unique index. That is a retry, and it is
+          // answered as one rather than as a 500.
+          if (!idempotencyKey || databaseErrorCode(error) !== 'P2002') throw error
+
+          const existing = await prisma.order.findUnique({
+            where: { idempotencyKey },
+            include: ORDER_INCLUDE,
           })
-        }
 
-        // A zero-total order (a 100% promo, a free event) moves no money, so
-        // there is nothing to attempt and no attempt row to write.
-        const zeroTotal = totals.totalCents === 0
+          if (!existing) throw error
 
-        // Otherwise the payment attempt is written and committed BEFORE the
-        // provider is called, so a process that dies mid-call still leaves
-        // evidence that a charge may exist.
-        const payment = zeroTotal
-          ? null
-          : await tx.payment.create({
-              data: {
-                orderId: created.id,
-                provider: providers.payments.name,
-                status: 'INITIATED',
-                amountCents: totals.totalCents,
-                currency: totals.currency,
-                idempotencyKey: idempotencyKey ? `${idempotencyKey}:1` : null,
-                attemptNumber: 1,
-              },
-            })
+          return { replayed: await replayCheckout(prisma, existing, request.log) }
+        })
 
-        return { order: created, payment, zeroTotal }
-      }, CHECKOUT_TRANSACTION_OPTIONS)
+      if (begun.replayed) return begun.replayed
 
       // ---- Phase 2: the provider call, with NO transaction open -------------
       const result = begun.zeroTotal
@@ -538,53 +572,132 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
         : await captureOutsideTransaction(providers.payments, begun.order)
 
       // ---- Phase 3: a short transaction recording the outcome ---------------
-      const order = await prisma.$transaction(async (tx) => {
-        const common = {
-          order: begun.order,
-          payment: begun.payment,
-          now,
-          actorId: request.actor?.id ?? null,
-          requestId: request.id,
+      const common = {
+        order: begun.order,
+        payment: begun.payment,
+        now,
+        actorId: request.actor?.id ?? null,
+        requestId: request.id,
+      }
+
+      let order
+
+      try {
+        order = await prisma.$transaction(async (tx) => {
+          if (result.outcome === CAPTURE_OUTCOMES.SUCCEEDED) {
+            await settleCheckout(tx, {
+              ...common,
+              result,
+              generateTicketCode,
+              credentialSecret: env.AUTH_SECRET,
+            })
+          } else if (result.outcome === CAPTURE_OUTCOMES.TIMEOUT) {
+            await recordCaptureTimeout(tx, { ...common, result })
+          } else {
+            await compensateCheckout(tx, { ...common, failureCode: result.failureCode })
+          }
+
+          return tx.order.findUnique({ where: { id: begun.order.id }, include: ORDER_INCLUDE })
+        }, SETTLEMENT_TRANSACTION_OPTIONS)
+      } catch (error) {
+        if (result.outcome !== CAPTURE_OUTCOMES.SUCCEEDED) throw error
+
+        // The money has moved (or, for a zero total, nothing had to) and the
+        // settlement refused. Its transaction rolled back, so the order is
+        // still PENDING; a fresh one records the capture and opens a task, or
+        // cancels a free order, rather than leaving an attempt nothing reads.
+        await prisma.$transaction(
+          (tx) =>
+            recordUnsettledCapture(tx, {
+              ...common,
+              result,
+              reason: typeof error?.code === 'string' ? error.code : (error?.name ?? 'Error'),
+            }),
+          SETTLEMENT_TRANSACTION_OPTIONS,
+        )
+
+        // A free order moved no money, and it has been cancelled: a precise
+        // refusal, not a fault — the buyer reserves again.
+        if (!begun.payment) {
+          request.log.warn(
+            {
+              orderId: begun.order.id,
+              reference: begun.order.reference,
+              reason: typeof error?.code === 'string' ? error.code : (error?.name ?? 'Error'),
+            },
+            'free order could not be completed; cancelled',
+          )
+          throw orderCancelled()
         }
 
-        if (result.outcome === CAPTURE_OUTCOMES.SUCCEEDED) {
-          await settleCheckout(tx, {
-            ...common,
-            result,
-            generateTicketCode,
-            credentialSecret: env.AUTH_SECRET,
-          })
-        } else if (result.outcome === CAPTURE_OUTCOMES.TIMEOUT) {
-          await recordCaptureTimeout(tx, { ...common, result })
-        } else {
-          await compensateCheckout(tx, { ...common, failureCode: result.failureCode })
-        }
-
-        return tx.order.findUnique({ where: { id: begun.order.id }, include: ORDER_INCLUDE })
-      }, SETTLEMENT_TRANSACTION_OPTIONS)
+        request.log.error(
+          {
+            orderId: begun.order.id,
+            reference: begun.order.reference,
+            paymentId: begun.payment.id,
+            reason: typeof error?.code === 'string' ? error.code : (error?.name ?? 'Error'),
+          },
+          'payment captured but the order could not be completed; left for reconciliation',
+        )
+        throw exposedServerError(
+          500,
+          'ORDER_NOT_COMPLETED',
+          'Your payment was taken, but the order could not be completed. It has been passed to our team to settle or refund; please do not pay again.',
+          { orderReference: begun.order.reference },
+        )
+      }
 
       if (result.outcome === CAPTURE_OUTCOMES.TIMEOUT) {
         request.log.error(
           { orderId: order.id, reference: order.reference, paymentId: begun.payment.id },
           'payment capture timed out; order left pending for reconciliation',
         )
-        throw httpError(
+        throw exposedServerError(
           502,
           'PAYMENT_TIMEOUT',
-          'The payment provider did not respond in time. Your order is being confirmed; do not retry yet.',
+          'The payment provider did not respond in time, so whether you were charged is being checked. Your order keeps its tickets reserved until that is settled; please do not pay again.',
+          { orderReference: order.reference },
         )
       }
 
-      if (result.outcome === CAPTURE_OUTCOMES.DECLINED) {
-        throw httpError(402, 'PAYMENT_DECLINED', 'The payment was declined.')
-      }
+      if (result.outcome === CAPTURE_OUTCOMES.DECLINED) throw paymentDeclined()
 
       request.log.info(
         { orderId: order.id, reference: order.reference, totalCents: order.totalCents },
         'order paid',
       )
 
-      return { data: toOrder(order) }
+      // The buyer placed it, so they get the joining link of a paid online
+      // event here, as they would reading it back.
+      return { data: toOrder(order, { joinUrl: true }) }
+    },
+  })
+
+  defineRoute(app, 'orders.quote', {
+    config: { rateLimit: quoteRateLimit(quoteLimit) },
+    preHandler: [referralBudget.hook],
+    handler: async (request) => {
+      const now = new Date()
+
+      // The charge's own function, with no locks and nothing written: the
+      // transaction is only so every read sees one snapshot.
+      const priced = await prisma.$transaction((tx) =>
+        priceCheckout(tx, {
+          body: request.body,
+          actor: request.actor,
+          guestToken: null,
+          now,
+          env,
+          lock: false,
+          unknownPromoIsError: false,
+        }),
+      )
+
+      // A quote never refuses for a referral code: it says it was not
+      // accepted, and the wrong-codes budget counts that answer.
+      if (priced.referral?.reason === 'NOT_ACCEPTED') referralBudget.recordRefusal(request)
+
+      return { data: toOrderQuote(priced, now) }
     },
   })
 
@@ -597,14 +710,82 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
 
       if (!order) throw notFound('No such order.')
 
-      if (!ownsOrder(request.actor, order)) {
-        const organizationId = order.event?.organizationId
+      const buyer = ownsOrder(request.actor, order)
+      const organizationId = order.event?.organizationId
 
+      if (!buyer) {
         // `assertCan` raises the 403; there is no role comparison here.
         assertCan(request.actor, CAPABILITIES.ORDER_VIEW, { organizationId })
       }
 
-      return { data: toOrder(order) }
+      // Who reads it decides what it says about the booking fee's source and
+      // who cancelled unpaid tickets (SPEC3 §7.2, SPEC3-XI §11.3).
+      const reader = buyer
+        ? 'BUYER'
+        : memberHolds(request.actor, CAPABILITIES.ORDER_VIEW, organizationId)
+          ? 'ORGANISATION'
+          : 'PLATFORM'
+
+      // Only the buyer gets their own address back. `order:view` reaches every
+      // organisation role from VIEWER up, and none of them needs it.
+      //
+      // Whether there is a group pass is the account holder's to know, so the
+      // summary is null for everybody else — including somebody signed in at
+      // the buyer's address on another account. It carries no secret.
+      // Whether the pass was taken out decides how few tickets keep it
+      // showing, so it is asked only for the account that bought the order.
+      const buyerAccount = Boolean(order.userId) && order.userId === request.actor?.id
+      const issued = buyerAccount ? await groupPassIssued(prisma, order.id) : false
+
+      return {
+        data: {
+          // The joining link and the address are the buyer's alone.
+          ...toOrder(order, { buyerAddress: buyer, joinUrl: buyer, reader }),
+          groupPass: groupPassSummary(order, { viewerUserId: request.actor?.id, issued }),
+          // What changed about the event since this order was placed and
+          // touches it, as recorded with each change (SPEC2-XI X-14).
+          eventChanges: await changesForOrder(prisma, order),
+        },
+      }
+    },
+  })
+
+  // The group pass: holder-only, derived, `no-store`. The reasoning is in
+  // ../lib/group-passes.js; nothing here logs the payload.
+  defineRoute(app, 'orders.groupPass', {
+    config: { rateLimit: passRateLimit(passLimit) },
+    handler: async (request, reply) => {
+      const data = await retrieveGroupPass({
+        prisma,
+        env,
+        actor: request.actor,
+        reference: request.params.reference,
+        requestId: request.id,
+        log: request.log,
+      })
+
+      reply.header('cache-control', 'no-store, private')
+      reply.header('pragma', 'no-cache')
+
+      return { data }
+    },
+  })
+
+  defineRoute(app, 'orders.rotateGroupPass', {
+    config: { rateLimit: passRateLimit(passLimit) },
+    handler: async (request, reply) => {
+      const data = await rotateGroupPass({
+        prisma,
+        env,
+        actor: request.actor,
+        reference: request.params.reference,
+        requestId: request.id,
+      })
+
+      reply.header('cache-control', 'no-store, private')
+      reply.header('pragma', 'no-cache')
+
+      return { data }
     },
   })
 
@@ -625,7 +806,10 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
       ])
 
       return {
-        data: orders.map(toOrder),
+        // A wrapper, not `orders.map(toOrder)`: map would hand the presenter the
+        // array index as its options argument, which worked only because a
+        // number destructures to the defaults.
+        data: orders.map((order) => toOrder(order)),
         pagination: buildPaginationMeta({
           page: request.query.page,
           perPage: request.query.perPage,

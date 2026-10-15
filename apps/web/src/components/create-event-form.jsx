@@ -22,14 +22,17 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
+import { TimeZoneSelect } from './time-zone-select.jsx'
 import { Alert, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 // The one list of categories this application has. A second copy is how a
 // select ends up offering a value the API has never heard of — which is
 // exactly what it did: `LIVE_MUSIC` is not in `eventCategorySchema`, and every
 // create was answered "Invalid request body".
 import { EVENT_CATEGORIES } from '../lib/catalog.js'
-import { COMMON_ZONES, fromLocalInputValue, toLocalInputValue } from '../lib/zoned-time.js'
+import { fromLocalInputValue, toLocalInputValue } from '../lib/zoned-time.js'
 
 /**
  * @typedef {object} CreateEventFormProps
@@ -45,7 +48,7 @@ import { COMMON_ZONES, fromLocalInputValue, toLocalInputValue } from '../lib/zon
 export function CreateEventForm({ organizations = [] }) {
   const router = useRouter()
   const [organizationId, setOrganizationId] = useState(organizations[0]?.organizationId ?? '')
-  const [timezone, setTimezone] = useState('Asia/Kolkata')
+  const [timezone, setTimezone] = useState('America/New_York')
   const [startsAt, setStartsAt] = useState('')
   const [endsAt, setEndsAt] = useState('')
   const [busy, setBusy] = useState(false)
@@ -53,6 +56,7 @@ export function CreateEventForm({ organizations = [] }) {
   const [problems, setProblems] = useState([])
   const [issues, setIssues] = useState([])
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Create the draft and go to its editor.
@@ -91,15 +95,15 @@ export function CreateEventForm({ organizations = [] }) {
         return
       }
 
-      setError(body?.error?.message ?? 'The event could not be created.')
+      setError(refusalSentence(response.status, body, 'The event could not be created.'))
       setProblems(body?.error?.problems ?? [])
       // The field-level issues too. "Invalid request body" on its own is a
       // message nobody can act on — including whoever is debugging it.
       setIssues(body?.error?.issues ?? [])
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } catch {
       setError('The ticketing service is not responding. Nothing has been saved.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } finally {
       setBusy(false)
     }
@@ -180,13 +184,8 @@ export function CreateEventForm({ organizations = [] }) {
         required
         description="The venue's local time, not yours. Every time below is read in this zone."
       >
-        <Select value={timezone} onChange={(change) => setTimezone(change.target.value)}>
-          {COMMON_ZONES.map((zone) => (
-            <option key={zone} value={zone}>
-              {zone}
-            </option>
-          ))}
-        </Select>
+        {/* The common zones first, then every zone the browser knows. */}
+        <TimeZoneSelect value={timezone} onChange={(change) => setTimezone(change.target.value)} />
       </FormField>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -213,7 +212,7 @@ export function CreateEventForm({ organizations = [] }) {
         </FormField>
       </div>
 
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         This creates a draft. Only your team can see it, and nothing is public until a moderator has
         approved it and you have chosen to publish.
       </p>

@@ -89,6 +89,19 @@ describe('renderEmail', () => {
     expect(rendered.html).not.toContain('undefined')
   })
 
+  it.each([...new Set([...EMAIL_TEMPLATES, ...OUTBOX_TEMPLATES])])(
+    'promises nothing in %s: no "soon", "yet" or "planned"',
+    (template) => {
+      // The site's honest-copy rule reaches the emails too: a template that
+      // says "see you soon" or "as planned" is copy a person would read.
+      const rendered = renderEmail({ template, data: {} })
+
+      for (const part of [rendered.subject, rendered.text]) {
+        expect(part).not.toMatch(/\b(soon|yet|planned)\b/i)
+      }
+    },
+  )
+
   it.each([...EMAIL_TEMPLATES])('renders %s with a subject and both bodies', (template) => {
     const rendered = renderEmail({ template, data: {} })
 
@@ -111,7 +124,7 @@ describe('renderEmail', () => {
       },
     })
 
-    expect(rendered.subject).toBe('[DEMO] Your Desi-Event order DE-8F3K2Q')
+    expect(rendered.subject).toBe('[DEMO] Your order DE-8F3K2Q on The Desi Events')
     expect(rendered.text).toContain('Hi Priya Sharma,')
     expect(rendered.text).toContain('order DE-8F3K2Q')
     expect(rendered.text).toContain('Navratri Garba Night')
@@ -148,12 +161,12 @@ describe('renderEmail', () => {
       data: {
         eventTitle: 'Comedy Night',
         quantity: 2,
-        claimUrl: 'https://desi-event.com/e/comedy',
+        claimUrl: 'https://thedesievents.com/e/comedy',
       },
     })
 
     expect(rendered.subject).toBe('Tickets are available for Comedy Night')
-    expect(rendered.text).toContain('https://desi-event.com/e/comedy')
+    expect(rendered.text).toContain('https://thedesievents.com/e/comedy')
   })
 
   it('lets the caller override the subject', () => {
@@ -162,10 +175,21 @@ describe('renderEmail', () => {
     expect(rendered.subject).toBe('Tomorrow!')
   })
 
-  it('signs off once, at the end of the text body', () => {
+  it('signs off once, at the end of the text body, above the contact address', () => {
     const rendered = renderEmail({ template: 'PASSWORD_RESET', data: {} })
 
-    expect(rendered.text.trimEnd().endsWith('— Desi-Event')).toBe(true)
+    expect(
+      rendered.text.trimEnd().endsWith('— The Desi Events\nContact us at info@thedesievents.com.'),
+    ).toBe(true)
+    expect(rendered.text.split('— The Desi Events')).toHaveLength(2)
+  })
+
+  it('gives the public contact address as a mail link at the foot of the HTML body', () => {
+    const rendered = renderEmail({ template: 'PASSWORD_RESET', data: {} })
+
+    expect(rendered.html).toContain(
+      '<a href="mailto:info@thedesievents.com">info@thedesievents.com</a>.</p>\n</div>',
+    )
   })
 
   it('refuses an unknown template instead of sending an empty email', () => {
@@ -173,9 +197,488 @@ describe('renderEmail', () => {
   })
 })
 
+describe('what ticket holders are told about a change to their event', () => {
+  it('names the organiser, or the team at The Desi Events when it made the change, never a person', () => {
+    const byOrganiser = renderEmail({ template: 'event.cancelled', data: { eventTitle: 'Garba' } })
+    const byTeam = renderEmail({
+      template: 'event.cancelled',
+      data: { eventTitle: 'Garba', byPlatform: true },
+    })
+
+    expect(byOrganiser.text).toContain('Garba has been cancelled by the organiser.')
+    expect(byTeam.text).toContain('Garba has been cancelled by the team at The Desi Events.')
+
+    const changed = renderEmail({
+      template: 'event.changed',
+      data: { eventTitle: 'Garba', byPlatform: true, changed: ['the start time'] },
+    })
+
+    expect(changed.text).toContain('The Desi Events team has changed something about Garba.')
+    expect(changed.text).toContain('What changed: the start time.')
+  })
+
+  it('tells the holder of a cancelled night that its tickets are refunded', () => {
+    const rendered = renderEmail({
+      template: 'event.session_cancelled',
+      data: {
+        eventTitle: 'Navratri Nights',
+        orderReference: 'DE-3N01',
+        sessionLabel: 'Night 2',
+        sessionStartsAt: '2026-10-21T19:00:00.000Z',
+        reason: 'The hall flooded.',
+      },
+    })
+
+    expect(rendered.subject).toBe('[DEMO] A night of Navratri Nights has been cancelled')
+    expect(rendered.text).toContain('The organiser has cancelled one night of Navratri Nights.')
+    expect(rendered.text).toContain(
+      'The night cancelled: Night 2, starting 2026-10-21T19:00:00.000Z.',
+    )
+    expect(rendered.text).toContain('The hall flooded.')
+    expect(rendered.text).toContain(
+      'Your tickets from order DE-3N01 for that night are refunded in full.',
+    )
+    // The line the changed-event notice ends with is wrong for a cancelled night.
+    expect(rendered.text).not.toMatch(/unaffected/i)
+    // In this build no money moves, and the notice says so first.
+    expect(rendered.text.split('\n')[0]).toContain('DEMO')
+  })
+
+  it('tells a holder of an every-night ticket that they keep it, and a free ticket that nothing is owed', () => {
+    const kept = renderEmail({
+      template: 'event.session_cancelled',
+      data: { eventTitle: 'Navratri Nights', keptEveryNight: true, byPlatform: true },
+    })
+
+    expect(kept.text).toContain('The Desi Events team has cancelled one night of Navratri Nights.')
+    expect(kept.text).toContain('is valid for every night, so you keep it for the others.')
+    expect(kept.text).not.toMatch(/refunded in full/)
+
+    const free = renderEmail({
+      template: 'event.session_cancelled',
+      data: { eventTitle: 'Navratri Nights', refunded: false },
+    })
+
+    expect(free.text).toContain('They were free, so there is nothing to refund.')
+  })
+
+  it('says what happened to each order by its recorded outcome, never that a paid ticket was free', () => {
+    const line = (outcome) =>
+      renderEmail({
+        template: 'event.session_cancelled',
+        data: {
+          eventTitle: 'Navratri Nights',
+          orderReference: 'DE-3N02',
+          outcome,
+          // The flags a disputed or unpaid order carries: neither refunded nor kept.
+          refunded: outcome === 'REFUNDED',
+          keptEveryNight: outcome === 'KEPT',
+        },
+      }).text
+
+    expect(line('REFUNDED')).toContain(
+      'Your tickets from order DE-3N02 for that night are refunded in full.',
+    )
+    expect(line('KEPT')).toContain('is valid for every night, so you keep it for the others.')
+    expect(line('FREE')).toContain('They were free, so there is nothing to refund.')
+    expect(line('NOTHING_OWED')).toContain('Nothing is left to refund for them.')
+    expect(line('DISPUTED')).toContain(
+      'Your payment is under dispute, so any refund is handled with the dispute.',
+    )
+    expect(line('UNPAID')).toContain(
+      'Order DE-3N02 was not paid, so it is cancelled and nothing is charged.',
+    )
+    expect(line('NOT_SENT')).toContain('contact the organiser about it.')
+
+    for (const outcome of ['NOTHING_OWED', 'DISPUTED', 'UNPAID', 'NOT_SENT']) {
+      expect(line(outcome), outcome).not.toMatch(/were free|refunded in full/)
+    }
+  })
+})
+
+describe('unpaid tickets cancelled (SPEC3-XI §9.9)', () => {
+  const buyer = {
+    eventId: 'c000000000000000000000001',
+    eventTitle: 'Navratri Nights',
+    recipient: 'BUYER',
+    orderReference: 'DE-3N01',
+    ticketCount: 1,
+    dueCents: 4500,
+    feeKeptCents: 364,
+    currency: 'USD',
+    reason: 'Not paid before the doors opened.',
+    by: 'ORGANISER',
+    othersRemain: true,
+  }
+
+  it('tells the buyer what was cancelled, that the fee is kept, the reason and that the rest stand', () => {
+    const rendered = renderEmail({ template: 'venue_booking.cancelled', data: buyer })
+
+    expect(rendered.subject).toBe('[DEMO] Unpaid tickets cancelled: Navratri Nights')
+    expect(rendered.text).toContain(
+      'The organiser cancelled 1 ticket on your order DE-3N01 because it was not paid for at the door. You no longer owe USD 45.00 for it.',
+    )
+    expect(rendered.text).toContain(
+      'The booking fee you paid online for it, USD 3.64, is kept by The Desi Events and is not refunded.',
+    )
+    expect(rendered.text).toContain('Reason given: Not paid before the doors opened.')
+    expect(rendered.text).toContain('Your other tickets on this order are not affected.')
+  })
+
+  it('speaks of several tickets, nothing paid online, the team at The Desi Events, and no other tickets', () => {
+    const rendered = renderEmail({
+      template: 'venue_booking.cancelled',
+      data: {
+        ...buyer,
+        ticketCount: 2,
+        dueCents: 9000,
+        feeKeptCents: 0,
+        by: 'DESI_EVENT',
+        othersRemain: false,
+      },
+    })
+
+    expect(rendered.text).toContain(
+      'The Desi Events team cancelled 2 tickets on your order DE-3N01 because they were not paid for at the door. You no longer owe USD 90.00 for them.',
+    )
+    expect(rendered.text).toContain('Nothing was paid online for them.')
+    expect(rendered.text).not.toContain('booking fee you paid online')
+    expect(rendered.text).not.toContain('Your other tickets')
+  })
+
+  it('never says nothing was paid online when the fee was paid and refunded earlier, or is still held', () => {
+    const say = (onlineFee) =>
+      renderEmail({
+        template: 'venue_booking.cancelled',
+        data: { ...buyer, ticketCount: 2, dueCents: 9000, feeKeptCents: 0, onlineFee },
+      }).text
+
+    expect(say('REFUNDED_EARLIER')).toContain(
+      'The booking fee you paid online was refunded earlier, so none of it is kept for them.',
+    )
+    expect(say('NONE_KEPT')).toContain('None of the booking fee you paid online is kept for them.')
+    expect(say('NONE_PAID')).toContain('Nothing was paid online for them.')
+
+    for (const onlineFee of ['REFUNDED_EARLIER', 'NONE_KEPT']) {
+      expect(say(onlineFee)).not.toContain('Nothing was paid online')
+    }
+  })
+
+  it('tells the buyer only what they no longer owe, apart from the tickets they passed on', () => {
+    const rendered = renderEmail({
+      template: 'venue_booking.cancelled',
+      data: {
+        ...buyer,
+        ticketCount: 1,
+        dueCents: 4500,
+        passedOnTickets: 1,
+        passedOnDueCents: 4500,
+        feeKeptCents: 728,
+        onlineFee: 'KEPT',
+        othersRemain: false,
+      },
+    })
+
+    expect(rendered.text).toContain(
+      'The organiser cancelled 1 ticket on your order DE-3N01 because it was not paid for at the door. You no longer owe USD 45.00 for it.',
+    )
+    expect(rendered.text).toContain('1 ticket you passed on to someone else was cancelled too.')
+    expect(rendered.text).not.toContain('USD 90.00')
+    // The fee was paid for both, so it speaks of both.
+    expect(rendered.text).toContain(
+      'The booking fee you paid online for them, USD 7.28, is kept by The Desi Events and is not refunded.',
+    )
+  })
+
+  it('tells the buyer when only tickets they passed on were cancelled, and never that they owed them', () => {
+    const rendered = renderEmail({
+      template: 'venue_booking.cancelled',
+      data: {
+        ...buyer,
+        ticketCount: 0,
+        dueCents: 0,
+        passedOnTickets: 2,
+        passedOnDueCents: 9000,
+        feeKeptCents: 0,
+        onlineFee: 'NONE_PAID',
+      },
+    })
+
+    expect(rendered.text).toContain(
+      'The organiser cancelled 2 tickets on your order DE-3N01 that you passed on to other people, because they were not paid for at the door.',
+    )
+    expect(rendered.text).not.toContain('You no longer owe')
+    expect(rendered.text).toContain('Nothing was paid online for them.')
+  })
+
+  it('tells another holder only about the tickets they hold', () => {
+    const rendered = renderEmail({
+      template: 'venue_booking.cancelled',
+      data: {
+        eventId: buyer.eventId,
+        eventTitle: 'Navratri Nights',
+        recipient: 'HOLDER',
+        ticketCount: 1,
+        dueCents: 4500,
+        currency: 'USD',
+        reason: 'Not paid before the doors opened.',
+        by: 'ORGANISER',
+      },
+    })
+
+    expect(rendered.text).toContain(
+      'The organiser cancelled 1 ticket you hold for Navratri Nights because it was not paid for at the door. You no longer owe USD 45.00 for it.',
+    )
+    expect(rendered.text).toContain('Reason given: Not paid before the doors opened.')
+    expect(rendered.text).not.toContain('DE-3N01')
+    expect(rendered.text).not.toContain('booking fee')
+  })
+
+  it('never says a place is back on sale', () => {
+    for (const data of [buyer, { ...buyer, recipient: 'HOLDER' }]) {
+      const rendered = renderEmail({ template: 'venue_booking.cancelled', data })
+
+      expect(rendered.text).not.toMatch(/on sale/i)
+      expect(rendered.html).not.toMatch(/on sale/i)
+    }
+  })
+
+  it('escapes the reason and the title in the HTML', () => {
+    const rendered = renderEmail({
+      template: 'venue_booking.cancelled',
+      data: { ...buyer, eventTitle: '<b>Garba</b>', reason: '<script>alert(1)</script>' },
+    })
+
+    expect(rendered.html).not.toContain('<script>')
+    expect(rendered.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+  })
+})
+
+describe('bookings paid at the venue when the event or a night is called off (SPEC3 §9.9, SPEC3-XI XT7)', () => {
+  const booking = {
+    eventId: 'c000000000000000000000002',
+    eventTitle: 'Navratri Nights',
+    orderReference: 'DE-4V01',
+    reason: 'The hall flooded.',
+    atVenue: true,
+    currency: 'USD',
+    paidAtDoorCents: 0,
+    paidAtDoorByOthersCents: 0,
+  }
+
+  /**
+   * The text of an `event.cancelled` notice.
+   *
+   * @param {object} data Payload overrides.
+   * @returns {string} The text body.
+   */
+  const cancelled = (data) =>
+    renderEmail({ template: 'event.cancelled', data: { ...booking, ...data } }).text
+
+  it('says what became of the booking fee, by what was decided for it', () => {
+    expect(cancelled({ onlineRefund: 'REQUESTED' })).toContain(
+      'Your tickets on order DE-4V01 were to be paid at the door. The booking fee you paid online is being refunded (simulated).',
+    )
+    expect(cancelled({ onlineRefund: 'NONE_PAID' })).toContain(
+      'Your tickets on order DE-4V01 were to be paid at the door. Nothing was paid online for them.',
+    )
+    expect(cancelled({ onlineRefund: 'ALREADY_REFUNDED' })).toContain(
+      'Your tickets on order DE-4V01 were to be paid at the door. The booking fee you paid online was refunded earlier.',
+    )
+    expect(cancelled({ onlineRefund: 'DISPUTED' })).toContain(
+      'Your payment is under dispute, so any refund is handled with the dispute.',
+    )
+    // A booking fee kept when unpaid tickets were cancelled was not refunded
+    // earlier, and is not refunded now (SPEC3-XI XU6).
+    expect(cancelled({ onlineRefund: 'FEE_KEPT' })).toContain(
+      'Your tickets on order DE-4V01 were to be paid at the door. The booking fee paid online for tickets cancelled because they were not paid for was kept by The Desi Events, and nothing else paid online is left to refund.',
+    )
+    expect(cancelled({ onlineRefund: 'FEE_KEPT' })).not.toMatch(/refunded earlier|being refunded/)
+
+    // In place of the card sentence, never beside it.
+    for (const onlineRefund of [
+      'REQUESTED',
+      'NONE_PAID',
+      'ALREADY_REFUNDED',
+      'FEE_KEPT',
+      'DISPUTED',
+    ]) {
+      expect(cancelled({ onlineRefund }), onlineRefund).not.toContain(
+        'A refund has been requested.',
+      )
+    }
+  })
+
+  it('says nothing further is needed only when nothing was paid at the door', () => {
+    expect(cancelled({ onlineRefund: 'REQUESTED' })).toContain(
+      'Nothing further is needed from you.',
+    )
+
+    const paid = cancelled({ onlineRefund: 'REQUESTED', paidAtDoorCents: 4000 })
+
+    expect(paid).toContain(
+      'The USD 40.00 you paid at the door is with the organiser, not with The Desi Events. Ask the organiser to return it.',
+    )
+    expect(paid).not.toContain('Nothing further is needed from you.')
+  })
+
+  it('tells the buyer apart what people they passed tickets to paid at the door', () => {
+    const text = cancelled({
+      onlineRefund: 'REQUESTED',
+      paidAtDoorCents: 0,
+      paidAtDoorByOthersCents: 4000,
+    })
+
+    expect(text).toContain(
+      'USD 40.00 was paid at the door by people you passed tickets to; it is with the organiser.',
+    )
+    // The buyer paid nothing at the door themselves, and is not told they did.
+    expect(text).not.toContain('you paid at the door is with the organiser')
+    expect(text).not.toContain('Nothing further is needed from you.')
+
+    const both = cancelled({
+      onlineRefund: 'NONE_PAID',
+      paidAtDoorCents: 4500,
+      paidAtDoorByOthersCents: 4000,
+    })
+
+    expect(both).toContain('The USD 45.00 you paid at the door is with the organiser')
+    expect(both).toContain('USD 40.00 was paid at the door by people you passed tickets to')
+  })
+
+  it('tells a holder who paid at the door only that their money is with the organiser', () => {
+    const holder = renderEmail({
+      template: 'event.cancelled',
+      data: {
+        eventId: booking.eventId,
+        eventTitle: 'Navratri Nights',
+        recipient: 'HOLDER',
+        paidAtDoorCents: 4000,
+        currency: 'USD',
+      },
+    })
+
+    expect(holder.subject).toBe('[DEMO] Navratri Nights has been cancelled')
+    expect(holder.text).toContain('Navratri Nights was cancelled.')
+    expect(holder.text).toContain(
+      'The USD 40.00 you paid at the door for it is with the organiser, not with The Desi Events. Ask the organiser to return it.',
+    )
+    // Not the buyer's order, and nothing about a refund the holder never paid.
+    expect(holder.text).not.toContain('DE-4V01')
+    expect(holder.text).not.toMatch(/refund/i)
+  })
+
+  it('says what a cancelled night refunds of a booking paid at the venue', () => {
+    const night = (data) =>
+      renderEmail({
+        template: 'event.session_cancelled',
+        data: { ...booking, sessionLabel: 'Night 2', ...data },
+      }).text
+
+    expect(night({ outcome: 'REFUNDED', refunded: true, onlineRefund: 'REQUESTED' })).toContain(
+      'Your tickets from order DE-4V01 for that night are withdrawn. The booking fee you paid online for them is refunded (simulated).',
+    )
+    expect(night({ outcome: 'REFUNDED', refunded: true })).not.toContain('refunded in full')
+    expect(night({ outcome: 'NOTHING_PAID_ONLINE', refunded: false })).toContain(
+      'Your tickets from order DE-4V01 for that night are withdrawn. Nothing was paid online for them.',
+    )
+    // A booking fee refunded earlier was still paid: never "nothing was paid".
+    expect(
+      night({ outcome: 'FEE_REFUNDED_EARLIER', refunded: false, onlineRefund: 'ALREADY_REFUNDED' }),
+    ).toContain(
+      'Your tickets from order DE-4V01 for that night are withdrawn. The booking fee you paid online was refunded earlier.',
+    )
+    // Free tickets (no ticket price at all) are still told they were free.
+    expect(night({ outcome: 'FREE', refunded: false })).toContain(
+      'They were free, so there is nothing to refund.',
+    )
+
+    const withDoor = night({
+      outcome: 'REFUNDED',
+      refunded: true,
+      paidAtDoorCents: 4500,
+      paidAtDoorByOthersCents: 4000,
+    })
+
+    expect(withDoor).toContain('The USD 45.00 you paid at the door is with the organiser')
+    expect(withDoor).toContain('USD 40.00 was paid at the door by people you passed tickets to')
+
+    const holder = renderEmail({
+      template: 'event.session_cancelled',
+      data: {
+        eventTitle: 'Navratri Nights',
+        recipient: 'HOLDER',
+        sessionLabel: 'Night 2',
+        paidAtDoorCents: 4000,
+        currency: 'USD',
+      },
+    }).text
+
+    expect(holder).toContain('Night 2 of Navratri Nights was cancelled.')
+    expect(holder).toContain(
+      'The USD 40.00 you paid at the door for it is with the organiser, not with The Desi Events. Ask the organiser to return it.',
+    )
+  })
+
+  it('leaves a card order’s notices as they were', () => {
+    const card = renderEmail({
+      template: 'event.cancelled',
+      data: { eventTitle: 'Navratri Nights', orderReference: 'DE-4C01' },
+    }).text
+
+    expect(card).toContain('This affects order DE-4C01.')
+    expect(card).toContain('A refund has been requested. Nothing further is needed from you.')
+    expect(card).not.toMatch(/paid at the door/)
+  })
+
+  it('escapes the title and the reason in the HTML of every variant', () => {
+    for (const data of [
+      { ...booking, onlineRefund: 'REQUESTED', paidAtDoorCents: 4000 },
+      { eventTitle: booking.eventTitle, recipient: 'HOLDER', paidAtDoorCents: 4000 },
+    ]) {
+      const rendered = renderEmail({
+        template: 'event.cancelled',
+        data: { ...data, eventTitle: '<b>Garba</b>', reason: '<script>alert(1)</script>' },
+      })
+
+      expect(rendered.html).not.toContain('<script>')
+      expect(rendered.html).not.toContain('<b>Garba</b>')
+    }
+  })
+})
+
+describe('a ticket offered while it still owes at the door (SPEC3-XI XT6)', () => {
+  it('tells the person offered it what whoever holds it pays at the door', () => {
+    const rendered = renderEmail({
+      template: 'ticket.transfer.invited',
+      data: {
+        fromName: 'Asha',
+        eventTitle: 'Navratri Nights',
+        venueDueCents: 4000,
+        currency: 'USD',
+      },
+    })
+
+    expect(rendered.text).toContain(
+      'This ticket was booked to pay at the door: whoever holds it pays USD 40.00 at the door.',
+    )
+  })
+
+  it('says nothing of the door for a ticket that owes nothing there', () => {
+    for (const data of [
+      { fromName: 'Asha', eventTitle: 'Navratri Nights', venueDueCents: 0, currency: 'USD' },
+      { fromName: 'Asha', eventTitle: 'Navratri Nights' },
+    ]) {
+      expect(renderEmail({ template: 'ticket.transfer.invited', data }).text).not.toMatch(
+        /at the door/,
+      )
+    }
+  })
+})
+
 describe('marking what is not real', () => {
   /**
-   * Desi-Event settles every order with an in-memory mock and issues passes
+   * The Desi Events settles every order with an in-memory mock and issues passes
    * that admit nobody. A confirmation that reads like a receipt, or a ticket
    * email that reads like a ticket, is the point at which a demonstration
    * starts misleading somebody — so the marker goes in the subject line and in

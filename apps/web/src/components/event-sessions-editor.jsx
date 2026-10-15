@@ -26,40 +26,50 @@
  * @file components/event-sessions-editor
  */
 
-import { useState } from 'react'
+import { useId, useRef, useState } from 'react'
 
-import { Alert, Badge, Button, Card, CardBody, FormField, Input, Select } from './ui.jsx'
+import { CancelSessionDialog } from './cancel-session-dialog.jsx'
+import { useFocusAfterRender } from './focus-after-render.jsx'
+import { SessionForm, toSessionForm } from './session-form.jsx'
+import { STEP_UP_DECLINED_SENTENCE, useStepUpRetry } from './step-up-retry.jsx'
+import { Alert, Badge, Button, Card, CardBody } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
-import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
-
-/**
- * A blank session, timed like the event itself.
- *
- * @param {object} event The event.
- * @returns {object} Form values for a new session.
- */
-function blankSession(event) {
-  return {
-    startsAt: event.startsAt ?? '',
-    endsAt: event.endsAt ?? '',
-    doorsOpenAt: '',
-    timezone: event.timezone ?? 'Asia/Kolkata',
-    salesStartAt: '',
-    salesEndAt: '',
-    venueMapVersionId: '',
-    capacity: '',
-  }
-}
+import { ESTIMATED_END_LABEL, endIsEstimate } from '../lib/imports.js'
+import { refusalSentence } from '../lib/refusal.js'
+import { toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
 /**
  * @typedef {object} EventSessionsEditorProps
  * @property {object} event The event.
- * @property {object[]} sessions The sessions as loaded.
+ * @property {object[]} sessions The sessions as loaded, with their usage and price zones.
  * @property {number} revision The event's current revision, owned by the editor shell.
  * @property {Function} onRevision Called with the new revision after every write.
+ * @property {Function} [onSessions] Called with the list after it changes, so the tickets step sees new sessions.
  * @property {object[]} mapVersions Published map versions for the event's venue.
- * @property {boolean} editable Whether the event's state allows changes.
+ * @property {boolean} [editable] Whether the event's state allows changes. Superseded by `mode`.
+ * @property {'draft'|'live'|'content'|'locked'} [mode] The editing mode. Nights change in a
+ *   draft or on a live event; a finished or cancelled event's nights stay as they were.
+ * @property {boolean} [mayCancelNights] Whether to offer cancelling a night of a live event,
+ *   worked out on the server; the API decides every cancellation again.
+ * @property {boolean} [platform] Whether the edits are made in the editing session of the
+ *   team at The Desi Events, whose writes ask for a fresh second factor every 10 minutes.
+ * @property {Function} [onSittingEnded] Called when a write finds that editing session closed.
  */
+
+/**
+ * A session's usage line, in words.
+ *
+ * @param {object} session The session.
+ * @returns {string|null} For example `120 of 200 sold · 4 held`, or null when nothing is known.
+ */
+function usageLine(session) {
+  if (!session.usage) return null
+
+  const { sold, held } = session.usage
+  const of = session.capacity ? ` of ${session.capacity.toLocaleString('en-US')}` : ''
+
+  return `${sold.toLocaleString('en-US')}${of} sold · ${held.toLocaleString('en-US')} held`
+}
 
 /**
  * The sessions step.
@@ -72,43 +82,89 @@ export function EventSessionsEditor({
   sessions: initial = [],
   revision = 0,
   onRevision = () => {},
+  onSessions = () => {},
   mapVersions = [],
   editable = true,
+  mode: givenMode = null,
+  mayCancelNights = false,
+  platform = false,
+  onSittingEnded,
 }) {
-  const [sessions, setSessions] = useState(initial)
-  const [draft, setDraft] = useState(() => blankSession(event))
+  const id = useId()
+  const focusAfterRender = useFocusAfterRender()
+  const mode = givenMode ?? (editable ? 'draft' : 'locked')
+  const canEdit = mode === 'draft' || mode === 'live'
+  const [sessions, setSessionsState] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [problems, setProblems] = useState([])
   const [notice, setNotice] = useState(null)
+  const [editing, setEditing] = useState(null)
+  const [confirmRemove, setConfirmRemove] = useState(null)
+  const [addKey, setAddKey] = useState(0)
+  // The nights cancelled here, by id: what the cancellation answered, and
+  // whether that outcome is still on screen in the night's dialog. A cancelled
+  // night is no longer one to cancel, so the re-read would otherwise take the
+  // dialog, and what it says, away before anyone had read it. The answer also
+  // makes the night a cancelled one before the re-read comes back, or if it
+  // never does: there is nothing on it left to edit, prepare or cancel.
+  const [cancellations, setCancellations] = useState({})
+  // Which re-read of the list is the newest: an older one answering after it
+  // would put back the nights as they were.
+  const reloads = useRef(0)
+  // A write the server refused for want of a fresh second factor: asked for
+  // here, then sent again (SPEC2-XI X-A).
+  const stepUp = useStepUpRetry({
+    action: 'save this change to the nights',
+    platform,
+    onSittingEnded,
+    onDeclined: () => setError(STEP_UP_DECLINED_SENTENCE),
+  })
+
+  /**
+   * Keep the list, and tell the shell.
+   *
+   * @param {object[]} next The sessions.
+   * @returns {void}
+   */
+  const setSessions = (next) => {
+    setSessionsState(next)
+    onSessions(next)
+  }
 
   /**
    * Send one authoring write and fold the answer back in.
    *
    * @param {string} path The path under the event.
-   * @param {string} method The HTTP method.
-   * @param {object} [body] The body, which always carries the revision.
+   * @param {object} init `apiFetch` options, without the revision.
+   * @param {object|null} [body] A JSON body; the revision is added to it.
    * @returns {Promise<object|null>} The response body, or null when it failed.
    */
-  async function write(path, method, body = {}) {
+  async function write(path, init, body = null) {
     setBusy(true)
     setError(null)
     setProblems([])
+    setNotice(null)
 
     try {
       const response = await apiFetch(`/v1/events/${encodeURIComponent(event.id)}${path}`, {
-        method,
-        body: JSON.stringify({ ...body, revision }),
+        ...init,
+        ...(body ? { body: JSON.stringify({ ...body, revision }) } : { query: { revision } }),
       })
 
       const parsed = await response.json().catch(() => null)
 
       if (response.ok) {
         if (Number.isInteger(parsed?.meta?.revision)) onRevision(parsed.meta.revision)
-        return parsed
+        return parsed ?? {}
       }
 
-      setError(parsed?.error?.message ?? 'The change was refused.')
+      // Asked for a second factor: ask, and send the same write again.
+      const retried = stepUp.refused(parsed, () => write(path, init, body))
+
+      if (retried) return retried
+
+      setError(refusalSentence(response.status, parsed, 'The change was refused.'))
       setProblems(parsed?.error?.problems ?? [])
       return null
     } catch {
@@ -120,62 +176,132 @@ export function EventSessionsEditor({
   }
 
   /**
-   * Re-read the list after a change that moved more than one row.
+   * Re-read the list, with every session's usage. Only the newest re-read's
+   * answer is kept; one that is refused or never answered leaves the list as
+   * it was.
    *
-   * @returns {Promise<void>} Resolves when reloaded.
+   * @returns {Promise<void>} Resolves when reloaded, or when the answer is set aside.
    */
   async function reload() {
-    const response = await apiFetch(`/v1/events/${encodeURIComponent(event.id)}/sessions`)
-    const body = await response.json().catch(() => null)
+    reloads.current += 1
 
-    if (response.ok && body) {
-      setSessions(body.data ?? [])
-      if (Number.isInteger(body.meta?.revision)) onRevision(body.meta.revision)
+    const asked = reloads.current
+
+    try {
+      const response = await apiFetch(`/v1/events/${encodeURIComponent(event.id)}/sessions`)
+      const body = await response.json().catch(() => null)
+
+      if (asked !== reloads.current) return
+
+      if (response.ok && body) {
+        setSessions(body.data ?? [])
+        if (Number.isInteger(body.meta?.revision)) onRevision(body.meta.revision)
+      }
+    } catch {
+      // Not answered: the list stays as it was, as when the read is refused.
     }
   }
 
   /**
-   * Add the session in the form.
+   * Add a session.
    *
-   * @param {object} submitted The submit event.
+   * @param {object} body The session.
    * @returns {Promise<void>} Resolves when the attempt is over.
    */
-  async function addSession(submitted) {
-    submitted.preventDefault()
-
-    const body = {
-      startsAt: draft.startsAt || undefined,
-      endsAt: draft.endsAt || undefined,
-      doorsOpenAt: draft.doorsOpenAt || null,
-      timezone: draft.timezone,
-      salesStartAt: draft.salesStartAt || null,
-      salesEndAt: draft.salesEndAt || null,
-      venueMapVersionId: draft.venueMapVersionId || null,
-      capacity: draft.capacity === '' ? null : Number(draft.capacity),
-    }
-
-    const result = await write('/sessions', 'POST', body)
+  async function addSession(body) {
+    const result = await write('/sessions', { method: 'POST' }, body)
 
     if (!result) return
 
-    setSessions((current) => [...current, result.data])
-    setDraft(blankSession(event))
+    await reload()
+    setAddKey((current) => current + 1)
     setNotice('Session added.')
   }
 
   /**
-   * Remove one session.
+   * Save an edit to a session.
+   *
+   * @param {object} session The session.
+   * @param {object} patch What changed, with any confirmation.
+   * @returns {Promise<void>} Resolves when the attempt is over.
+   */
+  async function saveSession(session, patch) {
+    const result = await write(
+      `/sessions/${encodeURIComponent(session.id)}`,
+      { method: 'PATCH' },
+      patch,
+    )
+
+    if (!result) return
+
+    await reload()
+    setEditing(null)
+    setNotice(
+      patch.confirmMaterialChange
+        ? 'Session changed. A notice has been recorded for every order for this night.'
+        : 'Session saved.',
+    )
+  }
+
+  /**
+   * Remove one session. The revision travels in the query string.
    *
    * @param {object} session The session.
    * @returns {Promise<void>} Resolves when the attempt is over.
    */
   async function removeSession(session) {
-    const result = await write(`/sessions/${encodeURIComponent(session.id)}`, 'DELETE')
+    const result = await write(`/sessions/${encodeURIComponent(session.id)}`, {
+      method: 'DELETE',
+    })
+
+    setConfirmRemove(null)
 
     if (!result) return
 
     await reload()
     setNotice('Session removed.')
+  }
+
+  /**
+   * Take a cancelled night back from its dialog: keep the dialog drawn, with
+   * what the cancellation answered, which says what it refunded (the one place
+   * that says it); close any edit of the night, which is over; and re-read the
+   * list, which also brings the event's new revision.
+   *
+   * @param {object} session The night.
+   * @param {{session: object, refunds: object|null}} result What the cancellation answered.
+   * @returns {Promise<void>} Resolves when reloaded.
+   */
+  async function nightCancelled(session, result) {
+    setCancellations((current) => ({ ...current, [session.id]: { result, shown: true } }))
+    setEditing((current) => (current === session.id ? null : current))
+    setNotice(null)
+    await reload()
+  }
+
+  /**
+   * The outcome of a night's cancellation was closed: stop drawing its dialog
+   * and move focus to the night, whose heading says it is cancelled.
+   *
+   * @param {object} session The night.
+   * @returns {void}
+   */
+  function cancelOutcomeClosed(session) {
+    setCancellations((current) => ({
+      ...current,
+      [session.id]: { ...current[session.id], shown: false },
+    }))
+    focusAfterRender(() => document.getElementById(nightHeadingId(session)))
+  }
+
+  /**
+   * The id of a night's heading.
+   *
+   * @param {object} session The night.
+   * @returns {string} The id.
+   */
+  function nightHeadingId(session) {
+    return `${id}-night-${session.id}`
   }
 
   /**
@@ -198,14 +324,16 @@ export function EventSessionsEditor({
       const body = await response.json().catch(() => null)
 
       if (!response.ok) {
-        setError(body?.error?.message ?? 'Inventory could not be prepared.')
+        if (stepUp.refused(body, () => prepare(session))) return
+
+        setError(refusalSentence(response.status, body, 'Inventory could not be prepared.'))
         setProblems(body?.error?.problems ?? [])
         return
       }
 
       // `created` and `prepared` are separate in the response precisely so that
       // a second run can say "already done" rather than claiming work.
-      const { kind, created, prepared, expected } = body.data
+      const { kind, created, prepared, expected, assigned = 0 } = body.data
 
       if (kind === 'general_admission') {
         // Nothing to prepare, and saying "already prepared: 0 of 0" would read
@@ -217,11 +345,16 @@ export function EventSessionsEditor({
         return
       }
 
-      setNotice(
+      const made =
         created === 0
           ? `Already prepared: ${prepared} of ${expected} seats exist. Nothing new was created.`
-          : `Prepared ${created} new seat${created === 1 ? '' : 's'}; ${prepared} of ${expected} now exist.`,
-      )
+          : `Prepared ${created} new seat${created === 1 ? '' : 's'}; ${prepared} of ${expected} now exist.`
+      const priced =
+        assigned > 0
+          ? ` ${assigned} seat${assigned === 1 ? ' was' : 's were'} matched to the reserved ticket type that prices ${assigned === 1 ? 'its' : 'their'} zone.`
+          : ''
+
+      setNotice(`${made}${priced}`)
     } catch {
       setError('The service is not responding.')
     } finally {
@@ -231,19 +364,38 @@ export function EventSessionsEditor({
 
   return (
     <section aria-labelledby="sessions-heading" className="space-y-5">
-      <h2 id="sessions-heading" className="text-xl font-bold text-indigo-night-900">
+      <h2 id="sessions-heading" className="text-xl font-semibold text-ink">
         Sessions
       </h2>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         One per performance. A single-night event has one; a nine-night festival has nine, and a
         ticket type belongs to exactly one of them.
       </p>
 
-      {notice ? (
-        <Alert variant="success" title="Done">
-          <p>{notice}</p>
-        </Alert>
+      {mode === 'live' ? (
+        <p className="text-sm text-ink-muted">
+          This event is public. You can add a night, move one, remove one nobody has a ticket for
+          {mayCancelNights ? ', or cancel one, refunding its tickets' : ''}. Moving a night people
+          have tickets for records a notice for each of their orders.
+        </p>
       ) : null}
+
+      {mode === 'content' ? (
+        <p className="text-sm text-ink-muted">
+          This event has ended or was cancelled, so its nights stay as ticket holders were told
+          them.
+        </p>
+      ) : null}
+
+      <div aria-live="polite">
+        {notice ? (
+          <Alert variant="success" title="Done">
+            <p>{notice}</p>
+          </Alert>
+        ) : null}
+      </div>
+
+      {stepUp.prompt}
 
       {error ? (
         <Alert variant="error" title="That did not work">
@@ -259,216 +411,218 @@ export function EventSessionsEditor({
       ) : null}
 
       {sessions.length === 0 ? (
-        <p className="rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-          No sessions yet. An event cannot be published without at least one.
+        <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
+          No sessions. An event cannot be published without at least one.
         </p>
       ) : (
         <ol className="space-y-3">
-          {sessions.map((session, index) => (
-            <li key={session.id}>
-              <Card>
-                <CardBody>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-indigo-night-900">
-                        Session {index + 1}
-                        {session.venueMapVersionId ? (
-                          <>
-                            {' '}
+          {sessions.map((session, index) => {
+            const usage = usageLine(session)
+            const zones = session.priceZones ?? []
+            const cancellation = cancellations[session.id] ?? null
+            const cancelled = session.status === 'CANCELLED' || cancellation !== null
+            // A night of a live event that people hold tickets for cannot be
+            // removed; it can be cancelled, which refunds them.
+            const cancellable =
+              mode === 'live' && mayCancelNights && !cancelled && session.removable === false
+
+            return (
+              <li key={session.id}>
+                <Card>
+                  <CardBody>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3
+                          id={nightHeadingId(session)}
+                          tabIndex={-1}
+                          className="font-medium text-ink focus-visible:outline-none"
+                        >
+                          {session.label || `Session ${index + 1}`}{' '}
+                          {cancelled ? (
+                            <Badge variant="danger" srLabel="State:">
+                              Cancelled
+                            </Badge>
+                          ) : null}{' '}
+                          {session.venueMapVersionId ? (
                             <Badge variant="info" srLabel="Seating:">
                               Reserved seating
                             </Badge>
-                          </>
-                        ) : (
-                          <>
-                            {' '}
+                          ) : (
                             <Badge variant="neutral" srLabel="Seating:">
                               General admission
                             </Badge>
-                          </>
-                        )}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-700">
-                        {toLocalInputValue(session.startsAt, session.timezone).replace('T', ' ')} —{' '}
-                        {toLocalInputValue(session.endsAt, session.timezone).replace('T', ' ')}{' '}
-                        <span className="text-slate-600">
-                          ({session.timezone} {zoneAbbreviation(session.timezone)})
-                        </span>
-                      </p>
-                      {session.capacity ? (
-                        <p className="mt-1 text-sm text-slate-600">
-                          Capacity {session.capacity.toLocaleString('en-IN')}
+                          )}
+                        </h3>
+                        <p className="mt-1 text-sm text-ink-muted">
+                          {toLocalInputValue(session.startsAt, session.timezone).replace('T', ' ')}{' '}
+                          — {toLocalInputValue(session.endsAt, session.timezone).replace('T', ' ')}{' '}
+                          <span className="text-ink-muted">
+                            ({session.timezone}{' '}
+                            {zoneAbbreviation(session.timezone, new Date(session.startsAt))})
+                          </span>
                         </p>
-                      ) : null}
+                        {endIsEstimate(session) ? (
+                          <p className="mt-1 text-sm text-ink-muted">
+                            End time: {ESTIMATED_END_LABEL}. The event page shows only the start.
+                          </p>
+                        ) : null}
+                        {session.capacity ? (
+                          <p className="mt-1 text-sm text-ink-muted">
+                            Capacity {session.capacity.toLocaleString('en-US')}
+                          </p>
+                        ) : null}
+                        {zones.length > 0 ? (
+                          <p className="mt-1 text-sm text-ink-muted">
+                            Price zones: {zones.map((zone) => zone.name).join(', ')}
+                          </p>
+                        ) : null}
+                        {usage ? <p className="mt-1 text-sm text-ink-muted">{usage}</p> : null}
+                        {cancelled && session.cancellationReason ? (
+                          <p className="mt-1 text-sm text-ink">
+                            Cancelled: {session.cancellationReason}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      {cancelled ? null : (
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => prepare(session)}
+                          >
+                            Prepare inventory
+                          </Button>
+                          {canEdit && editing !== session.id ? (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              disabled={busy}
+                              aria-label={`Edit session ${index + 1}`}
+                              onClick={() => {
+                                setConfirmRemove(null)
+                                setEditing(session.id)
+                              }}
+                            >
+                              Edit
+                            </Button>
+                          ) : null}
+                          {canEdit &&
+                          session.removable !== false &&
+                          confirmRemove !== session.id ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={busy}
+                              aria-label={`Remove session ${index + 1}`}
+                              onClick={() => setConfirmRemove(session.id)}
+                            >
+                              Remove
+                            </Button>
+                          ) : null}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => prepare(session)}
-                      >
-                        Prepare inventory
-                      </Button>
-                      {editable ? (
+                    {canEdit && !cancelled && session.removable === false ? (
+                      <p className="mt-2 text-sm text-ink-muted">
+                        {cancellable
+                          ? 'Cannot be removed: this night has orders, baskets or check-ins. Move it instead, or cancel it, which refunds its tickets.'
+                          : 'Cannot be removed: this night has orders, baskets or check-ins. Move it instead, or cancel the event.'}
+                      </p>
+                    ) : null}
+
+                    {cancellation?.shown || (cancellable && editing !== session.id) ? (
+                      <div className="mt-3">
+                        <CancelSessionDialog
+                          eventId={event.id}
+                          session={session}
+                          timeZone={session.timezone ?? event.timezone}
+                          outcome={cancellation?.result ?? null}
+                          onCancelled={(result) => nightCancelled(session, result)}
+                          onClosed={() => cancelOutcomeClosed(session)}
+                        />
+                      </div>
+                    ) : null}
+
+                    {confirmRemove === session.id ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-card border border-line p-3">
+                        <p className="text-sm text-ink">
+                          Remove this session? Its ticket types have to go first.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="danger"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => removeSession(session)}
+                        >
+                          Yes, remove it
+                        </Button>
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           disabled={busy}
-                          onClick={() => removeSession(session)}
+                          onClick={() => setConfirmRemove(null)}
                         >
-                          Remove
+                          Keep it
                         </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                </CardBody>
-              </Card>
-            </li>
-          ))}
+                      </div>
+                    ) : null}
+
+                    {editing === session.id ? (
+                      <div className="mt-4 border-t border-line pt-4">
+                        <SessionForm
+                          kind="edit"
+                          idPrefix={`session-${session.id}`}
+                          initial={toSessionForm(session)}
+                          endEstimated={endIsEstimate(session)}
+                          mode={mode}
+                          mapVersions={mapVersions}
+                          usage={session.usage ?? null}
+                          used={session.removable === false}
+                          busy={busy}
+                          onSubmit={(patch) => saveSession(session, patch)}
+                          onCancel={() => setEditing(null)}
+                        />
+                      </div>
+                    ) : null}
+                  </CardBody>
+                </Card>
+              </li>
+            )
+          })}
         </ol>
       )}
 
-      {editable ? (
-        <form onSubmit={addSession} className="space-y-4 rounded-card border border-slate-200 p-4">
-          <h3 className="text-lg font-semibold text-indigo-night-900">Add a session</h3>
-
-          <FormField
-            label="Time zone"
-            id="session-timezone"
-            required
-            description="The venue's local time for this session. A festival that moves venue mid-week moves zone with it."
-          >
-            <Select
-              value={draft.timezone}
-              onChange={(change) => setDraft({ ...draft, timezone: change.target.value })}
-            >
-              {[...new Set([draft.timezone, event.timezone, 'Asia/Kolkata'])]
-                .filter(Boolean)
-                .map((zone) => (
-                  <option key={zone} value={zone}>
-                    {zone}
-                  </option>
-                ))}
-            </Select>
-          </FormField>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="Starts" id="session-startsAt" required>
-              <Input
-                type="datetime-local"
-                value={toLocalInputValue(draft.startsAt, draft.timezone)}
-                onChange={(change) =>
-                  setDraft({
-                    ...draft,
-                    startsAt: fromLocalInputValue(change.target.value, draft.timezone) ?? '',
-                  })
-                }
-              />
-            </FormField>
-
-            <FormField label="Ends" id="session-endsAt" required>
-              <Input
-                type="datetime-local"
-                value={toLocalInputValue(draft.endsAt, draft.timezone)}
-                onChange={(change) =>
-                  setDraft({
-                    ...draft,
-                    endsAt: fromLocalInputValue(change.target.value, draft.timezone) ?? '',
-                  })
-                }
-              />
-            </FormField>
-
-            <FormField label="Doors open" id="session-doorsOpenAt">
-              <Input
-                type="datetime-local"
-                value={toLocalInputValue(draft.doorsOpenAt, draft.timezone)}
-                onChange={(change) =>
-                  setDraft({
-                    ...draft,
-                    doorsOpenAt: fromLocalInputValue(change.target.value, draft.timezone) ?? '',
-                  })
-                }
-              />
-            </FormField>
-
-            <FormField
-              label="Capacity"
-              id="session-capacity"
-              description="General admission only. A reserved session's capacity is its map."
-            >
-              <Input
-                type="number"
-                min="0"
-                value={draft.capacity}
-                onChange={(change) => setDraft({ ...draft, capacity: change.target.value })}
-              />
-            </FormField>
-
-            <FormField
-              label="Sales open"
-              id="session-salesStartAt"
-              description="Leave empty to sell as soon as the event does."
-            >
-              <Input
-                type="datetime-local"
-                value={toLocalInputValue(draft.salesStartAt, draft.timezone)}
-                onChange={(change) =>
-                  setDraft({
-                    ...draft,
-                    salesStartAt: fromLocalInputValue(change.target.value, draft.timezone) ?? '',
-                  })
-                }
-              />
-            </FormField>
-
-            <FormField label="Sales close" id="session-salesEndAt">
-              <Input
-                type="datetime-local"
-                value={toLocalInputValue(draft.salesEndAt, draft.timezone)}
-                onChange={(change) =>
-                  setDraft({
-                    ...draft,
-                    salesEndAt: fromLocalInputValue(change.target.value, draft.timezone) ?? '',
-                  })
-                }
-              />
-            </FormField>
-          </div>
-
-          <FormField
-            label="Seating map"
-            id="session-venueMapVersionId"
-            description="Only published versions appear here. A version somebody is still editing cannot back a session, because the seats would move underneath the tickets."
-          >
-            <Select
-              value={draft.venueMapVersionId}
-              onChange={(change) => setDraft({ ...draft, venueMapVersionId: change.target.value })}
-            >
-              <option value="">General admission — no seating map</option>
-              {mapVersions.map((version) => (
-                <option key={version.id} value={version.id}>
-                  {version.mapName} v{version.version} — {version.seatCount} seats
-                </option>
-              ))}
-            </Select>
-          </FormField>
-
+      {canEdit ? (
+        <div className="space-y-4 rounded-card border border-line p-4">
+          <h3 className="text-lg font-semibold text-ink">Add a session</h3>
           {mapVersions.length === 0 ? (
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               This venue has no published seating map, so sessions here are general admission.
               Publish a map version on the venue first to sell reserved seats.
             </p>
           ) : null}
-
-          <Button type="submit" disabled={busy}>
-            {busy ? 'Adding…' : 'Add session'}
-          </Button>
-        </form>
+          <SessionForm
+            key={addKey}
+            kind="create"
+            idPrefix="session"
+            initial={toSessionForm(event)}
+            // A new night starts from the event's times, whose end is the
+            // import's estimate while a night's end is one.
+            endEstimated={sessions.some(endIsEstimate)}
+            mode={mode}
+            mapVersions={mapVersions}
+            busy={busy}
+            onSubmit={addSession}
+          />
+        </div>
       ) : null}
     </section>
   )

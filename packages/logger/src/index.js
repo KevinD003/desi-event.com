@@ -1,5 +1,5 @@
 /**
- * Shared structured logging for Desi-Event.
+ * Shared structured logging for The Desi Events.
  *
  * Services import {@link createLogger} for a named logger, or {@link logger}
  * for the process-wide instance. Both redact credentials, cookies and payment
@@ -25,7 +25,9 @@ export {
   resetDefaultLogger,
   buildLoggerOptions,
   isPrettyEnabled,
+  serializeError,
   DEFAULT_LOGGER_NAME,
+  ERROR_DETAIL_DEPTH,
 } from './create-logger.js'
 
 export {

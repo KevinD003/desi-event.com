@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }))
 
 const { apiFetch } = await import('../lib/api-fetch.js')
-const { ModerationDecision } = await import('./moderation-decision.jsx')
+const { ModerationDecision, NO_REVISION_TO_APPROVE } = await import('./moderation-decision.jsx')
+const { CONFLICT_OF_INTEREST_NOTICE, IMPORTED_EVENT_NO_EDITOR_NOTICE } =
+  await import('../lib/review-independence.js')
 
-const event = { id: 'evtqawwalibanyan', slug: 'qawwali-under-the-banyan', status: 'REVIEW_PENDING' }
+// The revision the page showed: every decision names it, and the API refuses
+// an approval that does not.
+const event = {
+  id: 'evtqawwalibanyan',
+  slug: 'qawwali-under-the-banyan',
+  status: 'REVIEW_PENDING',
+  revision: 3,
+}
 
 /**
  * A response the mocked `apiFetch` will resolve with.
@@ -59,6 +68,7 @@ describe('requesting changes', () => {
     expect(JSON.parse(options.body)).toEqual({
       decision: 'request_changes',
       reason: 'The description does not say which language the show is in.',
+      revision: 3,
     })
   })
 
@@ -83,6 +93,7 @@ describe('requesting changes', () => {
     expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
       decision: 'request_changes',
       requestedChanges: { description: 'Name the language.' },
+      revision: 3,
     })
   })
 
@@ -128,7 +139,10 @@ describe('approving', () => {
     await user.click(screen.getByRole('button', { name: /yes, approve/i }))
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalled())
-    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({ decision: 'approve' })
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      decision: 'approve',
+      revision: 3,
+    })
   })
 
   it('announces the outcome rather than only drawing it', async () => {
@@ -266,5 +280,270 @@ describe('when the decision is refused', () => {
     await user.click(screen.getByRole('button', { name: /not now/i }))
 
     await waitFor(() => expect(trigger).toHaveFocus())
+  })
+})
+
+describe('the pictures', () => {
+  it('offers them as a part a note can be about, sent under the key "images"', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { status: 'CHANGES_REQUIRED' } }))
+
+    render(<ModerationDecision event={event} />)
+
+    await user.click(screen.getByRole('button', { name: 'Request changes' }))
+
+    const about = screen.getByLabelText(/this note is about/i)
+
+    expect(within(about).getByRole('option', { name: 'Pictures' })).toHaveValue('images')
+    // The old key named a field that no longer exists.
+    expect(within(about).queryByRole('option', { name: /cover image/i })).toBeNull()
+
+    await user.type(
+      screen.getByLabelText(/what the organiser needs to know/i),
+      'The cover shows a face without consent.',
+    )
+    await user.selectOptions(about, 'images')
+    await user.click(screen.getByRole('button', { name: /add this note/i }))
+
+    expect(screen.getByText('Pictures:')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /yes, request changes/i }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      decision: 'request_changes',
+      requestedChanges: { images: 'The cover shows a face without consent.' },
+      revision: 3,
+    })
+  })
+
+  it('does not offer approval when the page could not show them, and says why', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <ModerationDecision
+        event={event}
+        approveBlockedReason="Approving is not offered while the pictures cannot be shown."
+      />,
+    )
+
+    const approve = screen.getByRole('button', { name: 'Approve' })
+
+    expect(approve).toBeDisabled()
+    expect(approve).toHaveAccessibleDescription(
+      'Approving is not offered while the pictures cannot be shown.',
+    )
+    // Asking for changes, and rejecting, need no picture to have been seen.
+    expect(screen.getByRole('button', { name: 'Request changes' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled()
+
+    await user.click(approve)
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('the version decided on', () => {
+  it('sends the revision the page showed with every decision', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { status: 'APPROVED' } }))
+
+    render(<ModerationDecision event={{ ...event, revision: 4 }} />)
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    await user.click(screen.getByRole('button', { name: /yes, approve/i }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      decision: 'approve',
+      revision: 4,
+    })
+  })
+
+  it('shows the refusal when the organiser changed the event since, and decides nothing', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(409, {
+        error: {
+          code: 'STALE_REVISION',
+          message:
+            'The organiser changed this event after you opened it. Reload to review it as it is now. Nothing was decided.',
+        },
+      }),
+    )
+
+    render(<ModerationDecision event={{ ...event, revision: 4 }} />)
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    await user.click(screen.getByRole('button', { name: /yes, approve/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/changed this event after you opened it/)).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/this event is now/i)).toBeNull()
+  })
+})
+
+describe('once the event has left review', () => {
+  it('keeps the announcement in the same live region when the event comes back decided', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { status: 'APPROVED' } }))
+
+    const { rerender } = render(<ModerationDecision event={event} />)
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    await user.click(screen.getByRole('button', { name: /yes, approve/i }))
+
+    const region = (await screen.findByText(/approve — this event is now APPROVED/i)).closest(
+      '[role="status"]',
+    )
+
+    // The page's refresh hands the same component the event as it now is.
+    rerender(<ModerationDecision event={{ ...event, status: 'APPROVED' }} />)
+
+    expect(region).toBeInTheDocument()
+    expect(region).toHaveTextContent('Approve — this event is now APPROVED.')
+    expect(screen.getByText('Nothing to decide')).toBeInTheDocument()
+    expect(screen.getByText(/this event is approved, not public\./i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
+  })
+
+  it('offers no decision on an event that is not waiting for review', () => {
+    render(<ModerationDecision event={{ ...event, status: 'PUBLISHED' }} />)
+
+    expect(screen.getByText('Nothing to decide')).toBeInTheDocument()
+    expect(
+      screen.getByText(/a decision can only be taken on something waiting for review/i),
+    ).toBeInTheDocument()
+
+    for (const name of ['Request changes', 'Approve', 'Reject']) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+  })
+})
+
+describe('approval names the version it approves', () => {
+  it('does not offer approving when the page has no revision to send, and says why', async () => {
+    const user = userEvent.setup()
+    const { revision: _dropped, ...unversioned } = event
+
+    render(<ModerationDecision event={unversioned} />)
+
+    const approve = screen.getByRole('button', { name: 'Approve' })
+
+    expect(approve).toBeDisabled()
+    expect(approve).toHaveAccessibleDescription(NO_REVISION_TO_APPROVE)
+
+    await user.click(approve)
+    expect(apiFetch).not.toHaveBeenCalled()
+    // Asking for changes and rejecting are still there.
+    expect(screen.getByRole('button', { name: 'Request changes' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled()
+  })
+
+  it('shows the API’s sentence when an approval names no revision all the same', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(400, {
+        error: {
+          code: 'VALIDATION_ERROR',
+          message:
+            'Send the revision you reviewed, so a version you have not seen cannot be approved.',
+        },
+      }),
+    )
+    render(<ModerationDecision event={event} />)
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    await user.click(screen.getByRole('button', { name: /yes, approve/i }))
+
+    expect(await screen.findByText(/a version you have not seen cannot be approved/u)).toBeVisible()
+  })
+})
+
+describe('somebody else decides', () => {
+  it('draws the sentence instead of the controls for a member of the organisation', () => {
+    render(<ModerationDecision event={event} notYours={CONFLICT_OF_INTEREST_NOTICE} />)
+
+    expect(screen.getByText(CONFLICT_OF_INTEREST_NOTICE)).toBeVisible()
+
+    for (const name of ['Request changes', 'Approve', 'Reject']) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+  })
+
+  it.each([
+    [
+      'SELF_REVIEW',
+      'You sent this event for review, so somebody else on the team at The Desi Events has to decide it.',
+    ],
+    [
+      'CONFLICT_OF_INTEREST',
+      'You belong to this organisation, so somebody else on the team at The Desi Events has to decide this.',
+    ],
+  ])('shows the API’s sentence for %s', async (code, sentence) => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(403, { error: { code, message: sentence } }))
+    render(<ModerationDecision event={event} />)
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    await user.click(screen.getByRole('button', { name: /yes, approve/i }))
+
+    expect(await screen.findByText(sentence)).toBeVisible()
+    expect(screen.queryByText(/this event is now/i)).toBeNull()
+  })
+})
+
+describe('an event nobody runs on The Desi Events (a platform-held import, SPEC2-XI O16)', () => {
+  it('does not offer "Request changes", and says why', () => {
+    render(<ModerationDecision event={event} noEditor={IMPORTED_EVENT_NO_EDITOR_NOTICE} />)
+
+    expect(screen.queryByRole('button', { name: 'Request changes' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled()
+    expect(screen.getByText(IMPORTED_EVENT_NO_EDITOR_NOTICE)).toBeVisible()
+    expect(IMPORTED_EVENT_NO_EDITOR_NOTICE).not.toMatch(/\byet\b|\bsoon\b/iu)
+  })
+
+  it('never says the reason goes to an organiser, nor that one publishes it', async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <ModerationDecision event={event} noEditor={IMPORTED_EVENT_NO_EDITOR_NOTICE} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+
+    expect(screen.getByText(/published from its import run/i)).toBeVisible()
+    expect(container.textContent).not.toMatch(/organiser/iu)
+
+    await user.click(screen.getByRole('button', { name: 'Not now' }))
+    await user.click(screen.getByRole('button', { name: 'Reject' }))
+
+    expect(screen.getByLabelText(/^reason/i)).toHaveAccessibleDescription(/sent to nobody/i)
+    expect(screen.getByText(/leaves it alone until the event is deleted/i)).toBeVisible()
+    expect(container.textContent).not.toMatch(/organiser/iu)
+  })
+
+  it('still rejects with the reason given', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { status: 'REJECTED' } }))
+    render(<ModerationDecision event={event} noEditor={IMPORTED_EVENT_NO_EDITOR_NOTICE} />)
+
+    await user.click(screen.getByRole('button', { name: 'Reject' }))
+    await user.type(screen.getByLabelText(/^reason/i), 'Not an event we list.')
+    await user.click(screen.getByRole('button', { name: /yes, reject/i }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toMatchObject({
+      decision: 'reject',
+      reason: 'Not an event we list.',
+      revision: 3,
+    })
   })
 })

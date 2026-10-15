@@ -14,8 +14,8 @@ import sensible from '@fastify/sensible'
  *
  * `*` means "any origin", which is correct for a public read-mostly ticketing
  * API; anything else is treated as a comma-separated allow-list and compared
- * exactly, never by prefix, so `https://evil-desievent.com` cannot pass as
- * `https://desievent.com`.
+ * exactly, never by prefix, so `https://evil-thedesievents.com` cannot pass
+ * as `https://thedesievents.com`.
  *
  * @param {string} value The raw `CORS_ORIGIN` value.
  * @returns {boolean|string[]} `true` for any origin, otherwise the allow-list.

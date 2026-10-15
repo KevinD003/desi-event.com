@@ -53,7 +53,21 @@ import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
 import { ACTORS, GATES, findTransition, transitionsFrom } from '@desi-event/schemas/lifecycle'
 
 import { recordAudit } from './audit.js'
-import { conflict, forbidden, notFound, unprocessable } from './errors.js'
+import { bindReservedSeatsAudited } from './event-authoring.js'
+import { authorityAuditMetadata, byPlatform, lifecycleAuthority } from './event-authority.js'
+import {
+  OUT_OF_TIME_RETRY_AFTER_SECONDS,
+  conflict,
+  databaseRefusal,
+  exposedServerError,
+  forbidden,
+  httpError,
+  isOutOfTime,
+  notFound,
+  unprocessable,
+} from './errors.js'
+import { assertIndependentReviewer, reviewIndependence } from './review-independence.js'
+import { boundLockWait } from './transaction-budget.js'
 
 /**
  * Organisation verification states from which an event may be published.
@@ -182,12 +196,38 @@ export function publishabilityProblems(event) {
 }
 
 /**
+ * How many seats each on-sale reserved ticket type has behind it.
+ *
+ * A reserved tier sells the seats whose `EventSeat.ticketTypeId` names it, and
+ * nothing else; one with none is a price with nothing to buy.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} event The event, with its ticket types.
+ * @returns {Promise<Map<string, number>>} Bound seat count per reserved on-sale tier id.
+ */
+export async function boundSeatCounts(prisma, event) {
+  const tiers = (event.ticketTypes ?? []).filter(
+    (tier) => tier.reserved && tier.status === 'ON_SALE',
+  )
+  const entries = await Promise.all(
+    tiers.map(async (tier) => [
+      tier.id,
+      await prisma.eventSeat.count({ where: { ticketTypeId: tier.id } }),
+    ]),
+  )
+
+  return new Map(/** @type {Array<Array<*>>} */ (entries))
+}
+
+/**
  * Why an event has nothing to sell.
  *
  * @param {object} event The event, loaded by {@link loadForTransition}.
+ * @param {object} [options] Options.
+ * @param {Map<string, number>} [options.boundSeats] From {@link boundSeatCounts}; without it the seat check is skipped.
  * @returns {string[]} Human-readable reasons. Empty means sellable.
  */
-export function sellabilityProblems(event) {
+export function sellabilityProblems(event, { boundSeats = null } = {}) {
   const problems = []
   const tiers = (event.ticketTypes ?? []).filter((tier) => tier.status === 'ON_SALE')
 
@@ -206,6 +246,10 @@ export function sellabilityProblems(event) {
 
     if (tier.reserved && !tier.priceZoneId) {
       problems.push(`Reserved ticket type "${tier.name}" needs a price zone.`)
+    } else if (tier.reserved && boundSeats && (boundSeats.get(tier.id) ?? 0) === 0) {
+      problems.push(
+        `Reserved ticket type "${tier.name}" has no seats. Prepare its session's inventory, and check its price zone has seats on the map.`,
+      )
     }
   }
 
@@ -273,7 +317,9 @@ async function checkGate(gate, prisma, event) {
   }
 
   if (gate === GATES.PUBLISHABLE) return publishabilityProblems(event)
-  if (gate === GATES.SELLABLE) return sellabilityProblems(event)
+  if (gate === GATES.SELLABLE) {
+    return sellabilityProblems(event, { boundSeats: await boundSeatCounts(prisma, event) })
+  }
   if (gate === GATES.INVENTORY_PREPARED) return inventoryProblems(prisma, event)
 
   // An unknown gate is a programming error, and failing closed is the only safe
@@ -282,12 +328,81 @@ async function checkGate(gate, prisma, event) {
 }
 
 /**
- * Assert the actor is entitled to make this kind of move.
+ * Why a set of gates is shut for an event, every reason from every gate.
+ *
+ * The same checks {@link transitionEvent} runs, for a move another module
+ * makes itself: an import's own moves into review and into PUBLISHED
+ * (`lib/event-import.js`, SPEC2-XI I-C), which the table's actor would refuse
+ * the team at The Desi Events.
+ *
+ * @param {object} prisma The Prisma client or a transaction client.
+ * @param {object} event The event, loaded as {@link loadForTransition} loads it.
+ * @param {ReadonlyArray<string>} gates The gates, from the move.
+ * @returns {Promise<string[]>} Reasons. Empty means every gate is open.
+ */
+export async function gateProblems(prisma, event, gates) {
+  /** @type {string[]} */
+  const blockers = []
+
+  for (const gate of gates) blockers.push(...(await checkGate(gate, prisma, event)))
+
+  return blockers
+}
+
+/**
+ * Why an event in the organisation that holds imported events cannot be sent
+ * back for changes (SPEC2-XI O16): nobody runs it on The Desi Events, so nobody
+ * could make them.
+ *
+ * Word for word the web's `IMPORTED_EVENT_NO_EDITOR_NOTICE`
+ * (`apps/web/src/lib/review-independence.js`). The spec's first wording said
+ * "yet", which the honest-copy rule forbids; both now say what is true today.
+ */
+export const IMPORTED_EVENT_NO_EDITOR_SENTENCE =
+  'Nobody runs this event on The Desi Events, so nobody could make changes you ask for. Approve it and correct it once it is published, reject it, or delete it.'
+
+/**
+ * Whether an event belongs to an organisation that holds imported events.
+ *
+ * @param {object} event The event, with `organization` loaded.
+ * @returns {boolean} True when it is platform-held.
+ */
+export function isPlatformHeld(event) {
+  return Boolean(event?.organization?.platformHeldSource)
+}
+
+/** Why a platform-held import takes no ticket type and opens no sales (SPEC2-XI I5). */
+export const SOLD_ON_SOURCE_SENTENCE =
+  "Tickets for this event are sold on Sulekha. Move it to the organiser's own organisation before selling tickets here."
+
+/**
+ * Refuse a ticket type or sales for an event the platform-held organisation
+ * holds: tickets for it are sold on its source's page, and the organisation has
+ * no payout account, so nothing may be sold here until the event is moved to
+ * the organiser's own organisation. Even a super administrator is refused.
+ *
+ * @param {object} event The event, with `organization` loaded.
+ * @returns {void}
+ * @throws {Error} 409 `SOLD_ON_SOURCE`.
+ */
+export function refuseSoldOnSource(event) {
+  if (isPlatformHeld(event)) {
+    throw httpError(409, 'SOLD_ON_SOURCE', SOLD_ON_SOURCE_SENTENCE)
+  }
+}
+
+/**
+ * Assert the actor is entitled to make this kind of move, and say whose
+ * authority it is made under.
+ *
+ * An organiser's move follows Rule L (SPEC2-XI X-A): the actor's membership,
+ * or a SUPER_ADMIN's platform role, recorded as the doing of the team at The
+ * Desi Events; a platform ADMIN is refused with `ORGANIZER_ONLY`.
  *
  * @param {object} move The transition from the table.
  * @param {object} actor The request actor.
  * @param {object} event The event.
- * @returns {void}
+ * @returns {object|null} The authority for an organiser's move; null for a moderator's.
  * @throws {Error} A 403 when the actor is not entitled.
  */
 function assertEntitled(move, actor, event) {
@@ -297,16 +412,35 @@ function assertEntitled(move, actor, event) {
     throw forbidden('This transition is made by the platform, not by a caller.')
   }
 
+  if (isOwnCommand(move)) {
+    // Deletion and restore are in the table so it names every move, but each
+    // is a command of its own with its own preview, confirmation and audit
+    // (`lib/event-deletion.js`). `transitionEvent` never makes either.
+    throw conflict(
+      'Deletion and restore are commands of their own: delete an event with POST /v1/events/:id/delete; only the team at The Desi Events restores one.',
+      { from: event.status, to: move.to, code: 'ILLEGAL_TRANSITION' },
+    )
+  }
+
   if (move.actor === ACTORS.MODERATOR) {
     assertCan(actor, MODERATION_CAPABILITY)
-    return
+    return null
   }
 
   // An organiser move. The capability depends on the destination, because
   // publishing and cancelling are not the same authority as submitting.
-  const capability = capabilityFor(move.to)
+  return lifecycleAuthority(actor, event, capabilityFor(move.to))
+}
 
-  assertCan(actor, capability, { organizationId: event.organizationId })
+/**
+ * Whether a move is deletion or restore, which are commands of their own and
+ * never offered or made here.
+ *
+ * @param {object} move The transition from the table.
+ * @returns {boolean} True for a DELETION or RESTORE move.
+ */
+function isOwnCommand(move) {
+  return move.actor === ACTORS.DELETION || move.actor === ACTORS.RESTORE
 }
 
 /**
@@ -345,15 +479,33 @@ export async function availableTransitions(prisma, event, actor) {
   const out = []
 
   for (const move of moves) {
-    if (move.actor === ACTORS.SYSTEM) continue
+    if (move.actor === ACTORS.SYSTEM || isOwnCommand(move)) continue
+    // Nobody could make the changes to a platform-held import (O16).
+    if (move.to === 'CHANGES_REQUIRED' && isPlatformHeld(event)) continue
 
-    const entitled =
+    let entitled =
       move.actor === ACTORS.MODERATOR
         ? can(actor, MODERATION_CAPABILITY)
         : can(actor, capabilityFor(move.to), { organizationId: event.organizationId })
 
     /** @type {string[]} */
     const blockers = []
+
+    // A reviewer who belongs to the organisation, or who sent the event for
+    // review, holds the capability and still may not decide: the move is shown
+    // as not theirs, with the reason.
+    if (entitled && move.actor === ACTORS.MODERATOR) {
+      const { independent, reason } = await reviewIndependence(prisma, {
+        actor,
+        organizationId: event.organizationId,
+        eventId: event.id,
+      })
+
+      if (!independent) {
+        entitled = false
+        blockers.push(reason)
+      }
+    }
 
     if (entitled) {
       for (const gate of move.gates) blockers.push(...(await checkGate(gate, prisma, event)))
@@ -375,12 +527,23 @@ export async function availableTransitions(prisma, event, actor) {
  * @param {object} options.actor The request actor.
  * @param {string} [options.reason] Why, for the audit trail and the attendee notice.
  * @param {object} [options.requestedChanges] What a moderator wants changed.
- * @param {Function} [options.onCommit] Extra work inside the transaction, given `(tx, event)`.
+ * @param {Function} [options.onCommit] Extra work inside the transaction, given `(tx, event, { authority, byPlatform })`. It may return `{ auditMetadata }`, which the transition's audit record carries beside `from`, `to` and `reason`.
+ * @param {{timeout: number, maxWait: number}} [options.transactionOptions] The transaction's budget, when `onCommit` does work that grows with the event (a cancellation reserves a refund per paid order). Prisma's default of five seconds otherwise.
+ * @param {number} [options.lockWaitMs] When set, the longest any statement of the transaction waits for one lock another transaction holds (`lock_timeout`), and no statement outlives `transactionOptions.timeout` (`statement_timeout`): `lib/transaction-budget.js`, for a caller whose budget counts on it.
  * @returns {Promise<object>} The updated event.
- * @throws {Error} 403, 404, 409 or 422, each meaning something different.
+ * @throws {Error} 403, 404, 409 or 422, each meaning something different; 503 when the transaction outran its budget and nothing was changed.
  */
 export async function transitionEvent(prisma, options) {
-  const { event, to, actor, reason = null, requestedChanges = null, onCommit = null } = options
+  const {
+    event,
+    to,
+    actor,
+    reason = null,
+    requestedChanges = null,
+    onCommit = null,
+    transactionOptions = undefined,
+    lockWaitMs = null,
+  } = options
   const from = event.status
 
   // 1. Is the move in the table at all?
@@ -391,7 +554,7 @@ export async function transitionEvent(prisma, options) {
     // only "no" makes the caller guess, and the guesses are what produce the
     // next three support tickets.
     const ways = transitionsFrom(from)
-      .filter((candidate) => candidate.actor !== ACTORS.SYSTEM)
+      .filter((candidate) => candidate.actor !== ACTORS.SYSTEM && !isOwnCommand(candidate))
       .map((candidate) => candidate.to)
 
     const next =
@@ -407,8 +570,65 @@ export async function transitionEvent(prisma, options) {
     })
   }
 
-  // 2. Is this actor entitled to it?
-  assertEntitled(move, actor, event)
+  // 2. Is this actor entitled to it? A moderator decision also needs a
+  // reviewer independent of the event: not a member of its organisation, and
+  // not the person who sent it for review.
+  const authority = assertEntitled(move, actor, event)
+
+  // Nothing is sold here for a platform-held import (SPEC2-XI I5).
+  if (to === 'ON_SALE') refuseSoldOnSource(event)
+
+  // A platform-held import has nobody to make changes: approve, reject or
+  // delete it instead (SPEC2-XI O16).
+  if (to === 'CHANGES_REQUIRED' && isPlatformHeld(event)) {
+    throw httpError(409, 'IMPORTED_EVENT_NO_EDITOR', IMPORTED_EVENT_NO_EDITOR_SENTENCE, {
+      from,
+      to,
+    })
+  }
+
+  /** @type {{exemption: string, importedById: string|null, approvedById: string|null}|null} */
+  let exempted = null
+
+  if (move.actor === ACTORS.MODERATOR) {
+    const { exemption } = await assertIndependentReviewer(prisma, {
+      actor,
+      organizationId: event.organizationId,
+      eventId: event.id,
+    })
+
+    // The administrator who imported a platform-held event approving it
+    // (SPEC2-XI O5): recorded on the moderation action and in the audit, with
+    // who imported and who approved. The exemption holds only when the
+    // importer of record sent this version for review themselves, so the
+    // record's importer is the submission it waived.
+    if (exemption) {
+      const item = await prisma.eventImportItem.findUnique({
+        where: { eventId: event.id },
+        select: { importedById: true },
+      })
+
+      exempted = {
+        exemption,
+        importedById: item?.importedById ?? null,
+        approvedById: actor?.id ?? null,
+      }
+    }
+  }
+
+  // Opening sales binds every seated session's free seats to the reserved tier
+  // pricing their zone first, so the sellable gate below counts seats that can
+  // actually be sold. Idempotent, and only after the entitlement check: a caller
+  // who may not open sales changes nothing.
+  if (to === 'ON_SALE') {
+    const seated = (event.sessions ?? []).filter((session) => session.venueMapVersionId)
+
+    for (const session of seated) {
+      await prisma.$transaction((tx) =>
+        bindReservedSeatsAudited(tx, { eventId: event.id, eventSessionId: session.id, actor }),
+      )
+    }
+  }
 
   // 3. Are the gates open? Every one of them, before any write.
   /** @type {string[]} */
@@ -425,51 +645,126 @@ export async function transitionEvent(prisma, options) {
   }
 
   // 4. Write it, naming the status we expect to be replacing.
-  return prisma.$transaction(async (tx) => {
-    const { count } = await tx.event.updateMany({
-      where: { id: event.id, status: from },
-      data: stampsFor({ to, reason, event }),
-    })
+  return prisma
+    .$transaction(async (tx) => {
+      if (lockWaitMs) {
+        await boundLockWait(tx, {
+          lockMs: lockWaitMs,
+          statementMs: transactionOptions?.timeout ?? lockWaitMs,
+        })
+      }
 
-    if (count !== 1) {
-      // Somebody moved first. Tell the caller what it is now rather than what
-      // they thought it was.
-      const current = await tx.event.findUnique({
-        where: { id: event.id },
-        select: { status: true },
+      const { count } = await tx.event.updateMany({
+        where: { id: event.id, status: from },
+        data: stampsFor({ to, reason, event }),
       })
 
-      throw conflict(
-        `This event is no longer ${from}; it is ${current?.status ?? 'gone'}. Reload and try again.`,
-        { from, to, currentStatus: current?.status ?? null, code: 'STALE_STATUS' },
-      )
-    }
+      if (count !== 1) {
+        // Somebody moved first. Tell the caller what it is now rather than what
+        // they thought it was.
+        const current = await tx.event.findUnique({
+          where: { id: event.id },
+          select: { status: true },
+        })
 
-    await tx.eventModerationAction.create({
-      data: {
-        eventId: event.id,
+        throw conflict(
+          `This event is no longer ${from}; it is ${current?.status ?? 'gone'}. Reload and try again.`,
+          { from, to, currentStatus: current?.status ?? null, code: 'STALE_STATUS' },
+        )
+      }
+
+      await tx.eventModerationAction.create({
+        data: {
+          eventId: event.id,
+          actorId: actor?.id ?? null,
+          fromStatus: from,
+          toStatus: to,
+          reason: exempted ? exemptionNote(exempted, reason) : reason,
+          requestedChanges,
+        },
+      })
+
+      const updated = await tx.event.findUnique({ where: { id: event.id } })
+
+      // The work first, then the record of the move, so the record can say what
+      // the work did — a cancellation's refunds, and the orders it left to the
+      // finance team — rather than only that it happened. Both are in this
+      // transaction, so neither is written without the other.
+      const work = onCommit
+        ? await onCommit(tx, updated, { authority, byPlatform: byPlatform(authority) })
+        : null
+
+      // A SUPER_ADMIN's move on an organisation it is not a member of is
+      // recorded as the doing of the team at The Desi Events (Rule L).
+      await recordAudit(tx, {
+        action: `event.${to.toLowerCase()}`,
+        entityType: 'Event',
+        entityId: event.id,
         actorId: actor?.id ?? null,
-        fromStatus: from,
-        toStatus: to,
-        reason,
-        requestedChanges,
-      },
+        metadata: {
+          ...(work?.auditMetadata ?? {}),
+          ...authorityAuditMetadata(authority),
+          ...(exempted ?? {}),
+          from,
+          to,
+          reason,
+        },
+      })
+
+      return updated
+    }, transactionOptions)
+    .catch((error) => {
+      // The review gate in the database (`desi_event_status_requires_review`)
+      // refusing a move the table above should never have offered: a 409
+      // `REVIEW_REQUIRED`, not a 500.
+      throw databaseRefusal(error) ?? outranBudget(error, { from, to })
     })
+}
 
-    await recordAudit(tx, {
-      action: `event.${to.toLowerCase()}`,
-      entityType: 'Event',
-      entityId: event.id,
-      actorId: actor?.id ?? null,
-      metadata: { from, to, reason },
-    })
+/**
+ * The note an approval under the import exemption carries on its moderation
+ * action: the exemption, who imported and who approved (SPEC2-XI O5), after
+ * the reviewer's own reason when there is one.
+ *
+ * @param {{exemption: string, importedById: string|null, approvedById: string|null}} exempted The exemption.
+ * @param {string|null} reason The reviewer's reason.
+ * @returns {string} The note.
+ */
+export function exemptionNote({ exemption, importedById, approvedById }, reason = null) {
+  const note = `Approved under the ${exemption} exemption: imported by ${importedById ?? 'an account since removed'}, approved by ${approvedById ?? 'an account since removed'}.`
 
-    const updated = await tx.event.findUnique({ where: { id: event.id } })
+  return reason ? `${reason} ${note}` : note
+}
 
-    if (onCommit) await onCommit(tx, updated)
+/**
+ * The refusal for a transition whose transaction ran out of time.
+ *
+ * Prisma rolls an interactive transaction back once it outlives its timeout
+ * (`P2028`), and PostgreSQL ends one whose statement waited past its
+ * `lock_timeout` (`55P03`) or `statement_timeout` (`57014`), so nothing of the
+ * move was kept: the event is still what it was, and no work it would have
+ * raised exists. Said so, as a 503 the caller can retry (with `Retry-After`),
+ * rather than as a 500 carrying the driver's message. Anything else is passed
+ * through untouched.
+ *
+ * @param {unknown} error Whatever the transaction threw.
+ * @param {object} move The move.
+ * @param {string} move.from The status the event still has.
+ * @param {string} move.to The status it did not reach.
+ * @returns {unknown} The error to throw.
+ */
+function outranBudget(error, { from, to }) {
+  if (!isOutOfTime(error)) return error
 
-    return updated
-  })
+  return Object.assign(
+    exposedServerError(
+      503,
+      'SERVICE_UNAVAILABLE',
+      `This event could not become ${to} in time, so nothing was changed: it is still ${from}. Try again in a moment.`,
+      { from, to },
+    ),
+    { retryAfterSeconds: OUT_OF_TIME_RETRY_AFTER_SECONDS },
+  )
 }
 
 /**
@@ -524,4 +819,20 @@ function stampsFor({ to, reason, event }) {
   }
 
   return data
+}
+
+/**
+ * The columns a move to `to` writes, as {@link transitionEvent} writes them:
+ * for a deletion that cancels an event before taking it off (SPEC2-XI X-D),
+ * which writes CANCELLED itself because `assertEntitled` would refuse the
+ * team at The Desi Events, and must stamp it exactly as a cancellation does.
+ *
+ * @param {object} options Options.
+ * @param {string} options.to The destination.
+ * @param {string|null} options.reason The reason.
+ * @param {object} options.event The event as it was.
+ * @returns {object} The Prisma `data` payload.
+ */
+export function lifecycleStamps(options) {
+  return stampsFor(options)
 }

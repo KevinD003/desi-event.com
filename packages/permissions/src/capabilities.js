@@ -77,7 +77,35 @@ export const CAPABILITIES = deepFreeze({
   /** Cancel or postpone a published event, which affects people who paid. */
   EVENT_CANCEL: 'event:cancel',
   EVENT_DELETE: 'event:delete',
+  /**
+   * Delete an event nobody holds a paid order for. Held from EVENT_MANAGER up,
+   * so whoever posts an event can take it down again. Deleting one with paid
+   * orders refunds them, which is `event:delete` and `event:cancel` (ADMIN,
+   * OWNER). Moves no money. In {@link EVENT_AUTHORITY_CAPABILITIES}, so no role
+   * an owner may hand out ever holds it.
+   */
+  EVENT_DELETE_UNSOLD: 'event:delete_unsold',
   EVENT_VIEW_DRAFT: 'event:view_draft',
+  /**
+   * Edit any organisation's published event as the team at The Desi Events, in a
+   * sitting opened with a reason and a second factor, every write audited with
+   * both. Platform-only. Never a draft or a version under review.
+   */
+  EVENT_PLATFORM_EDIT: 'event:platform_edit',
+  /**
+   * Delete any organisation's event, cancel one of its nights, and restore a
+   * deleted event. Where tickets were sold this refunds every affected order in
+   * full to the payment it came from — no amount, recipient or order is chosen,
+   * which is why it is not a money capability. Platform-only.
+   */
+  EVENT_PLATFORM_DELETE: 'event:platform_delete',
+  /**
+   * Bring events listed on another site (Sulekha) onto The Desi Events: upload a
+   * file, read its plan, import it, retry its pictures, approve and publish the
+   * imported events (with `moderation:review`) and move one to an organiser's
+   * own organisation. Platform-only.
+   */
+  EVENT_IMPORT: 'event:import',
 
   // --- Venues and seating ---------------------------------------------------
   VENUE_MANAGE: 'venue:manage',
@@ -148,8 +176,25 @@ export const CAPABILITIES = deepFreeze({
   ORGANIZATION_VIEW_MEMBERS: 'organization:view_members',
 
   // --- Promotions and reporting --------------------------------------------
+  /**
+   * List, make, pause, resume and delete the organisation's promo codes
+   * (`/v1/organizations/:id/promo-codes`). A code is a bearer discount, not
+   * report data, so it starts at EVENT_MANAGER and FINANCE does not hold it.
+   */
   PROMO_MANAGE: 'promo:manage',
   REPORT_VIEW: 'report:view',
+  /**
+   * Read every event's visit counts and paid-order counts across all
+   * organisations (`GET /v1/traffic/events`). Never money: the list carries
+   * counts only, and an event's money stays behind `finance:view` and its
+   * step-up on the per-organisation view.
+   *
+   * Platform-only. `report:view` is an organisation capability and cannot be
+   * asserted without an organisation (NF-05), so a list spanning every
+   * organisation needs a platform capability of its own. Held by ADMIN and by
+   * SUPER_ADMIN through ALL_CAPABILITIES.
+   */
+  ANALYTICS_VIEW_ALL: 'analytics:view_all',
 
   // --- Personal data --------------------------------------------------------
   /**
@@ -190,9 +235,12 @@ export const CAPABILITIES = deepFreeze({
   /**
    * Read what a retention rehearsal found.
    *
-   * Read-only, and it grants nothing else: there is no deletion path anywhere
-   * in this repository for it to unlock, and the rows it reaches carry class
-   * names, cut-offs and counts rather than anybody's data.
+   * Read-only, and it grants nothing else: the retention rehearsal has no
+   * deletion path for it to unlock, and the rows it reaches carry class names,
+   * cut-offs and counts rather than anybody's data. (The one deletion on a
+   * timer in this repository is the traffic roll-up's, of raw visit rows it
+   * has already added up — `@desi-event/db/traffic-rollup` — and no capability
+   * reaches it.)
    *
    * Its own capability rather than `platform:admin`, for the reason that one
    * already gives elsewhere in this table — an authority folded into the key to
@@ -210,6 +258,67 @@ export const CAPABILITIES = deepFreeze({
    * made: only `SUPER_ADMIN` holds it, through `ALL_CAPABILITIES`.
    */
   RETENTION_VIEW: 'retention:view',
+  /**
+   * Invite somebody to start an organisation here, and read, withdraw and
+   * reissue those invitations.
+   *
+   * Platform-only: an organisation cannot vouch for itself, which is the whole
+   * point of the invitation. Held by ADMIN and by SUPER_ADMIN through
+   * ALL_CAPABILITIES.
+   */
+  ORGANIZER_INVITE: 'organizer:invite',
+  /**
+   * Turn an event's "Visit the organiser's website" link on or off, and read
+   * the list of website links waiting for a decision.
+   *
+   * Platform-only, and deliberately not `moderation:review`: a moderator
+   * decides whether a listing is fit to publish; whether the platform sends
+   * its visitors to somebody else's site is a separate call, held by platform
+   * administrators (ADMIN, and SUPER_ADMIN through ALL_CAPABILITIES).
+   */
+  WEBSITE_REDIRECT_MANAGE: 'website_redirect:manage',
+  /**
+   * Set an event's own booking fee (the platform fee) or return it to the site
+   * default, and switch paying at the venue on or off with its limit on unpaid
+   * places, in any status but DELETED (SPEC3 §3.1, §3.3).
+   *
+   * Platform-only: the fee is The Desi Events' revenue, and how a buyer may pay is
+   * for the team at The Desi Events to decide, never an organiser. Held by ADMIN, and by
+   * SUPER_ADMIN through ALL_CAPABILITIES (ADR 0016).
+   */
+  PAYMENT_TERMS_MANAGE: 'payment_terms:manage',
+  /**
+   * Make, change, switch on or off, list and report the referral codes that
+   * waive an order's whole booking fee (SPEC3 §3.2).
+   *
+   * Platform-only: a code removes The Desi Events' own fee, and its text is shown
+   * only to platform administrators. Held by ADMIN, and by SUPER_ADMIN through
+   * ALL_CAPABILITIES (ADR 0016).
+   */
+  REFERRAL_CODE_MANAGE: 'referral_code:manage',
+  /**
+   * Refund what is left of one past order's booking fee, and the tax it
+   * carried, by hand: request, approve and submit in one step, nothing else of
+   * the order (SPEC3 §7.4, the owner's A4). It reads that one order's
+   * booking-fee figures by reference to do so.
+   *
+   * Platform-only: the fee is The Desi Events' money, not an organiser's. Held by
+   * ADMIN and FINANCE_ADMIN, and by SUPER_ADMIN through ALL_CAPABILITIES.
+   */
+  PLATFORM_FEE_REFUND: 'platform_fee:refund',
+  /**
+   * Cancel unpaid pay-at-the-venue tickets of any event's booking, keeping
+   * their booking fee, and read the bookings waiting to be paid at the door
+   * (SPEC3-XI XU2). Nothing is refunded and no money moves.
+   *
+   * Platform-only, and not `order:refund`: the organisation side of the same
+   * decision is a membership granting `order:refund` (OWNER, ADMIN), checked
+   * on the membership alone. ADMIN cannot hold `order:refund` (its allow-list
+   * is an equality), so the team at The Desi Events needs its own name for it. Held by
+   * ADMIN, and by SUPER_ADMIN through ALL_CAPABILITIES; not by FINANCE_ADMIN,
+   * MODERATOR or SUPPORT.
+   */
+  VENUE_BOOKING_CANCEL: 'venue_booking:cancel',
   PLATFORM_ADMIN: 'platform:admin',
 })
 
@@ -237,6 +346,16 @@ export const PLATFORM_ONLY_CAPABILITIES = deepFreeze([
   CAPABILITIES.RECONCILIATION_MANAGE,
   CAPABILITIES.LEDGER_MANAGE,
   CAPABILITIES.RETENTION_VIEW,
+  CAPABILITIES.ORGANIZER_INVITE,
+  CAPABILITIES.WEBSITE_REDIRECT_MANAGE,
+  CAPABILITIES.ANALYTICS_VIEW_ALL,
+  CAPABILITIES.EVENT_PLATFORM_EDIT,
+  CAPABILITIES.EVENT_PLATFORM_DELETE,
+  CAPABILITIES.EVENT_IMPORT,
+  CAPABILITIES.PAYMENT_TERMS_MANAGE,
+  CAPABILITIES.REFERRAL_CODE_MANAGE,
+  CAPABILITIES.PLATFORM_FEE_REFUND,
+  CAPABILITIES.VENUE_BOOKING_CANCEL,
   CAPABILITIES.PLATFORM_ADMIN,
 ])
 
@@ -265,9 +384,10 @@ export const ORG_ROLE_ORDER = deepFreeze([
 /**
  * Platform-wide user roles, least to most senior, mirroring `UserRole`.
  *
- * Phase 1's single `ADMIN` became `SUPER_ADMIN`, and the three narrower roles
- * exist so that support, moderation and finance work does not require the key
- * to everything.
+ * Phase 1's single `ADMIN` became `SUPER_ADMIN`. The narrower roles exist so
+ * that support, moderation, finance and platform administration work does not
+ * require the key to everything. Today's `ADMIN` is the platform administrator
+ * (see {@link PLATFORM_ADMINISTRATOR_CAPABILITIES}), not Phase 1's catch-all.
  *
  * @type {ReadonlyArray<string>}
  */
@@ -277,6 +397,7 @@ export const PLATFORM_ROLE_ORDER = deepFreeze([
   'SUPPORT',
   'MODERATOR',
   'FINANCE_ADMIN',
+  'ADMIN',
   'SUPER_ADMIN',
 ])
 
@@ -337,6 +458,8 @@ const ORG_ROLE_GRANTS = {
     CAPABILITIES.PROMO_MANAGE,
     CAPABILITIES.ATTENDEE_EXPORT,
     CAPABILITIES.TICKET_REVOKE,
+    // Take down an event nobody paid for. Deleting a sold one is ADMIN's.
+    CAPABILITIES.EVENT_DELETE_UNSOLD,
   ],
   // Handles money, and cannot publish or edit an event.
   FINANCE: [
@@ -507,6 +630,56 @@ function resolveAll(grants, inherits) {
 export const ORG_ROLE_CAPABILITIES = deepFreeze(resolveAll(ORG_ROLE_GRANTS, ORG_ROLE_INHERITS))
 
 /**
+ * Everything the platform administrator (`ADMIN`) holds, and nothing else.
+ *
+ * An allow-list rather than a list of exclusions: the role reviews events,
+ * pictures and organisations, invites organisers, switches an event's website
+ * link, and reads every event's figures, and a later edit that hands it one
+ * more capability — a door, a ticket refund, an event of its own to publish —
+ * has to change this list and its test on purpose. A reviewer who could also
+ * write and publish events would be the self-review hole the review gate exists
+ * to close, and one who could move an organiser's money or change platform
+ * roles would be a second SUPER_ADMIN. {@link assertPlatformAdministratorBounds}
+ * holds the role table to exactly this list when the module loads.
+ *
+ * `report:view` is platform-wide here, so `can(admin, 'report:view',
+ * {organizationId})` answers yes for every organisation; the money on those
+ * reports stays behind `finance:view`, which ADMIN does not hold, except one
+ * order's booking-fee figures, read by reference to refund that fee
+ * (`platform_fee:refund`).
+ *
+ * ADMIN edits posted events only, in audited sittings (`event:platform_edit`),
+ * and deletes events (`event:platform_delete`), with the whole-order refunds
+ * that requires: no amount, recipient or order is chosen. It imports listed
+ * events onto the platform-held organisation (`event:import`). It sets the
+ * booking fee and pay-at-the-venue switch of any event, makes referral codes
+ * that waive the fee (ADR 0016), refunds one order's booking fee by hand
+ * (A4), and cancels unpaid pay-at-the-venue tickets of any event, keeping
+ * their booking fee (SPEC3-XI XU); it moves no organiser's money, refunds no
+ * ticket price and holds no posting capability.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
+  [
+    CAPABILITIES.MODERATION_REVIEW,
+    CAPABILITIES.EVENT_VIEW_DRAFT,
+    CAPABILITIES.VENUE_MANAGE,
+    CAPABILITIES.ORGANIZER_INVITE,
+    CAPABILITIES.REPORT_VIEW,
+    CAPABILITIES.WEBSITE_REDIRECT_MANAGE,
+    CAPABILITIES.ANALYTICS_VIEW_ALL,
+    CAPABILITIES.EVENT_PLATFORM_EDIT,
+    CAPABILITIES.EVENT_PLATFORM_DELETE,
+    CAPABILITIES.EVENT_IMPORT,
+    CAPABILITIES.PAYMENT_TERMS_MANAGE,
+    CAPABILITIES.REFERRAL_CODE_MANAGE,
+    CAPABILITIES.PLATFORM_FEE_REFUND,
+    CAPABILITIES.VENUE_BOOKING_CANCEL,
+  ].sort(),
+)
+
+/**
  * Capabilities granted by the platform-wide `User.role`, independent of any
  * organisation membership.
  *
@@ -515,9 +688,18 @@ export const ORG_ROLE_CAPABILITIES = deepFreeze(resolveAll(ORG_ROLE_GRANTS, ORG_
  * organisation on the platform, which is exactly the cross-tenant leak this
  * module exists to prevent.
  *
- * The three narrow staff roles exist so that the common platform jobs do not
- * need `SUPER_ADMIN`. A moderator cannot refund; a finance administrator
- * cannot approve an event; support can read an order and change nothing.
+ * The narrow staff roles exist so that the common platform jobs do not need
+ * `SUPER_ADMIN`. A moderator cannot refund; a finance administrator cannot
+ * approve an event; support can read an order and change nothing; a platform
+ * administrator reviews, invites organisers, switches website links, edits and
+ * deletes posted events and imports listed ones, sets booking fees and paying
+ * at the venue, makes referral codes and cancels unpaid pay-at-the-venue
+ * tickets, and cannot change anybody's platform role, move an organiser's money
+ * or admit anybody at a door. MODERATOR, SUPPORT and FINANCE_ADMIN hold none of
+ * the three platform event capabilities (`event:platform_edit`,
+ * `event:platform_delete`, `event:import`), and none of `payment_terms:manage`,
+ * `referral_code:manage` or `venue_booking:cancel`; FINANCE_ADMIN refunds one
+ * order's booking fee by hand (`platform_fee:refund`), as ADMIN does.
  *
  * @type {Readonly<Record<string, ReadonlyArray<string>>>}
  */
@@ -539,9 +721,42 @@ export const PLATFORM_ROLE_CAPABILITIES = deepFreeze({
     CAPABILITIES.RECONCILIATION_MANAGE,
     CAPABILITIES.LEDGER_MANAGE,
     CAPABILITIES.SUPPORT_VIEW_ORDER,
+    CAPABILITIES.PLATFORM_FEE_REFUND,
   ].sort(),
+  ADMIN: [...PLATFORM_ADMINISTRATOR_CAPABILITIES],
   SUPER_ADMIN: [...ALL_CAPABILITIES],
 })
+
+/**
+ * Throw unless the platform administrator's capabilities are exactly
+ * {@link PLATFORM_ADMINISTRATOR_CAPABILITIES}: nothing missing, nothing extra.
+ *
+ * An equality rather than a check for a few forbidden names, so nothing is
+ * added silently: a capability invented next year is outside the list until
+ * somebody puts it there.
+ *
+ * @param {Record<string, ReadonlyArray<string>>} table A platform role table.
+ * @returns {Record<string, ReadonlyArray<string>>} The same table, when it holds.
+ * @throws {Error} Naming what is extra and what is missing.
+ */
+export function assertPlatformAdministratorBounds(table) {
+  const held = new Set(table?.ADMIN ?? [])
+  const allowed = new Set(PLATFORM_ADMINISTRATOR_CAPABILITIES)
+  const extra = [...held].filter((capability) => !allowed.has(capability)).sort()
+  const missing = [...allowed].filter((capability) => !held.has(capability)).sort()
+
+  if (extra.length > 0 || missing.length > 0) {
+    throw new Error(
+      'The platform administrator (ADMIN) must hold exactly PLATFORM_ADMINISTRATOR_CAPABILITIES' +
+        `${extra.length ? `; it also holds ${extra.join(', ')}` : ''}` +
+        `${missing.length ? `; it lacks ${missing.join(', ')}` : ''}`,
+    )
+  }
+
+  return table
+}
+
+assertPlatformAdministratorBounds(PLATFORM_ROLE_CAPABILITIES)
 
 // An organisation membership must never be able to grant platform-wide
 // authority. Asserted at load rather than tested only, so a bad edit fails the
@@ -617,4 +832,167 @@ export function canAssignOrgRole(assignerRole, targetRole) {
   if (targetRole === 'OWNER') return assignerRole === 'OWNER'
 
   return targetCapabilities.every((capability) => assignerCapabilities.includes(capability))
+}
+
+/**
+ * The capabilities that create or publish events.
+ *
+ * Holding one of them is what "posts events" means. The Desi Events team
+ * decides who does: an organiser invitation makes somebody the owner of a new
+ * organisation, and a super administrator may grant any role directly. An
+ * organisation cannot hand one of these to somebody new on its own.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const EVENT_POSTING_CAPABILITIES = deepFreeze([
+  CAPABILITIES.EVENT_CREATE,
+  CAPABILITIES.EVENT_UPDATE,
+  CAPABILITIES.EVENT_SUBMIT_REVIEW,
+  CAPABILITIES.EVENT_PUBLISH,
+])
+
+/**
+ * Everything that shapes an event or what it sells: posting, plus pausing,
+ * cancelling and deleting, tiers, inventory, venues, seating and promo codes.
+ *
+ * No role an owner may hand out holds any of these, so an owner-issued role can
+ * read, scan, staff the door or handle money, and cannot change an event.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const EVENT_AUTHORITY_CAPABILITIES = deepFreeze([
+  ...EVENT_POSTING_CAPABILITIES,
+  CAPABILITIES.EVENT_PAUSE_SALES,
+  CAPABILITIES.EVENT_CANCEL,
+  CAPABILITIES.EVENT_DELETE,
+  CAPABILITIES.EVENT_DELETE_UNSOLD,
+  CAPABILITIES.TICKET_TYPE_MANAGE,
+  CAPABILITIES.INVENTORY_MANAGE,
+  CAPABILITIES.VENUE_MANAGE,
+  CAPABILITIES.VENUE_MAP_MANAGE,
+  CAPABILITIES.PROMO_MANAGE,
+])
+
+/**
+ * The organisation roles that post events, in {@link ORG_ROLE_ORDER} order.
+ *
+ * Derived from the role table rather than listed, so a grant that gave another
+ * role a posting capability would move it here — and then fail
+ * {@link assertPostingPolicy}, which pins the other half.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const EVENT_POSTING_ORG_ROLES = deepFreeze(
+  ORG_ROLE_ORDER.filter((role) =>
+    ORG_ROLE_CAPABILITIES[role].some((capability) =>
+      EVENT_POSTING_CAPABILITIES.includes(capability),
+    ),
+  ),
+)
+
+/**
+ * The organisation roles an owner may give somebody new: the ones that do not
+ * post events, in {@link ORG_ROLE_ORDER} order.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const OWNER_GRANTABLE_ORG_ROLES = deepFreeze(
+  ORG_ROLE_ORDER.filter((role) => !EVENT_POSTING_ORG_ROLES.includes(role)),
+)
+
+/**
+ * Whether an organisation role creates or publishes events.
+ *
+ * @param {unknown} role An `OrgRole`.
+ * @returns {boolean} True for EVENT_MANAGER, MANAGER, ADMIN and OWNER.
+ */
+export function postsEvents(role) {
+  return typeof role === 'string' && EVENT_POSTING_ORG_ROLES.includes(role)
+}
+
+/**
+ * Throw unless the organisation role table keeps event authority away from the
+ * roles an owner may hand out.
+ *
+ * Three rules. The owner-grantable roles are exactly FINANCE, SCANNER, STAFF and
+ * VIEWER, so a role-table change must also change this on purpose. None of them
+ * holds any of {@link EVENT_AUTHORITY_CAPABILITIES}: a future grant of
+ * `promo:manage` to FINANCE, say, fails every process rather than quietly
+ * widening what owners can give. And OWNER posts events.
+ *
+ * @param {Record<string, ReadonlyArray<string>>} [table] An organisation role table.
+ * @returns {Record<string, ReadonlyArray<string>>} The same table, when it holds.
+ * @throws {Error} Naming the rule broken.
+ */
+export function assertPostingPolicy(table = ORG_ROLE_CAPABILITIES) {
+  const posts = (role) =>
+    (table[role] ?? []).some((capability) => EVENT_POSTING_CAPABILITIES.includes(capability))
+  const grantable = Object.keys(table)
+    .filter((role) => !posts(role))
+    .sort()
+
+  if (JSON.stringify(grantable) !== JSON.stringify(['FINANCE', 'SCANNER', 'STAFF', 'VIEWER'])) {
+    throw new Error(
+      `The roles that do not post events must be FINANCE, SCANNER, STAFF and VIEWER; they are ${grantable.join(', ')}`,
+    )
+  }
+
+  for (const role of grantable) {
+    const authority = (table[role] ?? []).filter((capability) =>
+      EVENT_AUTHORITY_CAPABILITIES.includes(capability),
+    )
+
+    if (authority.length > 0) {
+      throw new Error(
+        `The owner-grantable role "${role}" holds event authority: ${authority.join(', ')}`,
+      )
+    }
+  }
+
+  if (!posts('OWNER')) throw new Error('OWNER must post events')
+
+  return table
+}
+
+assertPostingPolicy(ORG_ROLE_CAPABILITIES)
+
+/**
+ * May a member holding `assignerRole` give somebody new `targetRole`, by a team
+ * invitation?
+ *
+ * {@link canAssignOrgRole}, and the role must not post events: those are given
+ * by the team at The Desi Events.
+ *
+ * @param {string} assignerRole The granting member's role.
+ * @param {string} targetRole The role offered.
+ * @returns {boolean} True when the invitation may offer it.
+ */
+export function canIssueOrgRole(assignerRole, targetRole) {
+  return canAssignOrgRole(assignerRole, targetRole) && !postsEvents(targetRole)
+}
+
+/**
+ * May a member holding `assignerRole` move a member from `fromRole` to `toRole`?
+ *
+ * Never to OWNER (ownership is handed over, not assigned), only to a role the
+ * assigner could grant ({@link canAssignOrgRole}), and a move to a role that
+ * posts events only downwards: the member must already post events, and the new
+ * role's capabilities must be a subset of the old one's. An upward move to a
+ * posting role, or any move that makes a non-poster a poster, is for the team
+ * at The Desi Events to make.
+ *
+ * @param {string} assignerRole The acting member's role.
+ * @param {string} fromRole The member's current role.
+ * @param {string} toRole The role asked for.
+ * @returns {boolean} True when the move is allowed.
+ */
+export function canMoveOrgRole(assignerRole, fromRole, toRole) {
+  if (toRole === 'OWNER') return false
+  if (!canAssignOrgRole(assignerRole, toRole)) return false
+  if (!postsEvents(toRole)) return true
+  if (!postsEvents(fromRole)) return false
+
+  const from = ORG_ROLE_CAPABILITIES[fromRole] ?? []
+
+  return (ORG_ROLE_CAPABILITIES[toRole] ?? []).every((capability) => from.includes(capability))
 }

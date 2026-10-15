@@ -165,6 +165,37 @@ describe('createIssueTicketsProcessor', () => {
     },
   )
 
+  it.each(['PAID', 'PENDING'])(
+    'fails permanently for a %s order paid at the venue, and writes no ticket',
+    async (status) => {
+      // Its tickets each carry a share of the door price, which only
+      // settlement writes; one minted here would admit without being paid for.
+      const prisma = createFakePrisma({
+        orders: [buildOrder({ status, paymentMethod: 'AT_VENUE', quantity: 3 })],
+      })
+
+      const error = await createIssueTicketsProcessor({ prisma, generateCodes: sequentialCodes })(
+        job(),
+      ).catch((thrown) => thrown)
+
+      expect(error).toMatchObject({ name: 'PermanentJobError', code: 'INVALID_STATE' })
+      expect(error.message).toMatch(/paid at the venue/u)
+      expect(prisma.rows.tickets).toHaveLength(0)
+    },
+  )
+
+  it('still mints a card order that names its payment method', async () => {
+    const prisma = createFakePrisma({
+      orders: [buildOrder({ paymentMethod: 'CARD', quantity: 2 })],
+    })
+
+    const result = await createIssueTicketsProcessor({ prisma, generateCodes: sequentialCodes })(
+      job(),
+    )
+
+    expect(result).toMatchObject({ issued: 2, total: 2, complete: true })
+  })
+
   it('rejects a payload with no order id', async () => {
     const prisma = createFakePrisma({ orders: [buildOrder()] })
 

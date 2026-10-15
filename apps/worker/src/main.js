@@ -94,6 +94,7 @@ export async function start(options = {}) {
   await registerRepeatableJobs({
     queues,
     intervalMs: env.EXPIRE_HOLDS_INTERVAL_MS,
+    trafficRollupIntervalMs: env.TRAFFIC_ROLLUP_INTERVAL_MS,
     logger,
   })
 
@@ -111,6 +112,7 @@ export async function start(options = {}) {
       concurrency: env.WORKER_CONCURRENCY,
       prefix: env.QUEUE_PREFIX,
       sweepIntervalMs: env.EXPIRE_HOLDS_INTERVAL_MS,
+      trafficRollupIntervalMs: env.TRAFFIC_ROLLUP_INTERVAL_MS,
       // Said at boot rather than only when a rehearsal runs. An operator
       // reading the startup line should be able to answer "would a retention
       // sweep do anything here?" without enqueueing one to find out.

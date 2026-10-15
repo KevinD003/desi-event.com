@@ -10,16 +10,59 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { websiteUrlProblem } from '@desi-event/schemas/website'
+
+import { inflateSync } from 'node:zlib'
+
 import {
   applyBps,
   buildSeedData,
   computeSeedOrderTotals,
+  deletionColumns,
+  demonstrationTrafficDay,
+  eventStatusPath,
+  eventWritePlan,
+  generateSeedReferralCode,
+  localTime,
   offset,
+  onOrAfterWeekday,
+  REFERRAL_CODE_ALPHABET,
+  seedFeeKeptCents,
+  seedStorageKey,
+  settleEventStatus,
+  solidSeedPng,
   startOfUtcDay,
 } from '../scripts/seed.mjs'
 
 const NOW = new Date('2026-09-14T11:22:33.456Z')
 const data = buildSeedData(NOW)
+
+/** Which zone each state in the catalogue keeps its clocks in. */
+const ZONE_BY_STATE = {
+  NJ: 'America/New_York',
+  NY: 'America/New_York',
+  PA: 'America/New_York',
+  GA: 'America/New_York',
+  TX: 'America/Chicago',
+  IL: 'America/Chicago',
+  CA: 'America/Los_Angeles',
+  WA: 'America/Los_Angeles',
+}
+
+/**
+ * The local wall-clock hour of an instant in a zone.
+ *
+ * @param {Date} instant The instant.
+ * @param {string} timeZone An IANA zone.
+ * @returns {number} The hour, 0–23.
+ */
+function localHour(instant, timeZone) {
+  return Number(
+    new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone })
+      .formatToParts(instant)
+      .find((part) => part.type === 'hour').value,
+  )
+}
 
 describe('startOfUtcDay', () => {
   it('truncates to midnight UTC', () => {
@@ -42,6 +85,45 @@ describe('offset', () => {
   it('accepts negative days for past events', () => {
     const anchor = startOfUtcDay(NOW)
     expect(offset(anchor, -30).toISOString()).toBe('2026-08-15T00:00:00.000Z')
+  })
+})
+
+describe('localTime', () => {
+  it('turns a local evening into the right UTC instant for the zone', () => {
+    const anchor = startOfUtcDay(NOW)
+
+    // 7:30 PM in New York in September is 23:30 UTC (EDT, −04:00) …
+    expect(localTime(anchor, 0, 'America/New_York', 19, 30).toISOString()).toBe(
+      '2026-09-14T23:30:00.000Z',
+    )
+    // … in Houston 00:30 UTC the next day (CDT, −05:00) …
+    expect(localTime(anchor, 0, 'America/Chicago', 19, 30).toISOString()).toBe(
+      '2026-09-15T00:30:00.000Z',
+    )
+    // … and in Santa Clara 02:30 UTC the next day (PDT, −07:00).
+    expect(localTime(anchor, 0, 'America/Los_Angeles', 19, 30).toISOString()).toBe(
+      '2026-09-15T02:30:00.000Z',
+    )
+  })
+
+  it('follows the zone across a daylight-saving change', () => {
+    const anchor = startOfUtcDay(NOW)
+
+    // The clocks go back on 1 November 2026, so the same 7:30 PM is an hour
+    // later in UTC in December.
+    expect(localTime(anchor, 88, 'America/New_York', 19, 30).toISOString()).toBe(
+      '2026-12-12T00:30:00.000Z',
+    )
+  })
+})
+
+describe('onOrAfterWeekday', () => {
+  it('finds the first matching weekday at or after the offset', () => {
+    const anchor = startOfUtcDay(NOW) // a Monday
+
+    expect(onOrAfterWeekday(anchor, 0, 1)).toBe(0)
+    expect(onOrAfterWeekday(anchor, 0, 6)).toBe(5)
+    expect(onOrAfterWeekday(anchor, 20, 6)).toBe(26)
   })
 })
 
@@ -109,27 +191,60 @@ describe('computeSeedOrderTotals', () => {
 
 describe('buildSeedData shape', () => {
   it('produces the documented breadth of data', () => {
-    expect(data.organizations).toHaveLength(2)
-    expect(data.venues.length).toBeGreaterThanOrEqual(4)
-    expect(data.venues.length).toBeLessThanOrEqual(6)
-    expect(data.events.length).toBeGreaterThanOrEqual(8)
-    expect(data.events.length).toBeLessThanOrEqual(12)
+    // Ten organisers and eleven venues, as in the web catalogue, and an
+    // eleventh organisation waiting to be verified, which has no events and so
+    // no copy there; the catalogue's twenty events plus an online workshop,
+    // two drafts and one deleted event, which no catalogue shows.
+    expect(data.organizations).toHaveLength(11)
+    expect(data.venues).toHaveLength(11)
+    expect(data.events).toHaveLength(24)
+    expect(data.events.filter((event) => event.status === 'DELETED')).toHaveLength(1)
     expect(data.promoCodes.length).toBeGreaterThanOrEqual(3)
     expect(data.orders.length).toBeGreaterThanOrEqual(6)
   })
 
-  it('gives every organisation an owner and staff on differing roles', () => {
+  it('gives every organisation exactly one owner and no role twice', () => {
     for (const org of data.organizations) {
       const roles = org.members.map((member) => member.role)
-      expect(roles).toContain('OWNER')
       expect(roles.filter((role) => role === 'OWNER')).toHaveLength(1)
       expect(new Set(roles).size).toBe(roles.length)
-      expect(roles.length).toBeGreaterThanOrEqual(3)
     }
   })
 
-  it('covers both payout currencies', () => {
-    expect(data.organizations.map((org) => org.payoutCurrency).sort()).toEqual(['CAD', 'INR'])
+  it('staffs two organisations with full teams that between them use every role', () => {
+    const staffed = data.organizations.filter((org) => org.members.length >= 3)
+    const roles = new Set(staffed.flatMap((org) => org.members.map((member) => member.role)))
+
+    expect(staffed.map((org) => org.slug).sort()).toEqual([
+      'chaniya-collective',
+      'mirrorwork-events',
+    ])
+    expect(roles).toEqual(new Set(['OWNER', 'ADMIN', 'MANAGER', 'STAFF', 'VIEWER']))
+  })
+
+  it('pays every organisation out in US dollars', () => {
+    expect(new Set(data.organizations.map((org) => org.payoutCurrency))).toEqual(new Set(['USD']))
+  })
+
+  it('verifies every organiser but two, one never checked and one waiting, and keeps the badge column in step', () => {
+    const unverified = data.organizations.filter((org) => org.verificationStatus !== 'VERIFIED')
+
+    expect(unverified.map((org) => [org.slug, org.verificationStatus])).toEqual([
+      ['liberty-bell-navratri', 'UNVERIFIED'],
+      ['garden-state-dandiya-club', 'PENDING'],
+    ])
+    for (const org of data.organizations) {
+      expect(org.verified).toBe(org.verificationStatus === 'VERIFIED')
+      expect(Object.values(ZONE_BY_STATE)).toContain(org.timezone)
+    }
+  })
+
+  it('invents every organisation and person, on reserved .example domains', () => {
+    for (const org of data.organizations) {
+      expect(org.contactEmail).toMatch(/\.example$/)
+      expect(new URL(org.websiteUrl).hostname).toMatch(/\.example$/)
+    }
+    for (const user of data.users) expect(user.email).toMatch(/\.example$/)
   })
 
   it('never stores a plaintext password, and stores it in the current format', () => {
@@ -142,8 +257,8 @@ describe('buildSeedData shape', () => {
   })
 
   it('gives every seeded account the same hash, computed once', () => {
-    // Fifteen accounts share one password, so hashing per account would be
-    // fifteen derivations for one credential printed at the end of the run.
+    // Every account shares one password, so hashing per account would be one
+    // derivation per account for one credential printed at the end of the run.
     expect(new Set(data.users.map((user) => user.passwordHash)).size).toBe(1)
   })
 
@@ -158,28 +273,106 @@ describe('buildSeedData shape', () => {
     })
   })
 
-  it('uses unique emails and includes attendees, organisers and an admin', () => {
+  it('uses unique emails and includes attendees, organisers, both administrators and a moderator', () => {
     const emails = data.users.map((user) => user.email)
     expect(new Set(emails).size).toBe(emails.length)
 
     const roles = new Set(data.users.map((user) => user.role))
-    expect(roles).toEqual(new Set(['ATTENDEE', 'ORGANIZER', 'SUPER_ADMIN']))
+    expect(roles).toEqual(new Set(['ATTENDEE', 'ORGANIZER', 'SUPER_ADMIN', 'ADMIN', 'MODERATOR']))
   })
 
-  it('gives every venue a full postal address', () => {
+  it('seeds exactly one platform administrator, who belongs to no organisation', () => {
+    const administrators = data.users.filter((user) => user.role === 'ADMIN')
+    const members = new Set(
+      data.organizations.flatMap((org) => org.members.map((member) => member.email)),
+    )
+
+    expect(administrators.map((user) => user.email)).toEqual(['platform-admin@desi-event.example'])
+    expect(administrators[0].displayName).toBe('The Desi Events Platform Administrator')
+    expect(members.has('platform-admin@desi-event.example')).toBe(false)
+  })
+
+  it('seeds one moderator, who belongs to no organisation', () => {
+    const moderators = data.users.filter((user) => user.role === 'MODERATOR')
+    const members = new Set(
+      data.organizations.flatMap((org) => org.members.map((member) => member.email)),
+    )
+
+    expect(moderators.map((user) => user.email)).toEqual(['moderator@desi-event.example'])
+    expect(members.has('moderator@desi-event.example')).toBe(false)
+  })
+
+  it('seeds no second factor for anybody, privileged or not', () => {
+    // A privileged account sets its own up on first sign-in; a factor written
+    // here would be a secret printed in the repository.
+    for (const user of data.users) {
+      expect(Object.keys(user).filter((key) => /mfa|totp|factor|secret/iu.test(key))).toEqual([])
+    }
+    expect(Object.keys(data).filter((key) => /mfa|totp|factor/iu.test(key))).toEqual([])
+  })
+
+  it('puts the waiting organisation in the queue the way the site would have', () => {
+    const waiting = data.organizations.find((org) => org.verificationStatus === 'PENDING')
+    const owner = waiting.members.find((member) => member.role === 'OWNER')
+
+    // Made from the site by its owner, who asked for the check two days ago.
+    expect(waiting.createdByEmail).toBe(owner.email)
+    expect(waiting.verificationUpdatedAt.getTime()).toBeLessThan(NOW.getTime())
+    expect(waiting.legalName).toBeTruthy()
+    expect(data.verificationEvents).toEqual([
+      expect.objectContaining({
+        organizationId: waiting.id,
+        fromStatus: 'UNVERIFIED',
+        toStatus: 'PENDING',
+        actorEmail: owner.email,
+        createdAt: waiting.verificationUpdatedAt,
+      }),
+    ])
+    expect(data.verificationEvents[0].reason).toBeTruthy()
+
+    // It has nothing to sell: until it is verified it could not publish.
+    expect(data.events.filter((event) => event.organizationId === waiting.id)).toEqual([])
+    // Every other organisation says nothing about who made it.
+    for (const org of data.organizations) {
+      if (org !== waiting) expect(org.createdByEmail).toBeNull()
+    }
+  })
+
+  it('gives every venue a full US postal address, in its state’s zone', () => {
     for (const venue of data.venues) {
       expect(venue.addressLine1).toBeTruthy()
       expect(venue.city).toBeTruthy()
-      expect(venue.region).toBeTruthy()
-      expect(venue.postalCode).toBeTruthy()
-      expect(['IN', 'CA']).toContain(venue.country)
+      expect(venue.postalCode).toMatch(/^\d{5}$/)
+      expect(venue.country).toBe('US')
+      expect(venue.timezone).toBe(ZONE_BY_STATE[venue.region])
       expect(venue.capacity).toBeGreaterThan(0)
     }
   })
 
-  it('spreads venues across India and the diaspora', () => {
-    const countries = new Set(data.venues.map((venue) => venue.country))
-    expect(countries).toEqual(new Set(['IN', 'CA']))
+  it('claims no coordinates for an invented address', () => {
+    for (const venue of data.venues) {
+      expect(venue.latitude).toBeNull()
+      expect(venue.longitude).toBeNull()
+    }
+  })
+
+  it('states each venue’s access as claims from the vocabulary', () => {
+    for (const venue of data.venues) {
+      expect(venue.accessibility.features.length).toBeGreaterThan(0)
+      expect(venue.accessibility.features).toContain('STEP_FREE_ENTRANCE')
+    }
+  })
+
+  it('gives every venue a unique slug, so each has a public page and a place in the directory', () => {
+    const slugs = data.venues.map((venue) => venue.slug)
+
+    for (const slug of slugs) expect(slug).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    expect(new Set(slugs).size).toBe(slugs.length)
+  })
+
+  it('spreads venues across the three US time zones the catalogue uses', () => {
+    const zones = new Set(data.venues.map((venue) => venue.timezone))
+    expect(zones).toEqual(new Set(['America/New_York', 'America/Chicago', 'America/Los_Angeles']))
   })
 })
 
@@ -196,10 +389,79 @@ describe('seeded events', () => {
     for (const id of ids) expect(id).toMatch(/^[a-z][a-z0-9]{7,31}$/)
   })
 
-  it('mixes published and draft status', () => {
-    const statuses = data.events.map((event) => event.status)
-    expect(statuses).toContain('PUBLISHED')
-    expect(statuses).toContain('DRAFT')
+  it('exercises every state a public page has to say honestly, drafts and a deleted event', () => {
+    const statuses = new Set(data.events.map((event) => event.status))
+
+    expect(statuses).toEqual(
+      new Set([
+        'ON_SALE',
+        'SOLD_OUT',
+        'SALES_PAUSED',
+        'POSTPONED',
+        'CANCELLED',
+        'COMPLETED',
+        'DRAFT',
+        'DELETED',
+      ]),
+    )
+  })
+
+  it('records what postponing and cancelling write, and nothing on the others', () => {
+    for (const event of data.events) {
+      if (event.status === 'POSTPONED') {
+        expect(event.postponedAt).toBeInstanceOf(Date)
+        expect(event.previousStartsAt).toEqual(event.startsAt)
+      } else {
+        expect(event.postponedAt).toBeNull()
+        expect(event.previousStartsAt).toBeNull()
+      }
+
+      if (event.status === 'CANCELLED') {
+        expect(event.cancelledAt).toBeInstanceOf(Date)
+        expect(event.cancellationReason).toBeTruthy()
+      } else {
+        expect(event.cancelledAt).toBeNull()
+        expect(event.cancellationReason).toBeNull()
+      }
+    }
+  })
+
+  it('starts every event on a local evening, in the zone its venue keeps', () => {
+    const venueById = new Map(data.venues.map((venue) => [venue.id, venue]))
+
+    for (const event of data.events) {
+      const hour = localHour(event.startsAt, event.timezone)
+
+      expect(hour).toBeGreaterThanOrEqual(19)
+      expect(hour).toBeLessThanOrEqual(20)
+      if (event.venueId) expect(event.timezone).toBe(venueById.get(event.venueId).timezone)
+    }
+  })
+
+  it('puts the Saturday night on a Saturday', () => {
+    const saturday = data.events.find((event) => event.slug === 'peachtree-garba-saturday')
+    const weekday = new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      timeZone: saturday.timezone,
+    }).format(saturday.startsAt)
+
+    expect(weekday).toBe('Saturday')
+  })
+
+  it('seeds one picture, waiting for review, no cover and no external image address', () => {
+    // A cover is an uploaded, moderated MediaAsset now, and an external image
+    // address is not a column any more. The seed writes no cover, so every
+    // listing keeps the poster drawn from the event's slug; its one picture is
+    // a gallery picture nobody has approved, which no public page shows
+    // (SPEC2-XI §4.9).
+    for (const event of data.events) expect(Object.hasOwn(event, 'coverImageUrl')).toBe(false)
+    expect(Object.keys(data).filter((key) => /media|picture|image/iu.test(key))).toEqual([
+      'pictures',
+    ])
+    expect(data.pictures).toHaveLength(1)
+    expect(data.pictures.every((picture) => picture.kind === 'EVENT_GALLERY')).toBe(true)
+    expect(data.pictures.every((picture) => picture.moderationStatus === 'PENDING')).toBe(true)
+    expect(JSON.stringify(data.pictures)).not.toMatch(/https?:\/\//u)
   })
 
   it('mixes past and future start times around the anchor', () => {
@@ -215,14 +477,17 @@ describe('seeded events', () => {
     }
   })
 
-  it('spans several categories and varied language arrays', () => {
+  it('is garba season: garba and dandiya, workshops, melas and a concert, in varied languages', () => {
     const categories = new Set(data.events.map((event) => event.category))
-    expect(categories.size).toBeGreaterThanOrEqual(6)
+    expect(categories).toEqual(
+      new Set(['GARBA_DANDIYA', 'WORKSHOP', 'CULTURAL_FESTIVAL', 'MUSIC_CONCERT']),
+    )
 
     const languages = new Set(data.events.flatMap((event) => event.languages))
-    for (const language of ['Hindi', 'Gujarati', 'Tamil', 'Punjabi', 'English']) {
+    for (const language of ['Gujarati', 'Hindi', 'English']) {
       expect(languages).toContain(language)
     }
+    expect(new Set(data.events.map((event) => event.languages.join())).size).toBeGreaterThan(1)
   })
 
   it('pairs online events with a joining URL and no venue', () => {
@@ -240,38 +505,618 @@ describe('seeded events', () => {
     }
   })
 
-  it('sets publishedAt exactly on the published events', () => {
+  it('sets publishedAt on every event that has been public, and never on a draft', () => {
     for (const event of data.events) {
-      if (event.status === 'PUBLISHED') {
+      if (event.status === 'DRAFT') {
+        expect(event.publishedAt).toBeNull()
+        expect(event.salesOpenedAt).toBeNull()
+      } else {
         expect(event.publishedAt).toBeInstanceOf(Date)
         expect(event.publishedAt.getTime()).toBeLessThanOrEqual(NOW.getTime())
-      } else {
-        expect(event.publishedAt).toBeNull()
+        expect(event.publishedAt.getTime()).toBeLessThan(event.startsAt.getTime())
       }
     }
   })
 })
 
+describe('the seeded deleted event (SPEC2-XI §4.9)', () => {
+  const deleted = data.events.find((event) => event.status === 'DELETED')
+
+  it('was deleted from on sale by the platform administrator, with nothing sold', () => {
+    expect(deleted.slug).toBe('mirrorwork-sharad-purnima-showcase')
+    expect(deleted.organizationId).toBe(data.organizations[0].id)
+    expect(deleted.deletion).toEqual({
+      statusBeforeDeletion: 'ON_SALE',
+      deletionOutcome: 'REMOVED',
+      deletionAuthority: 'PLATFORM',
+      deletionReason: expect.any(String),
+      deletedByEmail: 'platform-admin@desi-event.example',
+      deletedAt: expect.any(Date),
+    })
+    // REMOVED means nobody held a paid order.
+    expect(data.orders.filter((order) => order.eventId === deleted.id)).toEqual([])
+    expect(
+      data.ticketTypes
+        .filter((type) => type.eventId === deleted.id)
+        .every((type) => type.quantitySold === 0),
+    ).toBe(true)
+  })
+
+  it('keeps a reason the database accepts, deleted after it was published and before now', () => {
+    const reason = deleted.deletion.deletionReason.trim()
+
+    expect(reason.length).toBeGreaterThanOrEqual(10)
+    expect(reason.length).toBeLessThanOrEqual(500)
+    expect(deleted.publishedAt.getTime()).toBeLessThan(deleted.deletion.deletedAt.getTime())
+    expect(deleted.deletion.deletedAt.getTime()).toBeLessThanOrEqual(NOW.getTime())
+  })
+
+  it('records the deletion in its history and its audit, once each', () => {
+    expect(data.moderationActions).toEqual([
+      expect.objectContaining({
+        eventId: deleted.id,
+        actorEmail: 'platform-admin@desi-event.example',
+        fromStatus: 'ON_SALE',
+        toStatus: 'DELETED',
+        reason: deleted.deletion.deletionReason,
+      }),
+    ])
+
+    const audit = data.auditLogs.filter((log) => log.action === 'event.deleted')
+
+    expect(audit).toHaveLength(1)
+    expect(audit[0]).toMatchObject({
+      entityType: 'Event',
+      entityId: deleted.id,
+      actorEmail: 'platform-admin@desi-event.example',
+      metadata: { from: 'ON_SALE', outcome: 'REMOVE', authority: 'PLATFORM', slugReleased: false },
+    })
+  })
+
+  it('writes every deletion column together, and none for an event that is not deleted', () => {
+    const ids = new Map([['platform-admin@desi-event.example', 'usr_admin']])
+
+    expect(deletionColumns(deleted.deletion, ids)).toEqual({
+      status: 'DELETED',
+      deletedAt: deleted.deletion.deletedAt,
+      deletedById: 'usr_admin',
+      deletionReason: deleted.deletion.deletionReason,
+      deletionOutcome: 'REMOVED',
+      deletionAuthority: 'PLATFORM',
+      statusBeforeDeletion: 'ON_SALE',
+      deletedSlug: null,
+    })
+    expect(deletionColumns(null, ids)).toEqual({})
+  })
+})
+
+describe('re-seeding a deleted event (SPEC2-XI O17)', () => {
+  const live = { status: 'ON_SALE' }
+  const deletedEvent = { status: 'DELETED' }
+
+  it('creates a missing row, deletion and all', () => {
+    expect(eventWritePlan(null, live)).toEqual({ write: 'create', deleteFrom: null })
+    expect(eventWritePlan(null, deletedEvent)).toEqual({ write: 'create', deleteFrom: null })
+  })
+
+  it('leaves a deleted row untouched, whether the seed deleted it or a developer did', () => {
+    expect(eventWritePlan({ id: 'evt_1', status: 'DELETED' }, deletedEvent)).toEqual({
+      write: 'none',
+      deleteFrom: null,
+    })
+    expect(eventWritePlan({ id: 'evt_1', status: 'DELETED' }, live)).toEqual({
+      write: 'none',
+      deleteFrom: null,
+    })
+  })
+
+  it('deletes a restored row again, recording the status it really had', () => {
+    expect(eventWritePlan({ id: 'evt_1', status: 'SALES_PAUSED' }, deletedEvent)).toEqual({
+      write: 'update',
+      deleteFrom: 'SALES_PAUSED',
+    })
+    expect(eventWritePlan({ id: 'evt_1', status: 'DRAFT' }, live)).toEqual({
+      write: 'update',
+      deleteFrom: null,
+    })
+  })
+
+  it('never walks a deleted row anywhere, and never walks a row into DELETED', async () => {
+    const writes = []
+    const prisma = {
+      event: {
+        findUnique: async () => ({ status: 'DELETED' }),
+        update: async ({ data: next }) => writes.push(next.status),
+      },
+    }
+
+    expect(await settleEventStatus(prisma, 'evt_1', 'ON_SALE')).toEqual([])
+    expect(writes).toEqual([])
+    await expect(settleEventStatus(prisma, 'evt_1', 'DELETED')).rejects.toThrow(
+      /written with its record/u,
+    )
+    expect(writes).toEqual([])
+  })
+})
+
+describe('the seeded organiser invitation (SPEC2 §8 Stage C)', () => {
+  it('waits for new-organiser@desi-event.example to start Kathiawar Folk Nights, issued by the platform administrator', () => {
+    expect(data.organizerInvitations).toEqual([
+      expect.objectContaining({
+        email: 'new-organiser@desi-event.example',
+        organizationName: 'Kathiawar Folk Nights',
+        invitedByEmail: 'platform-admin@desi-event.example',
+        deliveryMode: 'MANUAL',
+      }),
+    ])
+  })
+
+  it('carries no code or digest in the dataset: the code is made at write time and thrown away', () => {
+    const [invitation] = data.organizerInvitations
+
+    expect(Object.keys(invitation)).not.toContain('tokenHash')
+    expect(Object.keys(invitation)).not.toContain('token')
+    expect(JSON.stringify(invitation)).not.toMatch(/[0-9a-f]{64}/u)
+  })
+
+  it('is within the shapes the database checks, and works for fourteen days from its issue', () => {
+    const [invitation] = data.organizerInvitations
+
+    expect(invitation.email).toBe(invitation.email.toLowerCase())
+    expect(invitation.organizationName.length).toBeGreaterThanOrEqual(2)
+    expect(invitation.organizationName.length).toBeLessThanOrEqual(120)
+    expect(invitation.organizationDescription.length).toBeLessThanOrEqual(2000)
+    expect(invitation.note.length).toBeLessThanOrEqual(1000)
+    expect(websiteUrlProblem(invitation.organizationWebsiteUrl)).toBeNull()
+    expect(invitation.organizationWebsiteUrl).toMatch(
+      /^https:\/\/([a-z0-9-]+\.)+([a-z]{2,63}|xn--[a-z0-9-]+)\/[!-~]*$/u,
+    )
+    expect(invitation.createdAt.getTime()).toBeLessThan(NOW.getTime())
+    expect(invitation.expiresAt.getTime() - invitation.createdAt.getTime()).toBe(14 * 86_400_000)
+  })
+
+  it('is audited the way issuing one is: the delivery, and nothing that opens it', () => {
+    const [invitation] = data.organizerInvitations
+    const audit = data.auditLogs.filter((log) => log.action === 'organizer_invitation.issued')
+
+    expect(audit).toEqual([
+      expect.objectContaining({
+        actorEmail: 'platform-admin@desi-event.example',
+        entityType: 'OrganizerInvitation',
+        entityId: invitation.id,
+        metadata: { role: 'OWNER', deliveryMode: 'MANUAL' },
+      }),
+    ])
+  })
+})
+
+describe('the seeded picture waiting for review (SPEC2-XI §4.9)', () => {
+  const [picture] = data.pictures
+  const event = data.events.find((candidate) => candidate.id === picture.eventId)
+  const owner = data.organizations[0].members.find((member) => member.role === 'OWNER')
+
+  it('waits on a live event of the first organisation, uploaded by its owner', () => {
+    expect(event.organizationId).toBe(data.organizations[0].id)
+    expect(event.status).toBe('ON_SALE')
+    expect(picture.uploadedByEmail).toBe(owner.email)
+    expect(picture).toMatchObject({
+      kind: 'EVENT_GALLERY',
+      position: 0,
+      moderationStatus: 'PENDING',
+      scanStatus: 'CLEAN',
+    })
+    expect(picture.sanitisedAt).toBeInstanceOf(Date)
+    expect(picture.altText.trim().length).toBeGreaterThan(0)
+  })
+
+  it('stores a real PNG of the size it claims, with its own digest, under a key the store issues', () => {
+    expect(picture.bytes.subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    )
+    expect(picture.bytes.readUInt32BE(16)).toBe(picture.width)
+    expect(picture.bytes.readUInt32BE(20)).toBe(picture.height)
+    expect(picture.byteSize).toBe(picture.bytes.length)
+    expect(picture.checksum).toMatch(/^[0-9a-f]{64}$/u)
+    expect(picture.storageKey).toMatch(/^pg\/[0-9a-f-]{36}$/u)
+    expect(picture.storageKey).toBe(seedStorageKey(`seed-picture-${picture.key}`))
+  })
+})
+
+describe('solidSeedPng', () => {
+  it('holds exactly the pixels it describes, and only the three chunks a PNG needs', () => {
+    const png = solidSeedPng(3, 2, [10, 20, 30])
+    const types = []
+    let at = 8
+    let idat = null
+
+    while (at < png.length) {
+      const length = png.readUInt32BE(at)
+      const type = png.subarray(at + 4, at + 8).toString('latin1')
+
+      types.push(type)
+      if (type === 'IDAT') idat = png.subarray(at + 8, at + 8 + length)
+      at += 12 + length
+    }
+
+    expect(types).toEqual(['IHDR', 'IDAT', 'IEND'])
+    expect([...inflateSync(idat)]).toEqual([
+      0, 10, 20, 30, 10, 20, 30, 10, 20, 30, 0, 10, 20, 30, 10, 20, 30, 10, 20, 30,
+    ])
+  })
+})
+
+describe('seeded visit totals (SPEC2 §8 Stage C)', () => {
+  const firstOrg = data.organizations[0].id
+  const eventIds = [...new Set(data.trafficDaily.map((row) => row.eventId))]
+
+  it('covers fourteen whole UTC days, ending yesterday, for two public events of the first organisation', () => {
+    expect(eventIds).toHaveLength(2)
+
+    for (const eventId of eventIds) {
+      const event = data.events.find((candidate) => candidate.id === eventId)
+      const days = data.trafficDaily
+        .filter((row) => row.eventId === eventId)
+        .map((row) => row.day.toISOString())
+
+      expect(event.organizationId).toBe(firstOrg)
+      expect(['ON_SALE', 'SOLD_OUT', 'SALES_PAUSED', 'PUBLISHED']).toContain(event.status)
+      expect(days).toHaveLength(14)
+      expect(new Set(days).size).toBe(14)
+      expect(days.at(-1)).toBe(offset(startOfUtcDay(NOW), -1).toISOString())
+      expect(days[0]).toBe(offset(startOfUtcDay(NOW), -14).toISOString())
+      for (const day of days) expect(day.endsWith('T00:00:00.000Z')).toBe(true)
+    }
+  })
+
+  it('marks every row as a demonstration, which the screens announce', () => {
+    expect(data.trafficDaily.every((row) => row.demonstration === true)).toBe(true)
+  })
+
+  it('keeps every rule the database checks on daily totals', () => {
+    for (const row of data.trafficDaily) {
+      const counts = Object.entries(row).filter(([, value]) => typeof value === 'number')
+
+      for (const [, value] of counts) {
+        expect(Number.isInteger(value)).toBe(true)
+        expect(value).toBeGreaterThanOrEqual(0)
+      }
+      expect(row.views).toBe(
+        row.viewsDirect + row.viewsInternal + row.viewsSearch + row.viewsSocial + row.viewsOther,
+      )
+      expect(row.cardClicks).toBe(row.cardClicksHome + row.cardClicksListing + row.cardClicksSearch)
+      expect(row.visitors + row.anonymousViews).toBeLessThanOrEqual(row.views)
+      expect(row.ticketClickVisitors).toBeLessThanOrEqual(row.ticketClicks + row.seatClicks)
+      expect(row.websiteRedirectVisitors).toBeLessThanOrEqual(row.websiteRedirects)
+      expect(row.computedAt.getTime()).toBeGreaterThan(row.day.getTime())
+    }
+  })
+
+  it('counts website visits only where the link is on, and seat clicks only where there are seats', () => {
+    for (const eventId of eventIds) {
+      const event = data.events.find((candidate) => candidate.id === eventId)
+      const rows = data.trafficDaily.filter((row) => row.eventId === eventId)
+      const redirects = rows.reduce((sum, row) => sum + row.websiteRedirects, 0)
+
+      if (event.website?.on) expect(redirects).toBeGreaterThan(0)
+      else expect(redirects).toBe(0)
+    }
+
+    expect(
+      demonstrationTrafficDay({ index: 3, eventIndex: 0, seated: false, websiteOn: false })
+        .seatClicks,
+    ).toBe(0)
+    expect(
+      demonstrationTrafficDay({ index: 3, eventIndex: 0, seated: true, websiteOn: false })
+        .seatClicks,
+    ).toBeGreaterThan(0)
+  })
+
+  it('says the totals were last brought up to date as the seed ran', () => {
+    expect(data.trafficRollup).toEqual({ lastCompletedAt: NOW })
+  })
+})
+
+describe('seeded nights and seats', () => {
+  const eventById = new Map(data.events.map((event) => [event.id, event]))
+
+  it('gives only the nine-nights pass and the seated concert sessions of their own', () => {
+    const withSessions = new Set(data.eventSessions.map((session) => session.eventId))
+
+    expect([...withSessions].map((id) => eventById.get(id).slug).sort()).toEqual([
+      'mirrorwork-live-band-night',
+      'mirrorwork-nine-nights-pass',
+    ])
+  })
+
+  it('ends every session after it starts, inside its event, with stable CUID-shaped ids', () => {
+    const ids = data.eventSessions.map((session) => session.id)
+    expect(new Set(ids).size).toBe(ids.length)
+
+    for (const session of data.eventSessions) {
+      const event = eventById.get(session.eventId)
+
+      expect(session.id).toMatch(/^[a-z][a-z0-9]{7,31}$/)
+      expect(session.endsAt.getTime()).toBeGreaterThan(session.startsAt.getTime())
+      expect(session.startsAt.getTime()).toBeGreaterThanOrEqual(event.startsAt.getTime())
+      expect(session.endsAt.getTime()).toBeLessThanOrEqual(event.endsAt.getTime())
+      expect(session.doorsOpenAt.getTime()).toBeLessThan(session.startsAt.getTime())
+      expect(session.timezone).toBe(event.timezone)
+      // A label is optional, and at most sixty characters when there is one.
+      if (session.label !== null) expect(session.label.trim().length).toBeLessThanOrEqual(60)
+    }
+  })
+
+  it('lists the nine nights as the web catalogue does: Night 1 to 9, 19:00 doors, 19:30 to 00:30', () => {
+    // apps/web/src/lib/sample-data.js `nights('snninenights', 18, 9, EASTERN)`.
+    const pass = data.events.find((event) => event.slug === 'mirrorwork-nine-nights-pass')
+    const nights = data.eventSessions.filter((session) => session.eventId === pass.id)
+
+    expect(nights.map((night) => night.label)).toEqual(
+      Array.from({ length: 9 }, (_, index) => `Night ${index + 1}`),
+    )
+    expect(nights[0].startsAt).toEqual(pass.startsAt)
+    expect(nights.at(-1).endsAt).toEqual(pass.endsAt)
+
+    for (const [index, night] of nights.entries()) {
+      expect(localHour(night.doorsOpenAt, night.timezone)).toBe(19)
+      expect(localHour(night.startsAt, night.timezone)).toBe(19)
+      expect(night.endsAt.getTime() - night.startsAt.getTime()).toBe(5 * 3_600_000)
+      expect(night.venueMapVersionId).toBeNull()
+      expect(night.sortOrder).toBe(index)
+
+      if (index > 0) {
+        expect(night.startsAt.getTime()).toBeGreaterThan(nights[index - 1].endsAt.getTime())
+      }
+    }
+
+    // Season passes: good for every night, so no tier names one of them.
+    expect(
+      data.ticketTypes
+        .filter((type) => type.eventId === pass.id)
+        .every((type) => type.eventSessionId === null && !type.reserved),
+    ).toBe(true)
+  })
+
+  it('draws the balcony as a published plan whose seat count is its seats', () => {
+    const [plan] = data.seatMaps
+    const labels = plan.seats.map((seat) => seat.label)
+
+    expect(data.seatMaps).toHaveLength(1)
+    expect(plan.venueId).toBe(data.venues.find((venue) => venue.slug === 'lamplight-expo-hall').id)
+    expect(plan.version.publishedAt.getTime()).toBeLessThan(NOW.getTime())
+    expect(plan.version.seatCount).toBe(plan.seats.length)
+    expect(plan.rows.flatMap((row) => row.seats)).toEqual(plan.seats)
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(labels[0]).toBe('A1')
+    expect(labels.at(-1)).toBe('C8')
+    // One zone, and every seat is in it.
+    expect(plan.seats.every((seat) => seat.priceZoneId === plan.zone.id)).toBe(true)
+  })
+
+  it('sells the balcony through one reserved tier on the concert’s one session, as the web catalogue names it', () => {
+    const [plan] = data.seatMaps
+    const concert = data.events.find((event) => event.slug === 'mirrorwork-live-band-night')
+    const reserved = data.ticketTypes.filter((type) => type.reserved)
+    const [session] = data.eventSessions.filter((candidate) => candidate.eventId === concert.id)
+
+    expect(reserved).toHaveLength(1)
+    // apps/web/src/lib/sample-data.js: 'Balcony — Reserved Seating', $65.00.
+    expect(reserved[0]).toMatchObject({
+      eventId: concert.id,
+      name: 'Balcony — Reserved Seating',
+      priceCents: 6500,
+      eventSessionId: session.id,
+      priceZoneId: plan.zone.id,
+      quantityTotal: plan.seats.length,
+      quantitySold: 0,
+      status: 'ON_SALE',
+    })
+    expect(session.venueMapVersionId).toBe(plan.version.id)
+    expect(session.startsAt).toEqual(concert.startsAt)
+    expect(session.endsAt).toEqual(concert.endsAt)
+  })
+
+  it('puts every balcony seat on sale for that session, bound to the tier, and sells none', () => {
+    const [plan] = data.seatMaps
+    const [tier] = data.ticketTypes.filter((type) => type.reserved)
+
+    expect(data.eventSeats).toHaveLength(plan.seats.length)
+    expect(data.eventSeats.map((seat) => seat.seatId).sort()).toEqual(
+      plan.seats.map((seat) => seat.id).sort(),
+    )
+    for (const seat of data.eventSeats) {
+      expect(seat).toMatchObject({
+        eventSessionId: tier.eventSessionId,
+        ticketTypeId: tier.id,
+        status: 'AVAILABLE',
+      })
+    }
+
+    // No order buys a seat, so no seat can be sold without a ticket.
+    const reservedIds = new Set([tier.id])
+    for (const order of data.orders) {
+      for (const item of order.items) expect(reservedIds.has(item.ticketTypeId)).toBe(false)
+    }
+  })
+})
+
+describe('seeded event content', () => {
+  it('gives the concert the page content the web catalogue shows for it, and no other event any', () => {
+    const withContent = data.events.filter((event) => event.content !== null)
+
+    expect(withContent.map((event) => event.slug)).toEqual(['mirrorwork-live-band-night'])
+
+    // apps/web/src/lib/sample-data.js, evtliveband.
+    const { content } = withContent[0]
+
+    expect(content.artists).toEqual(['The Mirrorwork Ensemble'])
+    expect(content.performers.map((performer) => performer.name)).toEqual([
+      'The Mirrorwork Ensemble',
+    ])
+    expect(content.runningOrder.map((slot) => slot.time)).toEqual([
+      '19:00',
+      '19:30',
+      '20:30',
+      '20:50',
+    ])
+    expect(content.faq.map((item) => item.question)).toEqual([
+      'Can I dance in the balcony?',
+      'Can I bring food onto the dance floor?',
+    ])
+    // The website moved out of the social links into its own column, behind
+    // the administrators' switch: see the website tests below.
+    expect(content.socialLinks).toEqual({})
+    expect(content).not.toHaveProperty('websiteUrl')
+    expect(content.dressCode).toBe(
+      'Whatever you can dance in. Traditional dress is welcome and never required.',
+    )
+    expect(content.publicContactEmail).toBe('tickets@mirrorwork.example')
+  })
+
+  it('keeps the content within the shapes the database checks', () => {
+    const [event] = data.events.filter((candidate) => candidate.content !== null)
+    const { content } = event
+
+    // The event_*_shape CHECKs: arrays within their caps, an object of links.
+    expect(content.performers.length).toBeLessThanOrEqual(64)
+    expect(content.runningOrder.length).toBeLessThanOrEqual(40)
+    expect(content.faq.length).toBeLessThanOrEqual(30)
+    expect(Array.isArray(content.socialLinks)).toBe(false)
+    expect(content.dressCode.length).toBeLessThanOrEqual(500)
+    // Never a JSON null: Prisma would store it, and the shape CHECKs refuse it.
+    for (const value of Object.values(content)) expect(value).not.toBeNull()
+    for (const slot of content.runningOrder) expect(slot.time).toMatch(/^([01]\d|2[0-3]):[0-5]\d$/)
+    for (const href of Object.values(content.socialLinks)) {
+      expect(new URL(href).protocol).toBe('https:')
+      expect(new URL(href).hostname).toMatch(/\.example$/)
+    }
+    expect(content).not.toHaveProperty('website')
+    expect(content.publicContactEmail).toMatch(/\.example$/)
+  })
+})
+
+describe('seeded website links', () => {
+  const withWebsite = data.events.filter((event) => event.website !== null)
+
+  it('gives the concert a link that is on and one Chaniya night an address that waits, and nothing else', () => {
+    expect(withWebsite.map((event) => [event.slug, event.website.on])).toEqual([
+      ['dandiya-kids-hour-houston', false],
+      ['mirrorwork-live-band-night', true],
+    ])
+  })
+
+  it('records who turned the concert’s link on, when and why', () => {
+    const { website } = data.events.find((event) => event.slug === 'mirrorwork-live-band-night')
+
+    expect(website).toEqual({
+      url: 'https://mirrorwork.example/',
+      on: true,
+      reason: 'Mirrorwork Events’ own site, checked by the platform team.',
+      decidedByEmail: 'platform-admin@desi-event.example',
+      decidedAt: offset(startOfUtcDay(NOW), -35, 12),
+      submittedAt: null,
+    })
+    expect(data.users.find((user) => user.email === website.decidedByEmail).role).toBe('ADMIN')
+  })
+
+  it('leaves the Chaniya address waiting for a decision, since a fixed time', () => {
+    const { website } = data.events.find((event) => event.slug === 'dandiya-kids-hour-houston')
+
+    expect(website).toEqual({
+      url: 'https://chaniya.example/',
+      on: false,
+      reason: null,
+      decidedByEmail: null,
+      decidedAt: null,
+      submittedAt: offset(startOfUtcDay(NOW), -3, 12),
+    })
+  })
+
+  it('stores each address in the normalised https form the database CHECK expects', () => {
+    for (const { website } of withWebsite) {
+      expect(new URL(website.url).protocol).toBe('https:')
+      expect(new URL(website.url).hostname).toMatch(/\.example$/)
+      expect(website.url).toBe(new URL(website.url).href)
+      expect(websiteUrlProblem(website.url)).toBeNull()
+    }
+  })
+})
+
+describe('re-seeding an event status past the review gate', () => {
+  it.each([
+    ['DRAFT', 'ON_SALE', ['REVIEW_PENDING', 'APPROVED', 'ON_SALE']],
+    ['CHANGES_REQUIRED', 'PUBLISHED', ['REVIEW_PENDING', 'APPROVED', 'PUBLISHED']],
+    ['REJECTED', 'CANCELLED', ['REVIEW_PENDING', 'APPROVED', 'CANCELLED']],
+    ['REVIEW_PENDING', 'SOLD_OUT', ['APPROVED', 'SOLD_OUT']],
+    ['APPROVED', 'ON_SALE', ['ON_SALE']],
+    ['SALES_PAUSED', 'ON_SALE', ['ON_SALE']],
+    ['ON_SALE', 'DRAFT', ['DRAFT']],
+    ['DRAFT', 'APPROVED', ['REVIEW_PENDING', 'APPROVED']],
+    ['REVIEW_PENDING', 'APPROVED', ['APPROVED']],
+    ['ON_SALE', 'ON_SALE', []],
+  ])('walks %s to %s through %j', (current, target, path) => {
+    expect(eventStatusPath(current, target)).toEqual(path)
+  })
+
+  it('writes each step to the event in order, and nothing when it is already there', async () => {
+    const writes = []
+    let status = 'DRAFT'
+    const prisma = {
+      event: {
+        findUnique: async () => ({ status }),
+        update: async ({ where, data: next }) => {
+          writes.push([where.id, next.status])
+          status = next.status
+        },
+      },
+    }
+
+    expect(await settleEventStatus(prisma, 'evt_1', 'ON_SALE')).toEqual([
+      'REVIEW_PENDING',
+      'APPROVED',
+      'ON_SALE',
+    ])
+    expect(writes).toEqual([
+      ['evt_1', 'REVIEW_PENDING'],
+      ['evt_1', 'APPROVED'],
+      ['evt_1', 'ON_SALE'],
+    ])
+
+    writes.length = 0
+    expect(await settleEventStatus(prisma, 'evt_1', 'ON_SALE')).toEqual([])
+    expect(writes).toEqual([])
+  })
+})
+
 describe('seeded ticket types', () => {
-  it('gives every event between two and four ticket types', () => {
+  it('gives every event between one and four ticket types', () => {
+    // A garba night often sells one general admission tier and nothing else.
     for (const event of data.events) {
       const forEvent = data.ticketTypes.filter((type) => type.eventId === event.id)
-      expect(forEvent.length).toBeGreaterThanOrEqual(2)
+      expect(forEvent.length).toBeGreaterThanOrEqual(1)
       expect(forEvent.length).toBeLessThanOrEqual(4)
     }
+    expect(
+      data.events.some(
+        (event) => data.ticketTypes.filter((type) => type.eventId === event.id).length > 1,
+      ),
+    ).toBe(true)
   })
 
-  it('prices everything as positive integer cents in the event currency', () => {
+  it('prices everything as integer cents in US dollars, free only where it says so', () => {
     for (const type of data.ticketTypes) {
       expect(Number.isInteger(type.priceCents)).toBe(true)
-      expect(type.priceCents).toBeGreaterThan(0)
-      expect(['INR', 'CAD']).toContain(type.currency)
+      expect(type.priceCents).toBeGreaterThanOrEqual(0)
+      expect(type.currency).toBe('USD')
     }
+
+    const free = data.ticketTypes.filter((type) => type.priceCents === 0)
+    expect(free.map((type) => type.key)).toEqual(['kids-hour-free'])
   })
 
-  it('uses both INR and CAD', () => {
+  it('sells in US dollars only', () => {
     const currencies = new Set(data.ticketTypes.map((type) => type.currency))
-    expect(currencies).toEqual(new Set(['INR', 'CAD']))
+    expect(currencies).toEqual(new Set(['USD']))
   })
 
   it('opens sales before it closes them', () => {
@@ -283,10 +1128,10 @@ describe('seeded ticket types', () => {
   })
 
   it('varies the sales windows within an event rather than copying one', () => {
-    const windowsBySufi = data.ticketTypes
-      .filter((type) => type.eventKey === 'sufi')
+    const windowsByNightOne = data.ticketTypes
+      .filter((type) => type.eventKey === 'night-one')
       .map((type) => `${type.salesStartAt?.toISOString()}|${type.salesEndAt?.toISOString()}`)
-    expect(new Set(windowsBySufi).size).toBeGreaterThan(1)
+    expect(new Set(windowsByNightOne).size).toBeGreaterThan(1)
   })
 
   it('keeps per-order limits sane', () => {
@@ -296,14 +1141,19 @@ describe('seeded ticket types', () => {
     }
   })
 
-  it('derives quantitySold from the paid orders and nothing else', () => {
+  it('derives quantitySold from the paid orders, less the unpaid tickets cancelled, and nothing else', () => {
     /** @type {Map<string, number>} */
     const expected = new Map(data.ticketTypes.map((type) => [type.id, 0]))
 
+    // SPEC3-XI XU5: cancelling unpaid tickets is the one thing that frees a
+    // place, so a tier sells what its paid orders bought less those.
     for (const order of data.orders) {
       if (order.status !== 'PAID') continue
       for (const item of order.items) {
-        expected.set(item.ticketTypeId, expected.get(item.ticketTypeId) + item.quantity)
+        expected.set(
+          item.ticketTypeId,
+          expected.get(item.ticketTypeId) + item.quantity - item.venueCancelledQuantity,
+        )
       }
     }
 
@@ -334,6 +1184,32 @@ describe('seeded ticket types', () => {
     expect(data.ticketTypes.some((type) => type.status === 'SOLD_OUT')).toBe(true)
   })
 
+  it('leaves only a few on some tiers on sale, so the page’s "Only N left" is exercised', () => {
+    // The event page states the exact count at or below 25 remaining. A seed
+    // in which every tier had hundreds left never showed it against a live
+    // database, while the web fallback did.
+    const remaining = (type) => type.quantityTotal - type.quantitySold
+    const few = data.ticketTypes.filter(
+      (type) => type.status === 'ON_SALE' && remaining(type) >= 1 && remaining(type) <= 25,
+    )
+
+    expect(few.length).toBeGreaterThan(0)
+  })
+
+  it('leaves the same few on the tiers the web catalogue says are nearly gone', () => {
+    // apps/web/src/lib/sample-data.js: VIP Circle 150 less 138 sold, Season
+    // Pass 300 less 281. The same event must not read "Only 12 left" in the
+    // fallback and "150 left" once the database answers.
+    const remainingOf = (key) => {
+      const type = data.ticketTypes.find((candidate) => candidate.key === key)
+
+      return { status: type.status, remaining: type.quantityTotal - type.quantitySold }
+    }
+
+    expect(remainingOf('night-one-vip-circle')).toEqual({ status: 'ON_SALE', remaining: 12 })
+    expect(remainingOf('nine-nights-season')).toEqual({ status: 'ON_SALE', remaining: 19 })
+  })
+
   it('exercises more than one TicketTypeStatus', () => {
     const statuses = new Set(data.ticketTypes.map((type) => type.status))
     expect(statuses.size).toBeGreaterThanOrEqual(3)
@@ -354,14 +1230,24 @@ describe('seeded orders', () => {
     expect(statuses).toEqual(new Set(['PENDING', 'PAID', 'CANCELLED', 'REFUNDED', 'EXPIRED']))
   })
 
-  it('keeps every money column an integer that adds up', () => {
+  it('keeps every money column an integer that adds up, online and at the door', () => {
     for (const order of data.orders) {
       const itemSubtotal = order.items.reduce((sum, item) => sum + item.subtotalCents, 0)
 
       expect(order.subtotalCents).toBe(itemSubtotal)
-      expect(order.totalCents).toBe(
-        order.subtotalCents - order.discountCents + order.feesCents + order.taxCents,
-      )
+      // A card order pays everything online; a booking to pay at the venue
+      // pays its booking fee and any tax online, and the ticket price at the
+      // door (CHECK order_venue_payment_shape).
+      if (order.paymentMethod === 'AT_VENUE') {
+        expect(order.totalCents).toBe(order.feesCents + order.taxCents)
+        expect(order.venueDueCents).toBe(order.subtotalCents - order.discountCents)
+      } else {
+        expect(order.paymentMethod).toBe('CARD')
+        expect(order.totalCents).toBe(
+          order.subtotalCents - order.discountCents + order.feesCents + order.taxCents,
+        )
+        expect(order.venueDueCents).toBe(0)
+      }
       expect(order.discountCents).toBeLessThanOrEqual(order.subtotalCents)
 
       for (const value of [
@@ -373,6 +1259,50 @@ describe('seeded orders', () => {
       ]) {
         expect(Number.isInteger(value)).toBe(true)
         expect(value).toBeGreaterThanOrEqual(0)
+      }
+    }
+  })
+
+  it('charges the fee its terms came to, less all of it when a referral code waived it (CHECKs order_fee_parts, order_fee_waiver_whole)', () => {
+    for (const order of data.orders) {
+      expect(order.feesCents).toBe(order.feeGrossCents - order.feeWaivedCents)
+
+      if (order.referralCodeId) {
+        expect(order.feeGrossCents).toBeGreaterThan(0)
+        expect(order.feeWaivedCents).toBe(order.feeGrossCents)
+        expect(order.feesCents).toBe(0)
+      } else {
+        expect(order.feeWaivedCents).toBe(0)
+      }
+    }
+    // Both kinds are seeded, so neither branch above is vacuous.
+    expect(data.orders.some((order) => order.referralCodeId)).toBe(true)
+    expect(data.orders.some((order) => !order.referralCodeId)).toBe(true)
+  })
+
+  it('records the terms each fee was worked out with, as checkout does (CHECK order_fee_terms_shape)', () => {
+    const settingById = new Map(data.feeSettings.map((setting) => [setting.id, setting]))
+
+    for (const order of data.orders) {
+      const quantity = order.items.reduce((sum, item) => sum + item.quantity, 0)
+      const discounted = order.subtotalCents - order.discountCents
+
+      expect(order.feeGrossCents).toBe(
+        applyBps(discounted, order.feePercentageBps) + order.feeFlatCentsPerTicket * quantity,
+      )
+      if (order.feeSource === 'EVENT') {
+        const setting = settingById.get(order.feeSettingId)
+
+        expect(setting).toBeDefined()
+        expect(setting.eventId).toBe(order.eventId)
+        expect(order.feePercentageBps).toBe(setting.percentageBps)
+        expect(order.feeFlatCentsPerTicket).toBe(setting.flatCentsPerTicket)
+        // New orders only (A4): placed after the decision.
+        expect(order.placedAt.getTime()).toBeGreaterThanOrEqual(setting.createdAt.getTime())
+      } else {
+        expect(order.feeSource).toBe('SITE_DEFAULT')
+        expect(order.feeSettingId).toBeNull()
+        expect([order.feePercentageBps, order.feeFlatCentsPerTicket]).toEqual([590, 99])
       }
     }
   })
@@ -412,7 +1342,7 @@ describe('seeded orders', () => {
     }
   })
 
-  it('matches ticket status to order status', () => {
+  it('matches ticket status to order status, a paid order’s withdrawn ticket being one cancelled unpaid', () => {
     const expectedByOrderStatus = {
       PAID: new Set(['VALID', 'CHECKED_IN']),
       CANCELLED: new Set(['VOID']),
@@ -423,6 +1353,12 @@ describe('seeded orders', () => {
       const allowed = expectedByOrderStatus[order.status]
       if (!allowed) continue
       for (const ticket of order.tickets) {
+        // SPEC3-XI XU7: a booking stays PAID for its other tickets when some
+        // of its unpaid ones are cancelled, and only those are REVOKED.
+        if (order.status === 'PAID' && ticket.status === 'REVOKED') {
+          expect(ticket.venueCancellationId).not.toBeNull()
+          continue
+        }
         expect(allowed).toContain(ticket.status)
       }
     }
@@ -466,6 +1402,53 @@ describe('seeded orders', () => {
 
     for (const order of pending) expect(order.expiresAt.getTime()).toBeGreaterThan(NOW.getTime())
     for (const order of expired) expect(order.expiresAt.getTime()).toBeLessThan(NOW.getTime())
+  })
+
+  it('charges US orders no sales tax, as the demo tax policy for the US says', () => {
+    for (const order of data.orders) {
+      expect(order.currency).toBe('USD')
+      expect(order.taxCents).toBe(0)
+    }
+  })
+
+  it('charges the platform fee the pricing contract describes: 5.9% plus $0.99 a ticket', () => {
+    const nightOne = data.orders.find((order) => order.reference === 'DE-US-200001')
+
+    // Two $35.00 tickets, $5.00 off with NIGHTONE5: 6500 × 5.9% = 383.5 → 384,
+    // plus 2 × 99.
+    expect(nightOne).toMatchObject({
+      subtotalCents: 7000,
+      discountCents: 500,
+      feesCents: 384 + 198,
+      taxCents: 0,
+      totalCents: 6500 + 582,
+    })
+  })
+
+  it('sells out the tiers the catalogue says are sold out, through real orders', () => {
+    const soldOut = data.ticketTypes.filter((type) => type.status === 'SOLD_OUT')
+    const marathon = data.events.find((event) => event.slug === 'five-boroughs-garba-marathon')
+
+    expect(soldOut.map((type) => type.key).sort()).toEqual(['bay-lights-early', 'marathon-general'])
+    expect(marathon.status).toBe('SOLD_OUT')
+    expect(
+      data.ticketTypes
+        .filter((type) => type.eventId === marathon.id)
+        .every((type) => type.status === 'SOLD_OUT'),
+    ).toBe(true)
+  })
+
+  it('checks tickets in after the doors opened, not before', () => {
+    const eventById = new Map(data.events.map((event) => [event.id, event]))
+
+    for (const order of data.orders) {
+      for (const ticket of order.tickets) {
+        if (!ticket.checkedInAt) continue
+        const event = eventById.get(order.eventId)
+        expect(ticket.checkedInAt.getTime()).toBeGreaterThan(event.startsAt.getTime())
+        expect(ticket.checkedInAt.getTime()).toBeLessThan(event.endsAt.getTime())
+      }
+    }
   })
 
   it('charges each payment the order total in the order currency', () => {
@@ -571,12 +1554,436 @@ describe('seeded promo codes', () => {
     expect(lapsed.length).toBeGreaterThan(0)
   })
 
+  it('offers a live code on the seated concert, so the seat picker’s promo box has one to take', () => {
+    const concert = data.events.find((event) => event.slug === 'mirrorwork-live-band-night')
+    const live = data.promoCodes.filter(
+      (promo) =>
+        promo.active &&
+        (promo.eventId === concert.id ||
+          (promo.eventId === null && promo.organizationId === concert.organizationId)) &&
+        promo.startsAt < NOW &&
+        promo.endsAt > concert.startsAt,
+    )
+
+    expect(live.map((promo) => promo.code).sort()).toEqual(['BANDNIGHT5', 'NAVRATRI10'])
+  })
+
   it('scopes event-specific codes to an event the organisation owns', () => {
     const orgIdByEventId = new Map(data.events.map((event) => [event.id, event.organizationId]))
 
     for (const promo of data.promoCodes) {
       if (!promo.eventId) continue
       expect(orgIdByEventId.get(promo.eventId)).toBe(promo.organizationId)
+    }
+  })
+})
+
+describe('seeded booking fees, referral codes and paying at the venue (SPEC3 §15.5, SPEC3-XI §15)', () => {
+  const eventById = new Map(data.events.map((event) => [event.id, event]))
+  const event = (key) => data.events.find((candidate) => candidate.key === key)
+  const order = (reference) => data.orders.find((candidate) => candidate.reference === reference)
+  const platformAdmin = data.users.find((user) => user.key === 'platformAdmin')
+  const atVenue = data.orders.filter((candidate) => candidate.paymentMethod === 'AT_VENUE')
+
+  it('gives the first organisation’s Garba night its own booking fee, 3.00% + $1.49, in one decision by the platform administrator', () => {
+    const nightOne = event('night-one')
+
+    expect(data.feeSettings).toEqual([
+      expect.objectContaining({
+        eventId: nightOne.id,
+        sequence: 1,
+        source: 'EVENT',
+        percentageBps: 300,
+        flatCentsPerTicket: 149,
+        currency: 'USD',
+        reason: 'Demo: this event’s own booking fee',
+        setByEmail: platformAdmin.email,
+      }),
+    ])
+    // Within the bounds an administrator may set (open question 8) and the
+    // reason's 10–500 characters (CHECK event_fee_setting_shape).
+    const [setting] = data.feeSettings
+    expect(setting.percentageBps).toBeLessThanOrEqual(3000)
+    expect(setting.flatCentsPerTicket).toBeLessThanOrEqual(10000)
+    expect(setting.reason.trim().length).toBeGreaterThanOrEqual(10)
+    expect(setting.createdAt.getTime()).toBeLessThan(NOW.getTime())
+  })
+
+  it('keeps the fee an order was priced with: orders before the decision keep the site default, one after has the event’s own', () => {
+    const nightOne = event('night-one')
+    const [setting] = data.feeSettings
+    const onNightOne = data.orders.filter((candidate) => candidate.eventId === nightOne.id)
+
+    expect(onNightOne.map((candidate) => [candidate.reference, candidate.feeSource])).toEqual([
+      ['DE-US-200001', 'SITE_DEFAULT'],
+      ['DE-US-200014', 'EVENT'],
+    ])
+    expect(order('DE-US-200001').placedAt.getTime()).toBeLessThan(setting.createdAt.getTime())
+    expect(order('DE-US-200014')).toMatchObject({
+      feeSettingId: setting.id,
+      // Two $35.00 tickets: 7000 × 3% = 210, plus 2 × 149.
+      feeGrossCents: 210 + 298,
+      feeWaivedCents: 210 + 298,
+      feesCents: 0,
+      totalCents: 7000,
+    })
+  })
+
+  it('switches paying at the door on for the Houston dandiya night and the warm-up night only, each with a limit of 50 and its reason', () => {
+    expect(
+      data.venuePaymentChanges.map((change) => [
+        eventById.get(change.eventId).key,
+        change.enabled,
+        change.limit,
+        change.reason,
+        change.changedByEmail,
+      ]),
+    ).toEqual([
+      ['dandiya-dhol', true, 50, 'Demo: paying at the door', platformAdmin.email],
+      ['warm-up', true, 50, 'Demo: paying at the door', platformAdmin.email],
+    ])
+    const dhol = event('dandiya-dhol')
+
+    // Offered only where it can be (SPEC3 DV2): on sale, at a venue, not online.
+    expect(dhol.status).toBe('ON_SALE')
+    expect(dhol.venueId).not.toBeNull()
+    expect(dhol.isOnline).toBe(false)
+    expect(event('warm-up').isOnline).toBe(false)
+  })
+
+  it('books to pay at the door only where the switch was on, signed in, and after it went on', () => {
+    expect(atVenue.map((candidate) => candidate.reference)).toEqual([
+      'DE-US-200015',
+      'DE-US-200016',
+      'DE-US-200017',
+    ])
+    for (const booking of atVenue) {
+      const change = data.venuePaymentChanges.find(
+        (candidate) => candidate.eventId === booking.eventId,
+      )
+
+      expect(change).toBeDefined()
+      expect(booking.placedAt.getTime()).toBeGreaterThan(change.createdAt.getTime())
+      expect(booking.userEmail).not.toBeNull()
+    }
+    // The demo attendee's two bookings for the night still to come.
+    expect(
+      atVenue
+        .filter((booking) => booking.eventKey === 'dandiya-dhol')
+        .map((booking) => booking.userEmail),
+    ).toEqual(['aarav.shah@mail.example', 'aarav.shah@mail.example'])
+  })
+
+  it('pays only the booking fee online for every booking at the venue, adds no tax, and owes the ticket price at the door (SPEC3 §6)', () => {
+    for (const booking of atVenue) {
+      expect(booking.status).toBe('PAID')
+      expect(booking.taxCents).toBe(0)
+      expect(booking.totalCents).toBe(booking.feesCents + booking.taxCents)
+      expect(booking.venueDueCents).toBe(booking.subtotalCents - booking.discountCents)
+      expect(booking.venueDueCents).toBeGreaterThan(0)
+
+      for (const item of booking.items) {
+        expect(item.venueDueCents).toBe(item.subtotalCents)
+      }
+      // What each ticket owes adds up to what the booking owes, and never
+      // changes: a ticket's share is its unit price here.
+      expect(booking.tickets.reduce((sum, ticket) => sum + ticket.venueDueCents, 0)).toBe(
+        booking.venueDueCents,
+      )
+      for (const ticket of booking.tickets) {
+        expect(ticket.ownerEmail).toBe(booking.userEmail)
+      }
+      // One payment of the online total, or none when that is nothing.
+      if (booking.totalCents === 0) {
+        expect(booking.payments).toEqual([])
+      } else {
+        expect(booking.payments.map((payment) => payment.amountCents)).toEqual([booking.totalCents])
+      }
+    }
+    for (const card of data.orders.filter((candidate) => candidate.paymentMethod === 'CARD')) {
+      for (const ticket of card.tickets) expect(ticket.venueDueCents).toBe(0)
+    }
+  })
+
+  it('pays one booking’s fee online and waives the other’s with the all-events code, so it paid nothing online', () => {
+    expect(order('DE-US-200016')).toMatchObject({
+      referralKey: null,
+      // Two $30.00 tickets: 6000 × 5.9% = 354, plus 2 × 99.
+      feesCents: 354 + 198,
+      totalCents: 552,
+      venueDueCents: 6000,
+    })
+    expect(order('DE-US-200017')).toMatchObject({
+      referralKey: 'all-events',
+      feeGrossCents: 177 + 99,
+      feeWaivedCents: 177 + 99,
+      feesCents: 0,
+      totalCents: 0,
+      venueDueCents: 3000,
+    })
+    // Every ticket of the night still to come still owes its price.
+    for (const reference of ['DE-US-200016', 'DE-US-200017']) {
+      for (const ticket of order(reference).tickets) {
+        expect(ticket).toMatchObject({ status: 'VALID', venuePaymentId: null })
+        expect(ticket.venueDueCents).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('makes two referral codes by the platform administrator, without their text: one for every event with 100 uses, one for the Garba night that stops 60 days after seeding', () => {
+    expect(
+      data.referralCodes.map((code) => ({
+        scope: code.scope,
+        events: code.eventIds.map((id) => eventById.get(id).key),
+        maxUses: code.maxUses,
+        expiresAt: code.expiresAt,
+        createdByEmail: code.createdByEmail,
+      })),
+    ).toEqual([
+      {
+        scope: 'ALL_EVENTS',
+        events: [],
+        maxUses: 100,
+        expiresAt: null,
+        createdByEmail: platformAdmin.email,
+      },
+      {
+        scope: 'SELECTED_EVENTS',
+        events: ['night-one'],
+        maxUses: null,
+        expiresAt: offset(startOfUtcDay(NOW), 60),
+        createdByEmail: platformAdmin.email,
+      },
+    ])
+    for (const code of data.referralCodes) {
+      // The text is drawn when the row is first written, never here.
+      expect(code).not.toHaveProperty('code')
+      expect(code.label.trim().length).toBeGreaterThanOrEqual(1)
+      expect(code.label.length).toBeLessThanOrEqual(120)
+      if (code.expiresAt) {
+        expect(code.expiresAt.getTime()).toBeGreaterThan(code.createdAt.getTime())
+      }
+    }
+    // Found again on a re-seed by label and maker, so that pair is unique.
+    const keys = data.referralCodes.map((code) => `${code.createdByEmail}|${code.label}`)
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('counts each code’s uses from the orders that name it, within its limit, and never its maker’s', () => {
+    const uses = Object.fromEntries(data.referralCodes.map((code) => [code.key, code.useCount]))
+
+    expect(uses).toEqual({ 'all-events': 2, 'night-one-only': 0 })
+    for (const code of data.referralCodes) {
+      const named = data.orders.filter((candidate) => candidate.referralCodeId === code.id)
+
+      expect(code.useCount).toBe(named.length)
+      if (code.maxUses !== null) expect(code.useCount).toBeLessThanOrEqual(code.maxUses)
+      for (const candidate of named) {
+        expect(candidate.userEmail).not.toBe(code.createdByEmail)
+        expect(candidate.placedAt.getTime()).toBeGreaterThan(code.createdAt.getTime())
+        if (code.scope === 'SELECTED_EVENTS') expect(code.eventIds).toContain(candidate.eventId)
+      }
+    }
+    // One card order and one booking at the venue used the all-events code.
+    expect(
+      data.orders
+        .filter((candidate) => candidate.referralKey === 'all-events')
+        .map((candidate) => candidate.paymentMethod),
+    ).toEqual(['CARD', 'AT_VENUE'])
+  })
+
+  it('draws referral codes from the generated alphabet in the shape the database accepts', () => {
+    const pattern = new RegExp(
+      `^[${REFERRAL_CODE_ALPHABET}]{5}-[${REFERRAL_CODE_ALPHABET}]{5}$`,
+      'u',
+    )
+    const drawn = Array.from({ length: 50 }, () => generateSeedReferralCode())
+
+    for (const code of drawn) {
+      expect(code).toMatch(pattern)
+      // CHECK referral_code_shape.
+      expect(code).toMatch(/^[A-Z0-9][A-Z0-9-]{4,30}[A-Z0-9]$/u)
+      expect(code).not.toContain('--')
+    }
+    expect(REFERRAL_CODE_ALPHABET).not.toMatch(/[01ILO]/u)
+    expect(new Set(drawn).size).toBeGreaterThan(1)
+    // Every letter of the alphabet is reachable, and nothing outside it.
+    expect(generateSeedReferralCode(() => 0)).toBe('AAAAA-AAAAA')
+    expect(generateSeedReferralCode((max) => max - 1)).toBe('99999-99999')
+  })
+
+  it('records the one payment taken at the door with the admission it paid for, by the organisation’s owner during the night', () => {
+    const booking = order('DE-US-200015')
+    const warmUp = event('warm-up')
+    const meera = data.users.find((user) => user.key === 'meera')
+
+    expect(data.venuePayments).toHaveLength(1)
+    const [payment] = data.venuePayments
+    const paid = booking.tickets.filter((ticket) => ticket.venuePaymentId === payment.id)
+
+    expect(payment).toMatchObject({
+      orderId: booking.id,
+      eventId: warmUp.id,
+      organizationId: warmUp.organizationId,
+      amountCents: 1500,
+      currency: 'USD',
+      ticketCount: 1,
+      via: 'DOOR_TICKET',
+      authority: 'ORGANIZATION_ROLE',
+      role: 'OWNER',
+      recordedByEmail: meera.email,
+    })
+    // At commit the tickets it paid number its count and their dues its
+    // amount (desi_venue_payment_sum), and each was let in with it.
+    expect(paid).toHaveLength(payment.ticketCount)
+    expect(paid.reduce((sum, ticket) => sum + ticket.venueDueCents, 0)).toBe(payment.amountCents)
+    for (const ticket of paid) {
+      expect(ticket.status).toBe('CHECKED_IN')
+      expect(ticket.checkedInAt.getTime()).toBe(payment.recordedAt.getTime())
+      expect(data.checkIns.filter((checkIn) => checkIn.ticketId === ticket.id)).toEqual([
+        expect.objectContaining({ scannedAt: payment.recordedAt, scannedByEmail: meera.email }),
+      ])
+    }
+    expect(payment.recordedAt.getTime()).toBeGreaterThan(warmUp.startsAt.getTime())
+    expect(payment.recordedAt.getTime()).toBeLessThan(warmUp.endsAt.getTime())
+    // Nothing paid at the door is ever posted or refunded by the platform, and
+    // no ticket is let in owing a payment (check_in_payment_due).
+    for (const checkIn of data.checkIns) {
+      const ticket = data.orders
+        .flatMap((candidate) => candidate.tickets)
+        .find((candidate) => candidate.id === checkIn.ticketId)
+      expect(ticket.venueDueCents === 0 || ticket.venuePaymentId !== null).toBe(true)
+    }
+  })
+
+  it('cancels one unpaid ticket of that booking, by the team at The Desi Events once the doors had opened, keeping its share of the booking fee (SPEC3-XI XU1, XU6)', () => {
+    const booking = order('DE-US-200015')
+    const warmUp = event('warm-up')
+
+    expect(data.venueCancellations).toHaveLength(1)
+    const [cancellation] = data.venueCancellations
+    const cancelled = booking.tickets.filter(
+      (ticket) => ticket.venueCancellationId === cancellation.id,
+    )
+
+    expect(cancellation).toMatchObject({
+      orderId: booking.id,
+      authority: 'PLATFORM_ROLE',
+      role: 'ADMIN',
+      reason: 'Demo: not paid before the doors opened',
+      cancelledByEmail: platformAdmin.email,
+      currency: 'USD',
+      // The place is freed, but the tier had stopped selling, so it is not
+      // claimed to be on sale again (XU5).
+      placesOnSale: 'NONE',
+    })
+    // CHECK venue_booking_cancellation_shape and desi_venue_booking_cancellation_sum.
+    expect(cancellation.reason.trim().length).toBeGreaterThanOrEqual(10)
+    expect(cancelled).toHaveLength(cancellation.ticketCount)
+    expect(cancelled.reduce((sum, ticket) => sum + ticket.venueDueCents, 0)).toBe(
+      cancellation.basisCents,
+    )
+    for (const ticket of cancelled) {
+      expect(ticket).toMatchObject({
+        status: 'REVOKED',
+        venuePaymentId: null,
+        revokedReason: `venue-unpaid:${cancellation.id}`,
+      })
+      expect(data.checkIns.some((checkIn) => checkIn.ticketId === ticket.id)).toBe(false)
+    }
+    // The fee kept is the cancelled tickets' share of the fee charged, as
+    // keptShareOf works it out: floor(563 × 1500 / 4500) = 187.
+    expect(cancellation.feeKeptCents).toBe(
+      seedFeeKeptCents({
+        feesCents: booking.feesCents,
+        venueDueCents: booking.venueDueCents,
+        basisCents: cancellation.basisCents,
+      }),
+    )
+    expect(cancellation.feeKeptCents).toBe(187)
+    // During the event, while it could still be cancelled (XU3, XU4).
+    expect(cancellation.createdAt.getTime()).toBeGreaterThan(warmUp.startsAt.getTime())
+    expect(cancellation.createdAt.getTime()).toBeLessThan(warmUp.endsAt.getTime())
+  })
+
+  it('leaves the booking’s sums, its line and its tier as the cancellation leaves them, and the kept fee out of reach of any refund', () => {
+    const booking = order('DE-US-200015')
+    const [cancellation] = data.venueCancellations
+    const [line] = booking.items
+    const tier = data.ticketTypes.find((type) => type.id === line.ticketTypeId)
+
+    expect(booking.venueCancelledBasisCents).toBe(cancellation.basisCents)
+    expect(booking.venueFeeKeptCents).toBe(cancellation.feeKeptCents)
+    expect(line.venueCancelledQuantity).toBe(cancellation.ticketCount)
+    expect(cancellation.placesReturned).toEqual({ [tier.id]: cancellation.ticketCount })
+
+    for (const candidate of data.orders) {
+      // CHECKs order_venue_cancel_shape and order_venue_kept_within_total
+      // (nothing seeded is refunded in part or pending).
+      expect(candidate.venueCancelledBasisCents).toBeLessThanOrEqual(candidate.venueDueCents)
+      expect(candidate.venueFeeKeptCents).toBeLessThanOrEqual(candidate.feesCents)
+      expect(candidate.venueFeeKeptCents).toBeLessThanOrEqual(candidate.totalCents)
+      if (candidate.paymentMethod === 'CARD') {
+        expect([candidate.venueCancelledBasisCents, candidate.venueFeeKeptCents]).toEqual([0, 0])
+      }
+      // CHECK order_item_venue_cancelled_within_line.
+      for (const item of candidate.items) {
+        expect(item.venueCancelledQuantity).toBeGreaterThanOrEqual(0)
+        expect(item.venueCancelledQuantity).toBeLessThanOrEqual(item.quantity)
+      }
+    }
+  })
+
+  it('never sells fewer places than the tickets still standing, and never below none (CHECK ticket_type_sold_not_negative)', () => {
+    const standing = new Map(data.ticketTypes.map((type) => [type.id, 0]))
+
+    for (const candidate of data.orders) {
+      for (const item of candidate.items) {
+        for (const ticket of candidate.tickets.filter((t) => t.orderItemId === item.id)) {
+          if (['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'].includes(ticket.status)) {
+            standing.set(item.ticketTypeId, standing.get(item.ticketTypeId) + 1)
+          }
+        }
+      }
+    }
+    for (const type of data.ticketTypes) {
+      expect(type.quantitySold).toBeGreaterThanOrEqual(0)
+      expect(type.quantitySold).toBeGreaterThanOrEqual(standing.get(type.id))
+    }
+    // The warm-up tier: three sold by card, three booked at the venue, one of
+    // those cancelled.
+    expect(data.ticketTypes.find((type) => type.key === 'warm-up-general').quantitySold).toBe(5)
+  })
+
+  it('leaves one ticket of that booking unpaid after the event: its holder did not come (SPEC3 DV6)', () => {
+    const booking = order('DE-US-200015')
+    const unpaid = booking.tickets.filter(
+      (ticket) => ticket.status === 'VALID' && ticket.venuePaymentId === null,
+    )
+
+    expect(unpaid).toHaveLength(1)
+    expect(event('warm-up').endsAt.getTime()).toBeLessThan(NOW.getTime())
+  })
+
+  it('audits each decision, payment and cancellation with ids, amounts and reasons, and never a code’s text or its label', () => {
+    const actions = data.auditLogs.map((log) => log.action)
+
+    for (const action of [
+      'event.platform_fee_changed',
+      'event.venue_payment_changed',
+      'referral_code.created',
+      'venue_payment.recorded',
+      'venue_booking.cancelled',
+    ]) {
+      expect(actions).toContain(action)
+    }
+    const labels = data.referralCodes.map((code) => code.label)
+
+    for (const log of data.auditLogs) {
+      const text = JSON.stringify(log.metadata)
+
+      for (const label of labels) expect(text).not.toContain(label)
+      expect(text).not.toMatch(/"(code|referralCode|buyerEmail|buyerName)"/u)
     }
   })
 })
@@ -595,8 +2002,8 @@ describe('determinism', () => {
 
   it('shifts every timestamp when the anchor day changes', () => {
     const tomorrow = buildSeedData(new Date(NOW.getTime() + 86_400_000))
-    const before = data.events.find((event) => event.slug === 'mumbai-sufi-nights')
-    const after = tomorrow.events.find((event) => event.slug === 'mumbai-sufi-nights')
+    const before = data.events.find((event) => event.slug === 'navratri-night-one-edison')
+    const after = tomorrow.events.find((event) => event.slug === 'navratri-night-one-edison')
 
     expect(after.startsAt.getTime() - before.startsAt.getTime()).toBe(86_400_000)
   })

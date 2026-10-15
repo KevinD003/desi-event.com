@@ -33,7 +33,12 @@ export {
   EmptyState,
   FormField,
   Input,
+  Label,
+  Modal,
   Select,
+  Skeleton,
+  Spinner,
+  StatusIcon,
   Textarea,
   VisuallyHidden,
 } from '@desi-event/ui'

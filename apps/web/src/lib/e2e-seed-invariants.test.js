@@ -93,6 +93,148 @@ const SEEDS = Object.freeze([
   },
   { file: 'seed-organizer.mjs' },
   { file: 'seed-detail-screens.mjs' },
+  {
+    file: 'seed-door.mjs',
+    cleanup: Object.freeze([/ticket\s*\.deleteMany/u, /order\s*\.delete\b/u]),
+  },
+  {
+    // The feature world: gamma, pending, and the accounts whose privileges
+    // the feature specs change. Its teardown also has to undo what those specs
+    // add — holds, pictures, promo codes — so each of those is pinned too.
+    file: 'seed-feature-world.mjs',
+    cleanup: Object.freeze([
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /eventSeat\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+      /ticket\s*\.deleteMany/u,
+      /order\s*\.delete\b/u,
+      /ticketHold\s*\.deleteMany/u,
+      /mediaAsset\s*\.deleteMany/u,
+      /promoCode\s*\.deleteMany/u,
+      /membership\s*\.deleteMany/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
+    // The authoring journeys' draft, live and rejected events under gamma,
+    // and the account that bought two of the live event's tickets.
+    file: 'seed-authoring.mjs',
+    cleanup: Object.freeze([
+      /ticket\s*\.deleteMany/u,
+      /order\s*\.delete\b/u,
+      /eventSeat\s*\.deleteMany/u,
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
+    // The pictures journey's own draft under gamma. Its teardown takes the
+    // event and, by cascade, every picture's bytes.
+    file: 'seed-media.mjs',
+    cleanup: Object.freeze([
+      /mediaAsset\s*\.deleteMany/u,
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+    ]),
+    explains: true,
+  },
+  {
+    // The organiser-onboarding journeys: a platform administrator, the people
+    // it invites and refuses, and Onboard Gamma with its owner, administrator,
+    // viewer and waiting event. Its teardown takes the organiser invitations
+    // sent to the tag's addresses, every organisation the tag names with its
+    // events and memberships, and the fixture users' sessions and factors.
+    file: 'seed-onboarding.mjs',
+    cleanup: Object.freeze([
+      /organizerInvitation\s*\.deleteMany/u,
+      /membership\s*\.deleteMany/u,
+      /organization\s*\.delete(Many)?\b/u,
+      /event\s*\.delete(Many)?\b/u,
+      /session\s*\.deleteMany/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
+    // The full-control journeys (SPEC2-XI area X): Control Gamma and Control
+    // Other with their owners, an event manager, a buyer and two platform
+    // accounts. Its teardown takes every event no ledger batch pins, with its
+    // orders, tickets, nights, tiers and pictures, then the memberships, and
+    // the fixture users' sessions and factors.
+    file: 'seed-full-control.mjs',
+    cleanup: Object.freeze([
+      /ticket\s*\.deleteMany/u,
+      /order\s*\.delete\b/u,
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /mediaAsset\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+      /membership\s*\.deleteMany/u,
+      /session\s*\.deleteMany/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
+    // The import journeys (SPEC2-XI area I): a platform administrator, a
+    // moderator, and Import Gamma with its owner and one event waiting for
+    // review; the listing file itself is built at run time. Its teardown takes
+    // every event the tag's listings wrote, wherever it was moved, and Import
+    // Gamma's, with their nights, tiers and pictures, then the runs the
+    // administrator planned, the organisation and its memberships, and the
+    // fixture users' sessions and factors.
+    file: 'seed-import.mjs',
+    cleanup: Object.freeze([
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /mediaAsset\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+      /eventImportRun\s*\.deleteMany/u,
+      /membership\s*\.deleteMany/u,
+      /organization\s*\.delete\b/u,
+      /session\s*\.deleteMany/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
+    // The booking-fee and pay-at-the-venue journeys (SPEC3 §14.6): Pay Venue
+    // with its owner, finance member and scanner, four platform accounts,
+    // three buyers and eight events. Its teardown takes the fixture users'
+    // sessions, factors and memberships, and every event no order reaches,
+    // with its nights and tiers.
+    file: 'seed-venue-payments.mjs',
+    cleanup: Object.freeze([
+      /session\s*\.deleteMany/u,
+      /mfaFactor\s*\.deleteMany/u,
+      /membership\s*\.deleteMany/u,
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
+    // The team-and-organisations journey's creator and invitee. Its teardown
+    // removes the organisation the creator made, with its invitations and
+    // memberships, and puts the feature world's role target back.
+    file: 'seed-team.mjs',
+    cleanup: Object.freeze([
+      /invitation\s*\.deleteMany/u,
+      /membership\s*\.deleteMany/u,
+      /organization\s*\.delete\b/u,
+      /session\s*\.deleteMany/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
 ])
 
 /**

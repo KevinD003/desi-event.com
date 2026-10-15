@@ -38,9 +38,34 @@ import {
   timezoneSchema,
   urlSchema,
 } from './primitives.js'
+import { addressFree } from './addresses.js'
 import { venueAccessibilitySchema } from './venues.js'
+import { publicMediaSchema } from './media.js'
+import { WEBSITE_LIMITS, publicWebsiteLinkSchema, websiteRedirectStateSchema } from './website.js'
+import { eventChangeNoticeSchema } from './event-control.js'
 import {
+  orderFeeTermsSchema,
+  orderVenueCancellationSchema,
+  orderVenuePaymentSchema,
+  passedOnTicketSchema,
+  paymentMethodSchema,
+  paymentTermsViewSchema,
+  publicVenuePaymentSchema,
+  TAX_APPLIED_TO,
+  ticketVenuePaymentSchema,
+} from './payment-terms.js'
+import { DELETION_OUTCOMES } from './lifecycle.js'
+import {
+  eventFaqSchema,
+  eventPerformersSchema,
+  eventRunningOrderSchema,
+  eventSocialLinksSchema,
+  eventSponsorsSchema,
+} from './event-content.js'
+import {
+  eventAuthoritySchema,
   eventCategorySchema,
+  eventSessionStatusSchema,
   eventStatusSchema,
   holdStatusSchema,
   orderStatusSchema,
@@ -53,7 +78,9 @@ import {
   refundStatusSchema,
   ticketStatusSchema,
   ticketTypeStatusSchema,
+  ticketTypeVisibilitySchema,
   userRoleSchema,
+  groupPassUnavailableReasonSchema,
 } from './enums.js'
 
 /** Audit columns shared by most models. */
@@ -164,12 +191,58 @@ export const eventSchema = z.object({
   startsAt: timestampSchema,
   endsAt: timestampSchema,
   timezone: timezoneSchema.default('Asia/Kolkata'),
-  coverImageUrl: urlSchema.nullish(),
   isOnline: z.boolean().default(false),
+  /**
+   * The joining link of an online event. Only its organisation, moderators and
+   * the platform read it here, for the editor; the public payload never carries
+   * it, and a ticket holder gets it as `onlineJoinUrl` on their ticket.
+   */
   onlineUrl: urlSchema.nullish(),
   languages: z.array(nonEmptyStringSchema).max(12).default([]),
   publishedAt: timestampSchema.nullish(),
+  /**
+   * The organiser's uploaded cover, once a moderator has approved it and the
+   * event is public. Null means the page draws the generated poster.
+   */
+  coverImage: publicMediaSchema.nullish(),
   ...auditColumns,
+})
+
+/**
+ * Where an imported event is listed, and what that listing said, for an event
+ * still held by the platform-held organisation of the team at The Desi Events
+ * (SPEC2-XI §5.I-E). Null for every other event, and for an imported event
+ * once it has been moved to an organiser's own organisation.
+ *
+ * Only what the source listed: the organiser who presents it, the day it was
+ * read, and each price's name and amount. Never a source note (availability,
+ * "sold out", sales dates), never a picture address on the source's site, and
+ * never a quantity: tickets for these events are sold on the source's page.
+ */
+export const importedFromSchema = z.object({
+  /** The site the listing is on, in words: "Sulekha". */
+  sourceName: z.string().min(1).max(100),
+  /** The organiser the listing names, shown as "Presented by". */
+  presentedBy: z.string().max(200).nullable(),
+  /** The UTC day the listing was read, `YYYY-MM-DD`. */
+  listedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  /** The prices as the listing gave them, in its order. No ticket type is made from them. */
+  prices: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(100),
+        priceCents: centsSchema,
+        currency: currencySchema,
+      }),
+    )
+    .max(20),
+  /** Whether the listing gave any price at all. */
+  priceListed: z.boolean(),
+  /**
+   * Whether the website link is on and goes to the listing's own site, so the
+   * page may label it "Buy tickets on Sulekha".
+   */
+  ticketsOnSource: z.boolean(),
 })
 
 /**
@@ -188,7 +261,6 @@ export const eventSummarySchema = z.object({
   startsAt: timestampSchema,
   endsAt: timestampSchema,
   timezone: timezoneSchema.default('Asia/Kolkata'),
-  coverImageUrl: urlSchema.nullish(),
   isOnline: z.boolean().default(false),
   city: nonEmptyStringSchema.nullish(),
   venueName: nonEmptyStringSchema.nullish(),
@@ -201,9 +273,36 @@ export const eventSummarySchema = z.object({
   organizationSlug: slugSchema.nullish(),
   /** The venue's slug, for the same reason and with the same caveat. */
   venueSlug: slugSchema.nullish(),
+  /** The approved cover a card shows, or null for the generated poster. */
+  coverImage: publicMediaSchema.nullish(),
   minPriceCents: centsSchema.nullish(),
+  /**
+   * What one ticket of the cheapest tier costs all in: face value, the
+   * platform fee and tax, computed by the same `computeOrderTotals`, fee terms
+   * and venue tax rule the checkout charges with. Face value alone is what a
+   * card used to show, and a price that grows at the last step is the practice
+   * the pricing package exists to prevent. Nullish where no tier is priced, and
+   * absent from summaries built without the deployment's fee terms.
+   */
+  minTotalCents: centsSchema.nullish(),
   currency: currencySchema.nullish(),
   soldOut: z.boolean().optional(),
+  /**
+   * Whether a ticket could be bought now: the event is in a status the sale
+   * paths accept, and at least one tier is inside its sales window with seats
+   * left. The words a card puts beside a price — "On sale", "Not on sale now"
+   * — come from this and not from the status alone, because a published event
+   * whose tiers open next week is not on sale. Omitted with no tiers, like
+   * `soldOut`, rather than guessed.
+   */
+  salesOpen: z.boolean().optional(),
+  /**
+   * For an event imported from another site and still held by the team at
+   * The Desi Events: where it is listed and the prices it listed, so a card says
+   * "On Sulekha from …" instead of a price on The Desi Events. Null for every
+   * other event.
+   */
+  importedFrom: importedFromSchema.nullable().default(null),
 })
 
 /** A `TicketType` row. */
@@ -222,7 +321,65 @@ export const ticketTypeSchema = z.object({
   salesEndAt: timestampSchema.nullish(),
   status: ticketTypeStatusSchema.default('DRAFT'),
   sortOrder: z.int().min(0).max(10_000).default(0),
+  /**
+   * Sold by seat rather than by quantity. Its stock is its seats, so its
+   * quantity columns say nothing about availability, and a page that read them
+   * called every seated tier sold out.
+   */
+  reserved: z.boolean().optional(),
+  /**
+   * `PUBLIC` or `HIDDEN`. A stranger never sees a hidden tier — the public
+   * payloads drop it — so on a public page this only ever reads `PUBLIC`; the
+   * organisation's own reads carry both.
+   */
+  visibility: ticketTypeVisibilitySchema.optional(),
+  /**
+   * The night this tier sells, or null for a tier good for every night. A
+   * reserved tier always names one, with the price zone whose seats it sells.
+   */
+  eventSessionId: cuidSchema.nullish(),
+  priceZoneId: cuidSchema.nullish(),
   ...auditColumns,
+})
+
+/**
+ * One night of an event, as a ticket or an order line names it.
+ *
+ * `label` is the organiser's short name ("Night 1"), null when the date alone
+ * labels it. The times are the night's own, in its own zone.
+ */
+export const sessionSummarySchema = z.object({
+  id: cuidSchema,
+  label: z.string().min(1).max(60).nullable(),
+  startsAt: timestampSchema,
+  endsAt: timestampSchema,
+  doorsOpenAt: timestampSchema.nullable(),
+  timezone: z.string(),
+})
+
+/**
+ * One night of an event, as its public page lists it.
+ *
+ * `seatsAvailable` counts the seats a buyer could take now, for a night with a
+ * seat map: free seats sold under a tier of the event that is neither a draft
+ * nor hidden and is inside its own sales window — the seat map's own rule for a
+ * stranger. Null for a general-admission night, whose stock is its tiers'.
+ * Zero on a night whose tiers are not on sale now is not "sold out": each
+ * reserved tier's own `availableQuantity` says which it is.
+ */
+export const publicEventSessionSchema = sessionSummarySchema.extend({
+  status: eventSessionStatusSchema,
+  salesStartAt: timestampSchema.nullable(),
+  salesEndAt: timestampSchema.nullable(),
+  hasSeatMap: z.boolean(),
+  seatsAvailable: z.int().min(0).nullable(),
+  /**
+   * False when the night's listing gave no end time (an imported event):
+   * `endsAt` is then a planning estimate, start plus three hours, which the
+   * database needs and no page shows. True for every night an organiser set,
+   * and once an editor sets an imported night's end apart from the estimate.
+   */
+  endTimeListed: z.boolean().default(true),
 })
 
 /** A `TicketHold` row: a short-lived reservation taken during checkout. */
@@ -236,7 +393,13 @@ export const ticketHoldSchema = z.object({
   ...auditColumns,
 })
 
-/** An `OrderItem` row. `subtotalCents` is `quantity * unitPriceCents`. */
+/**
+ * An `OrderItem` row. `subtotalCents` is `quantity * unitPriceCents`.
+ *
+ * `ticketTypeName` and `session` say what the line bought and for which
+ * night. The names typed at checkout are staged on the row until the tickets
+ * are issued and are never sent back from here: they are on the tickets.
+ */
 export const orderItemSchema = z.object({
   id: cuidSchema,
   orderId: cuidSchema,
@@ -244,6 +407,8 @@ export const orderItemSchema = z.object({
   quantity: quantitySchema,
   unitPriceCents: centsSchema,
   subtotalCents: centsSchema,
+  ticketTypeName: nonEmptyStringSchema.optional(),
+  session: sessionSummarySchema.nullish(),
 })
 
 /** An `Order` row. Every money column is integer cents of `currency`. */
@@ -252,7 +417,12 @@ export const orderSchema = z.object({
   reference: orderReferenceSchema,
   eventId: cuidSchema,
   userId: cuidSchema.nullish(),
-  buyerEmail: emailSchema,
+  /**
+   * Present on the buyer's own reads only. An organisation reading the order
+   * (`order:view`, VIEWER and up) gets no address: nothing it does with an
+   * order needs one, and the platform, not the organiser, writes to buyers.
+   */
+  buyerEmail: emailSchema.optional(),
   buyerName: nonEmptyStringSchema,
   status: orderStatusSchema.default('PENDING'),
   currency: currencySchema.default('INR'),
@@ -265,6 +435,37 @@ export const orderSchema = z.object({
   expiresAt: timestampSchema.nullish(),
   paidAt: timestampSchema.nullish(),
   cancelledAt: timestampSchema.nullish(),
+  /**
+   * How the ticket price is paid (SPEC3): by card online, or at the door with
+   * only the booking fee paid online. Optional on payloads built before it.
+   */
+  paymentMethod: paymentMethodSchema.optional(),
+  /**
+   * The booking fee before a referral code, and what the code removed;
+   * `feesCents` is what was charged (`feeGrossCents − feeWaivedCents`).
+   */
+  feeGrossCents: centsSchema.optional(),
+  feeWaivedCents: centsSchema.optional(),
+  /**
+   * Where the booking fee's terms came from. For organisation readers
+   * (`order:view`) and administrators only: a buyer's own read never carries it
+   * (SPEC3 §7.2), so the presenter leaves it out for them.
+   */
+  feeSource: z.enum(['SITE_DEFAULT', 'EVENT']).optional(),
+  /** Whether a referral code removed the booking fee. Never the code, never its id. */
+  referralApplied: z.boolean().optional(),
+  /** The booking fee's numbers the order was priced with; null when they were not recorded. */
+  fee: orderFeeTermsSchema.nullable().optional(),
+  /** What the order's tax was charged on. */
+  tax: z.object({ applied: z.boolean(), appliedTo: z.enum([...TAX_APPLIED_TO]) }).optional(),
+  /** A pay-at-the-venue order's state at the door; null for a card order. */
+  venuePayment: orderVenuePaymentSchema.nullable().optional(),
+  /**
+   * Its unpaid pay-at-the-venue tickets cancelled, oldest first, for the buyer
+   * and organisation readers (SPEC3-XI §11.3). Only organisation readers get a
+   * name; buyers read "The organiser" or "The Desi Events team".
+   */
+  venueCancellations: z.array(orderVenueCancellationSchema).optional(),
   ...auditColumns,
 })
 
@@ -276,6 +477,12 @@ export const ticketSchema = z.object({
   attendeeName: nonEmptyStringSchema.nullish(),
   status: ticketStatusSchema.default('VALID'),
   checkedInAt: timestampSchema.nullish(),
+  /**
+   * What this ticket owes at the door and whether it was paid (SPEC3 §11.3);
+   * null for a ticket that owes nothing there. A ticket that owes a payment
+   * still gets its pass: the door has to scan it to take the payment.
+   */
+  venuePayment: ticketVenuePaymentSchema.nullable().optional(),
   ...auditColumns,
 })
 
@@ -306,6 +513,8 @@ export const promoCodeSchema = z
     code: promoCodeStringSchema,
     type: promoTypeSchema,
     value: z.int().min(0).max(1_000_000_000),
+    /** Required for `FIXED_AMOUNT` and absent for `PERCENTAGE`; the database checks both. */
+    currency: currencySchema.nullish(),
     maxRedemptions: countSchema.nullish(),
     redemptionCount: countSchema.default(0),
     startsAt: timestampSchema.nullish(),
@@ -375,8 +584,28 @@ export const eventPoliciesSchema = z.object({
  */
 export const eventWithRelationsSchema = eventSchema.extend({
   venue: venueSchema.nullish(),
+  /** Approved gallery pictures, in the organiser's order. */
+  gallery: z.array(publicMediaSchema).max(8).default([]),
   organization: publicOrganizerSummarySchema.nullish(),
-  ticketTypes: z.array(ticketTypeSchema).default([]),
+  /**
+   * The tiers this reader is shown. A reserved tier on a night with a seat map
+   * carries its own free seats as `availableQuantity` (and `isSoldOut` when
+   * there are none), the figure `GET /events/:id/ticket-types` gives: each
+   * zone sells out on its own. A general-admission tier carries neither here.
+   */
+  ticketTypes: z
+    .array(
+      ticketTypeSchema.extend({
+        availableQuantity: z.int().min(0).optional(),
+        isSoldOut: z.boolean().optional(),
+      }),
+    )
+    .default([]),
+  /**
+   * The event's nights, soonest first. Empty for an event with none recorded,
+   * whose own start and end are its schedule.
+   */
+  sessions: z.array(publicEventSessionSchema).default([]),
   /** Minimum age at the door. Null means there is no restriction. */
   ageRestriction: z.int().min(0).max(120).nullish(),
   /** Event-level accessibility claims, layered over the venue's. */
@@ -385,6 +614,27 @@ export const eventWithRelationsSchema = eventSchema.extend({
   artists: z.array(nonEmptyStringSchema).max(64).default([]),
   policies: eventPoliciesSchema.nullish(),
   /**
+   * The event page's own content, all of it public by the organiser's choice.
+   * The presenter drops any stored item that no longer parses rather than
+   * failing the page, so a stricter rule added later cannot 500 an old event.
+   */
+  faq: eventFaqSchema.nullish(),
+  /** The line-up with roles and bios; `artists` above carries the names alone. */
+  performers: eventPerformersSchema.nullish(),
+  /** Times are local to the event's time zone, `HH:mm`. */
+  runningOrder: eventRunningOrderSchema.nullish(),
+  sponsors: eventSponsorsSchema.nullish(),
+  socialLinks: eventSocialLinksSchema.nullish(),
+  dressCode: z.string().max(500).nullish(),
+  /** This event's parking and arrival notes, layered over the venue's. */
+  directions: z.string().max(2000).nullish(),
+  /**
+   * A contact the organiser chose to publish. Never the private
+   * `Event.contactEmail` or the organisation's account contact (NF-14).
+   */
+  publicEmail: emailSchema.nullish(),
+  publicPhone: phoneSchema.nullish(),
+  /**
    * The start time before a postponement.
    *
    * Public on purpose: it is what turns "this moved" into "this moved from the
@@ -392,35 +642,239 @@ export const eventWithRelationsSchema = eventSchema.extend({
    */
   previousStartsAt: timestampSchema.nullish(),
   /**
+   * Where "Visit the organiser's website" goes, as a host, never the address:
+   * the link itself is The Desi Events' own `/events/{slug}/website`. Null unless an
+   * administrator at The Desi Events has the link on, the address they approved still
+   * passes the address rules, and the event's page is public.
+   */
+  websiteLink: publicWebsiteLinkSchema.nullable().default(null),
+  /**
+   * The organiser's current website address. Present only for callers who may
+   * see the event's drafts (its own team, moderators and platform
+   * administrators); the key is absent for everybody else.
+   */
+  websiteUrl: z.string().max(WEBSITE_LIMITS.url).nullish(),
+  /**
+   * The website link's switch as insiders read it: on or off, whether an
+   * address waits for a decision, where the link goes, who decided, when and
+   * why. Present only for the same callers as `websiteUrl`; absent for
+   * everybody else.
+   */
+  websiteRedirect: websiteRedirectStateSchema.nullish(),
+  /**
+   * For an event imported from another site and still held by the team at
+   * The Desi Events: who presents it, the prices the listing gave and whether the
+   * website link goes to the listing (SPEC2-XI §5.I-E). Null for every other
+   * event, and once the event is moved to an organiser's own organisation.
+   */
+  importedFrom: importedFromSchema.nullable().default(null),
+  /**
+   * The booking fee terms checkout charges this event's buyers with, one entry
+   * per currency its tiers are priced in: the event's own when the team at
+   * The Desi Events set them (SPEC3 §7), else the site default. Never where they came
+   * from.
+   *
+   * Public because they are the price: a booking fee is part of what a buyer
+   * pays, and quoting a total without the terms that produce it is guessing.
+   * The web used to guess — it priced with `@desi-event/pricing`'s defaults
+   * (2.5% + ₹5.00) while the deployment charged its configured terms — so
+   * the event page and checkout quoted a smaller total than the order came to.
+   * Nullish on a detail built without the deployment's terms.
+   */
+  feeTerms: z
+    .array(
+      z.object({
+        currency: currencySchema,
+        percentageBps: z.int().min(0).max(10_000),
+        flatCents: centsSchema,
+      }),
+    )
+    .nullish(),
+  /**
+   * Whether buyers are offered paying at the door now (SPEC3 §9.2). The public
+   * detail carries this and nothing else about the switch.
+   */
+  venuePayment: publicVenuePaymentSchema.optional(),
+  /**
+   * The event's booking fee and pay-at-the-venue switch, read-only, for its
+   * own team and platform administrators (SPEC3 §7.2); absent for everybody
+   * else.
+   */
+  paymentTerms: paymentTermsViewSchema.optional(),
+  /**
    * Optimistic-concurrency counter, echoed so the organiser's editor can send
    * it back as a precondition. Not sensitive — it counts edits, and an edit
    * count says nothing a visitor could not infer from the page changing.
    */
   revision: z.int().min(0).default(0),
+  /**
+   * A deleted event's record, for the people who may still read it: its own
+   * team and the team at The Desi Events. Absent from every other payload, and absent
+   * for an event that is not deleted. `restoreTo` is where a restore by the team
+   * at The Desi Events would bring it back. `deletedByName` is the person's name
+   * for a platform reader, or for a member when a member of their own
+   * organisation deleted it; null otherwise (an organiser reads a deletion by
+   * the team at The Desi Events without the administrator's name).
+   */
+  deletion: z
+    .object({
+      deletedAt: timestampSchema,
+      reason: z.string().max(500),
+      outcome: z.enum(DELETION_OUTCOMES),
+      authority: eventAuthoritySchema,
+      statusBefore: eventStatusSchema,
+      restoreTo: eventStatusSchema,
+      deletedByName: z.string().max(200).nullable(),
+    })
+    .optional(),
 })
 
-/** An order with its line items and, once paid, its issued tickets. */
+/**
+ * Whether the order's buyer still holds a particular ticket on it.
+ *
+ * ## Why this is an enum and not `transferredAway: boolean`
+ *
+ * A Boolean here is not ambiguous about its *answer* — it is ambiguous about
+ * its *question*, which is worse, because the wrong question has a plausible
+ * implementation that is wrong in only four states. The tempting predicate is
+ * `ticket.ownerUserId !== order.userId`, and it is a sound test of "whose row
+ * is this" and a **useless** test of "has this ticket been handed on":
+ * `acceptTransfer` never rewrites the old row's owner, so after an accepted
+ * transfer the buyer's own row still has `ownerUserId === order.userId` while
+ * its status is `TRANSFERRED`. The same holds after a transfer back, after a
+ * revocation with an invitation outstanding, and after a revocation following
+ * an accepted transfer.
+ *
+ * Naming the values forces the question to be asked out loud.
+ *
+ * `HELD` — this row is the buyer's and they have not handed it on. It says
+ * nothing about whether it opens a door: a refunded or revoked ticket the buyer
+ * still owns is `HELD`. Admission is a different axis, and `Ticket.status` is
+ * the only thing that answers it.
+ *
+ * `TRANSFERRED_AWAY` — the buyer handed this row to somebody else and the
+ * recipient accepted. Derived from `Ticket.status`, never from the owner
+ * columns.
+ *
+ * @type {object}
+ */
+export const purchaserHoldingSchema = z.enum(['HELD', 'TRANSFERRED_AWAY'])
+
+/**
+ * A ticket as it appears on the order that bought it.
+ *
+ * ## The distinction this draws
+ *
+ * Accepting a transfer mints the recipient's ticket onto the **buyer's order
+ * item** — same `orderItemId`, new row, new owner. So "the tickets on this
+ * order" and "the tickets this buyer holds" stopped being the same set the
+ * moment transfers existed, and a presenter that flattened `item.tickets`
+ * handed whoever read the order a stranger's ticket: their code, their name,
+ * the name printed on it.
+ *
+ * What an order shows is therefore the buyer's own rows — including one they
+ * have since handed on, because that is their purchase history and erasing it
+ * would be its own kind of lie.
+ *
+ * @type {object}
+ */
+export const orderTicketSchema = ticketSchema.extend({
+  /**
+   * Whether the buyer still holds this row.
+   *
+   * Viewer-agnostic: a fact about the ticket and the order, not about who is
+   * reading. A presenter whose output depends on the reader is a presenter that
+   * leaks the first time somebody forgets to pass the reader.
+   */
+  purchaserHolding: purchaserHoldingSchema,
+  /**
+   * Whether a later ticket on this order replaced this one.
+   *
+   * Every accepted transfer mints a new row on the same order item, so a ticket
+   * handed out and handed back leaves **three** rows against a quantity of one:
+   * the buyer's original (`TRANSFERRED_AWAY`), the recipient's (not the
+   * buyer's, and absent from this payload), and the buyer's replacement
+   * (`HELD`). Without this flag an order for one ticket appears to list two,
+   * and a screen counting rows would say so.
+   *
+   * Computed from the rows already on the order — a later ticket whose
+   * `supersedesTicketId` names this one — so it costs no extra query.
+   */
+  supersededByLaterTicket: z.boolean(),
+  /**
+   * For a ticket of a pay-at-the-venue order that the buyer passed on
+   * (`TRANSFERRED_AWAY`), where it stands now with whoever holds it: still
+   * owing (and how much), paid at the door, cancelled unpaid, owing nothing
+   * at the door any more, or back with the buyer. Read from the ticket that
+   * replaced this one, following each hand-on to the last, so a screen never
+   * has to guess which passed-on row still owes. Null for every other row.
+   */
+  passedOn: passedOnTicketSchema.nullable().optional(),
+})
+
+/**
+ * The event an order is for, as its readers see it: the summary every listing
+ * shows, plus the country and region (state or province) of its venue, the
+ * place its tax is named for (SPEC3 §12). Both null for an online event, or a
+ * venue the API cannot place.
+ */
+export const orderEventSummarySchema = eventSummarySchema.extend({
+  country: countrySchema.nullish(),
+  region: nonEmptyStringSchema.nullish(),
+})
+
+/**
+ * An order with its line items and, once paid, the buyer's own tickets.
+ *
+ * `tickets` is the buyer's, not the order item's — see {@link orderTicketSchema}
+ * for why those stopped being the same set.
+ */
 export const orderWithItemsSchema = orderSchema.extend({
   items: z.array(orderItemSchema).default([]),
-  tickets: z.array(ticketSchema).optional(),
-  event: eventSummarySchema.nullish(),
+  tickets: z.array(orderTicketSchema).optional(),
+  event: orderEventSummarySchema.nullish(),
+  /**
+   * The online event's joining link, for the buyer only, once the order is
+   * paid and while one of the tickets they hold still admits. Null otherwise,
+   * and absent for every other reader.
+   */
+  onlineJoinUrl: urlSchema.nullish(),
+  /**
+   * Whether this order has a group pass for its reader, and why not.
+   *
+   * Only for the account that bought it; null for anybody else. `admits` is
+   * how many tickets the buyer still holds that would admit. No secret: the
+   * pass itself is a separate, holder-only, `no-store` request.
+   */
+  groupPass: z
+    .object({
+      admits: z.int().min(0),
+      available: z.boolean(),
+      unavailableReason: groupPassUnavailableReasonSchema.nullable(),
+    })
+    .nullish(),
+  /**
+   * What changed about the event since this order was placed and touches it,
+   * newest first: event-wide changes, its own night's, and every night's for a
+   * ticket good for every night. Read by `orders.get`; absent elsewhere.
+   */
+  eventChanges: z.array(eventChangeNoticeSchema).max(50).optional(),
 })
 
 /**
  * One outbox row, as an operator sees it.
  *
- * Not as it is stored. The recipient is reduced to a masked form and the
- * payload is dropped entirely: an operations queue is read by people who need
- * to know whether a message went, not who it was to or what it said. Everything
- * here is a status, a count or an instant.
+ * Not as it is stored. The recipient and the payload are both dropped: an
+ * operations queue is read by people who need to know whether a message went,
+ * not who it was to or what it said. Everything here is a status, a count or
+ * an instant. Retrying or cancelling a message needs none of the recipient,
+ * not even its domain, so this carries no stand-in for it either.
  */
 export const notificationSummarySchema = z.object({
   id: cuidSchema,
   template: z.string(),
   channel: notificationChannelSchema,
   status: notificationStatusSchema,
-  /** `p****a@example.com`. Enough to recognise, not enough to contact. */
-  recipientMasked: z.string(),
   businessEvent: z.string().nullable(),
   templateVersion: z.number().int(),
   attempts: z.number().int(),
@@ -429,8 +883,12 @@ export const notificationSummarySchema = z.object({
   sentAt: timestampSchema.nullable(),
   lastAttemptAt: timestampSchema.nullable(),
   failureCategory: z.enum(['PERMANENT', 'TRANSIENT']).nullable(),
-  /** Already redacted when it was written. Repeated here for the same reason. */
-  lastError: z.string().nullable(),
+  /**
+   * Redacted when it was written, and again by the presenter. This refuses a
+   * value that still carries an address, so a provider error quoting its
+   * recipient cannot reach the screen even if both of those were skipped.
+   */
+  lastError: addressFree(z.string()).nullable(),
   leaseExpiresAt: timestampSchema.nullable(),
   suppressible: z.boolean(),
   createdAt: timestampSchema,
@@ -502,6 +960,13 @@ export const refundSchema = z.object({
   settledAt: timestampSchema.nullable(),
   createdAt: timestampSchema,
   updatedAt: timestampSchema.optional(),
+  /**
+   * How the order's ticket price was paid (SPEC3 §9.7). For a pay-at-the-venue
+   * order only the booking fee paid online comes back, and what was taken at
+   * the door (`paidAtDoorCents`) stays with the organiser: the detail says so.
+   */
+  paymentMethod: paymentMethodSchema.optional(),
+  paidAtDoorCents: centsSchema.optional(),
 })
 
 /**

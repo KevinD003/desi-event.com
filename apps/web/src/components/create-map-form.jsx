@@ -9,8 +9,10 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 
 /**
  * @typedef {object} CreateMapFormProps
@@ -28,6 +30,7 @@ export function CreateMapForm({ venueId }) {
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Create the map.
@@ -59,11 +62,11 @@ export function CreateMapForm({ venueId }) {
 
       const body = await response.json().catch(() => null)
 
-      setError(body?.error?.message ?? 'Could not create the map.')
-      queueMicrotask(() => errorRef.current?.focus())
+      setError(refusalSentence(response.status, body, 'Could not create the map.'))
+      focusAfterRender(errorRef)
     } catch {
       setError('The ticketing service is not responding. Nothing has been created.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } finally {
       setBusy(false)
     }

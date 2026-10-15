@@ -12,6 +12,15 @@
  * place. An operations board that goes blank because one endpoint is slow is a
  * board nobody trusts during the incident it exists for.
  *
+ * ## A lapsed step-up is one prompt, not three
+ *
+ * The reconciliation and refund queues sit behind the FINANCE_VIEW step-up
+ * window. When it has lapsed each of them is refused the same way, and three
+ * identical prompts would be three forms that do one thing. So the board asks
+ * once, above the queues, and each refused queue says it is waiting on that.
+ * Any other refusal is drawn in place by `ReadRefusal`, in the refusal
+ * vocabulary rather than the API's own message.
+ *
  * ## Scoping
  *
  * The reconciliation and notification queues are platform-scoped; the refund
@@ -25,8 +34,12 @@
 import Link from 'next/link'
 
 import { AgingBadge } from '../../components/money-figure.jsx'
+import { ReadRefusal } from '../../components/read-refusal.jsx'
+import { StepUpForRead } from '../../components/step-up-for-read.jsx'
 import { EmptyState } from '../../components/ui.jsx'
+import { CountTile, CountTiles } from '../../components/workspace-kit.jsx'
 import { formatPrice } from '../../lib/pricing.js'
+import { describeApiRefusal } from '../../lib/refusal.js'
 import {
   getNotificationQueue,
   getReconciliationQueue,
@@ -38,18 +51,52 @@ export const dynamic = 'force-dynamic'
 
 export const metadata = { title: 'Operations', robots: { index: false, follow: false } }
 
+/** A queue this caller is not shown at all. */
+const NOT_ASKED = Object.freeze({ value: null, error: null })
+
 /**
  * Fetch one queue, reporting a failure rather than throwing it.
  *
  * @param {Function} load What to call.
- * @returns {Promise<{value: object|null, failure: string|null}>} What came back.
+ * @returns {Promise<{value: object|null, error: object|null}>} What came back.
  */
 async function attempt(load) {
   try {
-    return { value: await load(), failure: null }
+    return { value: await load(), error: null }
   } catch (error) {
-    return { value: null, failure: error instanceof Error ? error.message : String(error) }
+    return { value: null, error }
   }
+}
+
+/**
+ * Whether a queue was refused only for want of a fresh step-up.
+ *
+ * @param {{error: object|null}} queue The attempt.
+ * @returns {boolean} True when a step-up would let it through.
+ */
+function awaitsStepUp(queue) {
+  return queue.error !== null && describeApiRefusal(queue.error).state === 'step-up'
+}
+
+/**
+ * What a queue section shows in place of its rows, when it has no rows to show.
+ *
+ * @param {object} props Component props.
+ * @param {{error: object|null}} props.queue The attempt.
+ * @returns {JSX.Element|null} The failure, or nothing.
+ */
+function QueueFailure({ queue }) {
+  if (queue.error === null) return null
+
+  if (awaitsStepUp(queue)) {
+    return (
+      <p className="mt-3 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
+        Shown once you confirm it is you, above.
+      </p>
+    )
+  }
+
+  return <ReadRefusal error={queue.error} what="This queue" action="see this queue" />
 }
 
 /**
@@ -57,8 +104,9 @@ async function attempt(load) {
  * @property {string} id The heading's id, for `aria-labelledby`.
  * @property {string} title What the queue is.
  * @property {string} description Why somebody is looking at it.
- * @property {string|null} failure What went wrong, if anything.
+ * @property {object|null} failure What to show instead of the rows, when they could not be read.
  * @property {number} count How many items.
+ * @property {{href: string, label: string}} [more] The whole list, settled items included.
  * @property {object} children The rows.
  */
 
@@ -68,24 +116,29 @@ async function attempt(load) {
  * @param {QueueSectionProps} props Component props.
  * @returns {JSX.Element} The section.
  */
-function QueueSection({ id, title, description, failure, count, children }) {
+function QueueSection({ id, title, description, failure, count, more = null, children }) {
   return (
     <section aria-labelledby={id} className="mt-8">
-      <h2 id={id} className="text-lg font-semibold text-indigo-night-900">
-        {title} {failure ? null : <span className="font-normal text-slate-600">({count})</span>}
+      <h2 id={id} className="text-xl font-semibold text-ink">
+        {title} {failure ? null : <span className="font-normal text-ink-muted">({count})</span>}
       </h2>
-      <p className="mt-1 text-sm text-slate-700">{description}</p>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
 
-      {failure ? (
-        <p
-          role="alert"
-          className="mt-3 rounded-card border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"
-        >
-          This queue could not be loaded: {failure}.
+      {failure ?? children}
+
+      {/* The board shows what needs somebody; the list behind it shows
+          everything, which is where a settled item is looked up. Offered even
+          when the board's read failed: the list is its own request. */}
+      {more ? (
+        <p className="mt-3 text-sm">
+          <Link
+            href={more.href}
+            className="inline-flex min-h-11 items-center rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          >
+            {more.label}
+          </Link>
         </p>
-      ) : (
-        children
-      )}
+      ) : null}
     </section>
   )
 }
@@ -105,14 +158,11 @@ export default async function OperationsPage() {
   const organizationId = organizations[0]?.organizationId
 
   const [reconciliation, notifications, refunds] = await Promise.all([
-    platform
-      ? attempt(() => getReconciliationQueue({ state: 'OPEN' }))
-      : { value: null, failure: null },
-    platform ? attempt(() => getNotificationQueue()) : { value: null, failure: null },
-    organizationId
-      ? attempt(() => getRefundQueue({ organizationId }))
-      : { value: null, failure: null },
+    platform ? attempt(() => getReconciliationQueue({ state: 'OPEN' })) : NOT_ASKED,
+    platform ? attempt(() => getNotificationQueue()) : NOT_ASKED,
+    organizationId ? attempt(() => getRefundQueue({ organizationId })) : NOT_ASKED,
   ])
+  const stepUp = [reconciliation, notifications, refunds].some(awaitsStepUp)
 
   const stuck = (notifications.value?.messages ?? []).filter((message) =>
     ['DEAD_LETTER', 'FAILED', 'RETRY_SCHEDULED'].includes(message.status),
@@ -125,17 +175,44 @@ export default async function OperationsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-indigo-night-900">Operations</h1>
-      <p className="mt-2 text-slate-700">
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Workspace · Money
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Operations</h1>
+      <p className="mt-2 text-ink-muted">
         What the machine could not finish on its own. Nothing is actioned from this page — each item
         links to where the work is done, behind its own second factor.
       </p>
 
       {!platform ? (
-        <p className="mt-4 rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-          The reconciliation and notification queues are platform work and are not shown here. Your
-          organisation’s refunds are below.
+        <p className="mt-4 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
+          This board shows your organisation’s refunds, below. The notification queue is platform
+          work and is not shown to an organisation; your organisation’s reconciliation items are on
+          the Reconciliation tab.
         </p>
+      ) : null}
+
+      {stepUp ? <StepUpForRead action="see the queues that hold money" /> : null}
+
+      {/* The same three counts the sections below head themselves with, side
+          by side, for a queue that was read. A queue that could not be read
+          has no tile rather than a zero: nobody counted it. */}
+      {(platform && (!reconciliation.error || !notifications.error)) ||
+      (organizationId && !refunds.error) ? (
+        <CountTiles>
+          {platform && !reconciliation.error ? (
+            <CountTile
+              label="Payments not reconciled"
+              value={reconciliation.value?.tasks.length ?? 0}
+            />
+          ) : null}
+          {platform && !notifications.error ? (
+            <CountTile label="Notifications that did not go" value={stuck.length} />
+          ) : null}
+          {organizationId && !refunds.error ? (
+            <CountTile label="Refunds waiting" value={unresolved.length} />
+          ) : null}
+        </CountTiles>
       ) : null}
 
       {platform ? (
@@ -143,8 +220,12 @@ export default async function OperationsPage() {
           id="reconciliation-heading"
           title="Payment reconciliation"
           description="Where the system does not know what happened: a provider that did not answer, a webhook that contradicts the stored payment, a refund whose outcome is unknown. Oldest first, because the one that has been unknown longest is the most urgent."
-          failure={reconciliation.failure}
+          failure={reconciliation.error ? <QueueFailure queue={reconciliation} /> : null}
           count={reconciliation.value?.tasks.length ?? 0}
+          more={{
+            href: '/operations/reconciliation',
+            label: 'Every reconciliation item, resolved ones included',
+          }}
         >
           {(reconciliation.value?.tasks.length ?? 0) === 0 ? (
             <div className="mt-3">
@@ -158,18 +239,18 @@ export default async function OperationsPage() {
               {reconciliation.value.tasks.map((task) => (
                 <li
                   key={task.id}
-                  className="rounded-card border border-slate-200 bg-white p-4 focus-within:ring-2 focus-within:ring-marigold-500"
+                  className="rounded-card border border-line bg-surface-raised shadow-card p-4 focus-within:ring-2 focus-within:ring-focus"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="font-medium text-indigo-night-900">
+                    <p className="font-medium text-ink">
                       <Link
                         href={`/operations/reconciliation/${task.id}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                       >
                         {task.kind.replace(/_/gu, ' ').toLowerCase()}
                       </Link>
                       {task.orderReference ? (
-                        <span className="ml-2 font-mono text-sm text-slate-600">
+                        <span className="ml-2 font-mono text-sm text-ink-muted">
                           {task.orderReference}
                         </span>
                       ) : null}
@@ -177,7 +258,7 @@ export default async function OperationsPage() {
                     <AgingBadge band={task.aging} hours={task.ageHours} />
                   </div>
                   {task.lastError ? (
-                    <p className="mt-1 text-sm text-slate-700">{task.lastError}</p>
+                    <p className="mt-1 text-sm text-ink-muted">{task.lastError}</p>
                   ) : null}
                 </li>
               ))}
@@ -190,9 +271,13 @@ export default async function OperationsPage() {
         <QueueSection
           id="notifications-heading"
           title="Notifications that did not go"
-          description="Dead letters and messages waiting on a retry. Recipients are masked and payloads are not shown: an operations screen answers “did this go?”, not “what did it say?”."
-          failure={notifications.failure}
+          description="Dead letters and messages waiting on a retry. Neither recipients nor payloads are shown: an operations screen answers “did this go?”, not “who was it to?” or “what did it say?”."
+          failure={notifications.error ? <QueueFailure queue={notifications} /> : null}
           count={stuck.length}
+          more={{
+            href: '/operations/notifications',
+            label: 'Every message in the outbox, sent ones included',
+          }}
         >
           {stuck.length === 0 ? (
             <div className="mt-3">
@@ -204,21 +289,19 @@ export default async function OperationsPage() {
           ) : (
             <ul className="mt-3 space-y-2">
               {stuck.map((message) => (
-                <li key={message.id} className="rounded-card border border-slate-200 bg-white p-4">
+                <li
+                  key={message.id}
+                  className="rounded-card border border-line bg-surface-raised shadow-card p-4"
+                >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="font-medium text-indigo-night-900">
-                      {message.template}{' '}
-                      <span className="font-normal text-slate-600">
-                        to {message.recipientMasked}
-                      </span>
-                    </p>
-                    <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800">
+                    <p className="font-medium text-ink">{message.template}</p>
+                    <span className="rounded-full border border-line-strong bg-surface-subtle px-2 py-0.5 text-xs font-medium text-ink">
                       {message.status.replace(/_/gu, ' ').toLowerCase()} · {message.attempts}/
                       {message.maxAttempts}
                     </span>
                   </div>
                   {message.lastError ? (
-                    <p className="mt-1 text-sm text-slate-700">{message.lastError}</p>
+                    <p className="mt-1 text-sm text-ink-muted">{message.lastError}</p>
                   ) : null}
                 </li>
               ))}
@@ -231,9 +314,13 @@ export default async function OperationsPage() {
         <QueueSection
           id="refunds-heading"
           title="Refunds waiting"
-          description="Asked for and not yet settled. Each one holds money back from what may be paid out, so a refund nobody moves on is a payout nobody can make."
-          failure={refunds.failure}
+          description="Asked for and still unsettled. Each one holds money back from what may be paid out, so a refund nobody moves on is a payout nobody can make."
+          failure={refunds.error ? <QueueFailure queue={refunds} /> : null}
           count={unresolved.length}
+          more={{
+            href: `/finance/refunds?organizationId=${encodeURIComponent(organizationId)}`,
+            label: 'Every refund, settled ones included',
+          }}
         >
           {unresolved.length === 0 ? (
             <div className="mt-3">
@@ -245,26 +332,29 @@ export default async function OperationsPage() {
           ) : (
             <ul className="mt-3 space-y-2">
               {unresolved.map((refund) => (
-                <li key={refund.id} className="rounded-card border border-slate-200 bg-white p-4">
+                <li
+                  key={refund.id}
+                  className="rounded-card border border-line bg-surface-raised shadow-card p-4"
+                >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="font-medium text-indigo-night-900">
+                    <p className="font-medium text-ink">
                       <Link
                         href={`/finance/refunds/${refund.id}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                       >
                         {formatPrice(refund.amountCents, refund.currency)}
                       </Link>
                       {refund.orderReference ? (
-                        <span className="ml-2 font-mono text-sm text-slate-600">
+                        <span className="ml-2 font-mono text-sm text-ink-muted">
                           {refund.orderReference}
                         </span>
                       ) : null}
                     </p>
-                    <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800">
+                    <span className="rounded-full border border-line-strong bg-surface-subtle px-2 py-0.5 text-xs font-medium text-ink">
                       {refund.status.replace(/_/gu, ' ').toLowerCase()}
                     </span>
                   </div>
-                  <p className="mt-1 text-sm text-slate-700">
+                  <p className="mt-1 text-sm text-ink-muted">
                     {refund.reason.replace(/_/gu, ' ').toLowerCase()}
                     {refund.attempts > 0 ? ` · ${refund.attempts} submission attempt(s)` : ''}
                   </p>
@@ -275,8 +365,8 @@ export default async function OperationsPage() {
         </QueueSection>
       ) : null}
 
-      <p className="mt-10 text-sm text-slate-700">
-        <Link href="/finance" className="underline underline-offset-4 hover:text-marigold-700">
+      <p className="mt-10 text-sm text-ink-muted">
+        <Link href="/finance" className="underline underline-offset-4 hover:text-accent-strong">
           The finance overview
         </Link>{' '}
         has the figures these queues are about.

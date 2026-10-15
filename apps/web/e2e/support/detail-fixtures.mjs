@@ -3,8 +3,8 @@
  *
  * The sessions were established once in global setup, for the reason set out
  * there — the budget protecting `/auth/login` is ten requests a minute and is
- * deliberately not configurable, so a run that signs in eight times deserves to
- * be refused. Adopting a saved session costs no request at all.
+ * deliberately not configurable, so a run that signs in over and over deserves
+ * to be refused. Adopting a saved session costs no request at all.
  *
  * @module e2e/support/detail-fixtures
  */
@@ -28,12 +28,47 @@ export function world() {
 }
 
 /**
+ * A page whose `goto` returns once the page has arrived, not once it loaded.
+ *
+ * Every signed-in area streams behind a `loading.jsx` boundary, and React
+ * reveals the finished page after the document's `load` event — so a read
+ * taken straight after `goto` can see "Loading your tickets…" instead of the
+ * tickets. Three specs did exactly that once the boundaries were added, and
+ * passed or failed on timing. Every page has one `h1` and the loading fallback
+ * has none, so an `h1` inside `main` is the sign the page itself is there.
+ *
+ * Only for HTML: a `goto` to the sitemap or the manifest has no heading to wait
+ * for and returns as Playwright's does.
+ *
+ * @param {object} page A Playwright page.
+ * @returns {object} The same page, its `goto` waiting for arrival.
+ */
+export function arriving(page) {
+  const goto = page.goto.bind(page)
+
+  page.goto = async (url, options) => {
+    const response = await goto(url, options)
+    const type = response?.headers()['content-type'] ?? ''
+
+    if (type.includes('text/html')) {
+      await page.locator('main h1').first().waitFor({ state: 'visible', timeout: 15_000 })
+    }
+
+    return response
+  }
+
+  return page
+}
+
+/**
  * A `test` with a page per signed-in account.
  *
  * `owner` runs the organisation and holds the seeded tickets. `beta` runs a
  * different one and is the outsider every refusal is checked against. `viewer`
  * holds `report:view` and nothing financial, and deliberately has no second
- * factor.
+ * factor. `gamma`, `giver` and `taker` are the feature world's
+ * (`seed-feature-world.mjs`): where the feature specs publish, sell, and hand
+ * tickets on, away from alpha's and beta's pinned counts.
  */
 export const test = base.extend({
   /**
@@ -47,7 +82,7 @@ export const test = base.extend({
   owner: async ({ browser }, use) => {
     const context = await browser.newContext({ storageState: statePath('owner') })
 
-    await use(await context.newPage())
+    await use(arriving(await context.newPage()))
     await context.close()
   },
 
@@ -62,7 +97,7 @@ export const test = base.extend({
   outsider: async ({ browser }, use) => {
     const context = await browser.newContext({ storageState: statePath('beta') })
 
-    await use(await context.newPage())
+    await use(arriving(await context.newPage()))
     await context.close()
   },
 
@@ -77,7 +112,127 @@ export const test = base.extend({
   viewer: async ({ browser }, use) => {
     const context = await browser.newContext({ storageState: statePath('viewer') })
 
-    await use(await context.newPage())
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * A SCANNER of the alpha organisation, scoped to the alpha event only.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  scanner: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('scanner') })
+
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * A STAFF member of the alpha organisation with no door scope.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  steward: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('steward') })
+
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * The attendee holding the door tickets.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  holder: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('holder') })
+
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * The seed's platform reader, a SUPER_ADMIN with no membership.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  platform: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('platform') })
+
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * The gamma organisation's owner, who holds a second factor.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  gamma: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('gamma') })
+
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * The attendee holding gamma tickets to offer, a reserved seat and a group order.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  giver: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('giver') })
+
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * The attendee with nothing, who accepts what is offered and buys seats.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  taker: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('taker') })
+
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * Nobody: a window with no session at all.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  visitor: async ({ browser }, use) => {
+    const context = await browser.newContext()
+
+    await use(arriving(await context.newPage()))
     await context.close()
   },
 })

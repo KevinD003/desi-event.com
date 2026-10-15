@@ -18,7 +18,8 @@
  */
 
 import { JOB_NAMES, sendEmailJobSchema } from '@desi-event/schemas/jobs'
-import { PROVIDER_ERROR_CODES, assertEmailProvider } from '@desi-event/providers'
+import { PROVIDER_ERROR_CODES, ProviderError, assertEmailProvider } from '@desi-event/providers'
+import { withoutAddresses } from '@desi-event/schemas'
 
 import {
   PermanentJobError,
@@ -117,29 +118,35 @@ export function createSendEmailProcessor({ email, logger, from, replyTo }) {
     try {
       receipt = await provider.send(message)
     } catch (error) {
+      // Nothing that leaves here names the recipient. These errors are logged,
+      // and BullMQ keeps a failed job's reason in Redis, so the address is left
+      // out of the message and the details, and taken out of the provider's own
+      // message, which may quote it ("Delivery to …").
       const code = /** @type {{code?: string}} */ (error)?.code
+      const cause = withoutRecipient(error)
       const shared = {
         jobName: JOB_NAMES.SEND_EMAIL,
-        details: { to: payload.to, template: payload.template, providerCode: code ?? null },
-        cause: error,
+        details: { template: payload.template, providerCode: code ?? null },
+        cause,
       }
 
       if (PERMANENT_PROVIDER_ERROR_CODES.includes(code)) {
         throw new PermanentJobError(
-          `Email provider rejected "${payload.template}" for ${payload.to}: ${/** @type {Error} */ (error).message}`,
+          `Email provider rejected "${payload.template}": ${cause?.message ?? ''}`,
           { ...shared, code: WORKER_ERROR_CODES.PROVIDER_REJECTED },
         )
       }
 
       throw new RetryableJobError(
-        `Email provider failed to send "${payload.template}" to ${payload.to}: ${/** @type {Error} */ (error).message}`,
+        `Email provider failed to send "${payload.template}": ${cause?.message ?? ''}`,
         { ...shared, code: WORKER_ERROR_CODES.PROVIDER_UNAVAILABLE },
       )
     }
 
+    // No recipient in the log line or the job's result: both outlive the send,
+    // and BullMQ keeps a completed job's result in Redis.
     logger?.info?.(
       {
-        to: payload.to,
         template: payload.template,
         providerRef: receipt?.providerRef ?? receipt?.id,
         orderId: payload.orderId,
@@ -149,7 +156,6 @@ export function createSendEmailProcessor({ email, logger, from, replyTo }) {
 
     return {
       template: payload.template,
-      to: payload.to,
       subject: rendered.subject,
       providerRef: receipt?.providerRef ?? receipt?.id,
       provider: provider.name,
@@ -157,4 +163,31 @@ export function createSendEmailProcessor({ email, logger, from, replyTo }) {
       eventId: payload.eventId,
     }
   }
+}
+
+/**
+ * A provider's error, with every address taken out of it.
+ *
+ * Kept a `ProviderError` when it was one, so what it was survives; only the
+ * message and the stack are rewritten, and the provider's `details`, which can
+ * hold the recipient, are not carried over.
+ *
+ * @param {unknown} error What the provider threw.
+ * @returns {unknown} The same kind of error, without addresses; anything that is not an error, unchanged.
+ */
+function withoutRecipient(error) {
+  if (!(error instanceof Error)) return error
+
+  const message = withoutAddresses(error.message, '[address]')
+  const clean =
+    error instanceof ProviderError
+      ? new ProviderError(error.code, message, {
+          statusCode: error.statusCode,
+          provider: error.provider,
+        })
+      : new Error(message)
+
+  clean.stack = withoutAddresses(error.stack, '[address]')
+
+  return clean
 }

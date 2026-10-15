@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { redactBuyerIdentity } from '../src/lib/privacy-redaction.js'
 import { createTestApp, bearer, signIn, stepUp } from './helpers/app.js'
 
 /** The organisation owner, the only role holding `privacy:redact`. */
@@ -624,6 +625,79 @@ describe('holds', () => {
 
     expect(response.statusCode).toBe(403)
     expect(prisma._store.privacyHold).toHaveLength(0)
+
+    await app.close()
+  })
+})
+
+describe('guests’ names still waiting to be printed', () => {
+  it('go with the buyer’s identity, from the order lines and the seats', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const subject = prisma._store.user.find((row) => row.id === ids.attendee.id)
+
+    // An order placed and never paid: its guests' names are still staged.
+    const orderId = 'ckpendingorder00000000000'
+    const lineId = 'ckpendingline000000000000'
+    prisma._store.order.push({
+      id: orderId,
+      reference: 'DE-PEND01',
+      eventId: ids.publishedEvent.id,
+      userId: subject.id,
+      buyerEmail: subject.email,
+      buyerName: 'Priya Sharma',
+      status: 'PENDING',
+      currency: 'INR',
+      subtotalCents: 150_000,
+      discountCents: 0,
+      feesCents: 0,
+      taxCents: 0,
+      totalCents: 150_000,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    prisma._store.orderItem.push({
+      id: lineId,
+      orderId,
+      ticketTypeId: ids.generalAdmission.id,
+      quantity: 2,
+      unitPriceCents: 75_000,
+      subtotalCents: 150_000,
+      attendeeNames: ['Asha Patel', 'Ravi Patel'],
+    })
+    prisma._store.holdItem.push({
+      id: 'ckpendingholditem00000000',
+      holdId: 'ckpendinghold000000000000',
+      ticketTypeId: ids.generalAdmission.id,
+      quantity: 1,
+      eventSeatId: 'ckpendingseat000000000000',
+      orderItemId: lineId,
+      unitPriceCents: 75_000,
+      attendeeName: 'Kavya Iyer',
+    })
+
+    const outcome = await prisma.$transaction((tx) =>
+      redactBuyerIdentity(tx, {
+        organizationId: ids.organization.id,
+        subjectUserId: subject.id,
+        subjectEmail: subject.email,
+      }),
+    )
+
+    expect(outcome.status).toBe('REDACTED')
+    expect(prisma._store.orderItem.find((row) => row.id === lineId).attendeeNames).toEqual([])
+    expect(
+      prisma._store.holdItem.find((row) => row.id === 'ckpendingholditem00000000').attendeeName,
+    ).toBeNull()
+
+    // Run again: nothing is left, and it says so.
+    const again = await prisma.$transaction((tx) =>
+      redactBuyerIdentity(tx, {
+        organizationId: ids.organization.id,
+        subjectUserId: subject.id,
+        subjectEmail: subject.email,
+      }),
+    )
+    expect(again.status).toBe('ALREADY_REDACTED')
 
     await app.close()
   })

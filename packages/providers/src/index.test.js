@@ -14,6 +14,8 @@ const CONTRACT_EXPORTS = [
   'assertSmsProvider',
   'assertStorageProvider',
   'ProviderError',
+  'createSmtpEmailProvider',
+  'normaliseEmailMessage',
 ]
 
 describe('the package entry point', () => {

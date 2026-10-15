@@ -1,0 +1,143 @@
+/**
+ * The organiser directory: who has upcoming events listed on The Desi Events.
+ *
+ * There is no list endpoint for organisers, and this page does not pretend
+ * there is. It is derived the way the sitemap derives its organiser URLs: from
+ * the public event listing, read a page at a time and collected into distinct
+ * organisers with how many listed events each has (`deriveOrganizers` in
+ * `lib/directory.js`). The listing is read from now on — every listed status,
+ * events that have not started yet — because that is what the organiser's own
+ * page lists as "Upcoming events", so the count on a card is the count behind
+ * the link. That makes the framing exact rather than approximate: these are
+ * the organisers with upcoming events listed, not every organiser the
+ * platform has ever onboarded, and the page says so in those words.
+ *
+ * The walk is bounded to five pages of a hundred events. When it stops before
+ * the end of the listing, the page says how many events it was built from
+ * instead of implying the list is complete.
+ *
+ * No verified badge. The event listing does not carry verification, and a badge
+ * inferred from anything else is an endorsement nobody made; the organiser's
+ * own page shows the badge when the API says it has been earned.
+ *
+ * When the API cannot be reached, the listing comes from the sample catalogue
+ * and the page says so. The links still lead somewhere: `loadOrganizerBySlug`
+ * falls back to the same catalogue, so a sample organiser's page resolves.
+ *
+ * @module app/organizers/page
+ */
+
+import Link from 'next/link'
+
+import { GarbaRings } from '../../components/festive-decor.jsx'
+import { Stagger, StaggerItem } from '../../components/motion.jsx'
+import { Empty } from '../../components/page-state.jsx'
+import { PageHero } from '../../components/page-hero.jsx'
+import { SampleDataNotice } from '../../components/sample-data-notice.jsx'
+import { deriveOrganizers, organizerCountLabel } from '../../lib/directory.js'
+import { initialOf } from '../../lib/initial.js'
+
+export const dynamic = 'force-dynamic'
+
+export const metadata = {
+  title: 'Organisers',
+  description:
+    'The collectives and promoters with upcoming garba, dandiya and Navratri events listed on The Desi Events — open one to see everything they have on.',
+}
+
+/**
+ * Say how much of the listing the directory was built from, when not all of it.
+ *
+ * @param {object} directory The directory `deriveOrganizers` returned.
+ * @returns {string|null} A sentence, or `null` when the whole listing was read.
+ */
+function coverageSentence(directory) {
+  if (!directory.truncated) return null
+
+  const read = directory.eventsRead.toLocaleString('en-US')
+  const of =
+    directory.totalListed !== null && directory.totalListed > directory.eventsRead
+      ? ` of ${directory.totalListed.toLocaleString('en-US')}`
+      : ''
+  // "the first 1 of 250 upcoming events": the noun agrees with the total when there is one.
+  const noun = directory.eventsRead === 1 && of === '' ? 'event' : 'events'
+
+  if (directory.interrupted) {
+    return `Showing organisers from the first ${read}${of} upcoming ${noun}: the rest of the listing could not be read just now.`
+  }
+
+  return `Showing organisers from the first ${read}${of} upcoming ${noun}.`
+}
+
+/**
+ * The organiser directory.
+ *
+ * @returns {Promise<JSX.Element>} The rendered page.
+ */
+export default async function OrganizersPage() {
+  const directory = await deriveOrganizers()
+  const coverage = coverageSentence(directory)
+
+  return (
+    <div>
+      <PageHero
+        headingId="organisers-heading"
+        eyebrow="Organisers"
+        title="Who is putting on the nights"
+        lead="These are the organisers with upcoming events listed on The Desi Events, and how many each has coming up. Open one to see what they have on and their refund policy."
+        art={<GarbaRings className="h-[30rem] w-[30rem]" />}
+      />
+
+      <div className="mx-auto max-w-content px-4 pt-10 sm:px-6">
+        <SampleDataNotice show={directory.usedFallback} className="mb-6" />
+
+        {coverage ? (
+          <p data-testid="organizer-coverage" className="mb-6 text-sm font-semibold text-ink-muted">
+            {coverage}
+          </p>
+        ) : null}
+
+        {directory.organizers.length === 0 ? (
+          <Empty
+            title="No organisers have upcoming events listed"
+            description="An organiser appears here while at least one of their upcoming events is listed."
+          />
+        ) : (
+          <Stagger
+            as="ul"
+            aria-label="Organisers"
+            className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            {directory.organizers.map((organizer) => (
+              <StaggerItem
+                as="li"
+                key={organizer.slug}
+                className="flex items-start gap-4 rounded-card bg-surface-raised p-6 shadow-card"
+              >
+                <span
+                  aria-hidden="true"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-xl font-bold text-accent-strong"
+                >
+                  {initialOf(organizer.name)}
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-h3 font-semibold text-ink">
+                    <Link
+                      href={`/organizers/${encodeURIComponent(organizer.slug)}`}
+                      className="inline-flex min-h-11 items-center rounded-sm underline-offset-4 hover:text-accent-strong hover:underline"
+                    >
+                      {organizer.name}
+                    </Link>
+                  </h2>
+                  <p className="text-sm text-ink-muted">
+                    {organizerCountLabel(organizer.eventCount)}
+                  </p>
+                </div>
+              </StaggerItem>
+            ))}
+          </Stagger>
+        )}
+      </div>
+    </div>
+  )
+}

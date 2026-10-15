@@ -79,6 +79,14 @@ export const opaqueTokenSchema = z
   .max(512)
   .regex(/^[A-Za-z0-9_-]+$/, 'Expected a url-safe token')
 
+/**
+ * The refusal for a registration that names any role but ATTENDEE.
+ *
+ * @type {string}
+ */
+export const ATTENDEE_ONLY_MESSAGE =
+  'Accounts are created as attendees. Organisers join by invitation from the team at The Desi Events.'
+
 /** `POST /v1/auth/register`. */
 export const registerAccountRequestSchema = z.object({
   email: emailSchema,
@@ -86,10 +94,11 @@ export const registerAccountRequestSchema = z.object({
   displayName: nonEmptyStringSchema,
   phone: phoneSchema.optional(),
   locale: localeSchema.default('en-IN'),
-  // Only these two are self-service. Every other role is granted out of band,
-  // and a request naming one is refused by schema rather than by a handler
-  // remembering to check.
-  role: z.enum(['ATTENDEE', 'ORGANIZER']).default('ATTENDEE'),
+  // Only attendee accounts are self-service. Organisers join by an invitation
+  // from the team at The Desi Events, and every other role is granted out of band, so
+  // a request naming any other role is refused by schema rather than by a
+  // handler remembering to check.
+  role: z.literal('ATTENDEE', { error: ATTENDEE_ONLY_MESSAGE }).default('ATTENDEE'),
 })
 
 /** `POST /v1/auth/login`. */
@@ -248,6 +257,13 @@ export const currentSessionResponseSchema = z.object({
       mfaRequired: z.boolean(),
       mfaEnrolled: z.boolean(),
     }),
+    /**
+     * How this deployment hands out show-once codes (organiser invitations,
+     * team invitations, ticket transfers). `MANUAL`: shown once to whoever
+     * issues one, to pass on themselves. `EMAIL`: sent to the address by the
+     * configured mail server, and never shown. A screen reads this to say which.
+     */
+    deliveryMode: z.enum(['MANUAL', 'EMAIL']),
   }),
 })
 

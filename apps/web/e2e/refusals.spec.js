@@ -70,7 +70,8 @@ async function signIn(page, email) {
   await code.fill(currentCode())
   await page.getByRole('button', { name: 'Sign in' }).click()
 
-  await expect(page).toHaveURL(/\/organizer\/events/)
+  // Signing in with no `next` lands on the account page (Phase 4).
+  await expect(page).toHaveURL(/\/account$/)
 }
 
 test.describe.serial('what the product refuses, and to whom', () => {
@@ -109,7 +110,9 @@ test.describe.serial('what the product refuses, and to whom', () => {
     await expect(
       page.getByRole('heading', { name: /that event could not be opened/i }),
     ).toBeVisible()
-    await expect(page.getByText(/^No such event\.$/)).toBeVisible()
+    await expect(
+      page.getByText(/^This event is not something this account can open\./),
+    ).toBeVisible()
 
     // There is no submit control on a page that would not load. So the attempt
     // is made the way a determined user would make it: from this browser, with
@@ -141,7 +144,7 @@ test.describe.serial('what the product refuses, and to whom', () => {
     await expect(page.getByText(/^State: Approved/)).toBeVisible()
 
     // The lifecycle commands live on the last step, where the checklist is.
-    await page.getByRole('button', { name: /Step 7 Review/ }).click()
+    await page.getByRole('button', { name: /Step 9 Review/ }).click()
 
     // The refusal arrives before the press: the readiness checklist has already
     // asked the server, and the server said no, so the control is disabled and
@@ -230,7 +233,7 @@ test.describe.serial('what the product refuses, and to whom', () => {
     // act with: no lifecycle command is rendered for somebody with no standing
     // in the organisation that owns it.
     await page.goto(`/organizer/events/${seeded.alphaEventId}`)
-    await page.getByRole('button', { name: /Step 7 Review/ }).click()
+    await page.getByRole('button', { name: /Step 9 Review/ }).click()
 
     await expect(page.getByRole('button', { name: /^Publish/ })).toHaveCount(0)
     await expect(page.getByRole('button', { name: /^Pause sales/ })).toHaveCount(0)

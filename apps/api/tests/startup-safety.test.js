@@ -241,3 +241,119 @@ describe('startup succeeds when nothing is wrong', () => {
     expect(result.everListened).toBe(true)
   }, 30_000)
 })
+
+describe('how single-use codes are delivered, decided at boot', () => {
+  const DELIVERABLE_BASE = {
+    ...VALID_BASE,
+    JWT_SECRET: 'a-genuinely-random-secret-value-of-length',
+  }
+
+  /**
+   * Build the app in-process with a delivery configuration.
+   *
+   * @param {object} options Options.
+   * @param {string} [options.mode] `DELIVERY_MODE`.
+   * @param {Function} [options.deliver] A provider.
+   * @returns {Promise<object>} The app.
+   */
+  async function built({ mode, deliver } = {}) {
+    const { createTestApp } = await import('./helpers/app.js')
+    const { app } = await createTestApp({
+      env: mode ? { DELIVERY_MODE: mode } : {},
+      ...(deliver ? { deliver } : {}),
+    })
+
+    return app
+  }
+
+  it('runs MANUAL when nothing is named and no provider is wired, which is the default', async () => {
+    const app = await built()
+
+    expect(app.deliveryMode).toBe('MANUAL')
+
+    await app.close()
+  })
+
+  it('runs EMAIL when a provider is wired and nothing is named', async () => {
+    const app = await built({ deliver: async () => {} })
+
+    expect(app.deliveryMode).toBe('EMAIL')
+
+    await app.close()
+  })
+
+  it('runs MANUAL when MANUAL is named, even with a provider', async () => {
+    const app = await built({ mode: 'MANUAL', deliver: async () => {} })
+
+    expect(app.deliveryMode).toBe('MANUAL')
+
+    await app.close()
+  })
+
+  it('refuses to build with EMAIL named and no provider, naming what is missing', async () => {
+    await expect(built({ mode: 'EMAIL' })).rejects.toThrow(/no delivery provider is configured/u)
+    await expect(built({ mode: 'EMAIL' })).rejects.toThrow(/SMTP_HOST/u)
+  })
+
+  /**
+   * Build the app in-process with SMTP settings and no provider passed in.
+   *
+   * @param {object} env Environment overrides.
+   * @returns {Promise<object>} The app.
+   */
+  async function builtWithSmtp(env) {
+    const { createTestApp } = await import('./helpers/app.js')
+    const { app } = await createTestApp({
+      env: {
+        SMTP_HOST: '127.0.0.1',
+        // Nothing listens here: boot must not depend on reaching the server.
+        SMTP_PORT: '1',
+        SMTP_FROM: 'no-reply@desi-event.test',
+        ...env,
+      },
+    })
+
+    return app
+  }
+
+  it('runs EMAIL with DELIVERY_MODE=EMAIL and an SMTP server, without connecting at boot', async () => {
+    const app = await builtWithSmtp({ DELIVERY_MODE: 'EMAIL' })
+
+    expect(app.deliveryMode).toBe('EMAIL')
+
+    await app.close()
+  })
+
+  it('stays MANUAL with SMTP settings and no DELIVERY_MODE: email is never inferred', async () => {
+    const app = await builtWithSmtp({})
+
+    expect(app.deliveryMode).toBe('MANUAL')
+
+    await app.close()
+  })
+
+  it('refuses EMAIL with an SMTP server but no sender address, naming the variable', async () => {
+    const error = await builtWithSmtp({ DELIVERY_MODE: 'EMAIL', SMTP_FROM: undefined }).catch(
+      (thrown) => thrown,
+    )
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error.message).toBe('Invalid API environment')
+    expect(JSON.stringify(error.issues)).toContain('SMTP_FROM')
+  })
+
+  it('refuses EMAIL with no provider in a real process, and never listens', async () => {
+    const result = await startServer({ ...DELIVERABLE_BASE, DELIVERY_MODE: 'EMAIL' })
+
+    expect(result.code).not.toBe(0)
+    expect(result.everListened).toBe(false)
+    expect(result.output).toContain('DELIVERY_MODE')
+  }, 30_000)
+
+  it('starts with DELIVERY_MODE=MANUAL named explicitly', async () => {
+    const result = await startServer({ ...DELIVERABLE_BASE, DELIVERY_MODE: 'MANUAL' })
+
+    expect(result.output).not.toContain('environment is invalid')
+    expect(result.everListened).toBe(true)
+  }, 30_000)
+})

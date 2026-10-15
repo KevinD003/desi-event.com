@@ -32,8 +32,14 @@
  *   2. Nothing here returns a mutation. The shape a class produces is a
  *      `count` descriptor; there is no delete path to call by mistake.
  *   3. `RetentionSweepState.SKIPPED_DISABLED` exists for an environment where
- *      retention enforcement has not been activated, and no activation
- *      mechanism is implemented anywhere in this repository.
+ *      retention enforcement has not been activated, and activating it
+ *      (`RETENTION_ENFORCEMENT_ACTIVATED`) lets a rehearsal count, never
+ *      delete.
+ *
+ * The retention job still cannot delete. The one deletion on a timer in this
+ * repository is the traffic roll-up's (`@desi-event/db/traffic-rollup`), of
+ * raw visit rows it has already added up; it is not a retention class and
+ * nothing here reaches it.
  *
  * ## What is deliberately absent
  *

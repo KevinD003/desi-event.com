@@ -9,22 +9,446 @@
  * @module @desi-event/api/lib/presenters
  */
 
-import { RECONCILIATION_EVIDENCE_KEYS } from '@desi-event/schemas'
+import { salesWindowState } from '@desi-event/inventory'
+import { computeOrderTotals, resolveTaxPolicy } from '@desi-event/pricing'
+import {
+  BOOKABLE_STATUSES,
+  DELETION_OUTCOME_COLUMN,
+  restoreTarget,
+} from '@desi-event/schemas/lifecycle'
+import {
+  EVENT_CONTENT_LIMITS,
+  eventFaqItemSchema,
+  eventPerformerSchema,
+  eventRunningOrderItemSchema,
+  eventSocialLinksSchema,
+  eventSponsorSchema,
+  publicEmailSchema,
+  publicPhoneSchema,
+} from '@desi-event/schemas/event-content'
+import {
+  HIDDEN_EMAIL,
+  RECONCILIATION_EVIDENCE_KEYS,
+  domainOnlyAddress,
+  withoutAddresses,
+} from '@desi-event/schemas'
 
+import {
+  EVENT_COVER_INCLUDE,
+  PUBLIC_MEDIA_SELECT,
+  PUBLIC_MEDIA_WHERE,
+  publicCover,
+  publicGallery,
+} from './event-media.js'
+import { REDACTED_EMAIL_DOMAIN } from './privacy-placeholders.js'
+import { publicWebsiteLink, websiteRedirectState } from './website-redirect.js'
+import { websiteHost } from '@desi-event/schemas/website'
 import { agingBand } from './reconciliation.js'
+import { admissionRefusal } from './tickets.js'
+import { venuePaymentAvailable } from './venue-booking-limits.js'
+import {
+  isUnpaidVenueTicket,
+  toVenueCancellation,
+  venuePaymentStateOf,
+} from './venue-payment-filters.js'
 import { BADGED_STATES } from './verification.js'
 
 /** `TicketTypeStatus.ON_SALE`, inlined to avoid importing the database client. */
 const ON_SALE = 'ON_SALE'
 
+/** `TicketStatus.TRANSFERRED`, inlined for the same reason. */
+const TRANSFERRED = 'TRANSFERRED'
+
+/** `TicketTypeVisibility.HIDDEN`, inlined for the same reason. */
+const HIDDEN = 'HIDDEN'
+
+/**
+ * Whether the public may see a tier at all.
+ *
+ * A hidden tier is a guest list or a team allocation: it is left off the page,
+ * off the listing's price and out of structured data, and only the
+ * organisation's own team can book it.
+ *
+ * @param {object} tier A `TicketType` row.
+ * @returns {boolean} True when it may appear to a stranger.
+ */
+export function isPublicTier(tier) {
+  return tier.visibility !== HIDDEN
+}
+
+/**
+ * A tier as the public payload may carry it, whatever the row says.
+ *
+ * The request limits and the database now hold a tier to a 500-character
+ * description and 1 to 50 per order, but a row written before they did can
+ * still say more, and the public schema — correctly strict — would refuse the
+ * whole page over it. So the page gets the row made to fit: the description
+ * cut at 500 with an ellipsis, the per-order bounds clamped, and the sort order
+ * brought into range. The organiser's own read shows the row as it is.
+ *
+ * @param {object} tier A `TicketType` row.
+ * @returns {object} The same tier, safe for `ticketTypeSchema`.
+ */
+export function toPublicTier(tier) {
+  const limit = EVENT_CONTENT_LIMITS.tierDescription
+  const maxOrder = EVENT_CONTENT_LIMITS.perOrderMax
+  const clamp = (value, low, high, fallback) =>
+    Number.isInteger(value) ? Math.min(Math.max(value, low), high) : fallback
+  const description =
+    typeof tier.description === 'string' && tier.description.trim().length > 0
+      ? tier.description.length > limit
+        ? `${tier.description.slice(0, limit - 1).trimEnd()}…`
+        : tier.description
+      : null
+  const maxPerOrder = clamp(tier.maxPerOrder, 1, maxOrder, 10)
+  const minPerOrder = Math.min(clamp(tier.minPerOrder, 1, maxOrder, 1), maxPerOrder)
+
+  return {
+    ...tier,
+    name: typeof tier.name === 'string' ? tier.name.slice(0, 500) : tier.name,
+    description,
+    minPerOrder,
+    maxPerOrder,
+    sortOrder: clamp(tier.sortOrder, 0, 10_000, 0),
+  }
+}
+
+/**
+ * Keep the items of a stored content list that still parse.
+ *
+ * A rule tightened after a row was written must not take the page down: an
+ * item that no longer parses is dropped, the rest are shown.
+ *
+ * @param {unknown} value The stored JSON.
+ * @param {object} schema The item schema.
+ * @param {number} max The most items the list may carry.
+ * @returns {object[]|null} The items that parse, or null when there were none stored.
+ */
+function parsedItems(value, schema, max) {
+  if (!Array.isArray(value)) return null
+
+  return value
+    .map((item) => schema.safeParse(item))
+    .filter((result) => result.success)
+    .map((result) => result.data)
+    .slice(0, max)
+}
+
+/**
+ * Parse one stored value, or give null.
+ *
+ * @param {unknown} value The stored value.
+ * @param {object} schema The schema.
+ * @returns {unknown} The parsed value, or null.
+ */
+function parsedOrNull(value, schema) {
+  if (value == null) return null
+
+  const result = schema.safeParse(value)
+
+  return result.success ? result.data : null
+}
+
+/**
+ * Social links without the former `website` key.
+ *
+ * @param {unknown} links The stored `socialLinks`.
+ * @returns {unknown} The same links, minus `website`.
+ */
+function withoutSocialWebsite(links) {
+  if (!links || typeof links !== 'object' || Array.isArray(links) || !('website' in links)) {
+    return links
+  }
+
+  const { website: _dropped, ...rest } = links
+
+  return rest
+}
+
+/**
+ * The event page's own content, each part parsed before it is published.
+ *
+ * All of it is public because the organiser chose to publish it. The contact
+ * is the one they typed into the public contact fields, never the private
+ * `Event.contactEmail` or the organisation's account address (NF-14).
+ *
+ * `performers` falls back to `artists` for a row written before the line-up
+ * had roles and bios.
+ *
+ * @param {object} event An `Event` row.
+ * @returns {object} The content fields of `eventWithRelationsSchema`.
+ */
+export function toPublicEventContent(event) {
+  const limits = EVENT_CONTENT_LIMITS
+  const performers =
+    parsedItems(event.performers, eventPerformerSchema, limits.performers) ??
+    (Array.isArray(event.artists)
+      ? event.artists
+          .filter((name) => typeof name === 'string' && name.trim().length > 0)
+          .slice(0, limits.performers)
+          .map((name) => ({
+            name: name.trim().slice(0, limits.performerName),
+            role: null,
+            bio: null,
+          }))
+      : null)
+  // The website left the social links for its own switched field. The database
+  // refuses the old key now; a stale row is still never published through it,
+  // and does not make the rest of the links unreadable.
+  const socialLinks = parsedOrNull(withoutSocialWebsite(event.socialLinks), eventSocialLinksSchema)
+  const text = (value, max) =>
+    typeof value === 'string' && value.trim().length > 0 ? value.trim().slice(0, max) : null
+
+  return {
+    faq: parsedItems(event.faq, eventFaqItemSchema, limits.faqItems),
+    performers,
+    runningOrder: parsedItems(
+      event.runningOrder,
+      eventRunningOrderItemSchema,
+      limits.runningOrderItems,
+    ),
+    sponsors: parsedItems(event.sponsors, eventSponsorSchema, limits.sponsors),
+    socialLinks: socialLinks
+      ? Object.fromEntries(Object.entries(socialLinks).filter(([, href]) => href))
+      : null,
+    dressCode: text(event.dressCode, limits.dressCode),
+    directions: text(event.directions, limits.directions),
+    // An address a privacy redaction replaced is a placeholder, not a contact.
+    // Stored as `publicContactEmail`/`publicContactPhone`; published under
+    // names that do not contain the private column's.
+    publicEmail:
+      typeof event.publicContactEmail === 'string' &&
+      event.publicContactEmail.endsWith(`@${REDACTED_EMAIL_DOMAIN}`)
+        ? null
+        : parsedOrNull(event.publicContactEmail, publicEmailSchema),
+    publicPhone: parsedOrNull(event.publicContactPhone, publicPhoneSchema),
+  }
+}
+
+/**
+ * Whether a tier is inside its sales window now, as the hold route judges it.
+ *
+ * A tier the window helper cannot read — an unknown status, a window that ends
+ * before it starts — counts as not on sale. A listing that failed because one
+ * tier was malformed would hide every other event on the page.
+ *
+ * @param {object} ticketType A `TicketType` row.
+ * @param {Date} now The moment in question.
+ * @returns {boolean} True when a hold would pass the window check.
+ */
+function inSalesWindow(ticketType, now) {
+  try {
+    return (
+      salesWindowState({
+        status: ticketType.status,
+        salesStartAt: ticketType.salesStartAt ?? null,
+        salesEndAt: ticketType.salesEndAt ?? null,
+        now,
+      }) === 'ON_SALE'
+    )
+  } catch {
+    return false
+  }
+}
+
+/** Each import source's name, as a page writes it. */
+export const IMPORT_SOURCE_NAMES = Object.freeze({ SULEKHA: 'Sulekha' })
+
+/**
+ * What an event's import record is read with, for {@link importedFromView}.
+ * Never a picture's address, a source note or the curator's notes.
+ */
+export const IMPORTED_FROM_SELECT = Object.freeze({
+  select: {
+    source: true,
+    sourceUrl: true,
+    scrapedAt: true,
+    presentedBy: true,
+    prices: true,
+    reassignedAt: true,
+  },
+})
+
+/**
+ * Every column {@link toEventSummary} reads, and nothing else.
+ *
+ * A listing used to load whole rows: all 40 event columns, the venue, the
+ * organisation and each tier in full, for twenty cards that read eleven event
+ * fields and a few from each relation. That included the description, the
+ * JSON content columns, the moderator's note and the private contact
+ * addresses. The presenter never published those, but every search still
+ * fetched them, decoded them and threw them away.
+ *
+ * It lives beside the presenter for the reason {@link WALLET_INCLUDE} does: the
+ * two are one contract, and a select declared in a route drifts from the
+ * projection that depends on it. Add a field to the summary and it goes here
+ * too. The tests project a full row through this select and compare the two
+ * summaries, so a field missing here fails a test instead of shipping a blank
+ * card.
+ *
+ * @type {object}
+ */
+export const EVENT_SUMMARY_SELECT = Object.freeze({
+  id: true,
+  organizationId: true,
+  title: true,
+  slug: true,
+  summary: true,
+  category: true,
+  status: true,
+  startsAt: true,
+  endsAt: true,
+  timezone: true,
+  isOnline: true,
+  // The card's place, and the jurisdiction its "from" price is taxed in.
+  venue: { select: { name: true, slug: true, city: true, region: true, country: true } },
+  organization: { select: { name: true, slug: true, platformHeldSource: true } },
+  // An imported event's card names where it is listed and its lowest price
+  // there, and whether its link goes to the listing (SPEC2-XI §5.I-E).
+  importItem: IMPORTED_FROM_SELECT,
+  websiteRedirectEnabled: true,
+  websiteDecidedUrl: true,
+  // The event's own booking fee, when the team at The Desi Events set one: the card's
+  // "from" price is priced with the terms checkout charges (SPEC3 §7.2).
+  feeSource: true,
+  feePercentageBps: true,
+  feeFlatCentsPerTicket: true,
+  feeCurrency: true,
+  feeSettingId: true,
+  // What the price, "sold out" and "on sale" are worked out from.
+  ticketTypes: {
+    select: {
+      id: true,
+      status: true,
+      visibility: true,
+      reserved: true,
+      priceCents: true,
+      currency: true,
+      quantityTotal: true,
+      quantitySold: true,
+      salesStartAt: true,
+      salesEndAt: true,
+    },
+  },
+  // The approved cover only, as before. Filtered again by the presenter.
+  ...EVENT_COVER_INCLUDE,
+})
+
+/**
+ * Words that say when a listed price stops being sold, or how scarce it is: a
+ * date ("10/9", "Oct 9"), an end ("Ends", "until", "closes", "expires") or
+ * urgency ("Final Call", "Last chance", "Sold out", "Few left", "Hurry").
+ * Source notes of this kind are never shown publicly (SPEC2-XI §5.I-E), even
+ * when the listing put them into a price's name.
+ */
+const SALES_NOTE_IN_PRICE_NAME = new RegExp(
+  [
+    String.raw`\b(?:ends|ending|end\s+(?:on|by|at)|until|till|closes?|closing|expires?|expiring|deadline)\b`,
+    String.raw`\b(?:final|last)\s+(?:call|chance|days?|hours?|few)\b`,
+    String.raw`\b(?:sold\s+out|selling\s+fast|almost\s+(?:full|gone|sold\s+out)|few\s+left|\d+\s+left|limited\s+(?:time|availability|seats|tickets)|hurry)\b`,
+    String.raw`\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b`,
+    String.raw`\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+\d{1,2}\b`,
+  ].join('|'),
+  'iu',
+)
+
+/**
+ * A listed price's name as the public page may print it: without a bracketed
+ * part, or a trailing part after a dash, that speaks of a sales date or of
+ * scarcity ("Early Bird (Ends on 10/9)" reads "Early Bird"; "GA – Ghost Hour
+ * Pass Admission (Final Call)" reads "GA – Ghost Hour Pass Admission"). What
+ * describes the ticket itself stays: "Friday (Tier 1)", "VIP – Gold Tables
+ * (B1–B10)", "GA - Spooky Pass (Early Bird)".
+ *
+ * @param {string} name The name as listed.
+ * @returns {string} The name to show; "Ticket" when nothing else is left.
+ */
+export function publicPriceName(name) {
+  const shown = String(name)
+    .replace(/\s*[([][^()[\]]*[)\]]/gu, (part) => (SALES_NOTE_IN_PRICE_NAME.test(part) ? '' : part))
+    .replace(/\s+[-–—]\s+[^-–—]+$/u, (part) => (SALES_NOTE_IN_PRICE_NAME.test(part) ? '' : part))
+    .replace(/\s+/gu, ' ')
+    .trim()
+
+  return shown.length > 0 ? shown : 'Ticket'
+}
+
+/**
+ * Where an imported event is listed, and what the listing said, for an event
+ * still held by the platform-held organisation of the team at The Desi Events (SPEC2-XI
+ * §5.I-E); null for every other event, and once it has been moved to an
+ * organiser's own organisation.
+ *
+ * Only what the source listed: who presents it, the day it was read (UTC) and
+ * each price's name and amount, in the listing's order. A price's note
+ * (availability, "sold out", sales dates) is never carried, nor such words
+ * inside its name ({@link publicPriceName}). `ticketsOnSource`
+ * says the website link is on, public, and goes to the listing's own site, so
+ * the page may label it "Buy tickets on Sulekha".
+ *
+ * @param {object|null|undefined} event An event row with `importItem` ({@link IMPORTED_FROM_SELECT}), `organization.platformHeldSource`, `status` and the website columns.
+ * @returns {object|null} An `importedFromSchema` payload, or null.
+ */
+export function importedFromView(event) {
+  const item = event?.importItem
+
+  if (!item || item.reassignedAt) return null
+  if (!event.organization?.platformHeldSource) return null
+
+  const scrapedAt = item.scrapedAt instanceof Date ? item.scrapedAt : new Date(item.scrapedAt)
+
+  if (Number.isNaN(scrapedAt.getTime())) return null
+
+  const prices = (Array.isArray(item.prices) ? item.prices : [])
+    .filter(
+      (price) =>
+        typeof price?.name === 'string' &&
+        price.name.trim().length > 0 &&
+        Number.isInteger(price.priceCents) &&
+        price.priceCents >= 0 &&
+        typeof price.currency === 'string' &&
+        /^[A-Z]{3}$/u.test(price.currency),
+    )
+    .slice(0, 20)
+    .map((price) => ({
+      name: publicPriceName(price.name).slice(0, 100),
+      priceCents: price.priceCents,
+      currency: price.currency,
+    }))
+
+  const link = publicWebsiteLink(event)
+  const sourceHost = websiteHost(item.sourceUrl)
+
+  return {
+    sourceName: IMPORT_SOURCE_NAMES[item.source] ?? 'Sulekha',
+    presentedBy: typeof item.presentedBy === 'string' ? item.presentedBy.slice(0, 200) : null,
+    listedOn: scrapedAt.toISOString().slice(0, 10),
+    prices,
+    priceListed: prices.length > 0,
+    ticketsOnSource: Boolean(link && sourceHost && link.host === sourceHost),
+  }
+}
+
 /**
  * The lean event shape used by listings and cards.
  *
- * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
+ * With `feeConfigFor`, the summary also carries `minTotalCents`: one ticket of
+ * the cheapest tier priced exactly as `orders.create` prices it by card — the
+ * same `computeOrderTotals`, the event's own booking fee when the team at
+ * The Desi Events set one (else the site default), and the tax rule of the venue's
+ * jurisdiction at `now`. A seat's `priceCentsOverride` is not consulted; no
+ * route writes one, and checkout reads it only at the seat.
+ *
+ * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`; {@link EVENT_SUMMARY_SELECT} is enough.
+ * @param {object} [options] Options.
+ * @param {function(string, object): object} [options.feeConfigFor] The fee terms for a currency and this event, as checkout uses them (`eventFeeConfig`).
+ * @param {Date} [options.now] When the price is being quoted.
  * @returns {object} A payload satisfying `eventSummarySchema`.
  */
-export function toEventSummary(event) {
-  const ticketTypes = event.ticketTypes ?? []
+export function toEventSummary(event, { feeConfigFor = null, now = new Date() } = {}) {
+  // A hidden tier — a guest list at $0 — is not a price anybody can pay, so it
+  // is no part of the "from" price or of whether the event reads as on sale.
+  const ticketTypes = (event.ticketTypes ?? []).filter(isPublicTier)
   const onSale = ticketTypes.filter((ticketType) => ticketType.status === ON_SALE)
   const priced = onSale.length > 0 ? onSale : ticketTypes
 
@@ -42,23 +466,54 @@ export function toEventSummary(event) {
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     timezone: event.timezone,
-    coverImageUrl: event.coverImageUrl ?? null,
     isOnline: event.isOnline,
     city: event.venue?.city ?? null,
     venueName: event.venue?.name ?? null,
     organizationName: event.organization?.name ?? null,
     organizationSlug: event.organization?.slug ?? null,
     venueSlug: event.venue?.slug ?? null,
+    // The approved cover, when the row was loaded with one and the event is
+    // public; otherwise null, and the card draws the generated poster.
+    coverImage: publicCover(event),
     minPriceCents,
     currency: priced[0]?.currency ?? null,
+    importedFrom: importedFromView(event),
+  }
+
+  if (typeof feeConfigFor === 'function' && minPriceCents !== null && summary.currency) {
+    const cheapest = priced.find((ticketType) => ticketType.priceCents === minPriceCents)
+    const taxPolicy = resolveTaxPolicy({
+      country: event.venue?.country ?? null,
+      region: event.venue?.region ?? null,
+      at: now,
+    })
+
+    summary.minTotalCents = computeOrderTotals({
+      items: [{ ticketTypeId: cheapest.id, quantity: 1, unitPriceCents: minPriceCents }],
+      feeConfig: feeConfigFor(summary.currency, event),
+      taxRateBps: taxPolicy.rateBps,
+      currency: summary.currency,
+      now,
+    }).totalCents
   }
 
   // Omitted rather than guessed when the event has no tiers at all: `false`
-  // would claim stock exists and `true` would claim it is gone.
-  if (ticketTypes.length > 0) {
-    summary.soldOut = ticketTypes.every(
+  // would claim stock exists and `true` would claim it is gone. Counted over
+  // general-admission tiers only: a seated tier's stock is its seats, which
+  // this listing does not load, and its quantity column says nothing about
+  // them — a seated-only show read as sold out from the day it was announced.
+  const counted = ticketTypes.filter((ticketType) => !ticketType.reserved)
+
+  if (counted.length > 0) {
+    summary.soldOut = counted.every(
       (ticketType) => ticketType.quantityTotal - ticketType.quantitySold <= 0,
     )
+    summary.salesOpen =
+      BOOKABLE_STATUSES.has(event.status) &&
+      counted.some(
+        (ticketType) =>
+          ticketType.quantityTotal - ticketType.quantitySold > 0 && inSalesWindow(ticketType, now),
+      )
   }
 
   return summary
@@ -94,6 +549,81 @@ export function toPublicOrganizer(organization) {
 }
 
 /**
+ * One night, as a ticket, an order line or a door names it.
+ *
+ * @param {object|null|undefined} session An `EventSession` row, or a selection of it.
+ * @returns {object|null} A payload satisfying `sessionSummarySchema`, or null.
+ */
+export function sessionSummary(session) {
+  if (!session?.id) return null
+
+  const label = typeof session.label === 'string' ? session.label.trim().slice(0, 60) : ''
+
+  return {
+    id: session.id,
+    label: label.length > 0 ? label : null,
+    startsAt: session.startsAt,
+    endsAt: session.endsAt,
+    doorsOpenAt: session.doorsOpenAt ?? null,
+    timezone: session.timezone,
+  }
+}
+
+/**
+ * One night, as the public event page lists it.
+ *
+ * @param {object} session An `EventSession` row.
+ * @param {number|null} [seatsAvailable] Seats a buyer could take now, for a night with a seat map; null when not counted.
+ * @returns {object} A payload satisfying `publicEventSessionSchema`.
+ */
+export function toPublicSession(session, seatsAvailable = null) {
+  return {
+    ...sessionSummary(session),
+    status: session.status,
+    salesStartAt: session.salesStartAt ?? null,
+    salesEndAt: session.salesEndAt ?? null,
+    hasSeatMap: Boolean(session.venueMapVersionId),
+    seatsAvailable:
+      session.venueMapVersionId && Number.isInteger(seatsAvailable) ? seatsAvailable : null,
+    // False for an imported night whose listing gave no end: `endsAt` is then
+    // a planning estimate no page shows (SPEC2-XI §0.9).
+    endTimeListed: session.endTimeListed !== false,
+  }
+}
+
+/**
+ * The night a ticket is for: its seat's, else its tier's, else none.
+ *
+ * @param {object} ticket A ticket row with `eventSeat.eventSession` and `orderItem.ticketType.eventSession` selected.
+ * @returns {object|null} A `sessionSummarySchema` payload, or null for a ticket good for every night.
+ */
+export function ticketSession(ticket) {
+  return (
+    sessionSummary(ticket?.eventSeat?.eventSession) ??
+    sessionSummary(ticket?.orderItem?.ticketType?.eventSession) ??
+    null
+  )
+}
+
+/**
+ * An online event's joining link, for somebody holding a ticket that admits.
+ *
+ * Only while the ticket would open a door: a ticket scanned in still does, so
+ * its holder can rejoin; a refunded, revoked or handed-on one does not, and
+ * neither does an unpaid order's or a cancelled event's.
+ *
+ * @param {object} ticket The ticket row.
+ * @param {object|null} order Its order (for the paid check).
+ * @param {object|null} event Its event, with `isOnline` and `onlineUrl`.
+ * @returns {string|null} The link, or null.
+ */
+export function joinUrlFor(ticket, order, event) {
+  if (!event?.isOnline || !event.onlineUrl) return null
+
+  return admissionRefusal(ticket, order, event) === null ? event.onlineUrl : null
+}
+
+/**
  * The full event payload returned by the detail endpoint.
  *
  * Every field is named. This used to spread the row — `...rest` — and rely on
@@ -125,18 +655,57 @@ export function toPublicOrganizer(organization) {
  * that decided authorisation for itself would be a second place authorisation
  * lives, and the two would disagree eventually.
  *
- * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
+ * ## The online joining link
+ *
+ * `onlineUrl` is the link into an online event, and a stranger reading the
+ * public page is exactly who must not have it. It is carried only when the
+ * caller says so (`includeOnlineUrl`): the organiser's own reads, so the editor
+ * can show it. A ticket holder reads it as `onlineJoinUrl` on their ticket.
+ *
+ * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`, and optionally `sessions`.
  * @param {object} [options] Options.
  * @param {boolean} [options.includeDraftTiers] Whether the caller may see tiers not on sale.
+ * @param {boolean} [options.includeOnlineUrl] Whether the caller may see the online joining link: the organisation and staff only.
+ * @param {Map<string, number>} [options.sessionsAvailability] Seats available now, per seated session id.
+ * @param {Map<string, number>} [options.tierSeatsAvailable] Free seats per reserved tier id, for the tiers shown; each carries its own as `availableQuantity`.
+ * @param {function(string, object): object} [options.feeConfigFor] The fee terms for a currency and this event, as checkout uses them (`eventFeeConfig`); when given, the detail carries `feeTerms`: the event's own when the team at The Desi Events set them, else the site default, never saying which.
+ * @param {object} [options.paymentTerms] The event's booking fee and pay-at-the-venue switch as its own team and administrators read them (`eventPaymentTerms`); the route passes them only to such a reader, and for everybody else the key is absent.
+ * @param {'public'|'insider'|'administrator'} [options.website] The caller's view of the website link, from `websiteViewFor`. Everybody gets `websiteLink` (a host or null); an insider or administrator also gets `websiteUrl` and the switch's state, and for everybody else both keys are absent.
+ * @param {{platformReader: boolean}|null} [options.deletion] For a deleted event read by its team or the team at The Desi Events: the record of its deletion is added as `deletion`, naming who deleted it only to a platform reader.
  * @returns {object} A payload satisfying `eventWithRelationsSchema`.
  */
-export function toEventDetail(event, { includeDraftTiers = false } = {}) {
-  const { venue = null, organization = null, ticketTypes = [] } = event
-  const visibleTiers = includeDraftTiers
-    ? ticketTypes
-    : ticketTypes.filter((tier) => tier.status !== 'DRAFT')
+export function toEventDetail(
+  event,
+  {
+    includeDraftTiers = false,
+    includeOnlineUrl = false,
+    sessionsAvailability = new Map(),
+    tierSeatsAvailable = new Map(),
+    feeConfigFor = null,
+    website = 'public',
+    deletion = null,
+    paymentTerms = undefined,
+  } = {},
+) {
+  const { venue = null, organization = null, ticketTypes = [], sessions = [] } = event
+  // Drafts and hidden tiers are the organiser's business; the same insiders
+  // who may see one may see the other.
+  const visibleTiers = (
+    includeDraftTiers
+      ? ticketTypes
+      : ticketTypes.filter((tier) => tier.status !== 'DRAFT' && isPublicTier(tier))
+  ).map((tier) => {
+    const shown = toPublicTier(tier)
+    const free = tierSeatsAvailable.get(tier.id)
 
-  return {
+    // A seated tier's stock is its own free seats, counted by the route; its
+    // quantity columns say nothing about it.
+    return Number.isInteger(free)
+      ? { ...shown, availableQuantity: free, isSoldOut: free === 0 }
+      : shown
+  })
+
+  const detail = {
     id: event.id,
     organizationId: event.organizationId,
     venueId: event.venueId ?? null,
@@ -149,9 +718,10 @@ export function toEventDetail(event, { includeDraftTiers = false } = {}) {
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     timezone: event.timezone,
-    coverImageUrl: event.coverImageUrl ?? null,
     isOnline: event.isOnline,
-    onlineUrl: event.onlineUrl ?? null,
+    // Absent, not null, for everybody else: the key itself stays out of a
+    // payload a stranger reads.
+    ...(includeOnlineUrl ? { onlineUrl: event.onlineUrl ?? null } : {}),
     languages: event.languages ?? [],
     publishedAt: event.publishedAt ?? null,
     createdAt: event.createdAt,
@@ -161,15 +731,102 @@ export function toEventDetail(event, { includeDraftTiers = false } = {}) {
     accessibility: event.accessibility ?? null,
     artists: event.artists ?? [],
     policies: event.policies ?? null,
+    ...toPublicEventContent(event),
     // Only meaningful once something has moved, and then it is the whole point:
     // "postponed" alone does not tell somebody the date in their calendar is
     // dead.
     previousStartsAt: event.previousStartsAt ?? null,
+    // Approved pictures only, and only on a public event: filtered here as well
+    // as in the query, so a route that forgot the query's filter still cannot
+    // put an unreviewed picture on a page.
+    coverImage: publicCover(event),
+    gallery: publicGallery(event),
+    // Where "Visit the organiser's website" goes, as a host; the address only
+    // ever leaves through the tracked redirect. The organiser's own address and
+    // the switch are insiders' business: absent, not null, for everybody else.
+    websiteLink: publicWebsiteLink(event),
+    ...(website === 'insider' || website === 'administrator'
+      ? {
+          websiteUrl: event.websiteUrl ?? null,
+          websiteRedirect: websiteRedirectState(event, {
+            administrator: website === 'administrator',
+          }),
+        }
+      : {}),
     venue,
     organization: toPublicOrganizer(organization),
+    // Where an imported event is listed and its prices there; null otherwise.
+    importedFrom: importedFromView(event),
     ticketTypes: [...visibleTiers].sort(
       (left, right) => left.sortOrder - right.sortOrder || left.priceCents - right.priceCents,
     ),
+    // Soonest first; the sort order settles two nights that start together.
+    sessions: [...sessions]
+      .sort(
+        (left, right) =>
+          new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime() ||
+          (left.sortOrder ?? 0) - (right.sortOrder ?? 0),
+      )
+      .map((session) => toPublicSession(session, sessionsAvailability.get(session.id) ?? null)),
+  }
+
+  // A deleted event's record, for its own team and the team at The Desi Events only
+  // (the route decides who; strangers never reach here, a deleted event being
+  // a 404 to them).
+  if (deletion && event.status === 'DELETED') {
+    detail.deletion = toEventDeletion(event, deletion)
+  }
+
+  if (typeof feeConfigFor === 'function') {
+    const currencies = [...new Set(visibleTiers.map((tier) => tier.currency ?? 'INR'))].sort()
+
+    detail.feeTerms = currencies.map((currency) => {
+      const terms = feeConfigFor(currency, event)
+
+      return { currency, percentageBps: terms.percentageBps, flatCents: terms.flatCents }
+    })
+  }
+
+  // Whether buyers may pay the ticket price at the door now, and nothing else
+  // about the switch (SPEC3 §9.2).
+  detail.venuePayment = { available: venuePaymentAvailable(event) }
+
+  // The fee's source, who set it and the switch's figures are for the event's
+  // own team and administrators only; the route decides who.
+  if (paymentTerms) detail.paymentTerms = paymentTerms
+
+  return detail
+}
+
+/** Each stored deletion outcome by its wire name. */
+const DELETION_OUTCOME_WIRE = Object.freeze(
+  Object.fromEntries(
+    Object.entries(DELETION_OUTCOME_COLUMN).map(([wire, column]) => [column, wire]),
+  ),
+)
+
+/**
+ * A deleted event's record, as the people who may still read it see it.
+ *
+ * Who deleted it is named to the team at The Desi Events, and to the
+ * organisation when one of its own members deleted it; an organiser reads a
+ * deletion by the team at The Desi Events without the administrator's name.
+ *
+ * @param {object} event A DELETED event row, with `deletedBy` when the name may be shown.
+ * @param {{platformReader: boolean}} options Whether the reader is on the team at The Desi Events.
+ * @returns {object} The `deletion` block of `eventWithRelationsSchema`.
+ */
+export function toEventDeletion(event, { platformReader = false } = {}) {
+  const named = platformReader || event.deletionAuthority === 'ORGANIZATION'
+
+  return {
+    deletedAt: new Date(event.deletedAt).toISOString(),
+    reason: event.deletionReason ?? '',
+    outcome: DELETION_OUTCOME_WIRE[event.deletionOutcome] ?? 'REMOVE',
+    authority: event.deletionAuthority ?? 'ORGANIZATION',
+    statusBefore: event.statusBeforeDeletion,
+    restoreTo: restoreTarget(event.statusBeforeDeletion),
+    deletedByName: named ? (event.deletedBy?.displayName ?? null) : null,
   }
 }
 
@@ -181,32 +838,662 @@ export function toEventDetail(event, { includeDraftTiers = false } = {}) {
  * @returns {object} A payload satisfying the ticket type list response schema.
  */
 export function toTicketType(ticketType, availability) {
-  if (!availability) return { ...ticketType }
+  const tier = toPublicTier(ticketType)
+
+  if (!availability) return tier
 
   return {
-    ...ticketType,
+    ...tier,
     availableQuantity: availability.availableQuantity,
     isSoldOut: availability.isSoldOut,
+  }
+}
+
+/** What an order's tax may have been charged on (`TAX_APPLIED_TO`). */
+const TAX_TARGETS = new Set(['TICKETS_AND_FEE', 'BOOKING_FEE', 'NOTHING'])
+
+/**
+ * What an order's tax was charged on: as its pricing snapshot recorded it, or,
+ * for an order priced before the snapshot said so, as its payment method
+ * implies (a card order's tax is on its tickets and fee, at whatever rate).
+ *
+ * @param {object} order An `Order` row.
+ * @returns {{applied: boolean, appliedTo: string}} The view.
+ */
+function orderTaxView(order) {
+  const recorded = order.pricingSnapshot?.tax
+
+  if (typeof recorded?.applied === 'boolean' && TAX_TARGETS.has(recorded.appliedTo)) {
+    return { applied: recorded.applied, appliedTo: recorded.appliedTo }
+  }
+
+  if (order.paymentMethod === 'AT_VENUE') {
+    return (order.taxCents ?? 0) > 0
+      ? { applied: true, appliedTo: 'BOOKING_FEE' }
+      : { applied: false, appliedTo: 'NOTHING' }
+  }
+
+  return { applied: true, appliedTo: 'TICKETS_AND_FEE' }
+}
+
+/**
+ * The booking fee's numbers an order was priced with, or null for an order
+ * whose terms were not recorded (placed before 9 October 2026). Never where
+ * they came from (SPEC3 §7.2).
+ *
+ * @param {object} order An `Order` row.
+ * @returns {{percentageBps: number, flatCentsPerTicket: number}|null} The terms.
+ */
+function orderFeeTerms(order) {
+  return Number.isInteger(order.feePercentageBps) && Number.isInteger(order.feeFlatCentsPerTicket)
+    ? { percentageBps: order.feePercentageBps, flatCentsPerTicket: order.feeFlatCentsPerTicket }
+    : null
+}
+
+/** Who reads an order, for what it says about cancellations and the fee's source. */
+const ORDER_READERS = new Set(['BUYER', 'ORGANISATION', 'PLATFORM'])
+
+/**
+ * Where a ticket the buyer passed on stands now with whoever holds it
+ * (`passedOnTicketSchema`, SPEC3-XI §12.7), read from the ticket that replaced
+ * it. Each accepted hand-on mints the next holder's ticket on the same order
+ * line, naming the one it replaced (`supersedesTicketId`), so the chain is
+ * followed forward to its last ticket:
+ *
+ * - back in the buyer's hands on the way (`RETURNED`): the buyer's later row
+ *   is on the order and speaks for the ticket, so this one is not counted as
+ *   owed by somebody else as well;
+ * - paid at the door (`PAID`), cancelled unpaid (`CANCELLED`), still standing
+ *   and owing (`OWES`, with what its holder pays), or none of these: refunded,
+ *   withdrawn, or owing nothing at the door (`NOTHING_DUE`).
+ *
+ * Only a state and an amount leave here: never the holder's ticket, code or
+ * name, which are not the buyer's to see.
+ *
+ * @param {object} ticket The buyer's passed-on row (`TRANSFERRED`).
+ * @param {Map<string, object>} successorOf Each ticket on the order by the id it replaced.
+ * @param {object} order The order, with `userId`.
+ * @returns {{state: string, dueCents: number}|null} The state, or null when the ticket its holder has is not on the order.
+ */
+function passedOnState(ticket, successorOf, order) {
+  const seen = new Set([ticket.id])
+  let current = successorOf.get(ticket.id) ?? null
+
+  if (!current) return null
+
+  while (true) {
+    if (heldByTheBuyer(current, order)) return { state: 'RETURNED', dueCents: 0 }
+
+    const next = successorOf.get(current.id)
+
+    if (!next || seen.has(next.id)) break
+
+    seen.add(current.id)
+    current = next
+  }
+
+  if ((current.venuePaymentId ?? null) !== null) return { state: 'PAID', dueCents: 0 }
+  if ((current.venueCancellationId ?? null) !== null) return { state: 'CANCELLED', dueCents: 0 }
+  if (isUnpaidVenueTicket(current)) return { state: 'OWES', dueCents: current.venueDueCents }
+
+  return { state: 'NOTHING_DUE', dueCents: 0 }
+}
+
+/**
+ * The event an order is for: its summary, and the country and region of its
+ * venue, the place its tax is named for (`orderEventSummarySchema`). Both null
+ * for an event with no venue.
+ *
+ * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
+ * @returns {object} The payload.
+ */
+function toOrderEvent(event) {
+  return {
+    ...toEventSummary(event),
+    country: event.venue?.country ?? null,
+    region: event.venue?.region ?? null,
   }
 }
 
 /**
  * An order with its line items, its tickets and a summary of its event.
  *
- * @param {object} order An `Order` row including `items` (each with `tickets`) and optionally `event`.
+ * Each line says what it bought (`ticketTypeName`) and for which night, from
+ * its tier. The names typed at checkout are staged on the line until the
+ * tickets carry them, and never leave from here.
+ *
+ * How it is paid and what its booking fee came to (SPEC3 §11.3): the payment
+ * method, the fee before and after a referral code, whether one was applied
+ * (never which: `referralCodeId` and the return marker never leave here), the
+ * fee's numbers, what its tax was charged on, and, for a booking to pay at the
+ * venue, where it stands at the door (`venuePaymentStateOf`) and its unpaid
+ * tickets cancelled (`toVenueCancellation`, named only to the organisation).
+ * The fee's source goes to organisation and platform readers only.
+ *
+ * @param {object} order An `Order` row including `items` (each with `tickets`), optionally `event`, and `venueCancellations` (each with `cancelledBy`).
+ * @param {object} [options] Options.
+ * @param {boolean} [options.buyerAddress] Whether the reader may see the buyer's address: true for the buyer.
+ * @param {boolean} [options.joinUrl] Whether the reader may have an online event's joining link: the buyer only.
+ * @param {'BUYER'|'ORGANISATION'|'PLATFORM'} [options.reader] Who reads it: the buyer, a member of the event's organisation holding `order:view`, or a platform reader.
  * @returns {object} A payload satisfying `orderWithItemsSchema`.
+ * @throws {TypeError} For an unknown reader.
  */
-export function toOrder(order) {
-  const { items = [], event = null, ...rest } = order
+export function toOrder(order, { buyerAddress = true, joinUrl = false, reader = 'BUYER' } = {}) {
+  if (!ORDER_READERS.has(reader)) {
+    throw new TypeError(`toOrder reads for one of ${[...ORDER_READERS].join(', ')}`)
+  }
 
-  const lineItems = items.map(({ tickets: _tickets, ticketType: _ticketType, ...item }) => item)
-  const tickets = items.flatMap((item) => item.tickets ?? [])
+  const {
+    items = [],
+    event = null,
+    buyerEmail,
+    // Administrators' business only (SPEC3 §5.4, SPEC3-XI §11.3): which code
+    // waived the fee, whether and why its use was given back, which decision
+    // the fee came from and its numbers (sent below as `fee`), and where it
+    // came from (sent below to organisation readers).
+    referralCodeId,
+    referralUseReturnedAt: _returnedAt,
+    referralUseReturnCause: _returnCause,
+    feeSettingId: _feeSettingId,
+    feePercentageBps: _feePercentageBps,
+    feeFlatCentsPerTicket: _feeFlatCentsPerTicket,
+    feeSource,
+    venueCancellations = [],
+    ...rest
+  } = order
+  const atVenue = order.paymentMethod === 'AT_VENUE'
+
+  const lineItems = items.map(
+    ({ tickets: _tickets, ticketType, attendeeNames: _staged, ...item }) => ({
+      ...item,
+      ...(ticketType?.name ? { ticketTypeName: ticketType.name } : {}),
+      session: sessionSummary(ticketType?.eventSession),
+    }),
+  )
+
+  // Only the buyer's own. Accepting a transfer mints the recipient's ticket
+  // onto this same order item — `acceptTransfer` reuses `ticket.orderItemId` —
+  // so flattening `item.tickets` handed whoever read this order a stranger's
+  // ticket: their code, their name, the name printed on it. The buyer saw it in
+  // their own order history; an organiser reading the order saw it attributed
+  // to the wrong person.
+  //
+  // The buyer's own transferred-away ticket stays. It is their purchase
+  // history, and dropping it would replace one untruth with another —
+  // `transferredAway` says what happened instead.
+  const onThisOrder = items.flatMap((item) => item.tickets ?? [])
+
+  // Which rows a later ticket replaced. Every accepted transfer mints a new row
+  // on the same order item pointing back at the one it replaced, so a ticket
+  // handed out and handed back leaves three rows against a quantity of one.
+  // Read from the rows already loaded rather than queried for.
+  const superseded = new Set(onThisOrder.map((ticket) => ticket.supersedesTicketId).filter(Boolean))
+
+  const held = onThisOrder.filter((ticket) => heldByTheBuyer(ticket, order))
+  const cancellations = new Map(venueCancellations.map((row) => [row.id, row]))
+
+  // Of each cancellation of unpaid tickets, those the buyer had passed on to
+  // somebody else, and their door price: owed by their holders, never by the
+  // buyer (SPEC3-XI XT7), so the buyer is told apart what they no longer owe.
+  // Counted from the cancelled rows themselves, as the buyer's notice counts
+  // them: a holder that is not the buyer's account.
+  const passedOnBy = new Map()
+
+  for (const ticket of onThisOrder) {
+    const cancellationId = ticket.venueCancellationId ?? null
+    const holder = ticket.ownerUserId ?? null
+
+    if (!cancellationId || !holder || holder === (order.userId ?? null)) continue
+
+    const entry = passedOnBy.get(cancellationId) ?? { tickets: 0, basisCents: 0 }
+
+    entry.tickets += 1
+    entry.basisCents += ticket.venueDueCents ?? 0
+    passedOnBy.set(cancellationId, entry)
+  }
+
+  // Each ticket by the one it replaced, so a passed-on row of a booking to pay
+  // at the venue can say where its ticket stands now (`passedOnState`).
+  const successorOf = new Map(
+    onThisOrder
+      .filter((ticket) => ticket.supersedesTicketId)
+      .map((ticket) => [ticket.supersedesTicketId, ticket]),
+  )
+  const tickets = held.map((ticket) => ({
+    ...toOrderTicket(ticket, superseded, {
+      viewerUserId: order.userId ?? null,
+      currency: order.currency,
+      cancellations,
+    }),
+    passedOn:
+      atVenue && ticket.status === TRANSFERRED ? passedOnState(ticket, successorOf, order) : null,
+  }))
+
+  // For the buyer, of a paid order, while one of the tickets they hold still
+  // admits. Nobody else, and never in a list.
+  const onlineJoinUrl =
+    joinUrl && order.status === 'PAID' && event?.isOnline && event.onlineUrl
+      ? (held.map((ticket) => joinUrlFor(ticket, order, event)).find(Boolean) ?? null)
+      : null
 
   return {
     ...rest,
+    onlineJoinUrl,
+    // The buyer's own reads carry their address. An organisation reading the
+    // order does not get it: seeing what was bought, refunding it and admitting
+    // it need no address, and the platform, not the organiser, writes to buyers.
+    ...(buyerAddress ? { buyerEmail } : {}),
     items: lineItems,
     tickets,
-    event: event ? toEventSummary(event) : null,
+    event: event ? toOrderEvent(event) : null,
+    paymentMethod: order.paymentMethod ?? 'CARD',
+    feeGrossCents: order.feeGrossCents ?? order.feesCents ?? 0,
+    feeWaivedCents: order.feeWaivedCents ?? 0,
+    referralApplied: Boolean(referralCodeId) && (order.feeWaivedCents ?? 0) > 0,
+    fee: orderFeeTerms(order),
+    tax: orderTaxView(order),
+    venuePayment: atVenue ? venuePaymentStateOf(order) : null,
+    venueCancellations: venueCancellations.map((row) => ({
+      ...toVenueCancellation(row, { reader: reader === 'BUYER' ? 'BUYER' : reader }),
+      passedOnTickets: passedOnBy.get(row.id)?.tickets ?? 0,
+      passedOnBasisCents: passedOnBy.get(row.id)?.basisCents ?? 0,
+    })),
+    ...(reader === 'BUYER' ? {} : { feeSource: feeSource ?? 'SITE_DEFAULT' }),
+  }
+}
+
+/**
+ * What a ticket, an order line or the door says about a night.
+ *
+ * @type {object}
+ */
+export const SESSION_SUMMARY_SELECT = Object.freeze({
+  id: true,
+  label: true,
+  startsAt: true,
+  endsAt: true,
+  doorsOpenAt: true,
+  timezone: true,
+})
+
+/**
+ * Everything {@link toWalletTicket} needs in order to be worth showing.
+ *
+ * Four relations deep, because that is how far a ticket is from the event it
+ * admits to: ticket → order item → order → event → venue. The tier hangs off
+ * the order line and the seat off the ticket. None of this is a new column and
+ * none of it needs a migration; it was all reachable and simply never read.
+ *
+ * `transfers` is narrowed to the outstanding invitation. Fetching the whole
+ * history for a list would be a query per row for information a list cannot
+ * show, and the masked recipient of a *resolved* transfer is not something a
+ * list needs to carry.
+ *
+ * It lives here rather than in the route because it is half of the presenter's
+ * contract: `toWalletTicket` reads exactly these relations, and a join declared
+ * somewhere else drifts from the projection that depends on it. The tests read
+ * this constant too, so what they exercise is the join the route actually makes.
+ *
+ * @type {object}
+ */
+export const WALLET_INCLUDE = Object.freeze({
+  orderItem: {
+    include: {
+      ticketType: {
+        select: { id: true, name: true, eventSession: { select: SESSION_SUMMARY_SELECT } },
+      },
+      order: {
+        select: {
+          userId: true,
+          reference: true,
+          status: true,
+          // What its ticket owes at the door is in the order's currency.
+          currency: true,
+          paymentMethod: true,
+          event: {
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              category: true,
+              startsAt: true,
+              endsAt: true,
+              timezone: true,
+              status: true,
+              cancelledAt: true,
+              isOnline: true,
+              // Read so a holder whose ticket admits can be given it; the
+              // presenter decides, and it is never in a list payload otherwise.
+              onlineUrl: true,
+              venue: {
+                select: { name: true, city: true, region: true, country: true },
+              },
+              // The approved cover, so the wallet shows the picture the event
+              // page shows. Filtered again by the presenter.
+              media: {
+                where: { ...PUBLIC_MEDIA_WHERE, kind: 'EVENT_COVER' },
+                select: PUBLIC_MEDIA_SELECT,
+                take: 1,
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  eventSeat: {
+    select: {
+      seat: {
+        select: {
+          label: true,
+          accessible: true,
+          section: { select: { name: true } },
+          row: { select: { label: true } },
+        },
+      },
+      eventSession: { select: SESSION_SUMMARY_SELECT },
+    },
+  },
+  transfers: {
+    where: { status: 'PENDING' },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: { id: true, status: true, toEmail: true, expiresAt: true },
+  },
+  // When, by whom and why a ticket was cancelled because it was not paid at
+  // the door (SPEC3-XI XU10): the reason given, never its author's name.
+  venueCancellation: { select: { createdAt: true, authority: true, reason: true } },
+})
+
+/**
+ * What a ticket owes at the door, as its holder reads it (SPEC3 §11.3,
+ * SPEC3-XI §11.2): the amount, whether it was paid, when, by whom and why it
+ * was cancelled because it was not paid, and whether the reader paid it at the
+ * door themselves. A ticket paid at the door has been let in and can never be
+ * handed on again, so whoever holds a paid ticket paid for it (XT7). Null for
+ * a ticket that owes nothing there (a card order's, or a $0 share).
+ *
+ * The reason given travels with the ticket (XU10, §9.11): somebody it was
+ * passed to has no order page to read it on, and this build emails no notice.
+ * Who gave it is never named here.
+ *
+ * @param {object} ticket A `Ticket` row with `venueDueCents`, `venuePaymentId`, `venueCancellationId` and `ownerUserId`.
+ * @param {object} options Options.
+ * @param {string|null} options.viewerUserId The account reading it.
+ * @param {string} options.currency The order's currency.
+ * @param {{createdAt: Date|string, authority: string, reason: string}|null} [options.cancellation] The cancellation that cancelled it, when it was; the ticket's own `venueCancellation` when not given.
+ * @returns {object|null} A `ticketVenuePaymentSchema` payload, or null.
+ * @throws {TypeError} For a cancelled ticket read without its cancellation, or without the cancellation's reason: guessing either would tell a holder something untrue.
+ */
+export function ticketVenuePayment(ticket, { viewerUserId, currency, cancellation }) {
+  const dueCents = ticket.venueDueCents ?? 0
+
+  if (dueCents <= 0) return null
+
+  const cancelledBy = cancellation ?? ticket.venueCancellation ?? null
+
+  if ((ticket.venueCancellationId ?? null) !== null && !cancelledBy) {
+    throw new TypeError('ticketVenuePayment needs a cancelled ticket with its cancellation')
+  }
+
+  if (cancelledBy && typeof cancelledBy.reason !== 'string') {
+    throw new TypeError('ticketVenuePayment needs the cancellation with its reason')
+  }
+
+  const paid = (ticket.venuePaymentId ?? null) !== null
+
+  return {
+    dueCents,
+    paid,
+    currency,
+    cancelled: cancelledBy
+      ? {
+          at: new Date(cancelledBy.createdAt).toISOString(),
+          by: cancelledBy.authority === 'PLATFORM_ROLE' ? 'DESI_EVENT' : 'ORGANISER',
+          reason: cancelledBy.reason,
+        }
+      : null,
+    paidAtDoorByYou: paid && Boolean(viewerUserId) && ticket.ownerUserId === viewerUserId,
+  }
+}
+
+/**
+ * The reason somebody gave for withdrawing a ticket, as its holder reads it,
+ * or null.
+ *
+ * `revokedReason` holds two kinds of text. An organiser's withdrawal
+ * (`tickets.revoke`) stores the words they typed. Everything else stores a
+ * marker the server wrote for itself — `refund:<id>` on a refunded ticket,
+ * `session-cancelled:<id>` and `event-deleted:<id>…` on one withdrawn with its
+ * night or event, `venue-unpaid:<id>` on one cancelled because it was not paid
+ * at the door. A marker is not a reason anybody gave, and the wallet prints
+ * this field after "Reason given:". So it is passed on only for a REVOKED
+ * ticket that was not cancelled unpaid; a ticket cancelled unpaid carries the
+ * reason given under `venuePayment.cancelled` instead.
+ *
+ * @param {{status: string, revokedReason?: string|null, venueCancellationId?: string|null}} ticket The ticket row.
+ * @returns {string|null} The reason given, or null.
+ */
+export function holderRevokedReason(ticket) {
+  if (ticket.status !== 'REVOKED') return null
+  if ((ticket.venueCancellationId ?? null) !== null) return null
+
+  return ticket.revokedReason ?? null
+}
+
+/**
+ * One row of somebody's ticket wallet.
+ *
+ * ## Why a ticket row is not enough
+ *
+ * A `Ticket` knows its code, its status and the order line it came from. It
+ * does not know which event it admits to, when, where, or at what tier — all of
+ * that is two or three relations away. `GET /tickets` returned bare rows, so
+ * the wallet screen could say "VALID — ABC-123" and nothing a person could act
+ * on. This presenter is the join, projected.
+ *
+ * ## Holder relationship, and why the order reference is conditional
+ *
+ * Accepting a transfer mints the recipient's ticket onto the *buyer's* order
+ * item. The recipient therefore reaches a `Order` they never placed. So the
+ * reference is returned only when this account is that buyer; for a received
+ * ticket it is null, because nothing about somebody else's order is the
+ * recipient's to see.
+ *
+ * ## What is not here
+ *
+ * The admission credential, its digest, its version and its issue time. The
+ * buyer's email. Payment identifiers. Anybody else's ticket on the same order.
+ * The transfer token. `walletTicketSchema` declares none of them, so Zod would
+ * strip them even if this function were wrong — but this function is not wrong
+ * on purpose rather than by accident.
+ *
+ * @param {object} ticket A `Ticket` row with `orderItem.order.event.venue`, `orderItem.ticketType`, `eventSeat.seat` and any pending `transfers`.
+ * @param {object} options Options.
+ * @param {string} options.viewerUserId The signed-in account the wallet belongs to.
+ * @returns {object} A payload satisfying `walletTicketSchema`.
+ */
+export function toWalletTicket(ticket, { viewerUserId }) {
+  const {
+    credentialHash: _credentialHash,
+    credentialVersion: _credentialVersion,
+    credentialIssuedAt: _credentialIssuedAt,
+    ownerUserId: _ownerUserId,
+    supersedesTicketId: _supersedesTicketId,
+    // Sent as `venuePayment` below, never as columns.
+    venueDueCents: _venueDueCents,
+    venuePaymentId: _venuePaymentId,
+    venueCancellationId: _venueCancellationId,
+    venueCancellation: _venueCancellation,
+    orderItem = null,
+    eventSeat = null,
+    transfers = [],
+    ...rest
+  } = ticket
+
+  const order = orderItem?.order ?? null
+  const event = order?.event ?? null
+  const venue = event?.venue ?? null
+  // The same comparison the order presenter makes, from the other side. The
+  // wallet query already scoped every row to this account, so "the buyer is
+  // this account" and "the holder bought it" are one question here.
+  const purchased = Boolean(order?.userId) && order.userId === viewerUserId
+
+  // The same function the door uses, so a wallet saying "ready to use" and a
+  // scanner saying "refunded" cannot both be running. The event is passed,
+  // because a ticket for a cancelled event admits nobody at the door either.
+  const refusal = admissionRefusal(ticket, order, event)
+
+  // Only one, and only an outstanding one. The token is not in the row and
+  // never was — the database holds its digest.
+  const pending = transfers.find((transfer) => transfer.status === 'PENDING') ?? null
+
+  return {
+    ...rest,
+    holderRelationship: purchased ? 'PURCHASED' : 'RECEIVED',
+    // A used ticket is not a refusal at the door — a second scan is answered as
+    // a duplicate, with the original admission — so it carries no refusal
+    // sentence. It still will not let anybody in again, and `admits` is the
+    // wallet's "would this open a door now": the wallet used to file a used
+    // ticket under "Coming up" and count it as one that still gets you in,
+    // beside a chip saying "Used — you went in".
+    admits: refusal === null && rest.status !== 'CHECKED_IN',
+    admissionRefusal: refusal,
+    orderReference: purchased ? order.reference : null,
+    event: {
+      id: event.id,
+      slug: event.slug,
+      title: event.title,
+      category: event.category,
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+      timezone: event.timezone,
+      status: event.status,
+      cancelledAt: event.cancelledAt ?? null,
+      coverImage: publicCover(event),
+    },
+    venue: venue
+      ? {
+          name: venue.name,
+          city: venue.city,
+          region: venue.region,
+          country: venue.country,
+        }
+      : null,
+    isOnline: Boolean(event.isOnline),
+    tier: orderItem?.ticketType
+      ? { id: orderItem.ticketType.id, name: orderItem.ticketType.name }
+      : null,
+    seat: eventSeat?.seat
+      ? {
+          section: eventSeat.seat.section?.name ?? 'Unnamed section',
+          row: eventSeat.seat.row?.label ?? null,
+          label: eventSeat.seat.label,
+          accessible: Boolean(eventSeat.seat.accessible),
+        }
+      : null,
+    pendingTransfer: pending
+      ? {
+          id: pending.id,
+          toEmailMasked: transferRecipient(pending.toEmail),
+          expiresAt: pending.expiresAt,
+        }
+      : null,
+    revokedAt: ticket.revokedAt ?? null,
+    revokedReason: holderRevokedReason(ticket),
+    session: ticketSession(ticket),
+    onlineJoinUrl: joinUrlFor(ticket, order, event),
+    // What it owes at the door, whether it was paid or cancelled unpaid, and
+    // whether this holder paid it (SPEC3 §11.3, SPEC3-XI §11.2).
+    venuePayment: ticketVenuePayment(ticket, {
+      viewerUserId,
+      currency: order?.currency ?? 'USD',
+    }),
+  }
+}
+
+/**
+ * Whether a ticket on an order item is held by the person who bought the order.
+ *
+ * One comparison, exported to everything that needs it, because the order
+ * presenter and the wallet presenter ask the same question from opposite sides
+ * and two spellings of it would eventually disagree.
+ *
+ * A looser form — "both owners are known and they differ" — was tried first and
+ * is wrong. It treats an order with no buyer account as matching anybody, so a
+ * ticket transferred to somebody else stays visible on a guest order. That is
+ * the leak, still open, in the one case nobody would think to test.
+ *
+ * Checkout keeps the two columns in step: `ownerUserId: order.userId ?? null`.
+ * Anything that later gives an unclaimed guest purchase an owner has to set the
+ * order's buyer too, or the order genuinely has no buyer for the ticket to
+ * belong to.
+ *
+ * @param {object} ticket A `Ticket` row.
+ * @param {object|null} order The `Order` the item belongs to.
+ * @returns {boolean} True when the ticket is the buyer's own.
+ */
+export function heldByTheBuyer(ticket, order) {
+  // Both columns must have been *selected*, not merely be absent. The
+  // comparison normalises `undefined` to `null` on both sides, so a row fetched
+  // with a `select` that omitted `ownerUserId` would read as a guest's and sail
+  // through the filter — reopening the exact leak the strict form closes, and
+  // silently, because the function takes plain objects and could assert nothing
+  // about them. `WALLET_INCLUDE` already selects a narrow order, so this is a
+  // pattern the codebase has rather than a hypothetical.
+  if (!('ownerUserId' in ticket)) {
+    throw new TypeError('heldByTheBuyer needs a ticket whose ownerUserId was selected.')
+  }
+
+  if (!order || !('userId' in order)) {
+    throw new TypeError('heldByTheBuyer needs an order whose userId was selected.')
+  }
+
+  return (ticket.ownerUserId ?? null) === (order.userId ?? null)
+}
+
+/**
+ * One of the buyer's tickets, as it appears on their order.
+ *
+ * @param {object} ticket A `Ticket` row belonging to the order's buyer.
+ * @param {Set<string>} superseded Ids that a later ticket on the same order replaced.
+ * @param {object} venue What its door payment is read with.
+ * @param {string|null} venue.viewerUserId The buyer's account.
+ * @param {string} venue.currency The order's currency.
+ * @param {Map<string, object>} venue.cancellations The order's cancellations of unpaid tickets, by id.
+ * @returns {object} A payload satisfying `orderTicketSchema`.
+ */
+function toOrderTicket(ticket, superseded, { viewerUserId, currency, cancellations }) {
+  const {
+    // Never outbound. The response schema would strip them anyway; naming them
+    // here means a reader of this function can see that it was deliberate
+    // rather than lucky.
+    credentialHash: _credentialHash,
+    credentialVersion: _credentialVersion,
+    credentialIssuedAt: _credentialIssuedAt,
+    ownerUserId: _ownerUserId,
+    supersedesTicketId: _supersedesTicketId,
+    // Sent as `venuePayment` below, never as columns.
+    venueDueCents: _venueDueCents,
+    venuePaymentId: _venuePaymentId,
+    venueCancellationId,
+    ...rest
+  } = ticket
+
+  return {
+    ...rest,
+    venuePayment: ticketVenuePayment(ticket, {
+      viewerUserId,
+      currency,
+      cancellation: venueCancellationId ? (cancellations.get(venueCancellationId) ?? null) : null,
+    }),
+    // From the status, and deliberately not from `ownerUserId !== order.userId`.
+    // `acceptTransfer` never rewrites the old row's owner, so the owner columns
+    // are *equal* on a ticket the buyer has given away — the predicate that
+    // correctly answers "whose row is this" answers "has this been handed on"
+    // wrongly, in exactly the states where it matters.
+    purchaserHolding: ticket.status === TRANSFERRED ? 'TRANSFERRED_AWAY' : 'HELD',
+    supersededByLaterTicket: superseded.has(ticket.id),
   }
 }
 
@@ -231,42 +1518,35 @@ export function toHold(hold, ticketType) {
 }
 
 /**
- * Mask an address so it can be recognised but not used.
+ * A transfer's recipient, as the ticket's side of the transfer sees it.
  *
- * `priya.sharma@example.com` becomes `p**********a@example.com`. Enough for an
- * operator to match a support ticket against a queue row, not enough to
- * contact anybody — which is the line an operations tool has to stay on the
- * right side of, because it is read on shared screens by whoever is on shift.
+ * `••••@example.com`: the domain, and nothing of the local part. The sender
+ * typed the address, so this tells them nothing new. It is enough to tell two
+ * offers apart and to notice a mistyped domain, and not enough to reconstruct
+ * the address for anybody else who opens the page. Falls back to
+ * `Hidden email` for a stored value with no usable domain.
+ *
+ * This replaced `maskRecipient`, which kept the first and last characters of
+ * the local part and one star for each of the rest.
  *
  * @param {string|null|undefined} address The stored recipient.
- * @returns {string} The masked form, or `'(none)'` when there is nothing to mask.
+ * @returns {string} The stand-in.
  */
-export function maskRecipient(address) {
-  if (typeof address !== 'string' || address.trim() === '') return '(none)'
-
-  const at = address.lastIndexOf('@')
-
-  // A phone number, or anything else with no domain part: keep the last two
-  // characters, which is what an operator reads off a support ticket.
-  if (at < 1) {
-    const tail = address.slice(-2)
-    return `${'*'.repeat(Math.max(1, address.length - 2))}${tail}`
-  }
-
-  const local = address.slice(0, at)
-  const domain = address.slice(at)
-
-  if (local.length <= 2) return `${'*'.repeat(local.length)}${domain}`
-
-  return `${local[0]}${'*'.repeat(local.length - 2)}${local[local.length - 1]}${domain}`
+export function transferRecipient(address) {
+  return domainOnlyAddress(address) ?? HIDDEN_EMAIL
 }
 
 /**
  * One outbox row, as an operator sees it.
  *
- * The payload is not here, and neither is the full recipient. That is the
- * point: the response schema is an allow list, and this is the function that
- * decides what is on it.
+ * The payload is not here, and neither is the recipient, in any form. That is
+ * the point: the response schema is an allow list, and this is the function
+ * that decides what is on it. Retrying or cancelling a message does not need
+ * to know who it was for, and an operations queue is read on shared screens.
+ *
+ * `lastError` was redacted when the worker wrote it. It is redacted again
+ * here, because a row written by anything other than that worker would
+ * otherwise reach the screen as it was stored.
  *
  * @param {object} row A `NotificationOutbox` row.
  * @returns {object} A payload satisfying `notificationSummarySchema`.
@@ -277,7 +1557,6 @@ export function toOperatorNotification(row) {
     template: row.template,
     channel: row.channel,
     status: row.status,
-    recipientMasked: maskRecipient(row.recipient),
     businessEvent: row.businessEvent ?? null,
     templateVersion: row.templateVersion ?? 1,
     attempts: row.attempts,
@@ -286,7 +1565,7 @@ export function toOperatorNotification(row) {
     sentAt: row.sentAt ?? null,
     lastAttemptAt: row.lastAttemptAt ?? null,
     failureCategory: row.failureCategory ?? null,
-    lastError: row.lastError ?? null,
+    lastError: withoutAddresses(row.lastError) ?? null,
     leaseExpiresAt: row.leaseExpiresAt ?? null,
     suppressible: row.suppressible,
     createdAt: row.createdAt,
@@ -304,10 +1583,20 @@ export function toOperatorNotification(row) {
  * `providerRefundId` passes through exactly as the provider gave it, or stays
  * null. Nothing in this path manufactures one.
  *
- * @param {object} row A `Refund` row, optionally with `items` and its order.
+ * A refund of an order booked to pay at the venue also says so
+ * (`paymentMethod: 'AT_VENUE'`) and what was taken at the door for its
+ * tickets (`paidAtDoorCents`, SPEC3 §9.7, §11.3): only the booking fee paid
+ * online comes back, and the door money stays with the organiser. A card
+ * order's refund carries neither, as it always read.
+ *
+ * @param {object} row A `Refund` row, optionally with `items` and its order (with `paymentMethod`).
+ * @param {object} [options] Options.
+ * @param {number} [options.paidAtDoorCents] What was taken at the door for the order's tickets, for a pay-at-the-venue order.
  * @returns {object} A payload satisfying `refundSchema`.
  */
-export function toRefund(row) {
+export function toRefund(row, { paidAtDoorCents = 0 } = {}) {
+  const atVenue = row.order?.paymentMethod === 'AT_VENUE'
+
   return {
     id: row.id,
     orderId: row.orderId,
@@ -337,6 +1626,7 @@ export function toRefund(row) {
     settledAt: row.settledAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    ...(atVenue ? { paymentMethod: 'AT_VENUE', paidAtDoorCents } : {}),
   }
 }
 

@@ -18,7 +18,7 @@ import { randomInt } from 'node:crypto'
 /** Unambiguous upper-case alphabet, 32 symbols so each character is 5 bits. */
 export const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
 
-/** Marks the string as a Desi-Event *ticket*, as opposed to an order reference. */
+/** Marks the string as a *ticket* of The Desi Events, as opposed to an order reference. */
 export const TICKET_CODE_PREFIX = 'DET-'
 
 /** Random characters per code. 32^14 ≈ 2^70, so collisions stay theoretical. */

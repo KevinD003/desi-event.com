@@ -1,5 +1,5 @@
 /**
- * Next.js configuration for the Desi-Event web application.
+ * Next.js configuration for The Desi Events web application.
  *
  * The workspace packages ship untranspiled `.js`/`.jsx` sources rather than a
  * build output — there is no compiler in this repository — so Next has to run
@@ -29,6 +29,17 @@ const nextConfig = {
   // guessing and picking the wrong workspace root in a pnpm workspace.
   outputFileTracingRoot: new URL('../../', import.meta.url).pathname,
   poweredByHeader: false,
+  // Event pictures are the only images the optimiser may fetch: same-origin,
+  // through the API proxy, with no query string. No remote host is allowed and
+  // no SVG, so the optimiser can never be pointed at a third party or asked to
+  // serve markup. Its internal fetch carries no cookies, so it can only ever
+  // see — and cache — a picture the API serves to anybody.
+  images: {
+    localPatterns: [{ pathname: '/api/v1/media/**', search: '' }],
+    remotePatterns: [],
+    formats: ['image/avif', 'image/webp'],
+    dangerouslyAllowSVG: false,
+  },
 }
 
 export default nextConfig

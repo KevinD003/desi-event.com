@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
@@ -11,6 +11,9 @@ const { TicketTransferActions, TicketTransferResponse } =
 
 /** A token long enough for the schema's sixteen-character minimum. */
 const TOKEN = 'abcdefghijklmnopqrstuvwx'
+
+/** A one-time transfer code as the API mints one: 43 url-safe characters. */
+const CODE = 'Q29kZS1zaG93bi1vbmNlLXRvLXRoZS1zZW5kZXItMDA'
 
 /**
  * A ticket in a given state.
@@ -33,7 +36,7 @@ function transfer(overrides = {}) {
     id: 'trans0000000000000000001',
     ticketId: 'ticket000000000000000001',
     status: 'PENDING',
-    toEmailMasked: 'r****l@dhol.example',
+    toEmailMasked: '••••@dhol.example',
     expiresAt: '2026-09-20T00:00:00.000Z',
     createdAt: '2026-09-16T00:00:00.000Z',
     ...overrides,
@@ -56,6 +59,36 @@ beforeEach(() => {
 })
 
 describe('what a holder is offered', () => {
+  it('offers a reserved-seat ticket like any other', () => {
+    // Seated transfer used to be refused on the server (ADR 0005); since ADR
+    // 0006 the seat goes with the ticket, and the screen offers it.
+    render(
+      <TicketTransferActions
+        ticket={ticket({ eventSeatId: 'eventseat000000000000001' })}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /offer this ticket/i })).toBeInTheDocument()
+    expect(screen.queryByText(/cannot be handed on/i)).toBeNull()
+    expect(screen.queryByRole('link', { name: /seated tickets/i })).toBeNull()
+  })
+
+  it('lets the holder withdraw an outstanding offer on a seated ticket', () => {
+    render(
+      <TicketTransferActions
+        ticket={ticket({ status: 'TRANSFER_PENDING', eventSeatId: 'eventseat000000000000001' })}
+        transfers={[transfer()]}
+        holder
+        mayRevoke={false}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /withdraw the offer/i })).toBeTruthy()
+  })
+
   it('offers a transfer on a ticket that still admits them', () => {
     render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
 
@@ -123,7 +156,11 @@ describe('offering a ticket', () => {
   it('sends the address and nothing that could name another ticket', async () => {
     const user = userEvent.setup()
 
-    apiFetch.mockResolvedValue(answer(201, { data: transfer() }))
+    apiFetch.mockResolvedValue(
+      answer(201, {
+        data: { ...transfer(), delivery: { mode: 'MANUAL', invitationCode: CODE } },
+      }),
+    )
 
     render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
 
@@ -140,6 +177,195 @@ describe('offering a ticket', () => {
 
     expect(path).toBe('/v1/tickets/ticket000000000000000001/transfers')
     expect(JSON.parse(options.body)).toEqual({ toEmail: 'rival@dhol.example' })
+
+    // A MANUAL answer: the confirmation must not claim a send.
+    expect(
+      await screen.findByText(/give them the code shown below; it is shown only once/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/have been sent|has been sent/i)).toBeNull()
+  })
+
+  it('says, when codes are not emailed, that the sender is shown the code to give them', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <TicketTransferActions
+        ticket={ticket()}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+        deliveryMode="MANUAL"
+      />,
+    )
+
+    expect(screen.getByText(/You are shown a one-time code to give them yourself/u)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+
+    const field = screen.getByRole('textbox', { name: /their email address/i })
+    const described = document.getElementById(field.getAttribute('aria-describedby').split(' ')[0])
+
+    expect(described.textContent).toMatch(/must be signed in with this address/i)
+    expect(described.textContent).toMatch(/codes are not emailed from this site/i)
+    expect(described.textContent).toMatch(/one-time code to give them yourself/i)
+    expect(described.textContent).not.toMatch(/sends no email/i)
+  })
+
+  it('says, when codes are emailed, that the code goes to the address and the sender will not see it', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <TicketTransferActions
+        ticket={ticket()}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+        deliveryMode="EMAIL"
+      />,
+    )
+
+    expect(screen.getByText(/A one-time code is emailed to the address you name/u)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+
+    const field = screen.getByRole('textbox', { name: /their email address/i })
+    const described = document.getElementById(field.getAttribute('aria-describedby').split(' ')[0])
+
+    expect(described.textContent).toBe(
+      'They must be signed in with this address to accept. The code is emailed to that address. You will not see it.',
+    )
+    expect(described.textContent).not.toMatch(/give them yourself/i)
+  })
+
+  it('says only what holds in every mode when the mode is not known', async () => {
+    const user = userEvent.setup()
+
+    render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+
+    const field = screen.getByRole('textbox', { name: /their email address/i })
+    const described = document.getElementById(field.getAttribute('aria-describedby').split(' ')[0])
+
+    expect(described.textContent).toBe('They must be signed in with this address to accept.')
+  })
+
+  it('shows the API’s sentence when the address has had its codes for the day', async () => {
+    const user = userEvent.setup()
+    const sentence =
+      'This address has already been sent three codes from The Desi Events today. Try again tomorrow.'
+
+    apiFetch.mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: { code: 'RECIPIENT_DAILY_LIMIT', message: sentence } }),
+    })
+    render(
+      <TicketTransferActions
+        ticket={ticket()}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+        deliveryMode="EMAIL"
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    await user.type(screen.getByRole('textbox', { name: /their email address/i }), 'a@b.example')
+    await user.click(screen.getByRole('button', { name: /send the offer/i }))
+
+    expect(await screen.findByText(sentence)).toBeVisible()
+  })
+
+  it('shows the one-time code after a MANUAL offer, focuses it, and forgets it on Done', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(201, {
+        data: { ...transfer(), delivery: { mode: 'MANUAL', invitationCode: CODE } },
+      }),
+    )
+
+    render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    await user.type(
+      screen.getByRole('textbox', { name: /their email address/i }),
+      'rival@dhol.example',
+    )
+    await user.click(screen.getByRole('button', { name: /send the offer/i }))
+
+    const heading = await screen.findByRole('heading', { name: 'Give them this code' })
+
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(screen.getByRole('textbox', { name: 'Ticket transfer code' })).toHaveValue(CODE)
+    expect(document.body.textContent).toMatch(/••••@dhol\.example/u)
+    expect(document.body.textContent).toMatch(/withdraw the offer and make a new one/i)
+
+    // Nothing of it in storage or the address bar.
+    expect(window.location.href).not.toContain(CODE)
+    expect(JSON.stringify({ ...window.localStorage })).not.toContain(CODE)
+    expect(JSON.stringify({ ...window.sessionStorage })).not.toContain(CODE)
+
+    await user.click(screen.getByRole('button', { name: 'I have handed it over' }))
+
+    expect(screen.queryByRole('heading', { name: 'Give them this code' })).toBeNull()
+    expect(document.body.innerHTML).not.toContain(CODE)
+  })
+
+  it('forgets the code when the page is left', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(201, {
+        data: { ...transfer(), delivery: { mode: 'MANUAL', invitationCode: CODE } },
+      }),
+    )
+
+    render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    await user.type(
+      screen.getByRole('textbox', { name: /their email address/i }),
+      'rival@dhol.example',
+    )
+    await user.click(screen.getByRole('button', { name: /send the offer/i }))
+    await screen.findByRole('heading', { name: 'Give them this code' })
+
+    // Hiding the tab keeps it: the sender switches apps to paste it.
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+
+    expect(document.body.innerHTML).toContain(CODE)
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'))
+    })
+
+    expect(document.body.innerHTML).not.toContain(CODE)
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+  })
+
+  it('shows no code when a delivery provider sent it', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(201, { data: { ...transfer(), delivery: { mode: 'EMAIL', invitationCode: null } } }),
+    )
+
+    render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    await user.type(
+      screen.getByRole('textbox', { name: /their email address/i }),
+      'rival@dhol.example',
+    )
+    await user.click(screen.getByRole('button', { name: /send the offer/i }))
+
+    expect(await screen.findByText('Offered. The invitation has been sent.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Give them this code' })).toBeNull()
   })
 
   it('repeats a refusal rather than retrying it', async () => {
@@ -264,5 +490,122 @@ describe('answering an invitation', () => {
 
       view.unmount()
     }
+  })
+})
+
+describe('a ticket booked to pay at the door (SPEC3-XI §12.7)', () => {
+  /** What a ticket owing $40.00 at the door carries. */
+  const OWING = {
+    dueCents: 4_000,
+    paid: false,
+    currency: 'USD',
+    cancelled: null,
+    paidAtDoorByYou: false,
+  }
+
+  it('is offered like any ticket, and says above the address that its price goes with it', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <TicketTransferActions
+        ticket={ticket({ venuePayment: OWING })}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+      />,
+    )
+
+    // What it owes is not an action: the ticket's page draws it once, under
+    // "Where it stands", in the event's zone (app/tickets/[id]/page.test.jsx).
+    // Drawn here too, the holder would read it twice.
+    expect(screen.queryByText('Pay at the door: $40.00')).toBeNull()
+    expect(
+      screen.queryByText('Pay this at the door. The steward records it before letting you in.'),
+    ).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+
+    expect(
+      screen.getByText(
+        'This ticket’s price, $40.00, is paid at the door. Whoever you pass it to pays it when they arrive, and you no longer do.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('tells the sender to tell them, beside the one-time code', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(201, {
+        data: { ...transfer(), delivery: { mode: 'MANUAL', invitationCode: CODE } },
+      }),
+    )
+
+    render(
+      <TicketTransferActions
+        ticket={ticket({ venuePayment: OWING })}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    await user.type(
+      screen.getByRole('textbox', { name: /their email address/i }),
+      'rival@dhol.example',
+    )
+    await user.click(screen.getByRole('button', { name: /send the offer/i }))
+
+    const heading = await screen.findByRole('heading', { name: 'Give them this code' })
+    const tell = screen.getByText('Tell them: whoever holds this ticket pays $40.00 at the door.')
+    const panel = heading.closest('section')
+
+    // Inside the panel, part of what the code's field is described by, and
+    // before "I have handed it over", which takes the panel away.
+    expect(panel).toContainElement(tell)
+    expect(
+      screen.getByRole('textbox', { name: 'Ticket transfer code' }),
+    ).toHaveAccessibleDescription(
+      expect.stringContaining('Tell them: whoever holds this ticket pays $40.00 at the door.'),
+    )
+    expect(
+      tell.compareDocumentPosition(
+        within(panel).getByRole('button', { name: 'I have handed it over' }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('says nothing of the door for a ticket that owes nothing', async () => {
+    const user = userEvent.setup()
+
+    render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    expect(screen.queryByText(/is paid at the door/u)).toBeNull()
+  })
+
+  it('tells the person accepting it what to pay at the door', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(200, {
+        data: {
+          ticket: ticket({ venuePayment: { dueCents: 4_000, paid: false, currency: 'USD' } }),
+          credential: 'never-shown',
+        },
+      }),
+    )
+
+    render(<TicketTransferResponse />)
+
+    await user.type(screen.getByLabelText(/invitation code/i), TOKEN)
+    await user.click(screen.getByRole('button', { name: /accept the ticket/i }))
+
+    expect(
+      await screen.findByText(
+        'Ticket accepted. Pay $40.00 at the door when you arrive: the steward takes it before letting you in.',
+      ),
+    ).toBeInTheDocument()
   })
 })

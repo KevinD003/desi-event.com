@@ -9,6 +9,8 @@
  * @module @desi-event/api/server
  */
 
+import { randomUUID } from 'node:crypto'
+
 import dotenv from 'dotenv'
 import { createLogger } from '@desi-event/logger'
 import { createPrismaClient, disconnectPrisma } from '@desi-event/db'
@@ -23,6 +25,27 @@ export const SHUTDOWN_TIMEOUT_MS = 10_000
 
 /** Signals that mean "stop accepting work and finish what you are doing". */
 export const SHUTDOWN_SIGNALS = Object.freeze(['SIGINT', 'SIGTERM'])
+
+/**
+ * The providers this process runs with: the in-memory ones, each process in
+ * its own id space.
+ *
+ * The simulated payment provider numbers intents, refunds, transfers and
+ * payouts from one, and the database outlives the process. Started again
+ * against the same database, it handed out `pi_000001` a second time, and the
+ * first simulated checkout after any restart was refused by
+ * `Payment(provider, providerRef)` — a server error on the purchase page, found
+ * by the browser suite. A real processor's ids never repeat; with a prefix
+ * drawn per process, the stand-in's do not either. The load runner draws one
+ * per run for the same reason.
+ *
+ * @returns {object} A fresh registry of in-memory adapters.
+ */
+export function createProcessProviders() {
+  return createInMemoryProviderRegistry({
+    payments: { idPrefix: `pi${randomUUID().slice(0, 8)}` },
+  })
+}
 
 /**
  * Start the API.
@@ -43,7 +66,14 @@ export async function start() {
 
   // The in-memory providers are the default wiring. A deployment swaps them
   // for real adapters here — the one place that knows they are not real.
-  const providers = createInMemoryProviderRegistry()
+  //
+  // Single-use codes (invitations, ticket transfers) run in DELIVERY_MODE
+  // MANUAL by default: each code is shown once to whoever issues it, to hand
+  // over themselves. EMAIL is switched on by DELIVERY_MODE=EMAIL with SMTP_HOST
+  // and SMTP_FROM (and WEB_ORIGIN for the join links); buildApp builds the
+  // mailer from those, so nothing is passed as `deliver` here. Naming EMAIL
+  // without an SMTP server refuses to boot.
+  const providers = createProcessProviders()
 
   const app = await buildApp({
     prisma,
@@ -53,7 +83,12 @@ export async function start() {
     // The budget is the deployment's to set: behind a shared egress address a
     // hundred real visitors arrive as one caller, and the default would
     // throttle them. The default itself is unchanged.
-    rateLimit: { global: { max: env.RATE_LIMIT_MAX, timeWindow: env.RATE_LIMIT_WINDOW } },
+    rateLimit: {
+      global: { max: env.RATE_LIMIT_MAX, timeWindow: env.RATE_LIMIT_WINDOW },
+      // How many visit beacons one visitor may send a minute; the browser
+      // suites raise it, because every test shares one address.
+      trafficBeacon: { max: env.TRAFFIC_BEACON_MAX_PER_MINUTE },
+    },
   })
 
   await app.listen({ port: env.API_PORT, host: env.API_HOST })

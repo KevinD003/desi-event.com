@@ -285,6 +285,107 @@ export async function requeryOutsideTransaction(payments, providerRef) {
   }
 }
 
+/** More unresolved refunds of one payment than are told apart one by one. */
+const MAX_REFUNDS_TOLD_APART = 10
+
+/**
+ * Whether one refund of a payment is among what the provider has given back.
+ *
+ * The provider reports one number: everything it has given back on the charge,
+ * across every refund of it. Refunds of the payment that settled here are
+ * already in that number, so they are taken off first; what is left over
+ * (`beyond`) is what the unresolved ones — this refund and any other sent
+ * without an answer — account for between them. Comparing the whole number
+ * with this refund alone, as this did before 2026-09-30, settled a refund that
+ * never reached the provider as soon as an earlier refund of the same payment
+ * had settled: the buyer got nothing and the books said they had.
+ *
+ * Every way of choosing among the unresolved refunds is tried against
+ * `beyond`. When every choice that adds up to it includes this refund, it went
+ * back; when none does, it did not (and the charge is otherwise intact, so the
+ * reservation can be released); when some do and some do not, the number
+ * cannot say which, and a person decides.
+ *
+ * @param {object} params Inputs.
+ * @param {object} params.observed What the provider said.
+ * @param {object} params.payment The local payment row.
+ * @param {object} params.refund The refund in question.
+ * @param {{settledCents: number, inFlightCents: number[]}} [params.otherRefunds] The payment's other refunds.
+ * @returns {{verdict: string, why: string}} The conclusion and a sentence saying why.
+ */
+function compareRefundEvidence({ observed, payment, refund, otherRefunds }) {
+  const refunded = observed.refundedAmountCents ?? 0
+  const settled = otherRefunds?.settledCents ?? 0
+  const inFlight = otherRefunds?.inFlightCents ?? []
+  const beyond = refunded - settled
+  const earlier = settled > 0 ? `, of which ${settled} was settled here before` : ''
+
+  if (beyond < 0) {
+    return {
+      verdict: VERDICTS.CONFLICT,
+      why: `the provider has given back ${refunded}, less than the ${settled} already settled here`,
+    }
+  }
+
+  if (inFlight.length > MAX_REFUNDS_TOLD_APART) {
+    return {
+      verdict: VERDICTS.CONFLICT,
+      why: `${inFlight.length} other refunds of this payment are unresolved too, too many to tell apart from one total`,
+    }
+  }
+
+  // Bit 0 is this refund; bit i + 1 is the i-th other unresolved refund.
+  const amounts = [refund.amountCents, ...inFlight]
+  let withThis = 0
+  let withoutThis = 0
+
+  for (let choice = 0; choice < 2 ** amounts.length; choice += 1) {
+    let sum = 0
+
+    for (let bit = 0; bit < amounts.length; bit += 1) {
+      if (choice & (2 ** bit)) sum += amounts[bit]
+    }
+
+    if (sum !== beyond) continue
+
+    if (choice & 1) withThis += 1
+    else withoutThis += 1
+  }
+
+  const everything = amounts.reduce((total, amount) => total + amount, 0)
+
+  // Every unresolved refund went back, and money nothing here accounts for
+  // besides (a refund made at the provider directly): this one is among it.
+  if ((withThis > 0 && withoutThis === 0) || (withThis === 0 && beyond > everything)) {
+    return {
+      verdict: VERDICTS.SETTLE,
+      why: `the provider has given back ${refunded} of ${payment.amountCents}${earlier}, which covers this refund`,
+    }
+  }
+
+  if (withoutThis > 0 && withThis === 0 && observed.status === PAYMENT_INTENT_STATUS.SUCCEEDED) {
+    return {
+      verdict: VERDICTS.RELEASE,
+      why:
+        refunded === 0
+          ? 'the provider reports the charge intact and nothing refunded'
+          : `the provider has given back ${refunded}${earlier}, which does not include this refund, and reports the charge otherwise intact`,
+    }
+  }
+
+  if (withThis > 0 && withoutThis > 0) {
+    return {
+      verdict: VERDICTS.CONFLICT,
+      why: `the provider has given back ${beyond} beyond what was settled here, which another unresolved refund of this payment accounts for as well as this one`,
+    }
+  }
+
+  return {
+    verdict: VERDICTS.CONFLICT,
+    why: `the provider has given back ${refunded}${earlier}, which is neither this refund nor nothing`,
+  }
+}
+
 /**
  * Compare what the provider said against local evidence.
  *
@@ -302,9 +403,10 @@ export async function requeryOutsideTransaction(payments, providerRef) {
  * @param {object} params.payment The local payment row.
  * @param {object} [params.order] The local order row.
  * @param {object} [params.refund] The refund, for a `REFUND_UNKNOWN` task.
+ * @param {{settledCents: number, inFlightCents: number[]}} [params.otherRefunds] The payment's other refunds, for a `REFUND_UNKNOWN` task: what they have settled, and the amount of each that may have reached the provider without an answer ({@link loadTaskContext}).
  * @returns {{verdict: string, why: string}} The conclusion and a sentence saying why.
  */
-export function compareEvidence({ kind, observed, payment, order, refund }) {
+export function compareEvidence({ kind, observed, payment, order, refund, otherRefunds }) {
   if (!observed.found) {
     return {
       verdict: VERDICTS.UNKNOWN,
@@ -328,29 +430,7 @@ export function compareEvidence({ kind, observed, payment, order, refund }) {
       return { verdict: VERDICTS.ALREADY_DONE, why: 'the refund has already been settled' }
     }
 
-    // How much the provider says has gone back, against how much this refund is
-    // for. Cumulative, because an intent may carry several refunds and the
-    // question is whether *this* one is among them.
-    const refunded = observed.refundedAmountCents ?? 0
-
-    if (refunded >= refund.amountCents) {
-      return {
-        verdict: VERDICTS.SETTLE,
-        why: `the provider has given back ${refunded} of ${payment.amountCents}, which covers this refund`,
-      }
-    }
-
-    if (refunded === 0 && observed.status === PAYMENT_INTENT_STATUS.SUCCEEDED) {
-      return {
-        verdict: VERDICTS.RELEASE,
-        why: 'the provider reports the charge intact and nothing refunded',
-      }
-    }
-
-    return {
-      verdict: VERDICTS.CONFLICT,
-      why: `the provider has given back ${refunded}, which is neither this refund nor nothing`,
-    }
+    return compareRefundEvidence({ observed, payment, refund, otherRefunds })
   }
 
   // PAYMENT_TIMEOUT and PROVIDER_MISMATCH both turn on the same question: did
@@ -391,7 +471,7 @@ export function compareEvidence({ kind, observed, payment, order, refund }) {
  *
  * @param {object} prisma A Prisma client or transaction client.
  * @param {string} taskId Which task.
- * @returns {Promise<{task: object, payment: object|null, order: object|null, refund: object|null}>} The rows.
+ * @returns {Promise<{task: object, payment: object|null, order: object|null, refund: object|null, otherRefunds: object|null}>} The rows, and for a refund what the payment's other refunds settled and have outstanding.
  * @throws {Error} 404 when the task is gone.
  */
 export async function loadTaskContext(prisma, taskId) {
@@ -407,8 +487,49 @@ export async function loadTaskContext(prisma, taskId) {
   const refund = task.refundId
     ? await prisma.refund.findUnique({ where: { id: task.refundId } })
     : null
+  const otherRefunds = refund ? await otherRefundsOf(prisma, refund) : null
 
-  return { task, payment, order, refund }
+  return { task, payment, order, refund, otherRefunds }
+}
+
+/**
+ * The refund states in which a refund may have reached the provider without
+ * this system knowing the answer.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+const UNANSWERED_REFUND_STATES = Object.freeze([
+  REFUND_STATES.SUBMITTED,
+  REFUND_STATES.TIMEOUT,
+  REFUND_STATES.RECONCILIATION_REQUIRED,
+  'PROCESSING',
+])
+
+/**
+ * A refund's siblings on the same payment, as {@link compareEvidence} needs them.
+ *
+ * @param {object} prisma A Prisma client or transaction client.
+ * @param {object} refund The refund in question.
+ * @returns {Promise<{settledCents: number, inFlightCents: number[]}>} What the others settled, and each unanswered one's amount.
+ */
+async function otherRefundsOf(prisma, refund) {
+  const others = await prisma.refund.findMany({
+    where: {
+      paymentId: refund.paymentId,
+      id: { not: refund.id },
+      status: { in: [REFUND_STATES.SUCCEEDED, ...UNANSWERED_REFUND_STATES] },
+    },
+    select: { status: true, amountCents: true },
+  })
+
+  return {
+    settledCents: others
+      .filter((other) => other.status === REFUND_STATES.SUCCEEDED)
+      .reduce((total, other) => total + other.amountCents, 0),
+    inFlightCents: others
+      .filter((other) => other.status !== REFUND_STATES.SUCCEEDED)
+      .map((other) => other.amountCents),
+  }
 }
 
 /**

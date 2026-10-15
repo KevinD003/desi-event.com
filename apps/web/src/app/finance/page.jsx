@@ -27,6 +27,7 @@
 import Link from 'next/link'
 
 import { Figure, ModeBanner, ScrollableTable } from '../../components/money-figure.jsx'
+import { ReadRefusal } from '../../components/read-refusal.jsx'
 import { formatPrice } from '../../lib/pricing.js'
 import { getFinanceSummary } from '../../lib/organizer-api.js'
 import { readSession, sessionCan } from '../../lib/session.js'
@@ -44,7 +45,7 @@ const ACTIVITY = Object.freeze([
   {
     key: 'refundsRequested',
     label: 'Refunds in flight',
-    hint: 'Asked for and not yet settled. Held back from what may be paid out.',
+    hint: 'Asked for and still unsettled. Held back from what may be paid out.',
   },
   { key: 'refundsSettled', label: 'Refunds settled', hint: 'Money that has gone back.' },
   {
@@ -88,15 +89,20 @@ export default async function FinancePage({ searchParams }) {
   let failure = null
 
   try {
-    summary = await getFinanceSummary({ organizationId, currency: 'INR' })
+    summary = await getFinanceSummary({ organizationId, currency: 'USD' })
   } catch (error) {
-    failure = error instanceof Error ? error.message : String(error)
+    // Drawn by `ReadRefusal`: a lapsed FINANCE_VIEW window is a step-up away,
+    // not a failure, and the API's own words name an endpoint.
+    failure = error
   }
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-indigo-night-900">Finance</h1>
-      <p className="mt-2 text-slate-700">
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Workspace · Money
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Finance</h1>
+      <p className="mt-2 text-ink-muted">
         Derived from the ledger, which is appended to and never edited. An order total is written
         once at checkout and never corrected; nothing on this page reads one.
       </p>
@@ -112,10 +118,10 @@ export default async function FinancePage({ searchParams }) {
                   <Link
                     href={`/finance?organizationId=${organization.id}`}
                     aria-current={current ? 'page' : undefined}
-                    className={`inline-flex rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none ${
+                    className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
                       current
-                        ? 'bg-indigo-night-900 font-semibold text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
+                        : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
                     }`}
                   >
                     {organization.name}
@@ -128,13 +134,11 @@ export default async function FinancePage({ searchParams }) {
       ) : null}
 
       {failure ? (
-        <p
-          role="alert"
-          className="mt-6 rounded-card border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"
-        >
-          The finance view could not be loaded: {failure}. Nothing here is stale — it is absent, and
-          a figure guessed from a cache would be worse than none.
-        </p>
+        <ReadRefusal
+          error={failure}
+          what="The finance view"
+          action="see this organisation’s finances"
+        />
       ) : null}
 
       {summary ? (
@@ -144,18 +148,18 @@ export default async function FinancePage({ searchParams }) {
           {summary.integrity.imbalances.length > 0 ? (
             <section
               aria-labelledby="integrity-heading"
-              className="mt-4 rounded-card border border-rose-300 bg-rose-50 p-4"
+              className="mt-4 rounded-card border border-status-danger/25 bg-status-danger-soft p-4"
             >
-              <h2 id="integrity-heading" className="font-semibold text-rose-900">
+              <h2 id="integrity-heading" className="font-semibold text-status-danger">
                 {summary.integrity.imbalances.length} ledger{' '}
                 {summary.integrity.imbalances.length === 1 ? 'batch does' : 'batches do'} not add up
               </h2>
-              <p className="mt-1 text-sm text-rose-900">
+              <p className="mt-1 text-sm text-status-danger">
                 Every batch is balanced by a database check when it posts, so this should be
                 impossible. Until somebody has looked, the figures below are built on something that
                 should not exist.
               </p>
-              <ul className="mt-3 space-y-1 text-sm text-rose-900">
+              <ul className="mt-3 space-y-1 text-sm text-status-danger">
                 {summary.integrity.imbalances.map((imbalance) => (
                   <li key={imbalance.batchId}>
                     <span className="font-mono">{imbalance.reference}</span> — {imbalance.problem}:
@@ -168,7 +172,7 @@ export default async function FinancePage({ searchParams }) {
           ) : null}
 
           <section aria-labelledby="totals-heading" className="mt-8">
-            <h2 id="totals-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="totals-heading" className="text-xl font-semibold text-ink">
               Totals
             </h2>
             <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -210,7 +214,7 @@ export default async function FinancePage({ searchParams }) {
           </section>
 
           <section aria-labelledby="accounts-heading" className="mt-8">
-            <h2 id="accounts-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="accounts-heading" className="text-xl font-semibold text-ink">
               Clearing accounts
             </h2>
             <ScrollableTable label="Clearing accounts">
@@ -219,40 +223,34 @@ export default async function FinancePage({ searchParams }) {
                   Each account’s debits, credits and balance over the window
                 </caption>
                 <thead>
-                  <tr className="border-b border-slate-300 text-left">
-                    <th scope="col" className="py-2 pr-4 font-semibold text-indigo-night-900">
+                  <tr className="border-b border-line-strong text-left">
+                    <th scope="col" className="py-2 pr-4 font-semibold text-ink">
                       Account
                     </th>
-                    <th
-                      scope="col"
-                      className="py-2 pr-4 text-right font-semibold text-indigo-night-900"
-                    >
+                    <th scope="col" className="py-2 pr-4 text-right font-semibold text-ink">
                       Debits
                     </th>
-                    <th
-                      scope="col"
-                      className="py-2 pr-4 text-right font-semibold text-indigo-night-900"
-                    >
+                    <th scope="col" className="py-2 pr-4 text-right font-semibold text-ink">
                       Credits
                     </th>
-                    <th scope="col" className="py-2 text-right font-semibold text-indigo-night-900">
+                    <th scope="col" className="py-2 text-right font-semibold text-ink">
                       Balance
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {summary.accounts.map((account) => (
-                    <tr key={account.code} className="border-b border-slate-200">
-                      <th scope="row" className="py-2 pr-4 text-left font-normal text-slate-800">
+                    <tr key={account.code} className="border-b border-line">
+                      <th scope="row" className="py-2 pr-4 text-left font-normal text-ink">
                         {account.label}
                       </th>
-                      <td className="py-2 pr-4 text-right tabular-nums text-slate-800">
+                      <td className="py-2 pr-4 text-right tabular-nums text-ink">
                         {formatPrice(account.debitCents, summary.currency)}
                       </td>
-                      <td className="py-2 pr-4 text-right tabular-nums text-slate-800">
+                      <td className="py-2 pr-4 text-right tabular-nums text-ink">
                         {formatPrice(account.creditCents, summary.currency)}
                       </td>
-                      <td className="py-2 text-right font-medium tabular-nums text-indigo-night-900">
+                      <td className="py-2 text-right font-medium tabular-nums text-ink">
                         {formatPrice(account.balanceCents, summary.currency)}
                       </td>
                     </tr>
@@ -263,7 +261,7 @@ export default async function FinancePage({ searchParams }) {
           </section>
 
           <section aria-labelledby="activity-heading" className="mt-8">
-            <h2 id="activity-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="activity-heading" className="text-xl font-semibold text-ink">
               Activity
             </h2>
             <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -282,13 +280,13 @@ export default async function FinancePage({ searchParams }) {
           <p className="mt-8">
             <a
               href={`/api/v1/finance/export.csv${organizationId ? `?organizationId=${organizationId}` : ''}`}
-              className="inline-flex rounded-lg bg-indigo-night-900 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-night-800 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+              className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               download
             >
               Download as a spreadsheet
             </a>
           </p>
-          <p className="mt-2 text-xs text-slate-600">
+          <p className="mt-2 text-xs text-ink-muted">
             The export carries no buyer, no address and nothing about how anybody paid, and its
             first row says which mode produced the figures.
           </p>

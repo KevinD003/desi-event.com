@@ -18,10 +18,10 @@ import { expect, test } from '@playwright/test'
 const PAGES = [
   { name: 'home', path: '/' },
   { name: 'listing', path: '/events' },
-  { name: 'filtered listing', path: '/events?category=COMEDY' },
+  { name: 'filtered listing', path: '/events?category=WORKSHOP' },
   { name: 'searched listing', path: '/events?q=garba' },
-  { name: 'event detail', path: '/events/qawwali-under-the-banyan' },
-  { name: 'checkout', path: '/events/qawwali-under-the-banyan/checkout' },
+  { name: 'event detail', path: '/events/bay-lights-garba-opening' },
+  { name: 'checkout', path: '/events/bay-lights-garba-opening/checkout' },
   { name: 'not found', path: '/events/no-such-event-at-all' },
 ]
 
@@ -98,7 +98,7 @@ for (const { name: width, viewport } of WIDTHS) {
       await page.waitForLoadState('networkidle')
 
       await page
-        .getByRole('link', { name: /browse every event/i })
+        .getByRole('link', { name: /see all events/i })
         .first()
         .click()
       await page.waitForURL(/\/events/)

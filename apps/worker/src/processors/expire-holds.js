@@ -25,9 +25,24 @@
  *
  * Holds never increment `TicketType.quantitySold`; availability is
  * `quantityTotal - quantitySold - activeHeldQuantity(holds, now)`. So there is
- * no counter to decrement, and releasing a hold *is* flipping its status: once
- * it is `EXPIRED` it stops being counted, and the seats are back on sale. The
+ * no counter to decrement for general admission, and releasing a hold is
+ * flipping its status: once it is `EXPIRED` it stops being counted. The
  * quantity freed is reported per ticket type so the effect is observable.
+ *
+ * A reserved seat is different: it is a row marked `HELD` with the hold's id,
+ * and flipping the hold alone left it marked `HELD` with nobody holding it —
+ * off sale for good. So the seats of the holds just expired are released in
+ * the same transaction, conditional on still being `HELD` by a hold that is now
+ * `EXPIRED`: a seat whose hold another writer converted meanwhile is sold, not
+ * held, and is never touched.
+ *
+ * A hold an order is waiting on is not swept at all. `orders.create` attaches
+ * the buyer's holds to a PENDING order before it calls the payment provider,
+ * and the order can stay PENDING past the hold's time — a capture that timed
+ * out waits for reconciliation. Expiring that hold would put its seats back on
+ * sale while settlement still expects to sell them to the buyer who paid. So
+ * the sweep reads, and writes, only holds with no order or whose order is no
+ * longer PENDING (a declined card cancels it and leaves the hold to lapse).
  *
  * @module @desi-event/worker/processors/expire-holds
  */
@@ -44,12 +59,24 @@ const ACTIVE = 'ACTIVE'
 const EXPIRED = 'EXPIRED'
 
 /**
+ * Holds nobody's payment is waiting on: no order, or an order that is no
+ * longer PENDING. Spelled as an `OR` rather than a `NOT` on the relation, so a
+ * hold with no order is plainly included instead of depending on how a
+ * negated join treats a null.
+ */
+const NOT_AWAITING_PAYMENT = Object.freeze([
+  Object.freeze({ orderId: null }),
+  Object.freeze({ order: { is: { status: { not: 'PENDING' } } } }),
+])
+
+/**
  * @typedef {object} ExpireHoldsResult
  * @property {string} now The instant the sweep was evaluated against, ISO-8601.
  * @property {number} scanned `ACTIVE` holds examined.
  * @property {number} expired Holds the inventory rules judged lapsed.
  * @property {number} updated Rows actually flipped to `EXPIRED`; lower than `expired` when another process released one first.
  * @property {number} releasedQuantity Tickets returned to availability.
+ * @property {number} seatsReleased Reserved seats put back on sale.
  * @property {Array<{ticketTypeId: string, quantity: number, holds: number}>} byTicketType Freed stock per ticket type.
  * @property {boolean} sawFullBatch Whether the batch filled, meaning more holds are likely waiting.
  */
@@ -104,7 +131,7 @@ export function createExpireHoldsProcessor({ prisma, logger, clock = () => new D
     const now = payload.now ? new Date(payload.now) : clock()
 
     /** @type {Record<string, unknown>} */
-    const where = { status: ACTIVE }
+    const where = { status: ACTIVE, OR: NOT_AWAITING_PAYMENT }
     if (payload.ticketTypeId) where.ticketTypeId = payload.ticketTypeId
 
     const candidates = await prisma.ticketHold.findMany({
@@ -126,6 +153,7 @@ export function createExpireHoldsProcessor({ prisma, logger, clock = () => new D
         expired: 0,
         updated: 0,
         releasedQuantity: 0,
+        seatsReleased: 0,
         byTicketType: [],
         sawFullBatch: candidates.length >= payload.batchSize,
       }
@@ -138,9 +166,24 @@ export function createExpireHoldsProcessor({ prisma, logger, clock = () => new D
     // concurrently with the API's own release endpoint: whoever gets there
     // first wins, and the loser updates nothing rather than resurrecting a
     // hold the buyer deliberately released.
-    const { count } = await prisma.ticketHold.updateMany({
-      where: { id: { in: expired.map((hold) => hold.id) }, status: ACTIVE },
-      data: { status: EXPIRED },
+    const expiredIds = expired.map((hold) => hold.id)
+    const { count, seatsReleased } = await prisma.$transaction(async (tx) => {
+      // Guarded on the order as well: a hold an order attached after the read
+      // is that order's, and is left alone.
+      const flipped = await tx.ticketHold.updateMany({
+        where: { id: { in: expiredIds }, status: ACTIVE, OR: NOT_AWAITING_PAYMENT },
+        data: { status: EXPIRED },
+      })
+
+      // The seats of the holds that are now EXPIRED, and only while they are
+      // still HELD by them. One transaction with the status flip, so a hold is
+      // never expired with its seats still off sale.
+      const released = await tx.eventSeat.updateMany({
+        where: { holdId: { in: expiredIds }, status: 'HELD', hold: { status: EXPIRED } },
+        data: { status: 'AVAILABLE', holdId: null },
+      })
+
+      return { count: flipped.count, seatsReleased: released.count }
     })
 
     logger?.info?.(
@@ -149,6 +192,7 @@ export function createExpireHoldsProcessor({ prisma, logger, clock = () => new D
         expired: expired.length,
         updated: count,
         releasedQuantity,
+        seatsReleased,
         ticketTypes: byTicketType.length,
       },
       'expired holds released back to availability',
@@ -160,6 +204,7 @@ export function createExpireHoldsProcessor({ prisma, logger, clock = () => new D
       expired: expired.length,
       updated: count,
       releasedQuantity,
+      seatsReleased,
       byTicketType,
       sawFullBatch: candidates.length >= payload.batchSize,
     }

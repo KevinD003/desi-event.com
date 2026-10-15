@@ -6,19 +6,28 @@
  * believed is decided by the database rather than by whichever scanner asked
  * first.
  *
- * ## Check-in happens once
+ * ## Check-in happens once — once a night for a ticket good for every night
  *
- * Not "usually once". The `CheckIn` row has a unique index on `ticketId`, so two
- * scanners racing produce one row and one of them is told the ticket is already
- * in. The ticket's own status moves under a conditional `UPDATE` in the same
- * transaction, and a trigger — `desi_check_in_ticket_admissible` — refuses a
- * row for a ticket that is refunded, revoked or transferred away, whatever the
- * application believed.
+ * Not "usually once". The `CheckIn` row is unique on the ticket and the night,
+ * so two scanners racing produce one row and one of them is told the ticket is
+ * already in. A ticket for one night moves to CHECKED_IN under a conditional
+ * `UPDATE` in the same transaction; a ticket good for every night (a tier with
+ * no night of its own, on an event of more than one) stays VALID and gains one
+ * row per night. A trigger — `desi_check_in_ticket_admissible` — locks the
+ * ticket and refuses a row for a ticket that is refunded, revoked or
+ * transferred away, on a night that is not its own, or a second row for a
+ * ticket that admits once, whatever the application believed.
  *
  * That is three layers for one property, and it is not redundancy for its own
  * sake: the unique index is what makes the race safe, the conditional update is
  * what makes the answer correct, and the trigger is what makes it true for code
  * that has not been written yet.
+ *
+ * A ticket that has been let in on any night is not handed on: a successor
+ * would start with no admissions and could be let in again on a night this one
+ * already was. For a ticket that admits once CHECKED_IN says so; for one good
+ * for every night the offer and the acceptance check its admissions, and
+ * `desi_ticket_status_transition` refuses the move whatever the caller checked.
  *
  * ## A transfer is an invitation, not a handover
  *
@@ -32,6 +41,25 @@
  * row's `credentialHash` is cleared so the old pass matches nothing. The
  * recipient's pass is derived, never stored — see `./ticket-credentials.js`.
  *
+ * ## A reserved seat goes with its ticket
+ *
+ * `Ticket.eventSeatId` is unique among *live* tickets only (VALID,
+ * TRANSFER_PENDING, CHECKED_IN — the partial index
+ * `Ticket_eventSeatId_live_key`, ADR 0006). The predecessor leaves that set
+ * (to TRANSFERRED) before the successor, which copies the seat, enters it, all
+ * in one transaction; the old row keeps its pointer as history. The order line
+ * is locked `FOR UPDATE` first, the same lock a refund takes before it reads
+ * the line's tickets, so an acceptance and a refund of the same line take
+ * turns: a refund can never read the predecessor, return the money, and leave
+ * a live successor behind.
+ *
+ * ## How the code reaches the recipient
+ *
+ * The token is minted by the route and handed to `../lib/delivery.js`: with no
+ * delivery provider it is returned to the sender once, `no-store`, to pass on
+ * themselves; with one, the provider gets it. Either way the database keeps
+ * only its digest, and the acceptor must be signed in at the offered address.
+ *
  * ## What is never stored
  *
  * The credential itself. The database holds a SHA-256 of it and nothing else,
@@ -43,9 +71,18 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 
+import { RECORDED_CHECK_IN_METHODS } from '@desi-event/schemas'
+
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
-import { conflict, forbidden, httpError, notFound, unprocessable } from './errors.js'
-import { credentialDigest, issueTicketCredential } from './ticket-credentials.js'
+import {
+  UNPAID_CANCELLED_SENTENCE,
+  conflict,
+  forbidden,
+  httpError,
+  notFound,
+  unprocessable,
+} from './errors.js'
+import { issueTicketCredential } from './ticket-credentials.js'
 
 /**
  * Every state a ticket can be in that this module drives.
@@ -127,34 +164,130 @@ export function canTransition(from, to) {
 }
 
 /**
- * Why a ticket cannot be admitted, or null when it can.
+ * Why a ticket cannot be admitted, as a closed code, or null when it can.
  *
- * Pure, so the rule is readable without a database and so the door's answer and
- * the organiser's screen cannot disagree about it.
+ * Pure, so the rule is readable without a database, and shared, so the door,
+ * the wallet and the holder's pass cannot disagree about it: all three read
+ * this function.
+ *
+ * ## The event, since Phase 4
+ *
+ * Before the admission work this looked only at the ticket and its order, and a
+ * ticket for a **cancelled event** admitted: cancelling an event writes
+ * `cancelledAt` and raises refunds, and never touches a ticket row, so every
+ * ticket on it stayed VALID. When the event is supplied, a cancelled one now
+ * refuses. There is still no admission *window* — nothing in this system has
+ * ever defined one, and inventing it here would be a product decision made by
+ * a function.
+ *
+ * `CHECKED_IN` is not a refusal: a second scan is a duplicate, answered with the
+ * original admission rather than an error.
+ *
+ * ## A deleted event and a cancelled night (SPEC2-XI X-S)
+ *
+ * A deleted event admits nobody (`EVENT_DELETED`), and neither does a
+ * cancelled night (`SESSION_CANCELLED`): the night the ticket is for, or the
+ * night the door named, when it was given. Their tickets are withdrawn when
+ * the event is deleted or the night cancelled, so a withdrawn ticket names the
+ * reason it was withdrawn rather than a bare `CANCELLED`.
  *
  * @param {object} ticket The ticket.
  * @param {object|null} order Its order.
- * @returns {string|null} A sentence for the person holding the scanner, or null.
+ * @param {object|null} [event] Its event, with `status` and `cancelledAt`.
+ * @param {object|null} [session] The night in question, with `status`.
+ * @returns {string|null} One of `ADMISSION_REFUSAL_REASONS`, or null.
  */
-export function admissionRefusal(ticket, order) {
+export function admissionRefusalCode(ticket, order, event = null, session = null) {
   if (!ADMISSIBLE_STATES.includes(ticket.status)) {
     if (ticket.status === TICKET_STATES.CHECKED_IN) return null
 
-    const reasons = {
-      [TICKET_STATES.REFUNDED]: 'This ticket was refunded.',
-      [TICKET_STATES.REVOKED]: 'This ticket was withdrawn by the organiser.',
-      [TICKET_STATES.TRANSFERRED]: 'This ticket was handed to somebody else.',
-      [TICKET_STATES.CANCELLED]: 'This event was cancelled.',
-      [TICKET_STATES.SUPERSEDED]: 'This pass was replaced. Ask for the current one.',
-      [TICKET_STATES.VOID]: 'This ticket is void.',
+    // Cancelled because it was not paid for at the door (SPEC3-XI XU12): a
+    // REVOKED ticket the cancellation points at, or whose reason names it.
+    if (
+      ticket.status === TICKET_STATES.REVOKED &&
+      (Boolean(ticket.venueCancellationId) ||
+        String(ticket.revokedReason ?? '').startsWith(VENUE_UNPAID_PREFIX))
+    ) {
+      return 'UNPAID_CANCELLED'
     }
 
-    return reasons[ticket.status] ?? 'This ticket cannot be admitted.'
+    if (ticket.status === TICKET_STATES.CANCELLED) {
+      if (event?.status === 'DELETED') return 'EVENT_DELETED'
+      if (
+        session?.status === 'CANCELLED' ||
+        String(ticket.revokedReason ?? '').startsWith(SESSION_CANCELLED_PREFIX)
+      ) {
+        return 'SESSION_CANCELLED'
+      }
+    }
+
+    const codes = {
+      [TICKET_STATES.REFUNDED]: 'REFUNDED',
+      [TICKET_STATES.REVOKED]: 'REVOKED',
+      [TICKET_STATES.TRANSFERRED]: 'TRANSFERRED',
+      [TICKET_STATES.CANCELLED]: 'CANCELLED',
+      [TICKET_STATES.SUPERSEDED]: 'SUPERSEDED',
+      [TICKET_STATES.VOID]: 'VOID',
+    }
+
+    return codes[ticket.status] ?? 'NOT_ADMISSIBLE'
   }
 
-  if (order && order.status !== 'PAID') return 'The order for this ticket is not paid.'
+  if (order && order.status !== 'PAID') return 'ORDER_NOT_PAID'
+
+  if (event?.status === 'DELETED') return 'EVENT_DELETED'
+
+  if (event && (event.status === 'CANCELLED' || event.cancelledAt)) return 'EVENT_CANCELLED'
+
+  if (session?.status === 'CANCELLED') return 'SESSION_CANCELLED'
 
   return null
+}
+
+/**
+ * The sentence a person reads for each refusal code.
+ *
+ * The wallet and the pass route show these; the door returns the code and lets
+ * the scanner screen choose its own words.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const ADMISSION_REFUSAL_SENTENCES = Object.freeze({
+  REFUNDED: 'This ticket was refunded.',
+  REVOKED: 'This ticket was withdrawn by the organiser.',
+  TRANSFERRED: 'This ticket was handed to somebody else.',
+  CANCELLED: 'This event was cancelled.',
+  SUPERSEDED: 'This pass was replaced. Ask for the current one.',
+  VOID: 'This ticket is void.',
+  NOT_ADMISSIBLE: 'This ticket cannot be admitted.',
+  ORDER_NOT_PAID: 'The order for this ticket is not paid.',
+  EVENT_CANCELLED: 'This event was cancelled.',
+  EVENT_DELETED: 'This event was taken off The Desi Events.',
+  SESSION_CANCELLED: 'This night was cancelled.',
+  WRONG_EVENT: 'This ticket is for a different event.',
+  WRONG_NIGHT: 'This ticket is for a different night.',
+  NIGHT_REQUIRED: 'This event has more than one night. Say which night the door is admitting to.',
+  PREVIEW_EXPIRED: 'That check took too long. Look the ticket up again.',
+  PREVIEW_INVALID: 'That check could not be confirmed. Look the ticket up again.',
+  PREVIEW_MISMATCH: 'The pass presented is not the one that was checked. Look it up again.',
+  GROUP_CHANGED: 'Some tickets in this group changed after it was looked up.',
+  // A ticket booked to pay at the venue and cancelled because it was not paid
+  // for (SPEC3-XI XU12): a REVOKED ticket whose cancellation names it.
+  UNPAID_CANCELLED: UNPAID_CANCELLED_SENTENCE,
+})
+
+/**
+ * Why a ticket cannot be admitted, as a sentence, or null when it can.
+ *
+ * @param {object} ticket The ticket.
+ * @param {object|null} order Its order.
+ * @param {object|null} [event] Its event, with `status` and `cancelledAt`.
+ * @returns {string|null} A sentence for the person holding the ticket or the scanner, or null.
+ */
+export function admissionRefusal(ticket, order, event = null, session = null) {
+  const code = admissionRefusalCode(ticket, order, event, session)
+
+  return code === null ? null : ADMISSION_REFUSAL_SENTENCES[code]
 }
 
 /**
@@ -221,28 +354,35 @@ export async function transition(tx, { ticket, to, data = {} }) {
 }
 
 /**
- * Admit somebody, once.
+ * Admit somebody, once — or once tonight, for a ticket good for every night.
  *
- * The `CheckIn` row is what makes "once" true: its unique index on `ticketId`
- * means two scanners racing produce one row, and the loser learns from the
- * violation rather than from a status it read a moment ago.
+ * The `CheckIn` row is what makes "once" true: its unique index on the ticket
+ * and the night means two scanners racing produce one row, and the loser
+ * learns from the violation rather than from a status it read a moment ago.
  *
  * @param {object} tx A Prisma transaction client.
  * @param {object} params Inputs.
  * @param {object} params.ticket The ticket, in an admissible state.
- * @param {string|null} [params.eventSessionId] Which performance.
+ * @param {string|null} [params.eventSessionId] Which night: the ticket's own, or for a ticket good for every night the night it is let in on.
+ * @param {boolean} [params.everyNight] A ticket good for every night: record tonight's admission and leave the ticket VALID for the others.
  * @param {string|null} [params.scannedByUserId] Who scanned it.
  * @param {string|null} [params.deviceId] A `Device` row this system issued, or null.
  * @param {string|null} [params.scannerId] What the scanner calls itself. Audit only.
- * @param {string} [params.method] A `CheckInMethod`.
+ * @param {string} params.method `QR_SCAN` or `MANUAL_CODE`: what was presented, never a default.
  * @param {string|null} [params.gate] The door.
+ * @param {string|null} [params.authority] `ORGANIZATION_ROLE`, `EVENT_SCOPE` or `PLATFORM_ROLE`.
+ * @param {string|null} [params.role] The role that authority came with: an organisation role, or `SUPER_ADMIN`.
+ * @param {string|null} [params.organizationId] The organisation whose event it is.
+ * @param {string|null} [params.groupPassId] The order's group pass, when admitted through it.
  * @param {Date} params.now The instant.
  * @returns {Promise<{admitted: boolean, checkIn: object|null}>} What happened.
+ * @throws {TypeError} When `method` is missing or not one the door records.
  */
 export async function admit(tx, params) {
   const {
     ticket,
     eventSessionId = null,
+    everyNight = false,
     scannedByUserId = null,
     // `CheckIn.deviceId` is a foreign key to a `Device` this system issued. A
     // string a scanner sends about itself is not one, and putting it here turns
@@ -252,10 +392,38 @@ export async function admit(tx, params) {
     // is.
     deviceId = null,
     scannerId = null,
-    method = 'QR_SCAN',
+    method,
     gate = null,
+    // Where the scanner's authority came from — an organisation-wide role, an
+    // event scope, or the platform super administrator's own. Recorded so a
+    // reviewer can tell them apart afterwards.
+    authority = null,
+    // And the role it came with, and whose event it is: for a platform
+    // admission, `SUPER_ADMIN` at another organisation's door, which the
+    // admission's own record should say without a reader having to join it to
+    // the event's.
+    role = null,
+    organizationId = null,
+    // Set when the ticket was admitted through its order's group pass. The
+    // trigger `desi_check_in_group_pass_matches` refuses a value naming a pass
+    // for another order, or a ticket its buyer no longer holds.
+    groupPassId = null,
+    // The payment taken at the door with this admission, when it owed one and
+    // this admission recorded it (SPEC3 §4.3): the audit names it.
+    venuePaymentId = null,
     now,
   } = params
+
+  // No default, and nothing unrecognised. The method is a claim about what was
+  // presented — the secure pass credential, or the printed reference — and a
+  // caller that forgot to say would otherwise record QR_SCAN, from this
+  // function or from the column's own default, for a code somebody typed.
+  // `ASSISTED` is refused too: nothing can tell it apart from a typed code.
+  if (!RECORDED_CHECK_IN_METHODS.includes(method)) {
+    throw new TypeError(
+      `An admission needs the method that was presented, ${RECORDED_CHECK_IN_METHODS.join(' or ')}; received ${method}.`,
+    )
+  }
 
   // The attendance row first, while the ticket is still admissible.
   //
@@ -279,14 +447,25 @@ export async function admit(tx, params) {
       method,
       gate,
       scannedAt: now,
+      groupPassId,
     },
   })
 
-  const moved = await transition(tx, {
-    ticket,
-    to: TICKET_STATES.CHECKED_IN,
-    data: { checkedInAt: now },
-  })
+  if (everyNight && !eventSessionId) {
+    throw new TypeError('An admission of a ticket good for every night names the night.')
+  }
+
+  // A ticket good for every night stays as it is: tonight's row is the record,
+  // and the ticket still admits on the other nights. The row lock the caller
+  // holds, and the one the trigger takes, keep its status from changing under
+  // this admission until it commits.
+  const moved = everyNight
+    ? true
+    : await transition(tx, {
+        ticket,
+        to: TICKET_STATES.CHECKED_IN,
+        data: { checkedInAt: now },
+      })
 
   // The attendance row was accepted and the ticket moved on underneath it —
   // somebody revoked or refunded it between the insert above and this update.
@@ -298,6 +477,7 @@ export async function admit(tx, params) {
   // keeps the two facts from disagreeing.
   if (!moved) {
     throw conflict('That ticket changed while it was being scanned. Scan it again.', {
+      reason: 'NOT_ADMISSIBLE',
       ticketId: ticket.id,
       readStatus: ticket.status,
     })
@@ -318,11 +498,30 @@ export async function admit(tx, params) {
       scannerId,
       method,
       gate,
+      authority,
+      role,
+      organizationId,
+      groupPassId,
+      everyNight,
       previousStatus: ticket.status,
+      ...(venuePaymentId ? { venuePaymentId } : {}),
     },
   })
 
   return { admitted: true, checkIn }
+}
+
+/**
+ * Whether a ticket has been let in on any night, read under its row lock.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {string} ticketId The ticket.
+ * @returns {Promise<boolean>} True when it has an admission.
+ */
+async function admittedAlready(tx, ticketId) {
+  await tx.$queryRaw`SELECT "id" FROM "Ticket" WHERE "id" = ${ticketId} FOR UPDATE`
+
+  return (await tx.checkIn.count({ where: { ticketId } })) > 0
 }
 
 /**
@@ -340,17 +539,44 @@ export async function admit(tx, params) {
  * @param {string} params.tokenHash From {@link mintTransferToken}.
  * @param {Date} params.expiresAt When the invitation lapses.
  * @param {string|null} [params.requestId] For the audit trail.
+ * @param {'MANUAL'|'EMAIL'|null} [params.delivery] How the code reaches the recipient, for the audit trail.
  * @param {Date} params.now The instant.
  * @returns {Promise<{transfer: object|null, started: boolean}>} What was written.
  * @throws {Error} 422 when the ticket is being sent to whoever already holds it.
  */
 export async function startTransfer(tx, params) {
-  const { ticket, toEmail, fromUserId, tokenHash, expiresAt, requestId = null, now } = params
+  const {
+    ticket,
+    toEmail,
+    fromUserId,
+    tokenHash,
+    expiresAt,
+    requestId = null,
+    delivery = null,
+    now,
+  } = params
 
+  // A reserved seat is offered like any other ticket: the seat goes with it at
+  // acceptance (see the module doc and ADR 0006).
   const holder = fromUserId ? await tx.user.findUnique({ where: { id: fromUserId } }) : null
 
   if (holder && holder.email.toLowerCase() === toEmail) {
-    throw unprocessable('That ticket is already theirs.', { toEmail })
+    // No address in the refusal: the sender typed it, and an error body is
+    // kept by more things than the screen that shows it.
+    throw unprocessable('That ticket is already theirs.')
+  }
+
+  // A ticket good for every night stays VALID after a night's admission, so
+  // its status does not say it was used. Its admissions do, read under its row
+  // lock so an admission cannot slip in between the check and the offer.
+  if (
+    canTransition(ticket.status, TICKET_STATES.TRANSFER_PENDING) &&
+    (await admittedAlready(tx, ticket.id))
+  ) {
+    throw conflict(
+      'This ticket has already let somebody in, so it cannot be handed on. The nights left are for whoever went in.',
+      { reason: 'ALREADY_ADMITTED' },
+    )
   }
 
   const moved = await transition(tx, { ticket, to: TICKET_STATES.TRANSFER_PENDING })
@@ -380,11 +606,15 @@ export async function startTransfer(tx, params) {
       requestId,
       at: now.toISOString(),
       transferId: transfer.id,
-      // The address, because who a ticket was offered to is the point of the
-      // record. Never the token: that is a bearer secret and an audit row is
-      // read by more people than a database row.
-      toEmail,
+      // Not the address. The transfer row holds it, and a privacy redaction
+      // rewrites it there, whereas an audit row is immutable and would keep it
+      // after the person asked for it to go. The transfer id is the join. Never
+      // the token either: that is a bearer secret, and an audit row is read by
+      // more people than a database row.
       expiresAt: expiresAt.toISOString(),
+      // How the code went out, never the code: MANUAL means the sender was
+      // shown it once to pass on themselves.
+      delivery,
     },
   })
 
@@ -421,6 +651,31 @@ export async function acceptTransfer(tx, params) {
     now,
   } = params
 
+  // The order line first, before anything is read or written. A refund
+  // settling this line takes the same lock before it reads the line's live
+  // tickets, so the two take turns: either the refund goes first and this
+  // acceptance finds the ticket REFUNDED (TICKET_CHANGED below), or this goes
+  // first and the refund finds — and refunds — the successor. Without it a
+  // refund could read the predecessor, return the money, and leave the
+  // successor admitting (ADR 0005's "quiet double admission"; ADR 0006).
+  await tx.$queryRaw`SELECT "id" FROM "OrderItem" WHERE "id" = ${ticket.orderItemId} FOR UPDATE`
+
+  // Then the ticket, which every admission locks before it writes. A ticket
+  // good for every night that was let in on a night while the offer stood is
+  // still TRANSFER_PENDING, so only its admissions say it was used: handing it
+  // on would let the recipient in again on that night. Refused like any other
+  // change to the ticket since it was offered, and nothing is written. (A
+  // ticket read as CHECKED_IN is refused by the transition table below.)
+  if (
+    canTransition(ticket.status, TICKET_STATES.TRANSFERRED) &&
+    (await admittedAlready(tx, ticket.id))
+  ) {
+    throw conflict(
+      'That ticket changed while the transfer was being accepted. Nothing was handed on.',
+      { reason: 'TICKET_CHANGED', ticketId: ticket.id },
+    )
+  }
+
   // Conditional on the transfer still being PENDING. Two people cannot accept
   // one invitation, and the same person clicking twice accepts once.
   const { count } = await tx.ticketTransfer.updateMany({
@@ -442,18 +697,49 @@ export async function acceptTransfer(tx, params) {
     },
   })
 
-  if (!moved) return { accepted: false, ticket: null, credential: null }
+  // Thrown, not returned. The invitation was marked ACCEPTED two statements
+  // ago; returning would commit that with no successor ticket behind it — an
+  // accepted transfer that handed nobody anything, and a ticket still sitting
+  // with the sender. That happened when the ticket was read before this
+  // transaction and was admitted, revoked or refunded in between. Throwing
+  // rolls the whole acceptance back.
+  if (!moved) {
+    throw conflict(
+      'That ticket changed while the transfer was being accepted. Nothing was handed on.',
+      {
+        reason: 'TICKET_CHANGED',
+        ticketId: ticket.id,
+      },
+    )
+  }
 
+  // The name the door will match a face to: the recipient's own, read from
+  // their account here rather than taken from `recipient`. The route passes the
+  // request actor, which carries an id, a role and an address but no name, and
+  // reading `recipient.displayName` left every ticket ever handed on nameless —
+  // including a seat whose buyer had typed the guest's name at checkout. The
+  // buyer's guest name is not carried over: it names somebody else.
+  const account = await tx.user.findUnique({
+    where: { id: recipient.id },
+    select: { displayName: true },
+  })
+
+  // What is due at the door stays on the ticket (SPEC3-XI XT2): the successor
+  // owes exactly what its predecessor owed, starts with no payment, and its
+  // holder pays at the door. `desi_ticket_venue_due_guard` refuses a successor
+  // that owes anything else. A ticket paid at the door was let in, so it is
+  // never handed on and there is no payment to carry.
   const issued = await tx.ticket.create({
     data: {
       orderItemId: ticket.orderItemId,
       code: generateTicketCode(),
-      attendeeName: recipient.displayName ?? null,
+      attendeeName: account?.displayName ?? null,
       ownerUserId: recipient.id,
       eventSeatId: ticket.eventSeatId,
       status: TICKET_STATES.VALID,
       supersedesTicketId: ticket.id,
       credentialVersion: 1,
+      venueDueCents: ticket.venueDueCents,
     },
   })
 
@@ -484,6 +770,10 @@ export async function acceptTransfer(tx, params) {
       transferId: transfer.id,
       newTicketId: issued.id,
       fromUserId: transfer.fromUserId,
+      // A reserved seat moves with the ticket; the audit names which one, so a
+      // seat's history reads from the log as well as from the rows.
+      eventSeatId: ticket.eventSeatId ?? null,
+      seatCarried: Boolean(ticket.eventSeatId),
       // No credential and no token. Neither belongs in a row somebody reads.
       oldCredentialRevoked: true,
     },
@@ -547,7 +837,7 @@ export async function endTransfer(
       at: now.toISOString(),
       transferId: transfer.id,
       outcome,
-      toEmail: transfer.toEmail,
+      // Not the address, for the reason given where the transfer starts.
       source: actorId ? 'person' : 'system',
     },
   })
@@ -599,39 +889,87 @@ export async function revokeTicket(tx, { ticket, reason, actorId, requestId = nu
       at: now.toISOString(),
       previousStatus: ticket.status,
       reason,
-      ticketCode: ticket.code,
+      // No printed code: it admits at the door by hand, and an audit row is
+      // read by operators and exports. The row names the ticket by its id.
     },
   })
 
   return true
 }
 
+/** The `revokedReason` prefix of a ticket withdrawn because its event was deleted. */
+export const EVENT_DELETED_PREFIX = 'event-deleted:'
+
+/** The `revokedReason` prefix of a ticket withdrawn because its night was cancelled. */
+export const SESSION_CANCELLED_PREFIX = 'session-cancelled:'
+
 /**
- * Find a ticket by the pass a scanner presented, or by its printed code.
- *
- * The digest is looked up rather than every ticket being compared, because a
- * scan happens at a door with a queue behind it. The comparison is still
- * constant-time where it matters: the digest is a lookup key and the credential
- * it came from is never revealed by the answer.
- *
- * @param {object} prisma A Prisma client or transaction client.
- * @param {object} params Inputs.
- * @param {string} [params.credential] The pass from a QR code.
- * @param {string} [params.code] The printed reference.
- * @param {object} [params.include] Relations to load.
- * @returns {Promise<object|null>} The ticket, or null.
+ * The `revokedReason` prefix of a ticket cancelled because it was not paid for
+ * at the door, followed by the cancellation's id (SPEC3-XI XU1).
  */
-export async function findTicketForScan(prisma, { credential, code, include }) {
-  if (credential) {
-    return prisma.ticket.findUnique({
-      where: { credentialHash: credentialDigest(credential) },
-      ...(include ? { include } : {}),
-    })
-  }
+export const VENUE_UNPAID_PREFIX = 'venue-unpaid:'
 
-  if (code) return prisma.ticket.findUnique({ where: { code }, ...(include ? { include } : {}) })
+/**
+ * Withdraw tickets because their event was deleted or their night cancelled.
+ *
+ * VALID and TRANSFER_PENDING tickets become CANCELLED in the caller's
+ * transaction: the pass dies with them (`credentialHash` cleared, the version
+ * bumped), and an offer outstanding on one is withdrawn. The reason names the
+ * event or the night (`event-deleted:<eventId>`, `session-cancelled:<sessionId>`),
+ * which is how the refund that later settles their order finds them
+ * (`revokeAndReturn`) and moves them to REFUNDED. A ticket already admitted,
+ * refunded or handed on is left as it is.
+ *
+ * Conditional updates, so a ticket scanned or refunded a moment earlier is not
+ * overwritten; the count is what this call withdrew.
+ *
+ * The offers are ended from what the update withdrew, read after it, never
+ * from a read before it. The update waits on each ticket's row, so an offer
+ * started while it waited (`startTransfer` holds the ticket until it commits)
+ * has moved the ticket to TRANSFER_PENDING and written its PENDING invitation
+ * by the time the update takes the row and withdraws it: a read taken before
+ * the update would have seen the ticket VALID and left that invitation
+ * standing on a dead ticket. After the update, the next statement sees it.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} params Inputs.
+ * @param {string[]} params.ticketIds The tickets to withdraw.
+ * @param {string} params.reason `event-deleted:<id>` or `session-cancelled:<id>`.
+ * @param {Date} params.now The instant.
+ * @returns {Promise<number>} How many were withdrawn.
+ */
+export async function withdrawTickets(tx, { ticketIds, reason, now }) {
+  const ids = [...new Set(ticketIds ?? [])]
 
-  return null
+  if (ids.length === 0) return 0
+
+  const withdrawable = [TICKET_STATES.VALID, TICKET_STATES.TRANSFER_PENDING]
+
+  const { count } = await tx.ticket.updateMany({
+    where: { id: { in: ids }, status: { in: withdrawable } },
+    data: {
+      status: TICKET_STATES.CANCELLED,
+      revokedAt: now,
+      revokedReason: reason,
+      credentialHash: null,
+      credentialVersion: { increment: 1 },
+    },
+  })
+
+  if (count === 0) return 0
+
+  // Every invitation outstanding on a ticket this call withdrew, including one
+  // committed while the update above waited on its row.
+  await tx.ticketTransfer.updateMany({
+    where: {
+      ticketId: { in: ids },
+      status: 'PENDING',
+      ticket: { status: TICKET_STATES.CANCELLED, revokedReason: reason },
+    },
+    data: { status: 'CANCELLED', cancelledAt: now },
+  })
+
+  return count
 }
 
 /**

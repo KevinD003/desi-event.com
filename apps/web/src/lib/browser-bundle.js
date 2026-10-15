@@ -67,11 +67,250 @@ export const FORBIDDEN = Object.freeze({
     'the shape of every request the API accepts, including fields a screen never sends and a caller is not meant to discover by reading the bundle.',
   'packages/schemas/src/responses.js':
     'the shape of every response the API can produce, including branches withheld from the caller who loaded this bundle.',
+  'packages/permissions/src/capabilities.js':
+    'the role-to-capability tables, platform and organisation: which role may refund, pay out, moderate or change a platform role. A screen that needs a role\u2019s name gets it from a narrow schemas subpath, and what a role may do from the API\u2019s answer.',
+  'packages/permissions/src/index.js':
+    'the permissions barrel, which re-exports the capability tables above and the door-authority policy. Client code never decides what somebody may do; the API does, and says so.',
+  'packages/schemas/src/organizer-invitations.js':
+    'the organiser-invitation schemas: the administrators\u2019 whole form contract, the private note to the recipient included. The letter a screen shows comes from @desi-event/schemas/code-letters, which imports nothing and is allowed.',
+  'packages/providers/src/smtp.js':
+    'the SMTP adapter: nodemailer, the mail server\u2019s address and the credentials used to sign in to it.',
+  'apps/api/src/lib/code-mailer.js':
+    'composes and sends show-once codes by email. A code reaches the recipient\u2019s mailbox and nowhere else.',
+  'apps/web/src/lib/traffic-forwarding.js':
+    'derives a visitor\u2019s address from the trusted proxy hops (TRAFFIC_TRUSTED_PROXY_HOPS) and forwards it to the API. It runs on the web server only; in a browser it would hand the address to whoever reads the bundle.',
+  // SPEC2-XI I: the importer's three modules. `apps/api/` below already
+  // covers them; each is named so a refusal says which rule it broke.
+  'apps/api/src/lib/event-import.js':
+    'the importer: the platform-held organisation, the review exemption and publication of imported events. Only an administrator\u2019s request reaches it, through the API.',
+  'apps/api/src/lib/import-images.js':
+    'the API\u2019s one outbound fetcher, with the address ranges it refuses and how it pins a connection. A browser holding it is a map of how to get past it.',
+  'apps/api/src/lib/import-dataset.js':
+    'the import file\u2019s run-time host checks and the plan it makes against the database.',
   'packages/db/': 'Prisma, the schema, and anything that can open a connection.',
   'packages/providers/': 'payment provider adapters, which hold secret-key handling.',
   'packages/ledger/': 'double-entry posting rules. Server-side money, never client-side.',
   'apps/api/': 'the API server itself.',
 })
+
+/**
+ * Capability names a browser must never carry, with why.
+ *
+ * A capability *name* in a client module is the shape of the administrative
+ * surface drawn for anybody who opens devtools: which privileged routes exist
+ * and what each wants. Client components are given booleans ("may this person
+ * invite?") by the Server Component that decided, never the name it decided by.
+ * The artefact scan (`scripts/scan-browser-bundle.mjs`) forbids the same names
+ * in a build; this refuses them in the source, before one.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const FORBIDDEN_CLIENT_LITERALS = Object.freeze({
+  'platform:admin': 'the super administrators\u2019 capability.',
+  'organizer:invite': 'who may invite an organiser to post events (SPEC2 \u00a70.2).',
+  'website_redirect:manage':
+    'who may switch an event\u2019s website link on or off (SPEC2 \u00a70.2).',
+  'analytics:view_all':
+    'who may read every event\u2019s visits across the platform (SPEC2 \u00a70.2).',
+  'moderation:review': 'who decides whether an event is published.',
+  'payout:manage': 'who moves an organiser\u2019s money.',
+  'ledger:manage': 'who may adjust the ledger.',
+  // SPEC2-XI §0.7: full control of posted events and the import.
+  'event:platform_edit':
+    'who on the team at The Desi Events may edit any organisation\u2019s posted event (SPEC2-XI \u00a70.7).',
+  'event:platform_delete':
+    'who on the team at The Desi Events may delete any event, or restore one (SPEC2-XI \u00a70.7).',
+  'event:import': 'who may import listed events and publish them (SPEC2-XI \u00a70.7).',
+  'event:delete_unsold':
+    'which organisation role may delete an event; the screen is told whether it may, never the name.',
+  // SPEC3 §0.4 and SPEC3-XI §13: booking fees, referral codes and paying at the venue.
+  'payment_terms:manage':
+    'who may set an event\u2019s booking fee and switch paying at the venue (SPEC3 \u00a70.4).',
+  'referral_code:manage':
+    'who may make, change and read the referral codes that waive the booking fee (SPEC3 \u00a70.4).',
+  'platform_fee:refund': 'who may refund a booking fee by hand (SPEC3 \u00a70.4).',
+  'venue_booking:cancel':
+    'who on the team at The Desi Events may cancel unpaid pay-at-the-venue tickets (SPEC3-XI \u00a713); the dialog is told whether it may.',
+})
+
+/**
+ * Client modules that must stay client modules, each the browser half of a
+ * command SPEC3 or SPEC3-XI adds, with what it does.
+ *
+ * Listed so a refactor that turns one into a Server Component, or deletes it,
+ * fails the bundle test rather than silently moving its strings out of the
+ * walk: each is walked from, held to the literal rule above, and kept out of
+ * browser storage.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const REQUIRED_CLIENT_MODULES = Object.freeze({
+  'apps/web/src/components/cancel-unpaid-tickets-dialog.jsx':
+    'cancels unpaid pay-at-the-venue tickets (`/venue-cancellations`) after listing the booking (`/venue-bookings`).',
+  'apps/web/src/components/unpaid-venue-bookings.jsx':
+    'lists unpaid pay-at-the-venue bookings and opens the cancel dialog.',
+  'apps/web/src/components/referral-code-field.jsx':
+    'takes a buyer\u2019s referral code at checkout; the code lives in component state alone.',
+  'apps/web/src/components/payment-method-choice.jsx': 'lets a buyer choose to pay at the door.',
+  'apps/web/src/components/payment-terms-panel.jsx':
+    'sets an event\u2019s booking fee and its pay-at-the-venue switch (`/platform-fee`, `/venue-payment`).',
+  'apps/web/src/app/admin/referral-codes/referral-code-form.jsx':
+    'makes and changes referral codes (`/v1/platform/referral-codes`).',
+  'apps/web/src/app/admin/referral-codes/referral-code-switch.jsx':
+    'switches a referral code off and on.',
+  'apps/web/src/app/admin/fee-refunds/fee-refund-form.jsx':
+    'previews and refunds a booking fee (`/v1/platform/orders/…/fee-refund`).',
+})
+
+/**
+ * Browser storage a show-once or bearer value must never reach: local and
+ * session storage, IndexedDB, the Cookie Store API, the Cache API, and a
+ * cookie written from script, whether set (`=`) or appended to (`+=`).
+ */
+const BROWSER_STORAGE =
+  /\b(?:localStorage|sessionStorage|indexedDB|cookieStore)\b|\bcaches\s*(?:\?\.|\.)\s*(?:open|match|has|keys|delete)\s*\(|\bdocument\s*\.\s*cookie\s*\+?=(?!=)/u
+
+/**
+ * A module's text with its comments removed, as the storage and literal rules
+ * read it.
+ *
+ * @param {string} source The module's text.
+ * @returns {string} The code.
+ */
+function codeOf(source) {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1')
+}
+
+/**
+ * Whether a module's code (comments aside) touches browser storage: local or
+ * session storage, IndexedDB, the Cookie Store, the Cache API, or a cookie
+ * written from script.
+ *
+ * Reading `document.cookie` is not storage (the API client reads the CSRF
+ * cookie the server set); writing it is.
+ *
+ * @param {string} source The module's text.
+ * @returns {boolean} True when it does.
+ */
+export function usesBrowserStorage(source) {
+  return BROWSER_STORAGE.test(codeOf(source))
+}
+
+/**
+ * What puts something in the address bar, and so in the history, the
+ * `Referer` of the next request and every log that sees the address: the
+ * History API, the App Router's navigation, `location` and `window.open`, and
+ * a server redirect. A `const location = …` is a name, not a write.
+ */
+const ADDRESS_BAR_WRITE =
+  /\bhistory\s*(?:\?\.|\.)\s*(?:pushState|replaceState)\s*\(|\b[\w$]*[Rr]outer\s*(?:\?\.|\.)\s*(?:push|replace|prefetch)\s*\(|\blocation\s*(?:\?\.|\.)\s*(?:assign|replace)\s*\(|\bwindow\s*(?:\?\.|\.)\s*open\s*\(|\b(?:redirect|permanentRedirect)\s*\(|(?<!\b(?:const|let|var)\s+)\blocation(?:\s*\.\s*(?:href|search|hash|pathname))?\s*=(?![=>])/gu
+
+/**
+ * The index of the bracket closing the one at `open`, strings and templates
+ * read past.
+ *
+ * @param {string} code The code.
+ * @param {number} open Index of `(`.
+ * @returns {number} Index of the matching `)`, or the end of the code.
+ */
+function closingBracket(code, open) {
+  let depth = 0
+
+  for (let at = open; at < code.length; at += 1) {
+    const char = code[at]
+
+    if (char === "'" || char === '"' || char === '`') {
+      at += 1
+      while (at < code.length && code[at] !== char) at += code[at] === '\\' ? 2 : 1
+      continue
+    }
+
+    if (char === '(' || char === '[' || char === '{') depth += 1
+
+    if (char === ')' || char === ']' || char === '}') {
+      depth -= 1
+      if (depth === 0) return at
+    }
+  }
+
+  return code.length
+}
+
+/**
+ * Every write to the address bar in a module's code (comments aside), with
+ * what it is given: a call's arguments, or what is assigned.
+ *
+ * @param {string} source The module's text.
+ * @returns {Array<{write: string, argument: string}>} The writes, in source order.
+ */
+export function addressBarWrites(source) {
+  const code = codeOf(source)
+  const writes = []
+
+  for (const match of code.matchAll(ADDRESS_BAR_WRITE)) {
+    const start = match.index + match[0].length
+    const called = match[0].endsWith('(')
+    const end = called
+      ? closingBracket(code, start - 1)
+      : Math.min(
+          ...[code.indexOf(';', start), code.indexOf('\n', start), code.length].filter(
+            (at) => at !== -1,
+          ),
+        )
+
+    writes.push({
+      write: match[0].replace(/[\s(=]+/gu, ''),
+      argument: code.slice(start, end).trim(),
+    })
+  }
+
+  return writes
+}
+
+/**
+ * The names in an address-bar write's argument that could hold a referral
+ * code: anything named for a referral (its id and a constant path aside), and
+ * the referral field's own `code` and `draft` (a code's id, `code.id`, aside).
+ * The words of a string are not names; what a template substitutes is.
+ *
+ * @param {string} argument The write's argument text.
+ * @returns {string[]} The names found.
+ */
+export function referralNamesIn(argument) {
+  const code = argument
+    .replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/gu, "''")
+    .replace(/`(?:\\.|[^`\\])*`/gu, (template) =>
+      [...template.matchAll(/\$\{([^}]*)\}/gu)].map((substitution) => substitution[1]).join(' '),
+    )
+  const found = []
+
+  for (const [chain] of code.matchAll(/[\w$]+(?:\s*(?:\?\.|\.)\s*[\w$]+)*/gu)) {
+    const parts = chain.split(/\s*(?:\?\.|\.)\s*/u)
+    const named = parts.some(
+      (part) => /referral/iu.test(part) && !/^[A-Z0-9_]+$/u.test(part) && !/Ids?$/u.test(part),
+    )
+    const field = /^(?:code|draft)$/u.test(parts[0]) && parts[1] !== 'id'
+
+    if (named || field) found.push(chain)
+  }
+
+  return found
+}
+
+/**
+ * The forbidden capability names a module's code (comments aside) contains.
+ *
+ * Comments are left out because a minifier drops them: a docstring explaining
+ * that a page is for `organizer:invite` holders ships nothing.
+ *
+ * @param {string} source The module's text.
+ * @returns {string[]} The names found, in {@link FORBIDDEN_CLIENT_LITERALS} order.
+ */
+export function forbiddenLiteralsIn(source) {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1')
+
+  return Object.keys(FORBIDDEN_CLIENT_LITERALS).filter((literal) => code.includes(literal))
+}
 
 /** Where a bare workspace specifier resolves to. */
 const WORKSPACE_PACKAGES = Object.freeze({

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { endTimeListedAfter } from '../src/lib/event-authoring.js'
+import { bearer, createTestApp, holdHeaders, signIn } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
+import { cuid } from './helpers/prisma-stub.js'
 
 /**
  * Authoring an event: sessions, ticket types, inventory, readiness, pricing.
@@ -218,20 +220,109 @@ describe('what may be edited, and when', () => {
     await app.close()
   })
 
-  it('refuses to edit a published event through the authoring routes', async () => {
-    const { app, ids } = await createTestApp()
+  // Replaces "refuses to edit a published event through the authoring routes":
+  // a live event now takes the edits that cannot take anything away from a
+  // buyer, a new night among them. What stays refused is below.
+  it('adds a session to a published event', async () => {
+    const { app, prisma, ids } = await createTestApp()
     const token = await signIn(app, 'arun@rangoli.example')
     const headers = bearer(token)
+    const revision = await revisionOf(app, ids.publishedEvent.id, headers)
 
     const response = await app.inject({
       method: 'POST',
       url: `/v1/events/${ids.publishedEvent.id}/sessions`,
       headers,
+      payload: session(revision),
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().meta.revision).toBe(revision + 1)
+
+    const audit = prisma._store.auditLog.filter((row) => row.action === 'event.session_added')
+
+    expect(audit).toHaveLength(1)
+    expect(audit[0].metadata).toMatchObject({
+      sessionId: response.json().data.id,
+      revision: revision + 1,
+      mode: 'live',
+    })
+    expect(audit[0].metadata.fields).toContain('startsAt')
+
+    await app.close()
+  })
+
+  it.each([
+    ['approvedEvent', 'APPROVED', /moderator holds this version/i],
+    ['rejectedEvent', 'REJECTED', /rework it as a draft/i],
+  ])('refuses authoring on an %s (409 NOT_EDITABLE)', async (key, _status, message) => {
+    const { app, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids[key].id}/sessions`,
+      headers: bearer(token),
       payload: session(0),
     })
 
     expect(response.statusCode).toBe(409)
-    expect(response.json().error.message).toMatch(/material-change/i)
+    expect(response.json().error.code).toBe('NOT_EDITABLE')
+    expect(response.json().error.message).toMatch(message)
+
+    await app.close()
+  })
+
+  it('refuses authoring on a cancelled event, which is final', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status = 'CANCELLED'
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/tiers`,
+      headers: bearer(token),
+      payload: tier(0),
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('NOT_EDITABLE')
+    expect(response.json().error.message).toMatch(/final/i)
+
+    await app.close()
+  })
+
+  // SPEC2-XI X-8 and X-12: a deleted event is not final, because the team at
+  // The Desi Events can restore it; the refusal says what to do instead.
+  it('refuses authoring on a deleted event and says the team at The Desi Events restores it, not that it is final', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    Object.assign(
+      prisma._store.event.find((row) => row.id === ids.publishedEvent.id),
+      {
+        status: 'DELETED',
+        deletedAt: new Date(),
+        deletionReason: 'The venue withdrew the booking before any ticket was sold.',
+        deletionOutcome: 'REMOVED',
+        deletionAuthority: 'ORGANIZATION',
+        statusBeforeDeletion: 'PUBLISHED',
+      },
+    )
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/tiers`,
+      headers: bearer(token),
+      payload: tier(0),
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('NOT_EDITABLE')
+    expect(response.json().error.message).toBe(
+      'This event was deleted. Ask the team at The Desi Events to restore it before changing it.',
+    )
 
     await app.close()
   })
@@ -368,6 +459,165 @@ describe('ticket types', () => {
 
     await app.close()
   })
+
+  // The database refuses a complimentary tier that is not HIDDEN
+  // (ticket_type_complimentary_free_and_hidden), and the stub models no CHECKs,
+  // so the stored row is the assertion.
+  it('stores a free complimentary tier HIDDEN when no visibility is given', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/tiers`,
+      headers,
+      payload: tier(revision, { name: 'Guest list', complimentary: true, priceCents: 0 }),
+    })
+
+    expect(response.statusCode).toBe(201)
+
+    const stored = prisma._store.ticketType.find((row) => row.id === response.json().data.id)
+
+    expect(stored.complimentary).toBe(true)
+    expect(stored.visibility).toBe('HIDDEN')
+
+    await app.close()
+  })
+
+  it('stores an ordinary tier PUBLIC', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/tiers`,
+      headers,
+      payload: tier(revision, { priceCents: 0 }),
+    })
+
+    expect(response.statusCode).toBe(201)
+
+    const stored = prisma._store.ticketType.find((row) => row.id === response.json().data.id)
+
+    expect(stored.visibility).toBe('PUBLIC')
+
+    await app.close()
+  })
+
+  it('hides a free tier when it is made complimentary later', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/tiers`,
+      headers,
+      payload: tier(revision, { priceCents: 0 }),
+    })
+
+    expect(created.statusCode).toBe(201)
+
+    const tierId = created.json().data.id
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/tiers/${tierId}`,
+      headers,
+      payload: { revision: created.json().meta.revision, complimentary: true },
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    const stored = prisma._store.ticketType.find((row) => row.id === tierId)
+
+    expect(stored.complimentary).toBe(true)
+    expect(stored.visibility).toBe('HIDDEN')
+
+    await app.close()
+  })
+})
+
+describe('a session keeps the map its reserved tiers price', () => {
+  /**
+   * The draft event's session made a seated one, optionally with a reserved
+   * tier pricing a zone of its map. The version and zone exist only as ids: the
+   * refusal is decided before either is read.
+   *
+   * @param {object} prisma The stub.
+   * @param {object} ids The world's ids.
+   * @param {{priced: boolean}} options Whether a tier prices the map.
+   * @returns {object} The session row.
+   */
+  function seatedDraftSession(prisma, ids, { priced }) {
+    const session = prisma._store.eventSession.find((row) => row.eventId === ids.draftEvent.id)
+
+    Object.assign(session, { venueMapVersionId: cuid(), capacity: null })
+
+    if (priced) {
+      prisma._store.ticketType.push({
+        ...ids.generalAdmission,
+        id: cuid(),
+        eventId: ids.draftEvent.id,
+        name: 'Front stalls',
+        eventSessionId: session.id,
+        priceZoneId: cuid(),
+        reserved: true,
+        quantityTotal: 0,
+        quantitySold: 0,
+        status: 'DRAFT',
+      })
+    }
+
+    return session
+  }
+
+  it('refuses to move a session to general admission while a tier prices its map', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+    const session = seatedDraftSession(prisma, ids, { priced: true })
+    const versionBefore = session.venueMapVersionId
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/sessions/${session.id}`,
+      headers,
+      payload: { revision, venueMapVersionId: null, capacity: 200 },
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.message).toMatch(/"Front stalls" prices seats/)
+    expect(session.venueMapVersionId).toBe(versionBefore)
+    expect(session.capacity).toBeNull()
+
+    await app.close()
+  })
+
+  it('lets a session with no priced tier move to general admission', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+    const session = seatedDraftSession(prisma, ids, { priced: false })
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/sessions/${session.id}`,
+      headers,
+      payload: { revision, venueMapVersionId: null, capacity: 200 },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.venueMapVersionId).toBeNull()
+
+    await app.close()
+  })
 })
 
 describe('publication readiness', () => {
@@ -438,5 +688,165 @@ describe('the all-in price preview', () => {
     }
 
     await app.close()
+  })
+
+  it('quotes exactly what an order for one ticket is charged', async () => {
+    // The preview was computed with the pricing package's default fee and no
+    // tax, while checkout used the deployment's fee terms and the venue's tax.
+    // Held to a real order here, not to a second calculation.
+    const { app, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const preview = (
+      await app.inject({
+        method: 'GET',
+        url: `/v1/events/${ids.publishedEvent.id}/price-preview`,
+        headers: bearer(token),
+      })
+    ).json().data
+    const quoted = preview.find((row) => row.ticketTypeId === ids.generalAdmission.id)
+
+    const hold = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/holds',
+        payload: { ticketTypeId: ids.generalAdmission.id, quantity: 1 },
+      })
+    ).json().data
+    const placed = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      headers: holdHeaders(hold),
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: 'priya@example.com',
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+        holdIds: [hold.id],
+      },
+    })
+
+    expect(placed.statusCode).toBe(201)
+
+    const charged = placed.json().data
+
+    expect(quoted).toMatchObject({
+      faceValueCents: charged.subtotalCents,
+      feesCents: charged.feesCents,
+      taxCents: charged.taxCents,
+      allInCents: charged.totalCents,
+    })
+
+    await app.close()
+  })
+})
+
+describe('a night’s label', () => {
+  it('is saved trimmed, changed, and cleared back to the date alone', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'arun@rangoli.example'))
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/sessions`,
+      headers,
+      payload: session(revision, { label: '  Night 1  ' }),
+    })
+
+    expect(created.statusCode).toBe(201)
+    expect(created.json().data.label).toBe('Night 1')
+
+    const id = created.json().data.id
+    const stored = () => prisma._store.eventSession.find((row) => row.id === id)
+    expect(stored().label).toBe('Night 1')
+
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/sessions/${id}`,
+      headers,
+      payload: { revision: created.json().meta.revision, label: 'Ashtami' },
+    })
+
+    expect(renamed.statusCode).toBe(200)
+    expect(renamed.json().data.label).toBe('Ashtami')
+
+    // A blank box clears it, the same as null.
+    const cleared = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/sessions/${id}`,
+      headers,
+      payload: { revision: renamed.json().meta.revision, label: '   ' },
+    })
+
+    expect(cleared.statusCode).toBe(200)
+    expect(cleared.json().data.label).toBeNull()
+    expect(stored().label).toBeNull()
+
+    // Listed back the same way the editor reads it.
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.draftEvent.id}/sessions`,
+      headers,
+    })
+    expect(listed.json().data.find((row) => row.id === id).label).toBeNull()
+
+    await app.close()
+  })
+
+  it('refuses a label over sixty characters, and writes nothing', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'arun@rangoli.example'))
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+    const before = prisma._store.eventSession.length
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/sessions`,
+      headers,
+      payload: session(revision, { label: 'N'.repeat(61) }),
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(prisma._store.eventSession).toHaveLength(before)
+
+    await app.close()
+  })
+})
+
+describe('an end time the listing did not give', () => {
+  const hour = 3_600_000
+  const startsAt = new Date('2026-10-19T00:00:00.000Z')
+  const estimate = {
+    startsAt,
+    endsAt: new Date(startsAt.getTime() + 3 * hour),
+    endTimeListed: false,
+  }
+  const at = (offset) => new Date(startsAt.getTime() + offset * hour).toISOString()
+
+  it('stays an estimate while the end is not touched, or only rides along with the start', () => {
+    expect(endTimeListedAfter(estimate, {})).toBe(false)
+    expect(endTimeListedAfter(estimate, { capacity: 400 })).toBe(false)
+    expect(endTimeListedAfter(estimate, { endsAt: at(3) })).toBe(false)
+    // Moving only the start leaves the old estimate as the end: still not listed.
+    expect(endTimeListedAfter(estimate, { startsAt: at(1) })).toBe(false)
+    // The whole night a day later keeps its length.
+    expect(endTimeListedAfter(estimate, { startsAt: at(24), endsAt: at(27) })).toBe(false)
+  })
+
+  it('becomes listed once the end is set apart from the start', () => {
+    expect(endTimeListedAfter(estimate, { endsAt: at(5) })).toBe(true)
+    expect(endTimeListedAfter(estimate, { startsAt: at(1), endsAt: at(6) })).toBe(true)
+    expect(endTimeListedAfter(estimate, { endsAt: new Date(startsAt.getTime() + 2 * hour) })).toBe(
+      true,
+    )
+  })
+
+  it('keeps a listed end listed, whatever moves', () => {
+    const listed = { ...estimate, endTimeListed: true }
+
+    expect(endTimeListedAfter(listed, {})).toBe(true)
+    expect(endTimeListedAfter(listed, { startsAt: at(24), endsAt: at(27) })).toBe(true)
+    expect(endTimeListedAfter({ startsAt, endsAt: estimate.endsAt }, {})).toBe(true)
   })
 })

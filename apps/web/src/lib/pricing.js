@@ -27,46 +27,80 @@ import {
 export { feeConfigForCurrency, resolveTaxPolicy }
 
 /**
- * The tax's display name, so the summary line says "GST" in Mumbai and "VAT" in
- * London rather than a generic "Tax".
+ * The tax's display name, so the summary line says "Sales tax" in New Jersey,
+ * "GST" in Mumbai and "VAT" in London rather than a generic "Tax".
+ *
+ * A zero rate keeps its name and drops the percentage: the US demo policy is
+ * deliberately zero because US sales tax on admissions varies by state, county
+ * and city, and "Sales tax $0.00" says what is being charged without
+ * suggesting a rate was worked out. An unmatched place says "Tax".
  *
  * @param {object} [place] Where the event is held: `{ country, region }`.
- * @returns {string} A short label such as `GST (18%)`.
+ * @returns {string} A short label such as `GST (18%)` or `Sales tax`.
  */
 export function taxLabelForPlace(place = {}) {
   const policy = resolveTaxPolicy({ country: place.country, region: place.region })
 
-  if (!policy.resolved || policy.rateBps === 0) return 'Tax'
+  if (!policy.resolved) return 'Tax'
+  if (policy.rateBps === 0) return policy.name ?? 'Tax'
 
   return `${policy.name} (${policy.rateBps / 100}%)`
+}
+
+/**
+ * The tax's name without its rate, as a summary row names it: "GST", "HST",
+ * "VAT" or "Sales tax", and "Tax" for a place no policy covers (SPEC3 §12).
+ *
+ * @param {object} [place] Where the event is held: `{ country, region }`.
+ * @returns {string} The name, as a row label writes it.
+ */
+export function taxNameForPlace(place = {}) {
+  const policy = resolveTaxPolicy({ country: place?.country, region: place?.region })
+
+  return policy.resolved ? (policy.name ?? 'Tax') : 'Tax'
+}
+
+/**
+ * The tax's name inside a sentence: an acronym stays as it is ("No GST is
+ * added…"), and a name in words is lower-cased ("No sales tax is added…").
+ *
+ * @param {object} [place] Where the event is held: `{ country, region }`.
+ * @returns {string} The name, as a sentence writes it.
+ */
+export function taxNameInSentence(place = {}) {
+  const name = taxNameForPlace(place)
+
+  return /^[A-Z]{2,}$/u.test(name) ? name : name.toLowerCase()
 }
 
 /**
  * The locale used to render money for a currency.
  *
  * Grouping differs: Indian numbering groups in lakhs (`₹1,49,900`), so INR is
- * formatted `en-IN` while CAD and GBP use their own conventions.
+ * formatted `en-IN` while USD, CAD and GBP use their own conventions. The
+ * catalogue sells in US dollars, so USD is the default and `en-US` the
+ * fallback; any other currency the API sends still formats as itself.
  *
  * @param {string} [currency] ISO 4217 code.
  * @returns {string} A BCP 47 locale tag.
  */
-export function localeForCurrency(currency = 'INR') {
-  const code = String(currency || 'INR').toUpperCase()
+export function localeForCurrency(currency = 'USD') {
+  const code = String(currency || 'USD').toUpperCase()
 
-  return { INR: 'en-IN', CAD: 'en-CA', GBP: 'en-GB', USD: 'en-US', AUD: 'en-AU' }[code] ?? 'en-IN'
+  return { USD: 'en-US', INR: 'en-IN', CAD: 'en-CA', GBP: 'en-GB', AUD: 'en-AU' }[code] ?? 'en-US'
 }
 
 /**
  * Format an integer amount of minor units in its own currency and locale.
  *
- * A zero amount reads as "Free", because `₹0.00` on a free community mela looks
- * like a pricing bug rather than a gift.
+ * A zero amount reads as "Free", because `$0.00` on a free children's class
+ * looks like a pricing bug rather than a gift.
  *
  * @param {number} cents Amount in minor units.
  * @param {string} [currency] ISO 4217 code.
- * @returns {string} A localised amount such as `₹1,499.00`, or `Free` for zero.
+ * @returns {string} A localised amount such as `$38.06`, or `Free` for zero.
  */
-export function formatPrice(cents, currency = 'INR') {
+export function formatPrice(cents, currency = 'USD') {
   if (cents === 0) return 'Free'
 
   return formatMoney(cents, currency, localeForCurrency(currency))
@@ -78,9 +112,9 @@ export function formatPrice(cents, currency = 'INR') {
  *
  * @param {number} cents Amount in minor units.
  * @param {string} [currency] ISO 4217 code.
- * @returns {string} A localised amount such as `₹0.00`.
+ * @returns {string} A localised amount such as `$0.00`.
  */
-export function formatAmount(cents, currency = 'INR') {
+export function formatAmount(cents, currency = 'USD') {
   return formatMoney(cents, currency, localeForCurrency(currency))
 }
 
@@ -93,6 +127,28 @@ export function formatAmount(cents, currency = 'INR') {
  */
 
 /**
+ * The fee terms to price with: the ones the API published for this event and
+ * currency, or the pricing package's defaults when it published none.
+ *
+ * The defaults are 2.5% + ₹5.00; the deployment charges its own configured
+ * terms, which is why the event carries them. Pricing with the defaults while
+ * the API charged 5.9% + ₹0.99 is how the event page and checkout came to quote
+ * a total smaller than the order.
+ *
+ * @param {string} currency ISO 4217 code.
+ * @param {Array<{currency: string, percentageBps: number, flatCents: number}>|null|undefined} feeTerms From the event.
+ * @returns {{percentageBps: number, flatCents: number, currency: string}} A fee configuration.
+ */
+export function feeConfigFor(currency, feeTerms) {
+  const code = String(currency || 'USD').toUpperCase()
+  const published = (feeTerms ?? []).find((terms) => terms?.currency === code)
+
+  return published
+    ? { percentageBps: published.percentageBps, flatCents: published.flatCents, currency: code }
+    : feeConfigForCurrency(code)
+}
+
+/**
  * Price a basket of ticket selections.
  *
  * Lines with a zero quantity are dropped before pricing, so the per-ticket flat
@@ -102,10 +158,19 @@ export function formatAmount(cents, currency = 'INR') {
  * @param {CartLine[]} params.lines Selected tiers with their quantities.
  * @param {string} params.currency ISO 4217 code every tier is priced in.
  * @param {object} [params.place] Where the event is held: `{ country, region }`.
+ * @param {Array<object>|null} [params.feeTerms] The fee terms the API published for the event.
+ * @param {'CARD'|'AT_VENUE'} [params.paymentMethod] How the ticket price would be paid. A
+ *   referral code's waiver is never estimated here: whether a code applies is the server's to say.
  * @returns {object} The broken-down totals plus the tax policy they were computed under.
  * @throws {PricingError} If a line carries a non-integer quantity or price.
  */
-export function priceSelection({ lines, currency, place = {} }) {
+export function priceSelection({
+  lines,
+  currency,
+  place = {},
+  feeTerms = null,
+  paymentMethod = 'CARD',
+}) {
   const items = (lines ?? [])
     .filter((line) => line.quantity > 0)
     .map((line) => ({
@@ -119,12 +184,14 @@ export function priceSelection({ lines, currency, place = {} }) {
   // the same resolution the server performs, from the same table, so the quote
   // the buyer sees and the total they are charged cannot disagree.
   const taxPolicy = resolveTaxPolicy({ country: place.country, region: place.region })
+  const method = paymentMethod === 'AT_VENUE' ? 'AT_VENUE' : 'CARD'
 
   const totals = computeOrderTotals({
     items,
-    feeConfig: feeConfigForCurrency(currency),
+    feeConfig: feeConfigFor(currency, feeTerms),
     taxRateBps: taxPolicy.rateBps,
     currency,
+    paymentMethod: method,
   })
 
   return { ...totals, taxPolicy }

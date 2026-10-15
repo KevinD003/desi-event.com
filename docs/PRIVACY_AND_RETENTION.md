@@ -114,10 +114,13 @@ ONLY`", is no longer the whole story: the privacy surface is now nine
 > **"Not implemented: retention execution. Nothing anywhere creates a
 > `RetentionSweep` row" is no longer true.** The worker writes one row per
 > evaluated class. What the bullet was protecting is intact and is worth
-> restating in the narrower form: **nothing is scheduled and nothing deletes.**
-> There is no deletion path anywhere in this repository, the API holds no queue
-> client so no browser can start a sweep, no repeatable job exists and a test
-> asserts the scheduler never mentions the job.
+> restating in the narrower form: **no retention sweep is scheduled and the
+> retention job deletes nothing.** The retention machinery has no deletion
+> path, the API holds no queue client so no browser can start a sweep, no
+> repeatable retention job exists and a test asserts the scheduler never
+> mentions it. (Updated by SPEC2: the one deletion on a timer in this
+> repository is the traffic roll-up's, of raw visit rows it has already added
+> up — see "Visit counting" below. It is not a retention sweep.)
 >
 > The three bullets that did **not** change are the three that matter most: the
 > durations remain `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`, historic
@@ -169,10 +172,11 @@ safely; they are not that work.
 >
 > **What is still not implemented, and must not be read as done:**
 >
-> - **Retention execution.** Nothing deletes. There is no deletion path in the
->   repository, `RETENTION_ENFORCEMENT_ACTIVATED` defaults to false, and
+> - **Retention execution.** The retention job deletes nothing. It has no
+>   deletion path, `RETENTION_ENFORCEMENT_ACTIVATED` defaults to false, and
 >   `retention_sweep_dry_run_changes_nothing` refuses a `DRY_RUN` row claiming a
->   non-zero `affectedCount` whatever any code believes.
+>   non-zero `affectedCount` whatever any code believes. The only deletion on a
+>   timer is the traffic roll-up's, of raw visit rows (see "Visit counting").
 > - **Export deletion.** An artefact can be invalidated. Nothing deletes one,
 >   because nothing stores one: every export is streamed and no bytes are kept.
 > - **Approved durations.** Still `BLOCKED — REQUIRES OWNER DECISION`. No
@@ -343,10 +347,12 @@ right:
 
 1. `retention_sweep_dry_run_changes_nothing` — a CHECK constraint refusing any
    `DRY_RUN` row that claims a non-zero `affectedCount`.
-2. No deletion path exists in `apps/worker/src/retention/classes.js`, in
-   `apps/worker/src/processors/sweep-retention.js`, or anywhere else. The unit
-   tests prove it with a Prisma stub whose `delete`, `deleteMany`, `update`,
-   `updateMany` and both raw-SQL escapes throw.
+2. No deletion path exists in `apps/worker/src/retention/classes.js` or in
+   `apps/worker/src/processors/sweep-retention.js`. The unit tests prove it
+   with a Prisma stub whose `delete`, `deleteMany`, `update`, `updateMany` and
+   both raw-SQL escapes throw. The one deletion on a timer elsewhere in the
+   repository is the traffic roll-up's (`packages/db/src/traffic-rollup.js`),
+   of raw visit rows it has already added up; it is not a retention class.
 3. `RETENTION_ENFORCEMENT_ACTIVATED` defaults to false, and defaults to false
    again in `createProcessors`, so a caller who forgets it gets the refusing
    worker rather than the counting one.
@@ -564,6 +570,18 @@ data whenever the organiser is a sole trader. Redacting an organisation is a
 different problem with different financial constraints — `Transfer` and `Payout`
 both reference it with `onDelete: Restrict` — and Phase 3 does not attempt it.
 
+### Event pictures are outside redaction
+
+An organiser's cover and gallery pictures can show identifiable people, and
+the redaction engine does not reach them: a picture is not linked to a data
+subject, so there is nothing for a subject-scoped redaction to find. What
+exists instead is removal. The organiser can delete a picture in almost every
+event state, which deletes its bytes rather than hiding them, and a moderator
+can take one down at once. EXIF location and camera details are stripped at
+upload, so a stored picture carries no coordinates. A picture that was public
+can survive in caches that fetched it for up to a day
+([MEDIA.md](MEDIA.md#how-long-a-taken-down-picture-can-linger)).
+
 ---
 
 ## Phase 2: what is now implemented
@@ -590,7 +608,10 @@ mapping is stored anywhere.**
 `Order.buyerName`, `Ticket.attendeeName`, `TicketTransfer.toEmail` on settled
 transfers, `WaitlistEntry.email`, `NotificationOutbox.recipient` and its payload
 on settled rows, and `Organization.contactEmail` / `Event.contactEmail` **only
-when the stored address is the subject's own**.
+when the stored address is the subject's own**. Since 2026-10-07 also
+`OrganizerInvitation.email` and `OrganizerInvitation.note` (nulled) on settled
+organiser invitations, counted under `ACCOUNT_IDENTITY` — see
+[Organiser invitations](#organiser-invitations--2026-10-07).
 
 That last narrowing is a deliberate departure from the matrix above. Read
 literally, the matrix would have an attendee's erasure request blank the
@@ -626,7 +647,8 @@ A legal hold or a fraud-investigation hold refuses it until somebody lifts the
 hold. An **open process** refuses it temporarily and lets the operator retry once
 the process settles: a pending ticket invitation, a refund still moving, an open
 dispute, an open reconciliation task, an unspent admission for an event that has
-not finished, or a message still waiting to go out.
+not finished, a message still waiting to go out, or — while the account itself
+would be redacted — an organiser invitation still waiting for the subject.
 
 The pending-invitation case is the sharpest and is worth naming. Accepting a
 ticket invitation is authorised by comparing the signed-in address against the
@@ -645,3 +667,218 @@ without their name on it, and that the replacement cannot be reversed.
 `AuditLog` addresses described above remain. That is not a wording problem to be
 solved by better phrasing; it is a fact about the data, and it stays true until
 the owner takes one of the options in the section above.
+
+## Guests' names, and the online joining link — 2026-09-29
+
+**A guest's name is personal data the buyer typed.** Checkout asks, optionally,
+who is going: one name per ticket, or per seat. The person named may have no
+account here and has agreed to nothing, so the name is kept to where it is
+needed:
+
+- **On the ticket**, as `Ticket.attendeeName`, which is where the door reads it.
+  It is redacted with the ticket's holder, like any other ticket field.
+- **Staged on the order's lines until settlement** (`OrderItem.attendeeNames`,
+  `HoldItem.attendeeName`), and cleared the moment the tickets are issued, when a
+  declined payment cancels the order, and when a buyer-identity redaction reaches
+  an order still waiting to be paid. The staging is never sent back to a client.
+- **Never in a log, an audit record or an outbox row.** The logger redacts
+  `attendees`, `attendeeName` and `attendeeNames`.
+
+The door shows the name with anything address-shaped removed, the same scrubber
+the API applies elsewhere; the checkout refuses a name that is an email address
+before it is sent.
+
+A named guest without an account cannot make an erasure request of their own:
+there is no identity here to match it to. Their name goes when the ticket's
+holder's identity is redacted — the buyer's, for a ticket the buyer still holds —
+so a guest who wants it gone has to ask the buyer or the organiser to act. This
+is a limit of the current model, recorded rather than worked around.
+
+**The online joining link is for ticket holders.** `events.get` used to put an
+online event's `onlineUrl` in every response, anonymous ones included, and the
+page's structured data used it as the event's location. It is now in the
+payload only for a member of the owning organisation (who edits it), and the
+public page and its JSON-LD name the event's own page instead. A buyer receives
+it as `onlineJoinUrl` on their wallet, their ticket and their order, and only
+while a ticket they hold admits — the same decision the door makes. Links that
+were published before this change were public for as long as they were; an
+organiser who used one should rotate it.
+
+## Visit counting — 2026-10-06
+
+First-party visit counting (ADR 0013) records visits to event pages without
+recording who made them.
+
+- **What a raw visit row holds** (`TrafficEvent`): the event, the UTC day, what
+  happened (a page view, an event-card click, a ticket or seat press, a visit
+  through the website link), where, for a page view the category of the
+  referring site (from its host name, never a URL), and a visitor code. **No
+  address, no browser string, no account.** A request that arrives without an
+  address is not stored at all.
+- **The visitor code** is an HMAC of the connection and browser under a random
+  secret for that day (`TrafficSalt`). The secret is deleted from the live
+  database when the day ends, after which the code cannot be recomputed from an
+  address. **Backups taken during the day keep that secret for as long as the
+  backups are kept**, so a restored backup could link that day's codes to
+  addresses again. Browsers sending Global Privacy Control or Do Not Track get
+  no code at all and are counted as page views only.
+- **Who is not counted:** robots and automated tools, the organisation's own
+  members and staff at The Desi Events while signed in.
+- **Deleted on a timer, by the roll-up — not by retention.** The worker's
+  traffic roll-up adds raw rows into daily totals (`TrafficDaily`) and deletes
+  each raw row two days after its day, and each day's secret once the day is
+  over. This is the one deletion on a timer in the repository. It is data
+  minimisation decided in ADR 0013, not a retention decision: the retention
+  sweep still cannot delete anything (§5 and `RETENTION_RUNBOOK.md`), and
+  `traffic_event` was deliberately not made a retention class.
+- **What is kept:** the daily totals, which are counts per event per day and
+  identify nobody. They cascade with their event.
+- **Who sees them:** an organisation's members holding `report:view` see their
+  own events' totals; the platform list of the team at The Desi Events
+  (`analytics:view_all`)
+  shows counts for every event. Nobody sees a visitor code.
+- **Website visits** through an event's switched link are recorded as a
+  `TrafficEvent` of kind `WEBSITE_REDIRECT`, with no address, browser string or
+  account, and follow the same rules.
+- **Demonstration rows.** The development seed writes fourteen days of totals
+  marked `demonstration` for two events; they are not counted visits, and every
+  screen that sums one says so.
+
+Privacy redaction does not touch these rows: they hold nothing a subject could
+be found by.
+
+## Free-text reasons — 2026-10-06
+
+Full control of posted events (ADR 0014) and the import (ADR 0015) add reason
+boxes: deleting an event, restoring one, cancelling a night, opening a platform
+editing sitting and moving an imported event to another organisation. Each
+reason is **stored as typed**, wherever it lands:
+
+- the event's deletion columns (`Event.deletionReason`), its history
+  (`EventModerationAction`), the sitting (`EventPlatformEdit`), the change
+  notice shown to ticket holders (`EventChangeNotice`), the import record, and
+  audit metadata;
+- for a deletion that cancels and refunds a live event, `Event.cancellationReason`;
+  for a cancelled night, `EventSession.cancellationReason`;
+- the notice queued for every buyer (`NotificationOutbox.payload.reason` of
+  `event.cancelled` and `event.session_cancelled`), which the message templates
+  print. This build's worker hands messages to an in-memory provider, so these
+  notices are not emailed today (the `Email` limitation); a deployment that
+  wires a real mail provider would put the reason in every buyer's mailbox,
+  beyond anything this site can change afterwards;
+- `Refund.reasonNote` on every refund the deletion or the night's cancellation
+  asks for.
+
+**The privacy process does not redact any of these**: redaction replaces known
+personal fields by their placeholders, and it cannot know what somebody typed
+into free text. On a settled notification it drops only the named personal
+keys of the payload (`PERSONAL_PAYLOAD_KEYS`), and `reason` is not one of them.
+
+So the forms say, under every one of those boxes: "Shown with the event's
+history. Do not include anybody's personal details." The limitations page says
+the same in `deleted-events-kept`. A reason that does name somebody can be
+found only by reading it; there is no tool here that searches or rewrites
+reasons, and an audit row cannot be changed at all (`desi_audit_log_immutable`).
+
+The same holds for the reason recorded with a website-link decision (shown to
+the organiser). The administrator's note on an organiser invitation (never
+public, shown to the recipient with the code) is the one exception: it is
+written to one person, so erasing that person drops it (below).
+
+## Organiser invitations — 2026-10-07
+
+An organiser invitation (`OrganizerInvitation`) holds the address it was sent to
+and the inviting administrator's note to that person, and the list of the team
+at The Desi Events shows both for every invitation, whatever its status. Once
+accepted it is linked to the organisation it created.
+
+- **Erased with the person.** Erasing somebody replaces the address on their
+  settled invitations — accepted, withdrawn or expired — with a placeholder
+  derived from the invitation's id, and nulls the note. The status, the dates,
+  who invited and accepted, the organisation's name, description and website
+  and the link to the organisation stay: they are the team's record of who was
+  invited to start what, and the organisation's own details. Matched by the
+  account that accepted it or by the address.
+- **The same two scoping rules.** The invitation an organisation was created
+  from is that organisation's record, and is always reached, like its contact
+  address. Any other invitation to the person is account-wide, and is reached
+  only when their account identity is — when no other organisation holds
+  anything about them. The scope preview counts both under `ACCOUNT_IDENTITY`.
+- **A waiting invitation refuses the erasure.** Accepting an invitation
+  compares the signed-in account's address with the invitation's. While one
+  waits for the person and their account would be erased, the erasure is
+  refused as an open process (`ORGANIZER_INVITATION_PENDING`) until it is
+  accepted, withdrawn or expires; the caller hears the same refusal as for any
+  open process. While another organisation keeps the account, nothing is
+  stranded, so it does not refuse.
+- **Not sent again.** An expired invitation whose address was erased cannot be
+  reissued (409 `NOT_OUTSTANDING`): there is nobody to send a code to.
+
+The policy version stamped on requests moved to `2026-10-07.1` with this
+change.
+
+## Deleted events and their personal data — 2026-10-06
+
+Deleting an event is not erasure. A deleted event keeps its record, orders,
+tickets, refunds, history and pictures so the team at The Desi Events can
+restore it and so money stays accounted for; nothing on the site erases one.
+Removing a person's data from it goes through the privacy process as for any
+event: redaction writes `Event` and order columns other than `status`, which no
+deletion trigger blocks. A deleted event's pictures stop being served at once,
+though a copy already in somebody's browser cache can stay there for up to a
+day.
+
+## Imported events — 2026-10-06
+
+The Sulekha dataset (ADR 0015) was collected and committed credential-free:
+its validator refuses email addresses and phone numbers anywhere in it, and no
+phone number or email address was kept from the listings. It names organisers
+as their listings did ("Presented by"), which is public business information,
+not an account. Nobody belongs to the organisation that holds imported events.
+
+## Booking fees, referral codes and paying at the venue — 2026-10-09
+
+ADRs 0016 and 0017 add reason boxes, a label and three kinds of record.
+
+**More free-text reasons, kept as typed.** Each takes 10–500 characters (a
+code's switch-off reason is optional) and is not redacted by the privacy
+process, for the reasons above:
+
+- an event's booking-fee decision (`EventFeeSetting.reason`, the audit row),
+  shown to the organiser with the administrator's name;
+- a pay-at-the-venue change (`EventVenuePaymentChange.reason`,
+  `Event.venuePaymentReason`, the audit row), shown the same way;
+- a booking fee refunded by hand (`Refund.reasonNote`, the refund's audits);
+- a referral code switched off (the audit row);
+- a cancellation of unpaid tickets (`VenueBookingCancellation.reason`, the audit
+  row, and the `venue_booking.cancelled` notice queued for the buyer and each
+  other holder, which prints it). It is shown to the buyer on their order page
+  and to every holder of a cancelled ticket on its wallet card and its page
+  (`venuePayment.cancelled.reason`), never with who wrote it, and its box says
+  so.
+
+**Referral codes' labels** are notes for administrators (1–120 characters),
+never copied into an audit row, and kept as typed.
+
+**What the boxes say.** The fee and switch reasons: "Shown to the organiser with
+your name. Do not include anybody's personal details. At least 10 characters."
+The cancellation reason: "Shown to the buyer and to anybody holding these
+tickets. Do not include anybody's personal details. At least 10 characters." A
+referral code's label: "For the team at The Desi Events only, for example the
+partner organisation or the campaign it is for. Do not include anybody's
+personal details." The other reasons keep "Shown with the event's history. Do
+not include anybody's personal details."
+
+**No buyer data where it is not needed.**
+
+- Referral-code reports name orders by reference, event, date, payment method,
+  status and fee waived — never a buyer's name, address or account.
+- A payment taken at the door records the order, the night, the door authority
+  and the steward's account, not the buyer; its audit row never names the
+  buyer.
+- A cancellation of unpaid tickets and a referral return marker hold no buyer
+  data. The administrators' list of bookings waiting to be paid at the door has
+  no buyer or attendee names; the organiser's page shows them as their order
+  pages already do.
+- Notices carry ids, amounts and prose only; no notice carries a code or an
+  address beyond the recipient's own.

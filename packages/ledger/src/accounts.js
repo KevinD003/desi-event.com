@@ -33,13 +33,13 @@ export const ACCOUNTS = Object.freeze({
   PROCESSOR_CLEARING: 'processor_clearing',
 
   /**
-   * What we owe organisers. A liability: the buyer's money is not Desi-Event's
+   * What we owe organisers. A liability: the buyer's money is not The Desi Events'
    * revenue, and treating it as such is the single most consequential mistake a
    * marketplace ledger can make.
    */
   ORGANIZER_PAYABLE: 'organizer_payable',
 
-  /** Desi-Event's fee. The only part of an order that is our revenue. */
+  /** The Desi Events' fee. The only part of an order that is our revenue. */
   PLATFORM_FEE_REVENUE: 'platform_fee_revenue',
 
   /** Tax collected on behalf of an authority. A liability, never revenue. */

@@ -79,21 +79,21 @@ describe('FormField', () => {
     )
   })
 
-  it('announces a validation error, points aria-describedby at it, and marks the control invalid', async () => {
+  it('describes a validation error to the control, marks it invalid, and does not interrupt', async () => {
     const user = userEvent.setup()
 
     render(<EmailForm />)
 
     const input = screen.getByRole('textbox', { name: /email/i })
     expect(input).not.toHaveAttribute('aria-invalid')
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    const alert = screen.getByRole('alert')
-    expect(alert).toHaveTextContent('Enter a valid email address')
+    const error = screen.getByText('Enter a valid email address')
     expect(input).toHaveAttribute('aria-invalid', 'true')
-    expect(input.getAttribute('aria-describedby')).toContain(alert.id)
+    expect(input.getAttribute('aria-describedby')).toContain(error.id)
+    // Read when the field is reached, not announced over whatever else is said.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     // The help text stays described alongside the error.
     expect(input).toHaveAccessibleDescription(/We send your tickets here\./)
     expect(input).toHaveAccessibleDescription(/Enter a valid email address/)
@@ -101,7 +101,7 @@ describe('FormField', () => {
     await user.type(input, 'asha@example.com')
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByText('Enter a valid email address')).not.toBeInTheDocument()
     expect(input).not.toHaveAttribute('aria-invalid')
   })
 

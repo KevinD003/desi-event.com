@@ -14,7 +14,9 @@
  * @module @desi-event/api/lib/validation
  */
 
-import { ValidationError, formatIssues } from '@desi-event/schemas'
+import { ValidationError, formatIssuePath, formatIssues } from '@desi-event/schemas'
+
+import { UNSTORABLE_CHARACTER_MESSAGE } from './errors.js'
 
 /**
  * Human-readable names for the request parts, used in validation messages.
@@ -28,6 +30,112 @@ const PART_LABELS = Object.freeze({
   headers: 'headers',
 })
 
+/** U+0000, the one character PostgreSQL stores in no text or JSON column. */
+const NUL = '\u0000'
+
+/**
+ * Whether PostgreSQL can store a string as it was sent.
+ *
+ * Two things it cannot. A NUL, which every text column (22021) and every JSON
+ * column (22P05) refuses. And a lone UTF-16 surrogate — U+D800 to U+DFFF
+ * without its pair, which `JSON.parse` accepts from a `\ud800` escape: a
+ * `jsonb` column refuses it outright (22P02, "invalid input syntax for type
+ * json") and a text column quietly stores U+FFFD in its place, so what was
+ * kept is not what was sent. A well-formed pair, an emoji, is fine.
+ *
+ * @param {string} text The string.
+ * @returns {boolean} True when it holds neither.
+ */
+function isStorable(text) {
+  return !text.includes(NUL) && text.isWellFormed()
+}
+
+/**
+ * Whether a value is a plain object or an array: what a parsed request is made
+ * of. A `Date` a schema coerced, or any other instance, is not walked.
+ *
+ * @param {unknown} value The value.
+ * @returns {boolean} True for an array or a plain object.
+ */
+function isContainer(value) {
+  if (Array.isArray(value)) return true
+  if (value === null || typeof value !== 'object') return false
+
+  const prototype = Object.getPrototypeOf(value)
+
+  return prototype === Object.prototype || prototype === null
+}
+
+/**
+ * @typedef {object} WalkNode
+ * @property {unknown} value The value at this point.
+ * @property {string|number|null} key Its key in the parent, or null at the root.
+ * @property {WalkNode|null} parent The node that holds it, or null at the root.
+ */
+
+/**
+ * The path from the root to a node, as Zod spells an issue path.
+ *
+ * @param {WalkNode} node The node.
+ * @returns {Array<string|number>} Its keys, outermost first.
+ */
+function pathTo(node) {
+  /** @type {Array<string|number>} */
+  const path = []
+
+  for (let at = node; at && at.key !== null; at = at.parent) path.push(at.key)
+
+  return path.reverse()
+}
+
+/**
+ * Where the first character PostgreSQL cannot store — a NUL or a lone
+ * surrogate (see `isStorable`) — is in a parsed request, if there is one.
+ *
+ * Walks every string value, and every key, of the value a handler is about to
+ * receive. Iterative, and linear in the size of the value — each node keeps a
+ * link to its parent and the path is built only for the one reported — so a
+ * deeply nested free-form field can neither exhaust the stack nor turn the
+ * walk quadratic. Such a character in a key is reported at the object that
+ * holds it, so the issue path never carries the character back to the caller.
+ *
+ * @param {unknown} value The parsed request part.
+ * @returns {Array<string|number>|null} The path to it, or null when there is none.
+ */
+export function findUnstorableCharacter(value) {
+  /** @type {WalkNode[]} */
+  const pending = [{ value, key: null, parent: null }]
+
+  while (pending.length > 0) {
+    const node = /** @type {WalkNode} */ (pending.pop())
+    const current = node.value
+
+    if (typeof current === 'string') {
+      if (!isStorable(current)) return pathTo(node)
+      continue
+    }
+
+    if (!isContainer(current)) continue
+
+    /** @type {Array<Array<*>>} */
+    const entries = Array.isArray(current)
+      ? current.map((item, index) => [index, item])
+      : Object.entries(/** @type {object} */ (current))
+
+    if (entries.some(([key]) => typeof key === 'string' && !isStorable(key))) return pathTo(node)
+
+    // Pushed in reverse, so the first offending field in document order is
+    // the one reported.
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const [key, item] = entries[index]
+
+      pending.push({ value: item, key, parent: node })
+    }
+  }
+
+  return null
+}
+
 /**
  * Build Fastify's validator compiler backed by Zod.
  *
@@ -36,6 +144,16 @@ const PART_LABELS = Object.freeze({
  * why the failure path returns rather than throws. The returned
  * `ValidationError` is an `Error`, so Fastify passes it through to the error
  * handler untouched with its 400 status and its issue list intact.
+ *
+ * A request that satisfies its schema is then refused if any string in it
+ * carries a NUL or a lone surrogate. PostgreSQL stores a NUL in no text column
+ * (22021) and no JSON column (22P05), and a lone surrogate in no JSON column
+ * (22P02); free text reaches JSON by many roads — an event page's content, a
+ * change notice's reason, an audit row's metadata, an import's dataset. A
+ * refusal here is one rule for every route, present and future, made before
+ * a handler has written anything, and it names the field. The schema runs
+ * first, so a field that refuses control characters itself
+ * (`withoutControlCharacters`) keeps its own message.
  *
  * @param {{schema: {safeParse: Function}, httpPart?: string}} args Fastify compiler arguments.
  * @returns {function(*): object} The compiled validator.
@@ -46,13 +164,29 @@ export function zodValidatorCompiler({ schema, httpPart }) {
   return (data) => {
     const result = schema.safeParse(data)
 
-    if (result.success) return { value: result.data }
-
-    return {
-      error: new ValidationError(`Invalid ${label}`, formatIssues(result.error), {
-        cause: result.error,
-      }),
+    if (!result.success) {
+      return {
+        error: new ValidationError(`Invalid ${label}`, formatIssues(result.error), {
+          cause: result.error,
+        }),
+      }
     }
+
+    const unstorable = findUnstorableCharacter(result.data)
+
+    if (unstorable) {
+      return {
+        error: new ValidationError(`Invalid ${label}`, [
+          {
+            path: formatIssuePath(unstorable),
+            code: 'custom',
+            message: UNSTORABLE_CHARACTER_MESSAGE,
+          },
+        ]),
+      }
+    }
+
+    return { value: result.data }
   }
 }
 

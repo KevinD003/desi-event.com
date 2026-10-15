@@ -36,7 +36,7 @@ const MAX_QUERY_LENGTH = 120
  * Read one value out of a Next.js `searchParams` object.
  *
  * A repeated query parameter arrives as an array; the first value wins, because
- * `?city=Mumbai&city=London` is a malformed link rather than a request for two
+ * `?city=Edison&city=Houston` is a malformed link rather than a request for two
  * cities.
  *
  * @param {Record<string, string|string[]|undefined>} searchParams Resolved search parameters.

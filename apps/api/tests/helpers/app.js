@@ -64,6 +64,7 @@ export function testEnv(overrides = {}) {
  * @param {object} [options.payments] Override the resolved payment mode, so a test can supply sandbox signing secrets without a live boot gate.
  * @param {boolean} [options.processInline] Process a webhook delivery before answering, since the tests have no worker.
  * @param {function(object): Promise<void>} [options.deliver] Captures the single-use links the auth routes issue, which is the only way a test can see one: the database holds a digest.
+ * @param {Function} [options.fetchImportImage] How an import copies one picture, in place of the network fetcher.
  * @param {Record<string, string|undefined>} [options.processEnv] Environment the payment kill switch inspects. Empty by default, so a stray variable on the machine running the suite cannot change the result.
  * @returns {Promise<{app: object, prisma: object, providers: object, ids: object}>} The harness.
  */
@@ -91,6 +92,7 @@ export async function createTestApp(options = {}) {
     deliver: options.deliver,
     payments: options.payments,
     processInline: options.processInline ?? false,
+    fetchImportImage: options.fetchImportImage,
   })
 
   await app.ready()
@@ -112,6 +114,37 @@ export async function createTestApp(options = {}) {
  * @returns {Promise<string>} A bearer token.
  * @throws {Error} When sign-in fails, so a broken fixture surfaces immediately.
  */
+/**
+ * Claim a guest purchase for an account, the way a real claim would.
+ *
+ * Checkout sets `ownerUserId` from `order.userId`, so the two are in step in
+ * every state the system produces. A fixture that moved only the ticket would
+ * rehearse a state that does not exist — an order with no buyer whose tickets
+ * have an owner — and the ownership rules read both columns.
+ *
+ * @param {object} prisma The stub, for its `_store`.
+ * @param {Array<{id: string}>} tickets The tickets from the checkout response.
+ * @param {string} userId Who now holds them, and bought them.
+ * @returns {void} Nothing.
+ */
+export function claim(prisma, tickets, userId) {
+  const orderIds = new Set()
+
+  for (const ticket of tickets) {
+    const row = prisma._store.ticket.find((candidate) => candidate.id === ticket.id)
+
+    row.ownerUserId = userId
+
+    const item = prisma._store.orderItem.find((candidate) => candidate.id === row.orderItemId)
+
+    if (item) orderIds.add(item.orderId)
+  }
+
+  for (const order of prisma._store.order) {
+    if (orderIds.has(order.id)) order.userId = userId
+  }
+}
+
 /**
  * A valid one-time code for an enrolled fixture account, or undefined.
  *

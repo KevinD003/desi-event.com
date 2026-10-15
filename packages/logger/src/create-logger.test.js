@@ -8,6 +8,8 @@ import {
   getDefaultLogger,
   resetDefaultLogger,
   DEFAULT_LOGGER_NAME,
+  ERROR_DETAIL_DEPTH,
+  serializeError,
 } from './create-logger.js'
 import { LoggerConfigurationError } from './errors.js'
 import { REDACTION_CENSOR } from './redaction.js'
@@ -116,9 +118,44 @@ describe('redaction', () => {
     const line = stream.last()
     expect(line.req.method).toBe('POST')
     expect(line.req.headers['content-type']).toBe('application/json')
-    expect(line.req.body.buyerEmail).toBe('ticket@example.com')
     expect(line.user.id).toBe('usr_1')
     expect(line.msg).toBe('order created')
+  })
+
+  it('redacts an address by any of the names this codebase gives one', () => {
+    const stream = createCaptureStream()
+    const log = createLogger({ destination: stream, env: {} })
+
+    log.info(SECRET_PAYLOAD, 'order created')
+    log.info(
+      {
+        email: 'root@example.com',
+        toEmail: 'offered@example.com',
+        recipient: 'queued@example.com',
+        user: { id: 'usr_2', email: 'member@example.com' },
+        order: { buyerEmail: 'row@example.com', reference: 'DE-1' },
+      },
+      'a handler logged whole rows',
+    )
+
+    const raw = stream.raw()
+
+    for (const address of [
+      'ticket@example.com',
+      'root@example.com',
+      'offered@example.com',
+      'queued@example.com',
+      'member@example.com',
+      'row@example.com',
+    ]) {
+      expect(raw, address).not.toContain(address)
+    }
+
+    const line = stream.last()
+
+    expect(line.email).toBe(REDACTION_CENSOR)
+    expect(line.user).toEqual({ id: 'usr_2', email: REDACTION_CENSOR })
+    expect(line.order).toEqual({ buyerEmail: REDACTION_CENSOR, reference: 'DE-1' })
   })
 
   it('applies service-specific extra paths', () => {
@@ -404,5 +441,121 @@ describe('getDefaultLogger', () => {
     resetDefaultLogger()
 
     expect(getDefaultLogger().bindings().name).toBe('checkin-scanner')
+  })
+})
+
+describe('the err serializer drops PostgreSQL detail (SPEC3 §13)', () => {
+  /**
+   * The shape `@prisma/adapter-pg` throws for a CHECK violation: Prisma's
+   * known-request error whose `meta.driverAdapterError.cause` copies
+   * PostgreSQL's `detail` — every column of the refused row.
+   *
+   * @returns {Error} The synthetic error.
+   */
+  function adapterError() {
+    class DriverAdapterError extends Error {
+      constructor(cause) {
+        super(cause.message)
+        this.name = 'DriverAdapterError'
+        this.cause = cause
+      }
+    }
+
+    const cause = {
+      originalCode: '23514',
+      originalMessage:
+        'new row for relation "ReferralCode" violates check constraint "referral_code_use_within_limit"',
+      kind: 'postgres',
+      code: '23514',
+      severity: 'ERROR',
+      message:
+        'new row for relation "ReferralCode" violates check constraint "referral_code_use_within_limit"',
+      detail: 'Failing row contains (cm1, WAIVE-12345, Diwali friends, ALL_EVENTS, null, 1, 2, t).',
+    }
+    const error = new Error(
+      'Invalid `prisma.referralCode.update()` invocation: Database error. Code: `23514`.',
+    )
+
+    error.name = 'PrismaClientKnownRequestError'
+    error.code = 'P2039'
+    error.meta = { modelName: 'ReferralCode', driverAdapterError: new DriverAdapterError(cause) }
+    error.cause = new DriverAdapterError({ ...cause })
+
+    return error
+  }
+
+  /**
+   * What a logger writes for one error.
+   *
+   * @param {Error} err The error.
+   * @param {string} [key] The key it is logged under.
+   * @returns {string} The serialised line.
+   */
+  function logged(err, key = 'err') {
+    const chunks = []
+    const logger = createLogger({
+      name: 'detail-drop',
+      level: 'info',
+      pretty: false,
+      destination: { write: (chunk) => chunks.push(String(chunk)) },
+    })
+    logger.error({ [key]: err }, 'request failed')
+    logger.flush?.()
+    return chunks.join('')
+  }
+
+  it('logs neither the failing row nor the code in it', () => {
+    for (const key of ['err', 'error']) {
+      const output = logged(adapterError(), key)
+
+      expect(output).not.toContain('Failing row')
+      expect(output).not.toContain('WAIVE-12345')
+      expect(output).not.toContain('Diwali friends')
+    }
+  })
+
+  it('keeps what says what went wrong: the code, the constraint and the message', () => {
+    const output = logged(adapterError())
+
+    expect(output).toContain('"code":"P2039"')
+    expect(output).toContain('referral_code_use_within_limit')
+    expect(output).toContain('"originalCode":"23514"')
+    expect(output).toContain('Invalid `prisma.referralCode.update()` invocation')
+  })
+
+  it('drops a detail on the error itself and on a plain driver error', () => {
+    const plain = Object.assign(new Error('violates check constraint "order_fee_parts"'), {
+      code: '23514',
+      detail: 'Failing row contains (Asha Rao, asha@example.test).',
+    })
+    const output = logged(plain)
+
+    expect(output).not.toContain('Failing row')
+    expect(output).not.toContain('Asha Rao')
+    expect(output).toContain('order_fee_parts')
+  })
+
+  it('changes nothing on the error it was given', () => {
+    const error = adapterError()
+
+    logged(error)
+
+    expect(error.meta.driverAdapterError.cause.detail).toContain('Failing row')
+  })
+
+  it('serialises a cycle without looping', () => {
+    const error = new Error('loop')
+    error.meta = { self: null }
+    error.meta.self = error.meta
+
+    expect(() => serializeError(error)).not.toThrow()
+  })
+
+  it('looks four levels down, and the default serializers are this one', () => {
+    expect(ERROR_DETAIL_DEPTH).toBe(4)
+    const options = buildLoggerOptions({ pretty: false, env: {} })
+
+    expect(options.serializers.err).toBe(serializeError)
+    expect(options.serializers.error).toBe(serializeError)
   })
 })

@@ -9,7 +9,7 @@
  * published, not the first. That matters: an organiser who fixes one thing,
  * resubmits, and is told about the next one has a worse afternoon than an
  * organiser who is handed the list. So this renders the list, with ticks and
- * crosses that carry words — "Ready" and "Not yet" beside every line, because a
+ * crosses that carry words — "Ready" and "Not ready" beside every line, because a
  * green dot is invisible to a screen reader and to a colourblind person.
  *
  * Nothing is computed here. A button that looks available is a convenience;
@@ -26,6 +26,23 @@
  * for a reason code, a note, and a second press. That asymmetry is deliberate:
  * a confirmation dialogue on everything trains people to dismiss them.
  *
+ * ## Bookings made to pay at the venue
+ *
+ * The "Cancel event" confirmation says what cancelling means for them (SPEC3
+ * §9.7), from `paymentTerms.venuePayment` on the event detail the editor
+ * already holds — there is no cancellation preview to ask: only their booking
+ * fee paid online is refunded, simulated, and money taken at the door is held
+ * by the organiser, which The Desi Events neither holds nor can refund.
+ *
+ * ## A second factor, when the server asks for one
+ *
+ * Publishing and opening sales sit behind the EVENT_PUBLISH step-up window;
+ * cancelling and postponing behind EVENT_CANCEL. Until Phase 4 a lapsed window
+ * showed the API's words — "Authenticate at /v1/auth/step-up and retry" — and
+ * stopped there. Now the prompt opens where the command was, and a confirmed
+ * step-up sends the same command again with what was already typed. An account
+ * that has no second factor at all is sent to set one up.
+ *
  * ## What a moderator said
  *
  * The history is the record of the negotiation — what was asked for, by the
@@ -39,12 +56,18 @@
  * @file components/event-lifecycle-panel
  */
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { EventRescheduleForm } from './event-reschedule-form.jsx'
+import { useFocusAfterRender } from './focus-after-render.jsx'
+import { StepUpPrompt } from './step-up-prompt.jsx'
 import { Alert, Badge, Button, Card, CardBody, FormField, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { atVenueSentences } from '../lib/door.js'
 import { COMMANDS, REASON_CODES, statusReading } from '../lib/event-status.js'
+import { formatInstantIn } from '../lib/format.js'
 
 /**
  * Which commands to offer out of a status.
@@ -63,7 +86,8 @@ const OFFERED = Object.freeze({
   ON_SALE: ['pauseSales', 'postpone', 'cancel'],
   SALES_PAUSED: ['openSales', 'postpone', 'cancel'],
   SOLD_OUT: ['pauseSales', 'postpone', 'cancel'],
-  POSTPONED: ['cancel'],
+  POSTPONED: ['reschedule', 'cancel'],
+  REJECTED: ['rework'],
 })
 
 /**
@@ -77,18 +101,18 @@ const OFFERED = Object.freeze({
  */
 function ChecklistItem({ ready, title, blockers }) {
   return (
-    <li className="rounded-card border border-slate-200 bg-white p-4">
+    <li className="rounded-card border border-line bg-surface-raised shadow-card p-4">
       <div className="flex flex-wrap items-center gap-2">
         {/* The word, not the colour. A tick alone is a shape a screen reader
             does not read and a colourblind person cannot tell from a cross. */}
         <Badge variant={ready ? 'success' : 'warning'} srLabel="Status:">
-          {ready ? 'Ready' : 'Not yet'}
+          {ready ? 'Ready' : 'Not ready'}
         </Badge>
-        <span className="font-medium text-indigo-night-900">{title}</span>
+        <span className="font-medium text-ink">{title}</span>
       </div>
 
       {blockers.length > 0 ? (
-        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-muted">
           {blockers.map((blocker) => (
             <li key={blocker}>{blocker}</li>
           ))}
@@ -127,7 +151,27 @@ function withLists(result) {
  * @property {object} transitions The server's available transitions.
  * @property {object[]} history The moderation history, newest first.
  * @property {number} [revision] The event's revision, so the checklist can re-read when other steps save.
+ * @property {object[]} [sessions] The event's sessions, which move with it when a postponed event comes back.
+ * @property {function(object): void} [onChanged] Called with the event as the server returns it after every command that succeeded, so the editor around this panel takes its new status and revision rather than keeping the ones it was rendered with.
  */
+
+/**
+ * Where to set up a second factor, for an account the server says has none.
+ *
+ * @returns {JSX.Element} The link.
+ */
+function EnrolmentLink() {
+  return (
+    <p className="mt-2">
+      <Link
+        href="/account/security"
+        className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+      >
+        Set up two-step sign-in
+      </Link>
+    </p>
+  )
+}
 
 /**
  * The review step.
@@ -141,6 +185,8 @@ export function EventLifecyclePanel({
   transitions: initialTransitions,
   history = [],
   revision = 0,
+  sessions = [],
+  onChanged = () => {},
 }) {
   const router = useRouter()
   const [readiness, setReadiness] = useState(() => withLists(initialReadiness))
@@ -153,8 +199,12 @@ export function EventLifecyclePanel({
   const [error, setError] = useState(null)
   const [problems, setProblems] = useState([])
   const [announcement, setAnnouncement] = useState('')
+  // The command waiting on a fresh second factor, when the server asked for one.
+  const [stepUpFor, setStepUpFor] = useState(null)
+  const [needsEnrolment, setNeedsEnrolment] = useState(false)
   const dialogRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const reading = statusReading(status)
   const offered = OFFERED[status] ?? []
@@ -220,10 +270,12 @@ export function EventLifecyclePanel({
     setError(null)
     setProblems([])
     setReason('')
+    setStepUpFor(null)
+    setNeedsEnrolment(false)
 
-    if (command.confirm || command.reason !== 'none') {
+    if (key === 'reschedule' || command.confirm || command.reason !== 'none') {
       setPending(key)
-      queueMicrotask(() => dialogRef.current?.focus())
+      focusAfterRender(dialogRef)
       return
     }
 
@@ -237,10 +289,11 @@ export function EventLifecyclePanel({
    */
   function dismiss() {
     setPending(null)
+    setStepUpFor(null)
     // Focus does not evaporate when a dialogue closes. Putting it back is the
     // difference between a keyboard user carrying on and a keyboard user
     // hunting for where they were.
-    queueMicrotask(() => returnFocus.current?.focus())
+    focusAfterRender(returnFocus)
   }
 
   /**
@@ -255,6 +308,7 @@ export function EventLifecyclePanel({
     setBusy(true)
     setError(null)
     setProblems([])
+    setNeedsEnrolment(false)
 
     try {
       const body = {}
@@ -272,16 +326,39 @@ export function EventLifecyclePanel({
       const parsed = await response.json().catch(() => null)
 
       if (!response.ok) {
+        const code = parsed?.error?.code
+
+        if (code === 'STEP_UP_REQUIRED') {
+          // Not a refusal of the command: a request to confirm who is asking.
+          setStepUpFor(key)
+          return
+        }
+
+        if (code === 'MFA_ENROLMENT_REQUIRED') {
+          setNeedsEnrolment(true)
+          setError(
+            'A role this account holds needs two-step sign-in before it can do this, and it has not been set up. Nothing has changed.',
+          )
+          focusAfterRender(dialogRef)
+          return
+        }
+
         setError(parsed?.error?.message ?? 'The command was refused.')
         setProblems(parsed?.error?.problems ?? [])
-        queueMicrotask(() => dialogRef.current?.focus())
+        focusAfterRender(dialogRef)
         return
       }
+
+      setStepUpFor(null)
 
       const next = parsed.data.status
 
       setStatus(next)
       setPending(null)
+      // The editor's own copy of the status and revision: without this a
+      // rework leaves every field locked, and the next save after any command
+      // that moved the revision is refused as somebody else's edit.
+      onChanged(parsed.data)
       // The move changes what is available next, so ask rather than infer.
       await refresh().catch(() => {})
       // Announced rather than merely drawn: a lifecycle change is the most
@@ -296,15 +373,47 @@ export function EventLifecyclePanel({
     }
   }
 
-  const command = pending ? COMMANDS[pending] : null
+  const command = pending && pending !== 'reschedule' ? COMMANDS[pending] : null
+  // What cancelling means for bookings made to pay at the venue, from the
+  // event's own figures: whether there are any, and what was taken at the door.
+  const venuePayment = event.paymentTerms?.venuePayment ?? null
+  const venueSentences = venuePayment
+    ? atVenueSentences(
+        {
+          orders: venuePayment.hasOrders ? 1 : 0,
+          ticketsPaidAtDoor: venuePayment.paidAtDoorTickets ?? 0,
+          paidAtDoorCents: venuePayment.paidAtDoorCents ?? 0,
+        },
+        event.paymentTerms?.fee?.currency ?? 'USD',
+      )
+    : []
+
+  /**
+   * A postponed event is back: take the server's word for its new state.
+   *
+   * @param {object|null} detail The event as the server now has it.
+   * @returns {Promise<void>} Resolves when the panel has caught up.
+   */
+  async function rescheduled(detail) {
+    const next = detail?.status ?? status
+
+    setStatus(next)
+    setPending(null)
+    // The reschedule moved the revision, the dates and the nights; the editor
+    // has to hold the new ones before anything else is saved.
+    if (detail) onChanged(detail)
+    await refresh().catch(() => {})
+    setAnnouncement(`${statusReading(next).label}. ${statusReading(next).next}`)
+    router.refresh()
+  }
 
   return (
     <section aria-labelledby="review-heading" className="space-y-5">
-      <h2 id="review-heading" className="text-xl font-bold text-indigo-night-900">
+      <h2 id="review-heading" className="text-xl font-semibold text-ink">
         Review and publish
       </h2>
 
-      <p role="status" aria-live="polite" className="text-sm font-medium text-slate-700">
+      <p role="status" aria-live="polite" className="text-sm font-medium text-ink-muted">
         {announcement}
       </p>
 
@@ -314,22 +423,22 @@ export function EventLifecyclePanel({
             <Badge variant={reading.tone} size="lg" srLabel="State:">
               {reading.label}
             </Badge>
-            <span className="text-sm text-slate-600">
+            <span className="text-sm text-ink-muted">
               Waiting on {reading.whose === 'nobody' ? 'nothing' : reading.whose}
             </span>
           </div>
-          <p className="mt-2 text-slate-700">{reading.next}</p>
+          <p className="mt-2 text-ink-muted">{reading.next}</p>
 
           <p className="mt-3 text-sm">
             <a
-              className="underline underline-offset-4 hover:text-marigold-700"
+              className="underline underline-offset-4 hover:text-accent-strong"
               href={`/events/${event.slug}`}
               target="_blank"
               rel="noreferrer"
             >
               Preview the public page
             </a>{' '}
-            <span className="text-slate-600">
+            <span className="text-ink-muted">
               — opens what a visitor sees. Before publication only your team can load it.
             </span>
           </p>
@@ -359,7 +468,7 @@ export function EventLifecyclePanel({
       ) : null}
 
       <div>
-        <h3 className="text-lg font-semibold text-indigo-night-900">Before it can go public</h3>
+        <h3 className="text-lg font-semibold text-ink">Before it can go public</h3>
         <ul className="mt-3 space-y-3">
           <ChecklistItem
             ready={readiness.organizerVerified}
@@ -367,7 +476,7 @@ export function EventLifecyclePanel({
             blockers={
               readiness.organizerVerified
                 ? []
-                : ['The platform has not verified this organisation yet.']
+                : ['The platform has not verified this organisation.']
             }
           />
           <ChecklistItem
@@ -391,6 +500,7 @@ export function EventLifecyclePanel({
       {error && !pending ? (
         <Alert variant="error" title="That did not work">
           <p>{error}</p>
+          {needsEnrolment ? <EnrolmentLink /> : null}
           {problems.length > 0 ? (
             <ul className="mt-2 list-disc space-y-1 pl-5">
               {problems.map((problem) => (
@@ -420,12 +530,12 @@ export function EventLifecyclePanel({
 
               {/* Two different sentences, kept apart. */}
               {unentitled ? (
-                <p className="mt-1 max-w-xs text-sm text-slate-600">
+                <p className="mt-1 max-w-xs text-sm text-ink-muted">
                   Somebody with more permission than you has to do this.
                 </p>
               ) : null}
               {blocked && !unentitled ? (
-                <ul className="mt-1 max-w-xs list-disc space-y-1 pl-5 text-sm text-slate-600">
+                <ul className="mt-1 max-w-xs list-disc space-y-1 pl-5 text-sm text-ink-muted">
                   {entry.blockers.map((blocker) => (
                     <li key={blocker}>{blocker}</li>
                   ))}
@@ -436,6 +546,34 @@ export function EventLifecyclePanel({
         })}
       </div>
 
+      {stepUpFor && !pending ? (
+        <StepUpPrompt
+          action={COMMANDS[stepUpFor].label.toLowerCase()}
+          onConfirmed={() => {
+            const key = stepUpFor
+
+            setStepUpFor(null)
+            void run(key)
+          }}
+          onCancel={() => setStepUpFor(null)}
+        />
+      ) : null}
+
+      {pending === 'reschedule' ? (
+        <EventRescheduleForm
+          event={event}
+          sessions={sessions}
+          revision={revision}
+          onSale={
+            (transitions?.transitions ?? []).find(
+              (entry) => entry.to === 'ON_SALE' && entry.actor === 'organizer',
+            ) ?? null
+          }
+          onDone={rescheduled}
+          onCancel={dismiss}
+        />
+      ) : null}
+
       {command ? (
         <div
           ref={dialogRef}
@@ -443,17 +581,18 @@ export function EventLifecyclePanel({
           role="dialog"
           aria-modal="false"
           aria-labelledby="command-heading"
-          className="rounded-card border-2 border-indigo-night-900 bg-white p-4"
+          className="rounded-card border-2 border-ink bg-surface-raised p-4"
         >
-          <h3 id="command-heading" className="text-lg font-semibold text-indigo-night-900">
+          <h3 id="command-heading" className="text-lg font-semibold text-ink">
             {command.label}
           </h3>
 
-          {command.confirm ? <p className="mt-2 text-slate-700">{command.confirm}</p> : null}
+          {command.confirm ? <p className="mt-2 text-ink-muted">{command.confirm}</p> : null}
 
           {error ? (
             <Alert variant="error" title="That did not work" className="mt-3">
               <p>{error}</p>
+              {needsEnrolment ? <EnrolmentLink /> : null}
               {problems.length > 0 ? (
                 <ul className="mt-2 list-disc space-y-1 pl-5">
                   {problems.map((problem) => (
@@ -462,6 +601,23 @@ export function EventLifecyclePanel({
                 </ul>
               ) : null}
             </Alert>
+          ) : null}
+
+          {stepUpFor && pending ? (
+            <div className="mt-3">
+              <StepUpPrompt
+                action={command.label.toLowerCase()}
+                onConfirmed={() => {
+                  const key = stepUpFor
+
+                  setStepUpFor(null)
+                  // The reason and note typed into this dialogue are still
+                  // here, and go with the retried command.
+                  void run(key)
+                }}
+                onCancel={() => setStepUpFor(null)}
+              />
+            </div>
           ) : null}
 
           {pending === 'cancel' || pending === 'postpone' ? (
@@ -494,7 +650,7 @@ export function EventLifecyclePanel({
                 required={command.reason === 'required'}
                 description={
                   command.reason === 'required'
-                    ? 'Sent to everybody holding a ticket. Write it for them, not for the file.'
+                    ? 'Recorded with the notice for every current order. Notices are not emailed, so tell ticket holders yourself as well.'
                     : 'Optional. Kept on the record.'
                 }
               >
@@ -508,11 +664,19 @@ export function EventLifecyclePanel({
           ) : null}
 
           {pending === 'cancel' ? (
-            <p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-900">
+            <p className="mt-3 rounded-control bg-status-danger-soft p-3 text-sm text-status-danger">
               A refund will be <span className="font-medium">requested</span> against every paid
               order. Nothing is sent to a payment provider by this action and no money moves until a
               refund is actually processed.
             </p>
+          ) : null}
+
+          {pending === 'cancel' && venueSentences.length > 0 ? (
+            <div className="mt-3 space-y-1 text-sm text-ink">
+              {venueSentences.map((sentence) => (
+                <p key={sentence}>{sentence}</p>
+              ))}
+            </div>
           ) : null}
 
           <div className="mt-4 flex flex-wrap gap-2">
@@ -533,23 +697,23 @@ export function EventLifecyclePanel({
 
       {history.length > 0 ? (
         <div>
-          <h3 className="text-lg font-semibold text-indigo-night-900">History</h3>
+          <h3 className="text-lg font-semibold text-ink">History</h3>
           <ol className="mt-3 space-y-2">
             {history.map((entry) => (
               <li
                 key={entry.id}
-                className="rounded-card border border-slate-200 bg-white p-3 text-sm"
+                className="rounded-card border border-line bg-surface-raised shadow-card p-3 text-sm"
               >
-                <p className="font-medium text-indigo-night-900">
+                <p className="font-medium text-ink">
                   {entry.fromStatus ? `${statusReading(entry.fromStatus).label} → ` : ''}
                   {statusReading(entry.toStatus).label}
                 </p>
-                <p className="text-slate-600">
+                <p className="text-ink-muted">
                   <time dateTime={entry.createdAt}>
-                    {new Date(entry.createdAt).toLocaleString('en-GB')}
+                    {formatInstantIn(entry.createdAt, event.timezone)}
                   </time>
                 </p>
-                {entry.reason ? <p className="mt-1 text-slate-700">{entry.reason}</p> : null}
+                {entry.reason ? <p className="mt-1 text-ink-muted">{entry.reason}</p> : null}
               </li>
             ))}
           </ol>
@@ -567,6 +731,10 @@ export function EventLifecyclePanel({
 const DESTINATIONS = Object.freeze({
   submitReview: 'REVIEW_PENDING',
   withdrawReview: 'DRAFT',
+  rework: 'DRAFT',
+  // Coming back published is always a way out of POSTPONED; whether it can
+  // come back on sale is the form's question, asked of the ON_SALE entry.
+  reschedule: 'PUBLISHED',
   publish: 'PUBLISHED',
   openSales: 'ON_SALE',
   pauseSales: 'SALES_PAUSED',

@@ -94,6 +94,28 @@ not a code path. The `CheckIn` unique index makes two scanners produce one row.
 transferred is a working pass, exactly as a paper ticket is. Bearer tokens are
 bearer tokens; the mitigation is rotation (a version bump), not cryptography.
 
+_Extended 2026-09-29._ Three new ways through a door, each with its control:
+
+- **A group pass** (`G1.` QR or `DEG-` printed code) admits every ticket on an
+  order that its buyer still holds, each exactly once through the same
+  `CheckIn.ticketId` unique index. It is derived under its own purpose, stored
+  as digests only, drawn only for the order's buyer, and replaced by a version
+  bump. A confirmation that finds any named ticket changed admits nobody
+  (`GROUP_CHANGED`), and `desi_check_in_group_pass_matches` refuses a group
+  admission of a ticket on another order or no longer held by the buyer.
+  **Residual:** a screenshot of a group pass admits the buyer's remaining live
+  tickets on that order until it is replaced.
+- **A platform super administrator** may admit at any event (ADR 0007). Each
+  platform lookup and admission is written to the event's own audit trail, the
+  role is re-read inside the admitting transaction, and every other platform
+  role is refused and audited. **Residual:** a compromised super-administrator
+  account can admit holders of real tickets anywhere — as it could already by
+  putting an account it controls into the organisation.
+- **A handed-on reserved seat** (ADR 0006): the partial unique index
+  `Ticket_eventSeatId_live_key` allows one live ticket per seat, and acceptance
+  and refund lock the order line in turn, so a refunded predecessor cannot leave
+  a live successor admitting.
+
 ---
 
 ## T4 — Read or change another organisation's data
@@ -110,6 +132,16 @@ silently.
 **Evidence:** two of the four browser refusal journeys drive a real browser as a
 member of another organisation and observe the refusal, rather than asserting a
 403 in an API test.
+
+_Extended 2026-09-29._ **Try:** create an organisation that is already verified,
+or name yourself its owner in another's; reach another organisation's promo
+codes, pictures or group passes. **Stopped by:** organisation self-creation takes
+five fields and strips the rest — verification, suspension, payout currency,
+contact address and owner are set by the server, and a new organisation cannot
+publish or be paid until a moderator verifies it. Promo-code routes assert
+`promo:manage` with the organisation named in the path; picture routes assert
+`event:update` or `event:view_draft` on the event's own organisation and answer
+404 to anybody else; a group pass answers its order's buyer and nobody else.
 
 ---
 
@@ -177,6 +209,19 @@ later price change cannot alter what somebody owes.
 **Evidence:** the seated-checkout races, plus two load scenarios asserting
 against the database that no tier oversold and no seat carries two live tickets.
 
+_Extended 2026-09-29._ **Try:** spend a promo code with one use left from many
+checkouts at once; hold seats past their tier's limits; keep seats held by an
+abandoned checkout. **Stopped by:** the code is locked for the rest of the
+checkout and re-checked under the lock, with a CHECK keeping redemptions within
+the cap (`promo-redemption-integration.test.js`); a seat hold is all or nothing,
+held to each tier's minimum and maximum, and the quote and the charge are one
+function, so the order is refused with `PRICE_CHANGED` rather than charged a
+different total; releasing a hold, the expiry sweep and a lapsed-hold reclaim
+now free their seats, except while an order is still waiting on that hold's
+payment (`seat-purchase-integration.test.js`). **Residual:** the checkout quote
+tells a signed-in buyer whether a code exists but has ended, which also tells
+somebody guessing codes; it is limited to 30 quotes a minute per account.
+
 ---
 
 ## T9 — Escalate to a privileged role
@@ -189,6 +234,65 @@ privileged route without a second factor.
 away is taken away from the tab that already has it. A privileged actor with no
 verified factor cannot reach a guarded route (NF-12), and the exemption list is
 asserted by a test to contain only enrol/self-read/sign-out routes.
+
+_Extended 2026-09-29_, for the routes that now grant roles:
+
+- **Platform roles** change only through `platform:admin` plus a
+  `SECURITY_ROLE` step-up and a written reason, never on the caller's own
+  account, with every super administrator locked so the last one cannot be
+  removed (422 `LAST_SUPER_ADMIN`) and two cannot demote each other at once.
+  The direct membership grant has the same rules, can grant OWNER to rescue an
+  organisation with none, and refuses a suspended account.
+- **Creating an organisation** makes the creator OWNER, a privileged role: their
+  other sessions end, the current one is shortened, and nothing works until a
+  second factor is set up. Limited to three a day per account. _(Since
+  2026-10-06 nobody creates one: see below. Accepting an organiser invitation
+  is the same privilege change.)_
+- **Accepting a team invitation** needs the caller to be signed in as the
+  invited address, and ends their other sessions. A member cannot invite
+  somebody to a role carrying powers they lack, and OWNER cannot be invited.
+- **Handing on ownership** is one swap under the owner locks; the new owner's
+  sessions all end.
+- Every one of these ends sessions with the reason `role_changed` and is
+  audited.
+
+**Residual:** no account's address is ever confirmed by email, so somebody who
+obtains an invitation code and registers the invited address first can accept
+it (ADR 0008). Codes are single-use, expire and are audited on acceptance; an
+owner can remove the member.
+
+_Extended 2026-10-06_, for invite-only organisers (ADR 0010), full control of
+posted events (ADR 0014) and the import (ADR 0015):
+
+- **Becoming an organiser.** `organizations.create` refuses everybody;
+  registration accepts only `ATTENDEE`. An organisation, and its OWNER, come
+  only from an organiser invitation issued by an ADMIN or SUPER_ADMIN
+  (`organizer:invite`, `SECURITY_ROLE` step-up), single-use, bound to the
+  invited address, fourteen days. Staff accounts can neither be invited nor
+  accept.
+- **Posting roles.** Members may grant or move others only to FINANCE, STAFF,
+  SCANNER and VIEWER; a posting member moves only downwards; an heir must
+  already post. A posting role in an existing organisation comes only from a
+  super administrator's grant. Upward attempts are 403
+  `POSTING_ROLE_NEEDS_PLATFORM`.
+- **The platform administrator.** `ADMIN` holds exactly ten capabilities, an
+  allow-list `assertPlatformAdministratorBounds` checks at load (a doctored
+  table giving it `platform:admin`, `event:publish`, `attendee:export` or
+  `promo:manage` throws). It holds no money capability and no lifecycle
+  authority (Rule L: 403 `ORGANIZER_ONLY`).
+- **Editing somebody else's event.** Only in a sitting: reason, MFA step-up,
+  bound to one browser session, at most 60 minutes, a fresh second factor every
+  ten minutes of writes, re-checked `FOR SHARE` in each write. Membership is
+  read before platform authority.
+- **Reviewing what you submitted.** Refused (`SELF_REVIEW`,
+  `CONFLICT_OF_INTEREST`), for events and for pictures, except imported events
+  of the member-less platform-held organisation.
+
+**Residuals, stated:** an ADMIN can invite a second address of their own and
+approve that organisation's events from the first account (alias accounts);
+whoever reads the invited inbox first can accept an organiser invitation; a
+non-member SUPER_ADMIN keeps lifecycle moves without a sitting, audited as "by
+the team at The Desi Events".
 
 ---
 
@@ -220,6 +324,12 @@ removed to obtain a green run, and the distinction is the whole of the rule.
 **Gets:** order history, buyer names and emails, the ledger. **Does not get:**
 card data (never present), passwords (scrypt), session secrets (sealed), ticket
 passes (SHA-256 digests only), transfer tokens (digests only).
+
+_Extended 2026-09-29._ Also **gets**: guests' names on tickets, and the event
+pictures, whose bytes are in `MediaBlob` — already public for an approved
+picture, stripped of camera and location details for all of them. Also **does
+not get**: group passes and their printed codes (digests only) or team
+invitation codes (digests only).
 
 **The stated limit:** ticket passes and session sealing defend against somebody
 with the database _without_ the application's environment. Somebody with both
@@ -256,6 +366,27 @@ them.
 **Asserted by:** `payment-kill-switch.test.js`, run in CI as its own named step
 so a failure is unmissable. Plus a contract test that no request schema anywhere
 has a field matching `paymentmode|livemode|stripemode`.
+
+---
+
+## T14 — Smuggle something in a picture
+
+_Added 2026-09-29._ **Try:** upload an SVG or HTML page named `cover.png`; a
+valid picture that is also a ZIP or a script; a photo carrying GPS coordinates;
+a small file declaring an enormous image; a flood of uploads.
+
+**Stopped by:** the format is decided by the bytes (JPEG, PNG, WebP only); each
+file is rebuilt from an allow-list of its format's structures, so metadata,
+comments, thumbnails and trailing data are not copied; dimensions are read from
+the header and no pixel is decompressed; bodies are capped at 10 MiB while they
+are read, uploads at 20 per ten minutes per account and storage at 1 GiB per
+organisation; a moderator approves every picture before it is public; pictures
+are served with `nosniff` and a sandboxing CSP. Full table: `docs/SECURITY.md`,
+"Uploaded pictures", and ADR 0009.
+
+**Residual:** no antivirus engine and no pixel re-encoding. A decoder flaw in a
+viewer's browser triggered by valid pixel data is not prevented, and a
+taken-down picture can stay in caches for up to a day.
 
 ---
 

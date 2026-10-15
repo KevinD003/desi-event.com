@@ -288,20 +288,54 @@ export async function findSession(prisma, secret) {
  * nothing, and it keeps using the secret it already has rather than handing the
  * browser a secret that has already been superseded.
  *
+ * A privilege change may also shorten the session: pass `expiresAt` and it is
+ * written in the same conditional update, so the new secret never exists with
+ * the old, longer lifetime.
+ *
  * @param {object} prisma A Prisma client.
  * @param {object} session The session row to rotate.
  * @param {Date} [now] The current time.
+ * @param {object} [options] Options.
+ * @param {Date} [options.expiresAt] A new, earlier absolute expiry to write with the new secret.
  * @returns {Promise<{secret: string, rotated: boolean}>} The new secret, or `rotated: false` when another request won.
  */
-export async function rotateSession(prisma, session, now = new Date()) {
+export async function rotateSession(prisma, session, now = new Date(), { expiresAt } = {}) {
   const { secret, hash } = issueToken()
 
   const { count } = await prisma.session.updateMany({
     where: { id: session.id, tokenHash: session.tokenHash, revokedAt: null },
-    data: { tokenHash: hash, rotatedAt: now, lastSeenAt: now },
+    data: {
+      tokenHash: hash,
+      rotatedAt: now,
+      lastSeenAt: now,
+      ...(expiresAt instanceof Date ? { expiresAt } : {}),
+    },
   })
 
   return count === 1 ? { secret, rotated: true } : { secret: null, rotated: false }
+}
+
+/**
+ * Shorten a session's absolute lifetime, never lengthen it.
+ *
+ * For the case rotation does not cover: a bearer caller gains a privileged
+ * role, cannot be handed a new secret, and must still stop carrying the thirty
+ * days an attendee session is given. Conditional on the session being live and
+ * on its current expiry being later than the new one, so a concurrent request
+ * that already shortened it is not undone.
+ *
+ * @param {object} prisma A Prisma client.
+ * @param {object} session The session row.
+ * @param {Date} expiresAt The new absolute expiry.
+ * @returns {Promise<boolean>} Whether the row was shortened.
+ */
+export async function clampSessionExpiry(prisma, session, expiresAt) {
+  const { count } = await prisma.session.updateMany({
+    where: { id: session.id, revokedAt: null, expiresAt: { gt: expiresAt } },
+    data: { expiresAt },
+  })
+
+  return count === 1
 }
 
 /**

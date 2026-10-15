@@ -598,16 +598,22 @@ when()('organiser analytics, over real rows', () => {
     expect(movement.revoked).toBe(1)
   })
 
-  it('reports the funnel it can see and names the step it cannot', async () => {
+  it('reports the funnel from visitors to payment and names what it does not count', async () => {
     const funnel = await conversionFunnel(prisma, { organizationId: mine.organization.id })
 
-    expect(funnel.steps.map((step) => step.key)).toEqual(['holds', 'ordersCreated', 'ordersPaid'])
+    expect(funnel.steps.map((step) => step.key)).toEqual([
+      'visitors',
+      'ticketClickVisitors',
+      'holds',
+      'ordersCreated',
+      'ordersPaid',
+    ])
     expect(funnel.steps.find((step) => step.key === 'ordersPaid').count).toBeGreaterThanOrEqual(1)
 
-    // The honest part: a funnel with a silently missing first step is a funnel
-    // somebody reads as complete.
-    expect(funnel.missing).toHaveLength(1)
-    expect(funnel.missing[0]).toMatch(/page views/iu)
+    // The honest part: a funnel that does not say what it leaves out is a
+    // funnel somebody reads as complete.
+    expect(funnel.missing).toHaveLength(3)
+    expect(funnel.missing[0]).toMatch(/robots/iu)
   })
 
   it('refuses to answer without an organisation', async () => {

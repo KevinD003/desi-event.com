@@ -157,8 +157,8 @@ export function composeBatch({ kind, currency, entries }) {
  *
  * @param {object} input The order's money, in minor units.
  * @param {number} input.capturedCents What the buyer paid.
- * @param {number} input.organizerNetCents What the organiser is owed.
- * @param {number} input.platformFeeCents Desi-Event's fee.
+ * @param {number} input.organizerNetCents What the organiser is owed; 0 for a pay-at-the-venue order, whose online part is the booking fee and its tax, and then no organiser entry is posted.
+ * @param {number} input.platformFeeCents The Desi Events' fee.
  * @param {number} [input.taxCents] Tax collected on behalf of an authority.
  * @param {number} [input.discountCents] Discount given, as contra-revenue.
  * @param {string} input.currency ISO 4217 code.
@@ -201,15 +201,21 @@ export function orderPaidBatch({
     )
   }
 
-  entries.push(
-    entry(
-      ACCOUNTS.ORGANIZER_PAYABLE,
-      CREDIT,
-      organizerNetCents,
-      `Order ${reference} owed to organiser`,
-      organizationId,
-    ),
-  )
+  // A pay-at-the-venue order's online part is The Desi Events' booking fee and any
+  // tax on it, nothing of the organiser's (SPEC3 §10.1): its organiser share is
+  // 0 and gets no entry, since an entry is never 0. The batch still has to
+  // balance, which `composeBatch` checks below.
+  if (organizerNetCents !== 0) {
+    entries.push(
+      entry(
+        ACCOUNTS.ORGANIZER_PAYABLE,
+        CREDIT,
+        organizerNetCents,
+        `Order ${reference} owed to organiser`,
+        organizationId,
+      ),
+    )
+  }
 
   if (platformFeeCents > 0) {
     entries.push(
@@ -357,18 +363,30 @@ export function refundSettledBatch({ refundedCents, currency, organizationId, re
  * @param {string} input.currency ISO 4217 code.
  * @param {string} input.organizationId Whose funds are held.
  * @param {string} input.reference A reference for the memos.
+ * @param {string} [input.heldFrom] The account the money is held from: `organizer_payable` (the default) or `platform_fee_revenue` for a booking fee paid online for tickets paid at the venue.
  * @returns {object} A composed batch.
+ * @throws {LedgerError} `BAD_DISPUTE_ACCOUNT` when `heldFrom` is any other account.
  */
-export function disputeOpenedBatch({ disputedCents, currency, organizationId, reference }) {
+export function disputeOpenedBatch({
+  disputedCents,
+  currency,
+  organizationId,
+  reference,
+  heldFrom = ACCOUNTS.ORGANIZER_PAYABLE,
+}) {
+  const from = requireHeldFrom(heldFrom)
+
   return composeBatch({
     kind: BATCH_KINDS.DISPUTE_OPENED,
     currency,
     entries: [
       entry(
-        ACCOUNTS.ORGANIZER_PAYABLE,
+        from,
         DEBIT,
         disputedCents,
-        `Dispute ${reference} held from organiser`,
+        from === ACCOUNTS.ORGANIZER_PAYABLE
+          ? `Dispute ${reference} held from organiser`
+          : `Dispute ${reference} held from booking fee revenue`,
         organizationId,
       ),
       entry(
@@ -383,6 +401,37 @@ export function disputeOpenedBatch({ disputedCents, currency, organizationId, re
 }
 
 /**
+ * Where a dispute's money can be held from (SPEC3 §10.1): the organiser's
+ * payable, for an order whose ticket price was paid online, or The Desi Events' own
+ * fee revenue, for a pay-at-the-venue order whose only online payment was the
+ * booking fee — a chargeback of that fee is not the organiser's to fund.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const DISPUTE_HELD_FROM_ACCOUNTS = Object.freeze([
+  ACCOUNTS.ORGANIZER_PAYABLE,
+  ACCOUNTS.PLATFORM_FEE_REVENUE,
+])
+
+/**
+ * Check where a dispute is held from.
+ *
+ * @param {unknown} heldFrom The account asked for.
+ * @returns {string} The account, when it is one of {@link DISPUTE_HELD_FROM_ACCOUNTS}.
+ * @throws {LedgerError} `BAD_DISPUTE_ACCOUNT` for any other.
+ */
+function requireHeldFrom(heldFrom) {
+  if (!DISPUTE_HELD_FROM_ACCOUNTS.includes(heldFrom)) {
+    throw new LedgerError(
+      'BAD_DISPUTE_ACCOUNT',
+      `A dispute is held from ${DISPUTE_HELD_FROM_ACCOUNTS.join(' or ')}, not "${heldFrom}"`,
+    )
+  }
+
+  return heldFrom
+}
+
+/**
  * The batch a resolved dispute posts.
  *
  * Won and lost are the same movement in opposite directions, so they are one
@@ -394,9 +443,19 @@ export function disputeOpenedBatch({ disputedCents, currency, organizationId, re
  * @param {string} input.currency ISO 4217 code.
  * @param {string} input.organizationId Whose funds were held.
  * @param {string} input.reference A reference for the memos.
+ * @param {string} [input.heldFrom] The account the money was held from, which a won dispute returns it to: `organizer_payable` (the default) or `platform_fee_revenue`.
  * @returns {object} A composed batch.
+ * @throws {LedgerError} `BAD_DISPUTE_ACCOUNT` when `heldFrom` is any other account.
  */
-export function disputeResolvedBatch({ disputedCents, won, currency, organizationId, reference }) {
+export function disputeResolvedBatch({
+  disputedCents,
+  won,
+  currency,
+  organizationId,
+  reference,
+  heldFrom = ACCOUNTS.ORGANIZER_PAYABLE,
+}) {
+  const from = requireHeldFrom(heldFrom)
   const entries = won
     ? [
         entry(
@@ -407,10 +466,12 @@ export function disputeResolvedBatch({ disputedCents, won, currency, organizatio
           organizationId,
         ),
         entry(
-          ACCOUNTS.ORGANIZER_PAYABLE,
+          from,
           CREDIT,
           disputedCents,
-          `Dispute ${reference} returned to organiser`,
+          from === ACCOUNTS.ORGANIZER_PAYABLE
+            ? `Dispute ${reference} returned to organiser`
+            : `Dispute ${reference} returned to booking fee revenue`,
           organizationId,
         ),
       ]

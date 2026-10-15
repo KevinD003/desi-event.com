@@ -1,14 +1,45 @@
-# Desi-Event
+# The Desi Events
+
+> The product is **The Desi Events**, at
+> [thedesievents.com](https://thedesievents.com). It was called Desi-Event
+> during development, and code identifiers such as the `@desi-event/*` package
+> scope, the repository name and the database names keep that name.
 
 Event discovery and ticketing for the South Asian community. Garba nights,
 Bollywood concerts, classical dance recitals, comedy tours, film screenings,
 food and wedding expos: the kind of event that today lives on a WhatsApp
-forward and a Google Form. Desi-Event gives organisers a real ticketing system
-and gives attendees one place to find what is on near them.
+forward and a Google Form. The Desi Events gives organisers a real ticketing
+system and gives attendees one place to find what is on near them.
 
 The platform is three deployable applications — a Fastify REST API, a Next.js
 storefront and a BullMQ worker — sitting on thirteen shared packages,
 PostgreSQL and Redis, in one pnpm workspace.
+
+The booking fee buyers pay is the charge of The Desi Events. The team at
+The Desi Events can set it for each event at any time, for new orders only, and
+the team hands out referral codes that remove it from one order. Where the team
+switches it on for an event, buyers can pay the ticket price at the door
+instead: the booking fee is paid online (simulated), no sales tax is added, and
+the steward records the payment in the same step that lets the ticket in. Money
+taken at the door stays with the organiser and never enters the platform's
+ledger; unpaid tickets can be cancelled by the organiser or the team, freeing
+their places
+([ADR 0016](docs/adr/0016-per-event-booking-fee-and-referral-codes.md),
+[ADR 0017](docs/adr/0017-paying-at-the-venue-outside-the-ledger.md),
+[the owner's report](docs/PHASE4_FEES_AND_VENUE_PAYMENTS_REPORT.md)).
+
+## Contact
+
+The Desi Events can be reached on these public channels, as published on
+[thedesievents.com](https://thedesievents.com):
+
+| Channel   | Address                                                                  |
+| --------- | ------------------------------------------------------------------------ |
+| Email     | [info@thedesievents.com](mailto:info@thedesievents.com)                  |
+| Phone     | [+1 972 694 9043](tel:+19726949043)                                      |
+| WhatsApp  | [+1 972 694 9043](https://wa.me/19726949043)                             |
+| Facebook  | [facebook.com/the.desievents](https://www.facebook.com/the.desievents)   |
+| Instagram | [instagram.com/the.desievents](https://www.instagram.com/the.desievents) |
 
 ## Payments are in mock mode, and production payments are unreachable
 
@@ -121,7 +152,7 @@ cp .env.example .env
 set -a; . ./.env; set +a   # export the variables into this shell — see below
 
 pnpm db:migrate            # create the schema
-pnpm db:seed               # 15 users, 2 organisations, 12 events, 12 orders
+pnpm db:seed               # 26 users, 11 organisations, 24 events, 17 orders (USD)
 pnpm dev                   # api, web and worker together
 ```
 
@@ -133,7 +164,11 @@ That leaves three processes running:
 | API     | http://127.0.0.1:4000 | Fastify; `/health`, `/docs`, `/openapi.json`  |
 | Worker  | —                     | BullMQ; sweeps expired holds every 30 seconds |
 
-Seeded accounts all share the password `DesiEvent!2026`.
+Seeded accounts all share the password `DesiEvent!2026`. Among them are the
+platform administrator `platform-admin@desi-event.example`, who invites
+organisers and reviews events, and the super administrator
+`admin@desi-event.example`; [docs/development.md](docs/development.md) lists
+every account and what else the seed writes.
 
 **Why the `set -a` line.** Each application reads `.env` relative to its own
 working directory, and pnpm runs every script from the package that owns it. A
@@ -144,46 +179,89 @@ turns the marking off again. [direnv](https://direnv.net) with an `.envrc` of
 `dotenv` does the same thing automatically. `pnpm db:seed` is the exception —
 it reads the root `.env` itself — but the rest need the export.
 
+## Importing the Sulekha events
+
+The seed does not import anything. The 45 Texas events copied from Sulekha.com
+listings (collected on 29–30 September 2026) are in
+`packages/db/data/imports/sulekha-texas-2026.json`, and are loaded after
+seeding by an account that holds `event:import` (a platform administrator or
+super administrator):
+
+```bash
+pnpm import:events packages/db/data/imports/sulekha-texas-2026.json \
+  --as platform-admin@desi-event.example            # plan only; writes the run
+pnpm import:events packages/db/data/imports/sulekha-texas-2026.json \
+  --as platform-admin@desi-event.example --apply    # import into review
+```
+
+The file can also be uploaded at `/admin/imports`, which shows the same plan.
+Applying writes each event as a draft waiting for review and copies its
+pictures. Approving and publishing is done only in the browser, at
+`/admin/imports`, with a second factor; the command line never approves and
+never changes an event that is already posted.
+
+- **Events already past are skipped.** Every event in the file falls between
+  2 October and 22 November 2026, so after 22 November 2026 the file imports
+  nothing.
+- **Pictures need direct outbound HTTPS to `usimg.sulekha.io`.** The importer
+  copies each picture itself and uses no proxy, deliberately, so that it can
+  check the address it connects to. A machine that reaches the internet only
+  through a proxy cannot copy them. This build's own environment is one: its
+  imported events show generated posters, and "Retry pictures" on
+  `/admin/imports` copies them later from a machine that can reach the host.
+  Whether Sulekha's picture host lets another server fetch its pictures has not
+  been tried from here.
+- **Nothing is kept up to date.** A change on Sulekha shows here only when the
+  file is updated and imported again, and a posted event is updated only when
+  an administrator ticks "Update from Sulekha" for it.
+
+[ADR 0015](docs/adr/0015-importing-listed-events.md) records why it works this
+way, and [docs/development.md](docs/development.md) how to try it locally
+without network access to the picture host.
+
 ## pnpm scripts
 
 Run from the repository root.
 
-| Script                   | What it does                                                                                    |
-| ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `pnpm dev`               | Start api, web and worker in watch mode (`turbo run dev`)                                       |
-| `pnpm build`             | Build every workspace: Prisma client, `openapi.json`, `next build`                              |
-| `pnpm start`             | Run the built applications                                                                      |
-| `pnpm lint`              | ESLint across the whole repository                                                              |
-| `pnpm lint:fix`          | The same, with `--fix`                                                                          |
-| `pnpm format`            | Prettier over js/jsx/json/md/css/yaml                                                           |
-| `pnpm format:check`      | Prettier in check mode                                                                          |
-| `pnpm test`              | Vitest in every workspace                                                                       |
-| `pnpm test:watch`        | Vitest in watch mode                                                                            |
-| `pnpm test:coverage`     | Vitest with coverage and thresholds                                                             |
-| `pnpm test:e2e`          | Playwright end-to-end suite (`@desi-event/web`)                                                 |
-| `pnpm policy:check`      | Enforce the JavaScript-only language policy                                                     |
-| `pnpm secrets:scan`      | Scan every tracked file for credentials                                                         |
-| `pnpm bundle:scan`       | Refuse server contract that leaked into a browser artefact                                      |
-| `pnpm skips:check`       | Fail an undeclared skipped test                                                                 |
-| `pnpm contract:check`    | Structurally validate the API contract and OpenAPI document                                     |
-| `pnpm verify`            | `policy:check` → `secrets:scan` → `format:check` → `lint` → `test` → `build`. The pre-push gate |
-| `pnpm db:generate`       | `prisma generate`                                                                               |
-| `pnpm db:migrate`        | `prisma migrate dev` — create and apply a migration                                             |
-| `pnpm db:migrate:deploy` | `prisma migrate deploy` — apply existing migrations                                             |
-| `pnpm db:reset`          | Drop, recreate, migrate and re-seed the database                                                |
-| `pnpm db:seed`           | Idempotent development seed                                                                     |
-| `pnpm db:studio`         | Prisma Studio                                                                                   |
-| `pnpm db:verify:fresh`   | Migrate a disposable database and run every concurrency suite                                   |
-| `pnpm db:verify:upgrade` | Apply migrations onto a populated database                                                      |
-| `pnpm openapi:emit`      | Regenerate `apps/api/openapi.json` from the contract                                            |
-| `pnpm manifest:emit`     | Regenerate the browser route manifest from the contract                                         |
-| `pnpm load`              | The load and reliability suite (see the caveats it carries)                                     |
-| `pnpm clean`             | Remove node_modules, .next, .turbo, dist, coverage and test output                              |
+| Script                    | What it does                                                                                                      |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                | Start api, web and worker in watch mode (`turbo run dev`)                                                         |
+| `pnpm build`              | Build every workspace: Prisma client, `openapi.json`, `next build`                                                |
+| `pnpm start`              | Run the built applications                                                                                        |
+| `pnpm lint`               | ESLint across the whole repository                                                                                |
+| `pnpm lint:fix`           | The same, with `--fix`                                                                                            |
+| `pnpm format`             | Prettier over js/jsx/json/md/css/yaml                                                                             |
+| `pnpm format:check`       | Prettier in check mode                                                                                            |
+| `pnpm test`               | Vitest in every workspace                                                                                         |
+| `pnpm test:watch`         | Vitest in watch mode                                                                                              |
+| `pnpm test:coverage`      | Vitest with coverage and thresholds                                                                               |
+| `pnpm test:e2e`           | Playwright end-to-end suite (`@desi-event/web`)                                                                   |
+| `pnpm policy:check`       | Enforce the JavaScript-only language policy                                                                       |
+| `pnpm secrets:scan`       | Scan every tracked file for credentials                                                                           |
+| `pnpm bundle:scan`        | Refuse server contract that leaked into a browser artefact                                                        |
+| `pnpm skips:check`        | Fail an undeclared skipped test                                                                                   |
+| `pnpm verify:tests:fresh` | Delete every report, run every test task with the cache refused, refuse any report not proved fresh. What CI runs |
+| `pnpm contract:check`     | Structurally validate the API contract and OpenAPI document                                                       |
+| `pnpm verify`             | `policy:check` → `secrets:scan` → `format:check` → `lint` → `verify:tests:fresh` → `build`. The pre-push gate     |
+| `pnpm db:generate`        | `prisma generate`                                                                                                 |
+| `pnpm db:migrate`         | `prisma migrate dev` — create and apply a migration                                                               |
+| `pnpm db:migrate:deploy`  | `prisma migrate deploy` — apply existing migrations                                                               |
+| `pnpm db:reset`           | Drop, recreate, migrate and re-seed the database                                                                  |
+| `pnpm db:seed`            | Idempotent development seed                                                                                       |
+| `pnpm db:studio`          | Prisma Studio                                                                                                     |
+| `pnpm db:verify:fresh`    | Migrate a disposable database and run every concurrency suite                                                     |
+| `pnpm db:verify:upgrade`  | Apply migrations onto a populated database                                                                        |
+| `pnpm openapi:emit`       | Regenerate `apps/api/openapi.json` from the contract                                                              |
+| `pnpm manifest:emit`      | Regenerate the browser route manifest from the contract                                                           |
+| `pnpm load`               | The load and reliability suite (see the caveats it carries)                                                       |
+| `pnpm clean`              | Remove node_modules, .next, .turbo, dist, coverage and test output                                                |
 
 The end-to-end suites need their own Playwright configurations, because they
 need different fixtures and different servers: `pnpm test:e2e`,
 `test:e2e:events`, `test:e2e:organizer`, `test:e2e:refusals`,
-`test:e2e:sweep` and `test:e2e:prod`.
+`test:e2e:sweep`, `test:e2e:detail` and `test:e2e:prod`. Every spec must be
+collected by exactly one CI job, and `pnpm ci:check` refuses one that is not
+(see [CONTRIBUTING.md](CONTRIBUTING.md#browser-specs)).
 
 After changing the API contract, run `pnpm openapi:emit` **and**
 `pnpm manifest:emit`; both artefacts are committed and both are drift-checked.
@@ -258,9 +336,25 @@ undeclared skipped test _and_ a report containing zero cases — a test command
 that matches no files prints a green summary and exits zero, and a required
 check that can pass by running nothing eventually will.
 
-**The current figures**: **4,642** unit
-and integration cases across 173 files, and **242** browser cases across seven
-Playwright configurations. They are never added together.
+A report that is not this run's fails too. `pnpm verify:tests:fresh` deletes
+every Vitest report, runs every test task with Turborepo's cache refused, and
+then refuses any report older than the run — by modification time and by the
+`startTime` Vitest writes inside it — as well as any package that wrote none,
+any failed case, and any skipped, pending or todo case not allow-listed. CI
+runs exactly this command, and `pnpm ci:check` refuses a workflow that produces
+or judges reports any other way. `pnpm verify` runs it too, in place of a plain
+`pnpm test`, so the local gate needs the test database just as CI does.
+
+**The figures at `5eb42f4`**, as `pnpm verify:tests:fresh` counted them on
+2026-09-30 in a clean copy of that commit, against a freshly migrated private
+database with `REQUIRE_DATABASE=1`: **9,413** unit and integration cases across
+407 files, none failed or skipped. A later commit that adds or removes a case
+changes them; recount with the same command rather than trusting this line.
+Browser cases, across seven Playwright configurations, are counted by their own
+runs and never added to these: the last full run of all seven, against the tree
+committed as `5eb42f4`, collected and passed 473
+([`docs/PHASE4_FEATURE_COMPLETION_REPORT.md`](docs/PHASE4_FEATURE_COMPLETION_REPORT.md),
+"Tests").
 
 ## Documentation
 
@@ -268,11 +362,13 @@ Start with the one that matches what you are doing.
 
 ### Where the project stands
 
-| Document                                                                   | Contents                                                         |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| [PHASE2_STATUS.md](PHASE2_STATUS.md)                                       | **Authoritative current status**: the twenty gates, in one table |
-| [PHASE2_FINAL_CLOSEOUT_REPORT.md](PHASE2_FINAL_CLOSEOUT_REPORT.md)         | The closeout cycle, its verification, and the one thing left     |
-| [PHASE2_REQUIREMENTS_TRACEABILITY.md](PHASE2_REQUIREMENTS_TRACEABILITY.md) | Requirement → implementation → evidence, row by row              |
+| Document                                                                                 | Contents                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [PHASE2_STATUS.md](PHASE2_STATUS.md)                                                     | **Authoritative current status**: the twenty gates, in one table                                                                                                           |
+| [PHASE2_FINAL_CLOSEOUT_REPORT.md](PHASE2_FINAL_CLOSEOUT_REPORT.md)                       | The closeout cycle, its verification, and the one thing left                                                                                                               |
+| [PHASE2_REQUIREMENTS_TRACEABILITY.md](PHASE2_REQUIREMENTS_TRACEABILITY.md)               | Requirement → implementation → evidence, row by row                                                                                                                        |
+| [docs/PHASE4_FEATURE_COMPLETION_REPORT.md](docs/PHASE4_FEATURE_COMPLETION_REPORT.md)     | The feature-completion work: what each area built, its safeguards, and what is still limited                                                                               |
+| [docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md](docs/PHASE4_ONBOARDING_ANALYTICS_REPORT.md) | Organiser invitations, the website link, visit counts, full control of posted events and the Sulekha import: what was built, what was checked and what needs your accounts |
 
 ### The system
 
@@ -283,7 +379,8 @@ Start with the one that matches what you are doing.
 | [docs/api.md](docs/api.md)                   | REST reference: auth, errors, pagination, every endpoint                       |
 | [docs/PROVIDERS.md](docs/PROVIDERS.md)       | The four adapters, mock mode, webhook intake and dispatch                      |
 | [docs/DECISIONS.md](docs/DECISIONS.md)       | The authoritative decision index, including decisions that live in code        |
-| [docs/adr/](docs/adr/)                       | Architecture decision records                                                  |
+| [docs/adr/](docs/adr/)                       | Architecture decision records, 0001 to 0015                                    |
+| [docs/MEDIA.md](docs/MEDIA.md)               | Event pictures: upload, sanitising, storage, moderation and serving            |
 
 ### Money
 
@@ -300,8 +397,8 @@ Start with the one that matches what you are doing.
 | Document                                                   | Contents                                                              |
 | ---------------------------------------------------------- | --------------------------------------------------------------------- |
 | [docs/SECURITY.md](docs/SECURITY.md)                       | Auth, MFA, step-up, authorization, audit, rotation, incident response |
-| [docs/PHASE2_THREAT_MODEL.md](docs/PHASE2_THREAT_MODEL.md) | Assets, actors, thirteen attacks, and what is out of scope            |
-| [docs/CHECK_IN.md](docs/CHECK_IN.md)                       | The door: credentials, idempotence, transfers                         |
+| [docs/PHASE2_THREAT_MODEL.md](docs/PHASE2_THREAT_MODEL.md) | Assets, actors, fourteen attacks, and what is out of scope            |
+| [docs/CHECK_IN.md](docs/CHECK_IN.md)                       | The door: credentials, idempotence, group passes, transfers           |
 | [docs/UX.md](docs/UX.md)                                   | Screens, accessibility sweep, browser journeys counted honestly       |
 | [docs/LOAD_AND_CAPACITY.md](docs/LOAD_AND_CAPACITY.md)     | What the load suite measures, and why it is not capacity              |
 

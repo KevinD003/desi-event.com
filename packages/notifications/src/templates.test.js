@@ -29,10 +29,27 @@ describe('the template list', () => {
   })
 
   it('names every template in the dotted, lower-case form an operator sorts by', () => {
+    // A segment may be one snake_case phrase (`session_cancelled`), as the
+    // audit actions' verbs are; it is still one segment between dots. Since
+    // SPEC3-XI the family may be one too (`venue_booking.cancelled`, the same
+    // name as its audit action).
+    const DOTTED = /^[a-z]+(?:_[a-z]+)*(\.[a-z]+(?:_[a-z]+)*)+$/u
+
     for (const template of OUTBOX_TEMPLATES) {
-      expect(template, `${template} is not a dotted lower-case name`).toMatch(
-        /^[a-z]+(\.[a-z]+)+$/u,
-      )
+      expect(template, `${template} is not a dotted lower-case name`).toMatch(DOTTED)
+    }
+
+    // Still refused: no dot, a capital, a trailing or doubled underscore.
+    for (const bad of [
+      'event',
+      'Event.cancelled',
+      'event.session_',
+      'event.session__cancelled',
+      'venue_booking',
+      '_venue.cancelled',
+      'venue__booking.cancelled',
+    ]) {
+      expect(bad).not.toMatch(DOTTED)
     }
   })
 })
@@ -80,14 +97,21 @@ describe('suppressibility', () => {
       'event.cancelled',
       'event.postponed',
       'event.changed',
+      'event.session_cancelled',
       'ticket.issued',
       'ticket.transfer.invited',
       'ticket.revoked',
       'refund.settled',
       'security.alert',
+      'venue_booking.cancelled',
     ]) {
       expect(isSuppressible(template), `${template} can be suppressed`).toBe(false)
     }
+  })
+
+  it('names the notice of unpaid tickets cancelled, and never lets a preference drop it (SPEC3-XI §9.9)', () => {
+    expect(isOutboxTemplate('venue_booking.cancelled')).toBe(true)
+    expect(UNSUPPRESSIBLE_TEMPLATES.has('venue_booking.cancelled')).toBe(true)
   })
 
   it('leaves the courtesy confirmation suppressible', () => {

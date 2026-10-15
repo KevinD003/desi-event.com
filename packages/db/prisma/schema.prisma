@@ -1,4 +1,4 @@
-// Desi-Event data model.
+// The Desi Events data model.
 //
 // Conventions:
 //  * Money is always stored as integer cents in the smallest currency unit.
@@ -24,9 +24,9 @@ datasource db {
 
 /// A person's platform-wide role. Organisation-scoped authority lives on
 /// `Membership.role`; this enum is only for authority that spans the whole
-/// platform. `ADMIN` was Phase 1's single catch-all and is migrated to
-/// `SUPER_ADMIN`; the four narrower roles exist so that support, moderation
-/// and finance work does not require the key to everything.
+/// platform. Phase 1's catch-all `ADMIN` was migrated to `SUPER_ADMIN`; the
+/// narrower roles exist so that support, moderation, finance and platform
+/// administration work does not require the key to everything.
 enum UserRole {
   ATTENDEE
   ORGANIZER
@@ -36,6 +36,12 @@ enum UserRole {
   MODERATOR
   /// Refunds, reconciliation, transfers and payouts. No moderation.
   FINANCE_ADMIN
+  /// The platform administrator: invites organisers, reviews events, pictures
+  /// and organisations, switches an event's website link on and off, and reads
+  /// every event's figures. Cannot change platform roles, move money or admit
+  /// anybody at a door. Not Phase 1's catch-all ADMIN, which became
+  /// SUPER_ADMIN (migration `20260930090000_platform_admin_role`).
+  ADMIN
   SUPER_ADMIN
 }
 
@@ -57,117 +63,165 @@ enum OrgRole {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  displayName  String
-  phone        String?
-  locale       String   @default("en-IN")
-  role         UserRole @default(ATTENDEE)
-  emailVerified Boolean @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  displayName   String
+  phone         String?
+  locale        String   @default("en-IN")
+  role          UserRole @default(ATTENDEE)
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   /// Set when the account is locked out administratively. A locked account can
   /// still be read by support; it cannot authenticate.
-  suspendedAt  DateTime?
+  suspendedAt     DateTime?
   suspendedReason String?
 
-  memberships Membership[]
-  orders      Order[]
-  waitlist    WaitlistEntry[]
-  auditLogs   AuditLog[]
-  ticketHolds TicketHold[]
-  sessions    Session[]
-  devices     Device[]
-  mfaFactors  MfaFactor[]
-  authTokens  AuthToken[]
-  invitesSent Invitation[]     @relation("InvitationInvitedBy")
-  invitesAccepted Invitation[] @relation("InvitationAcceptedBy")
-  ticketsOwned Ticket[]        @relation("TicketOwner")
-  transfersSent TicketTransfer[] @relation("TicketTransferFrom")
-  transfersReceived TicketTransfer[] @relation("TicketTransferTo")
-  checkInsPerformed CheckIn[]
-  refundsRequested Refund[]    @relation("RefundRequestedBy")
-  refundsApproved  Refund[]    @relation("RefundApprovedBy")
-  ledgerBatches LedgerBatch[]
-  moderationActions EventModerationAction[]
-  notificationPreferences NotificationPreference[]
-  mediaUploaded MediaAsset[]
-  reconciliationTasks ReconciliationTask[]
-  privacyRequestsAsSubject PrivacyRequest[] @relation("PrivacyRequestSubject")
-  privacyRequestsRaised PrivacyRequest[] @relation("PrivacyRequestRequestedBy")
-  privacyHoldsAsSubject PrivacyHold[] @relation("PrivacyHoldSubject")
-  privacyHoldsPlaced PrivacyHold[]    @relation("PrivacyHoldPlacedBy")
-  privacyHoldsReleased PrivacyHold[]  @relation("PrivacyHoldReleasedBy")
-  exportArtifactsRequested ExportArtifact[]
-  exportArtifactSubjects ExportArtifactSubject[]
+  memberships               Membership[]
+  orders                    Order[]
+  waitlist                  WaitlistEntry[]
+  auditLogs                 AuditLog[]
+  ticketHolds               TicketHold[]
+  sessions                  Session[]
+  devices                   Device[]
+  mfaFactors                MfaFactor[]
+  authTokens                AuthToken[]
+  invitesSent               Invitation[]               @relation("InvitationInvitedBy")
+  invitesAccepted           Invitation[]               @relation("InvitationAcceptedBy")
+  ticketsOwned              Ticket[]                   @relation("TicketOwner")
+  transfersSent             TicketTransfer[]           @relation("TicketTransferFrom")
+  transfersReceived         TicketTransfer[]           @relation("TicketTransferTo")
+  checkInsPerformed         CheckIn[]
+  refundsRequested          Refund[]                   @relation("RefundRequestedBy")
+  refundsApproved           Refund[]                   @relation("RefundApprovedBy")
+  ledgerBatches             LedgerBatch[]
+  moderationActions         EventModerationAction[]
+  notificationPreferences   NotificationPreference[]
+  mediaUploaded             MediaAsset[]               @relation("MediaUploadedBy")
+  mediaModerated            MediaAsset[]               @relation("MediaModeratedBy")
+  reconciliationTasks       ReconciliationTask[]
+  privacyRequestsAsSubject  PrivacyRequest[]           @relation("PrivacyRequestSubject")
+  privacyRequestsRaised     PrivacyRequest[]           @relation("PrivacyRequestRequestedBy")
+  privacyHoldsAsSubject     PrivacyHold[]              @relation("PrivacyHoldSubject")
+  privacyHoldsPlaced        PrivacyHold[]              @relation("PrivacyHoldPlacedBy")
+  privacyHoldsReleased      PrivacyHold[]              @relation("PrivacyHoldReleasedBy")
+  exportArtifactsRequested  ExportArtifact[]
+  exportArtifactSubjects    ExportArtifactSubject[]
+  organizationsCreated      Organization[]             @relation("OrganizationCreatedBy")
+  organizerInvitesSent      OrganizerInvitation[]      @relation("OrganizerInvitationInvitedBy")
+  organizerInvitesAccepted  OrganizerInvitation[]      @relation("OrganizerInvitationAcceptedBy")
+  organizerInvitesRevoked   OrganizerInvitation[]      @relation("OrganizerInvitationRevokedBy")
+  eventWebsiteDecisions     Event[]                    @relation("EventWebsiteRedirectChangedBy")
+  eventsDeleted             Event[]                    @relation("EventDeletedBy")
+  platformEdits             EventPlatformEdit[]        @relation("EventPlatformEditActor")
+  eventImportRunsCreated    EventImportRun[]           @relation("EventImportRunCreatedBy")
+  eventImportRunsApplied    EventImportRun[]           @relation("EventImportRunAppliedBy")
+  eventImportsImported      EventImportItem[]          @relation("EventImportItemImportedBy")
+  eventImportsApproved      EventImportItem[]          @relation("EventImportItemApprovedBy")
+  eventImportsReassigned    EventImportItem[]          @relation("EventImportItemReassignedBy")
+  venuePaymentDecisions     Event[]                    @relation("EventVenuePaymentChangedBy")
+  eventFeeSettings          EventFeeSetting[]          @relation("EventFeeSetBy")
+  venuePaymentChanges       EventVenuePaymentChange[]  @relation("VenuePaymentChangedBy")
+  referralCodesCreated      ReferralCode[]             @relation("ReferralCodeCreatedBy")
+  referralCodesUpdated      ReferralCode[]             @relation("ReferralCodeUpdatedBy")
+  venuePaymentsRecorded     VenuePayment[]             @relation("VenuePaymentRecordedBy")
+  venueBookingCancellations VenueBookingCancellation[] @relation("VenueBookingCancelledBy")
 
   @@index([role])
   @@index([suspendedAt])
 }
 
+// Hand-written in `20260930160000_event_imports`: the trigger
+// `desi_platform_held_has_no_members()`, fired BEFORE INSERT OR UPDATE OF
+// "organizationId" on `Membership` and on `Invitation`, which refuses (SQLSTATE
+// 23514, constraint `platform_held_organization_has_no_members`) a membership or
+// a team invitation into an organisation whose `platformHeldSource` is set.
 model Organization {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String?
-  contactEmail String
-  websiteUrl  String?
-  verified    Boolean  @default(false)
-  payoutCurrency String @default("INR")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  name           String
+  slug           String   @unique
+  description    String?
+  contactEmail   String
+  websiteUrl     String?
+  verified       Boolean  @default(false)
+  payoutCurrency String   @default("INR")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   /// Where the organisation is in the verification pipeline. `verified` above is
   /// kept as the denormalised public badge and must always agree with this.
-  verificationStatus VerificationStatus @default(UNVERIFIED)
+  verificationStatus    VerificationStatus @default(UNVERIFIED)
   /// What a moderator asked for, when the status is REQUIRES_INFORMATION.
-  verificationNote   String?
+  verificationNote      String?
   verificationUpdatedAt DateTime?
   /// Registered legal name, when it differs from the trading name. Never a tax
   /// identifier or a bank detail: those live with the payment provider.
-  legalName          String?
+  legalName             String?
   /// IANA zone used to render this organisation's reports and sales windows.
-  timezone           String             @default("Asia/Kolkata")
+  timezone              String             @default("Asia/Kolkata")
   /// Plain-language refund policy shown to buyers and snapshotted onto orders.
-  refundPolicy       String?
+  refundPolicy          String?
   /// Set when the organisation is suspended: no publishing, no payouts.
-  suspendedAt        DateTime?
-  suspendedReason    String?
+  suspendedAt           DateTime?
+  suspendedReason       String?
+  /// Who accepted the organiser invitation that created it, or who created it
+  /// from the site before invitations; null otherwise. Provenance only. Never
+  /// returned by any route.
+  createdById           String?
+  /// Set on the one organisation that holds events imported from this source
+  /// for the team at The Desi Events ("Sulekha Events"). It has no members and takes
+  /// no team invitations (trigger `desi_platform_held_has_no_members`), and one
+  /// organisation per source (unique). Only `lib/event-import.js` and
+  /// `lib/organization-provisioning.js` write it.
+  platformHeldSource    EventImportSource? @unique
 
-  memberships Membership[]
-  events      Event[]
-  promoCodes  PromoCode[]
-  invitations Invitation[]
-  venues      Venue[]
-  connectedAccount ConnectedAccount?
-  transfers   Transfer[]
-  payouts     Payout[]
-  verificationHistory OrganizationVerificationEvent[]
-  privacyRequests PrivacyRequest[]
-  privacyHolds PrivacyHold[]
-  exportArtifacts ExportArtifact[]
+  createdBy            User?                           @relation("OrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  memberships          Membership[]
+  events               Event[]
+  promoCodes           PromoCode[]
+  invitations          Invitation[]
+  venues               Venue[]
+  connectedAccount     ConnectedAccount?
+  transfers            Transfer[]
+  payouts              Payout[]
+  verificationHistory  OrganizationVerificationEvent[]
+  privacyRequests      PrivacyRequest[]
+  privacyHolds         PrivacyHold[]
+  exportArtifacts      ExportArtifact[]
+  organizerInvitations OrganizerInvitation[]
+  importsMovedOut      EventImportItem[]               @relation("EventImportItemReassignedFrom")
+  importsMovedIn       EventImportItem[]               @relation("EventImportItemReassignedTo")
 
   @@index([verified])
   @@index([verificationStatus])
   @@index([suspendedAt])
+  @@index([createdById, createdAt])
+  /// Substring search on the organiser's name ("garba" in "Bay Lights Garba
+  /// Co."), which a B-tree cannot serve. Needs the pg_trgm extension. Built
+  /// with `fastupdate = off` (migration 20260929110000_search_index_upkeep).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Organization_name_trgm_idx")
 }
 
 model Membership {
-  id             String   @id @default(cuid())
-  userId         String
-  organizationId String
-  role           OrgRole  @default(VIEWER)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  userId                String
+  organizationId        String
+  role                  OrgRole  @default(VIEWER)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
   /// Which invitation produced this membership, when one did.
-  invitationId   String?  @unique
+  invitationId          String?  @unique
+  /// Which organiser invitation produced this membership, when one did: the
+  /// founding OWNER of an organisation started from an invitation.
+  organizerInvitationId String?  @unique
 
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  invitation   Invitation?  @relation(fields: [invitationId], references: [id], onDelete: SetNull)
-  scannerScopes ScannerScope[]
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitation          Invitation?          @relation(fields: [invitationId], references: [id], onDelete: SetNull)
+  organizerInvitation OrganizerInvitation? @relation(fields: [organizerInvitationId], references: [id], onDelete: SetNull)
+  scannerScopes       ScannerScope[]
 
   @@unique([userId, organizationId])
   @@index([organizationId, role])
@@ -201,7 +255,9 @@ enum EventCategory {
 /// button does anything — see `PUBLIC_EVENT_STATUSES` in
 /// `@desi-event/schemas`, which is the single list every public query reads.
 /// Everything else is invisible to the public, and that is enforced in queries
-/// rather than assumed.
+/// rather than assumed. `DELETED` is on none of the allow-lists (public,
+/// bookable, indexable, live, editable), so a deleted event is off every public
+/// and sale surface without a filter of its own.
 enum EventStatus {
   DRAFT
   /// Submitted by the organiser, waiting for a moderator.
@@ -220,55 +276,167 @@ enum EventStatus {
   CANCELLED
   REJECTED
   ARCHIVED
+  /// Taken off the site by its organiser or the team at The Desi Events. The row, its
+  /// orders, refunds, pictures and history stay; nothing public or for sale
+  /// reads this status. Left only by a platform restore, to the status
+  /// `desi_event_restore_target(statusBeforeDeletion)` names (trigger
+  /// `desi_event_deletion_moves`). Its own migration,
+  /// `20260930140000_event_deleted_status`.
+  DELETED
+}
+
+/// What deleting an event did, decided by what had been sold.
+enum EventDeletionOutcome {
+  /// Nobody held a paid order.
+  REMOVED
+  /// It was cancelled and every paid order refunded, then removed.
+  CANCELLED_AND_REFUNDED
+  /// It had taken place; orders and tickets were left as they were.
+  REMOVED_AFTER_EVENT
+}
+
+/// Whose authority a change to an event was made under.
+enum EventAuthority {
+  ORGANIZATION
+  PLATFORM
+}
+
+/// What a ticket holder is told changed.
+enum EventChangeKind {
+  MATERIAL_CHANGE
+  SESSION_CHANGE
+  RESCHEDULED
+  POSTPONED
+  CANCELLED
+  SESSION_CANCELLED
+  DELETED
+}
+
+/// How a platform edit sitting ended.
+enum PlatformEditEnd {
+  /// "Stop editing".
+  CLOSED
+  /// The same administrator opened a new sitting on the event while this one
+  /// was still running.
+  SUPERSEDED
+  /// The event was deleted.
+  EVENT_DELETED
+  /// It ran past `expiresAt` and was closed afterwards (by a reopen). Reads
+  /// show an unclosed expired sitting as EXPIRED too.
+  EXPIRED
+}
+
+/// Where an imported event was listed first. One platform-held organisation
+/// per source (`Organization.platformHeldSource`, unique).
+enum EventImportSource {
+  SULEKHA
+}
+
+/// An import run: planned, then applied once, or left to expire.
+enum EventImportRunStatus {
+  PREVIEWED
+  APPLIED
+  EXPIRED
+}
+
+/// Whether an imported event's picture has been copied yet.
+enum EventImportImageStatus {
+  WAITING
+  STORED
+  FAILED
+}
+
+/// What the source listed a picture as.
+enum EventImportImageRole {
+  COVER
+  GALLERY
 }
 
 model Venue {
-  id         String  @id @default(cuid())
-  name       String
-  addressLine1 String
-  addressLine2 String?
-  city       String
-  region     String
-  postalCode String
-  country    String  @default("IN")
-  latitude   Float?
-  longitude  Float?
-  capacity   Int?
+  id                String   @id @default(cuid())
+  name              String
+  addressLine1      String
+  addressLine2      String?
+  city              String
+  region            String
+  postalCode        String
+  country           String   @default("IN")
+  latitude          Float?
+  longitude         Float?
+  capacity          Int?
   /// URL slug for the public venue page. Nullable so Phase 1 rows migrate
   /// without inventing one, and unique so two venues cannot claim a URL.
-  slug       String?  @unique
-  description String?
+  slug              String?  @unique
+  description       String?
   /// IANA zone. A venue's local time is a property of the place, not the event,
   /// and daylight saving makes storing an offset wrong twice a year.
-  timezone   String   @default("Asia/Kolkata")
+  timezone          String   @default("Asia/Kolkata")
   /// Free-text arrival notes: which gate, which metro stop, where to park.
-  directions String?
+  directions        String?
   /// House rules shown before purchase and snapshotted onto orders.
-  policies   String?
+  policies          String?
   /// Structured accessibility attributes, e.g. step-free entry, hearing loop,
   /// accessible toilets. A JSON column because the vocabulary is still moving.
-  accessibility Json?
+  accessibility     Json?
   /// Who told us about this venue: an organiser, a moderator, an import.
-  /// Nothing here is scraped from a third-party site.
-  provenance String?
-  organizationId String?
+  /// An import records its source here (for example `import:sulekha`).
+  provenance        String?
+  organizationId    String?
   /// Set when an administrator merges a duplicate into another row. The merged
   /// row is kept, not deleted, because orders and tickets point at it.
   mergedIntoVenueId String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  events Event[]
+  events       Event[]
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
-  mergedInto   Venue?  @relation("VenueMerge", fields: [mergedIntoVenueId], references: [id], onDelete: SetNull)
-  mergedFrom   Venue[] @relation("VenueMerge")
+  mergedInto   Venue?        @relation("VenueMerge", fields: [mergedIntoVenueId], references: [id], onDelete: SetNull)
+  mergedFrom   Venue[]       @relation("VenueMerge")
   maps         VenueMap[]
 
   @@index([city, region])
   @@index([organizationId])
   @@index([mergedIntoVenueId])
+  /// Substring search on the venue's name and city, for the listing search.
+  /// Built with `fastupdate = off` (migration 20260929110000_search_index_upkeep).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Venue_name_trgm_idx")
+  @@index([city(ops: raw("gin_trgm_ops"))], type: Gin, map: "Venue_city_trgm_idx")
 }
 
+// Hand-written in `20260930100000_organiser_invitations_and_review_gate`: the
+// trigger `desi_event_status_requires_review`, which refuses (constraint
+// `event_public_requires_review`, SQLSTATE 23514) any move into APPROVED except
+// from REVIEW_PENDING, and any move from a non-public status into a publicly
+// visible one except from APPROVED. INSERTs are not covered: only seeds and
+// tests insert anything but DRAFT.
+//
+// Hand-written in `20260930120000_event_website_link`: the CHECKs
+// `event_website_url_shape` (on `websiteUrl` and `websiteDecidedUrl`) and
+// `event_website_redirect_consistency`, `event_social_links_shape` refusing a
+// `website` key, the trigger `desi_event_website_change` (BEFORE INSERT OR
+// UPDATE OF "websiteUrl"), which keeps `websiteDecisionPending` and
+// `websiteSubmittedAt` in step with the address, and the partial indexes
+// `Event_website_pending_idx` and `Event_website_redirect_on_idx`. An INSERT can
+// create an ON row; only seeds do.
+//
+// Hand-written in `20260930150000_event_full_control`: the CHECK
+// `event_deletion_consistency`, which ties the deletion columns to status
+// DELETED (set together, cleared together); the trigger
+// `desi_event_deletion_moves` (constraints `event_deletion_records_prior_status`
+// and `event_restore_returns_prior_status`), which records the status the row
+// really had on entering DELETED, keeps it fixed while DELETED, and lets the row
+// leave DELETED only for `desi_event_restore_target(statusBeforeDeletion)`; the
+// same function in the review gate's restore clause
+// (`desi_event_status_requires_review`, replaced there); and the partial index
+// `Event_deleted_idx` ("deletedAt") WHERE "status" = 'DELETED'.
+//
+// Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECKs
+// `event_fee_shape` (SITE_DEFAULT stores no numbers; EVENT stores 0-3000 basis
+// points, 0-10000 minor units per ticket and the currency it sells in) and
+// `event_venue_payment_shape` (a reason of 10-500 characters, a limit of
+// 1-100000, and a switch that is on has a limit and a time). Only
+// `apps/api/src/lib/payment-terms.js` writes the fee and pay-at-the-venue
+// columns (source scan).
 model Event {
   id             String        @id @default(cuid())
   organizationId String
@@ -283,7 +451,6 @@ model Event {
   startsAt       DateTime
   endsAt         DateTime
   timezone       String        @default("Asia/Kolkata")
-  coverImageUrl  String?
   isOnline       Boolean       @default(false)
   onlineUrl      String?
   languages      String[]      @default([])
@@ -296,44 +463,448 @@ model Event {
   revision       Int           @default(0)
 
   /// Minimum age at the door, when there is one. Null means no restriction.
-  ageRestriction Int?
+  ageRestriction     Int?
   /// Structured accessibility attributes for this event, layered over the
   /// venue's. Same moving vocabulary, same reason for JSON.
-  accessibility  Json?
+  accessibility      Json?
   /// Named performers, in billing order. Free text: this is a listing, not a
   /// licensed artist database.
-  artists        String[]      @default([])
+  artists            String[]  @default([])
   /// Entry, refund and conduct rules, snapshotted onto every order at purchase
   /// so a later edit cannot change what a buyer agreed to.
-  policies       Json?
-  contactEmail   String?
+  policies           Json?
+  contactEmail       String?
   /// When the organiser submitted it for review.
-  reviewSubmittedAt DateTime?
+  reviewSubmittedAt  DateTime?
   /// Why a moderator rejected it or asked for changes. Cleared on resubmission.
-  moderationNote String?
-  cancelledAt    DateTime?
+  moderationNote     String?
+  cancelledAt        DateTime?
   cancellationReason String?
-  postponedAt    DateTime?
+  postponedAt        DateTime?
   /// The start time before a postponement, kept so attendees can be told what
   /// changed rather than just that something did.
-  previousStartsAt DateTime?
+  previousStartsAt   DateTime?
   /// Set the first time the event went ON_SALE. Once set, the venue map version
   /// backing its sessions is frozen.
-  salesOpenedAt  DateTime?
+  salesOpenedAt      DateTime?
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  venue        Venue?       @relation(fields: [venueId], references: [id], onDelete: SetNull)
-  ticketTypes  TicketType[]
-  orders       Order[]
-  promoCodes   PromoCode[]
-  waitlist     WaitlistEntry[]
-  sessions     EventSession[]
-  moderationHistory EventModerationAction[]
-  media        MediaAsset[]
+  // Deletion (status DELETED). Only `apps/api/src/lib/event-deletion.js` writes
+  // these, and only its `restoreEvent` clears them. CHECK
+  // `event_deletion_consistency`; trigger `desi_event_deletion_moves`.
+
+  /// When it was deleted.
+  deletedAt            DateTime?
+  /// Who deleted it. Null once the account is gone.
+  deletedById          String?
+  /// Why, as the person deleting it wrote it (10-500 characters).
+  deletionReason       String?
+  deletionOutcome      EventDeletionOutcome?
+  deletionAuthority    EventAuthority?
+  /// The status it had when it was deleted. A restore returns it to
+  /// `desi_event_restore_target` of this.
+  statusBeforeDeletion EventStatus?
+  /// The slug it had, when deletion released it (never-public events only).
+  deletedSlug          String?
+
+  // Public content. Everything below is PUBLIC by the organiser's choice and is
+  // shown on the event page; it is distinct from the private `contactEmail`
+  // above, which is never shown. Shapes and lengths are bounded by the CHECKs
+  // `event_faq_shape`, `event_performers_shape`, `event_running_order_shape`,
+  // `event_sponsors_shape`, `event_social_links_shape` and
+  // `event_content_text_lengths` (migration
+  // `20260928090000_event_authoring_content_and_tier_rules`).
+
+  /// Frequently asked questions, in order: `[{question, answer}]`, at most 30.
+  faq                Json?
+  /// The line-up, in billing order: `[{name, bio?}]`, at most 64. The source
+  /// of truth for performers; `artists` is kept in step with it.
+  performers         Json?
+  /// The running order: `[{time: 'HH:mm' local, title, note?}]`, at most 40.
+  runningOrder       Json?
+  /// Sponsors: `[{name, url?, level?}]`, at most 30.
+  sponsors           Json?
+  /// Social links: `{instagram?, facebook?, youtube?, x?, whatsapp?}`, https
+  /// only. The website has its own column, `websiteUrl`, behind an
+  /// administrator's switch; CHECK `event_social_links_shape` refuses a
+  /// `website` key here.
+  socialLinks        Json?
+  dressCode          String?
+  /// This event's parking and arrival notes, layered over `Venue.directions`.
+  directions         String?
+  /// A contact address the organiser chose to publish. Public.
+  publicContactEmail String?
+  /// A contact number the organiser chose to publish. Public.
+  publicContactPhone String?
+
+  // The organiser's website and the switch only a platform administrator turns
+  // (migration `20260930120000_event_website_link`). Only
+  // `apps/api/src/lib/website-redirect.js` writes the switch columns.
+
+  /// The organiser's current website address: an https address on a public
+  /// host with no sign-in, port or key in it (`@desi-event/schemas/website`),
+  /// stored as `new URL(...).href`. Shown to nobody until an administrator
+  /// turns the link on for it.
+  websiteUrl                 String?
+  /// Whether the public page links to `websiteDecidedUrl` through the tracked
+  /// redirect `/events/{slug}/website`. An organiser's edit never moves it.
+  websiteRedirectEnabled     Boolean   @default(false)
+  /// The address the last administrator decision was about. While the switch
+  /// is on, the link goes here, even after the organiser changes `websiteUrl`.
+  websiteDecidedUrl          String?
+  /// True while `websiteUrl` differs from `websiteDecidedUrl` and there is
+  /// something to decide (an address, or a switch that is on).
+  websiteDecisionPending     Boolean   @default(false)
+  /// When the decision last became pending. Null when nothing is pending.
+  websiteSubmittedAt         DateTime?
+  /// When an administrator last decided.
+  websiteRedirectChangedAt   DateTime?
+  /// The administrator who last decided. Null once the account is gone.
+  websiteRedirectChangedById String?
+  /// The administrator's reason, 1 to 500 characters. Shown to the organiser
+  /// with the administrator's name.
+  websiteRedirectReason      String?
+
+  // Payment terms, set by the team at The Desi Events (SPEC3, ADRs 0016 and 0017).
+  // Only `apps/api/src/lib/payment-terms.js` writes these (source scan).
+  // CHECKs `event_fee_shape` and `event_venue_payment_shape`. A change does not
+  // move `revision`.
+
+  /// SITE_DEFAULT: the site's fee for the order's currency decides at pricing
+  /// time. EVENT: the three columns below.
+  feeSource               FeeSource @default(SITE_DEFAULT)
+  /// The event's own percentage, 0-3000 basis points. Null for SITE_DEFAULT.
+  feePercentageBps        Int?
+  /// The event's own amount per ticket, 0-10000 minor units. Null for SITE_DEFAULT.
+  feeFlatCentsPerTicket   Int?
+  /// The currency the event sold in when its own terms were set.
+  feeCurrency             String?
+  /// The decision the current EVENT terms came from. Null for SITE_DEFAULT
+  /// (its row is in the history; the pointer exists only for EVENT terms).
+  feeSettingId            String?   @unique
+  /// Whether buyers may book and pay the ticket price at the door.
+  venuePaymentEnabled     Boolean   @default(false)
+  /// The most pay-at-the-venue tickets all buyers together may hold unpaid,
+  /// 1-100000. Required while the switch is on; kept when it is turned off.
+  venuePaymentLimit       Int?
+  /// When an administrator last changed the switch or the limit.
+  venuePaymentChangedAt   DateTime?
+  /// Who did. Null once the account is gone.
+  venuePaymentChangedById String?
+  /// Their reason, 10-500 characters. Shown to the organiser with their name.
+  venuePaymentReason      String?
+
+  organization              Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  venue                     Venue?                     @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  ticketTypes               TicketType[]
+  orders                    Order[]
+  promoCodes                PromoCode[]
+  waitlist                  WaitlistEntry[]
+  sessions                  EventSession[]
+  moderationHistory         EventModerationAction[]
+  media                     MediaAsset[]
+  /// The door scanners whose authority names this event.
+  scannerScopes             ScannerScope[]
+  /// The administrator who last decided the website link.
+  websiteRedirectChangedBy  User?                      @relation("EventWebsiteRedirectChangedBy", fields: [websiteRedirectChangedById], references: [id], onDelete: SetNull)
+  /// Counted visits, kept for two days after their day. See `TrafficEvent`.
+  trafficEvents             TrafficEvent[]
+  /// Daily visit totals. See `TrafficDaily`.
+  trafficDaily              TrafficDaily[]
+  /// Who deleted it, while it is deleted.
+  deletedBy                 User?                      @relation("EventDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  /// The Desi Events team's editing sittings on it.
+  platformEdits             EventPlatformEdit[]
+  /// What ticket holders are shown changed about it.
+  changeNotices             EventChangeNotice[]
+  /// Where it was imported from, when it was.
+  importItem                EventImportItem?
+  /// The fee decision the current EVENT terms came from.
+  feeSetting                EventFeeSetting?           @relation("EventCurrentFee", fields: [feeSettingId], references: [id], onDelete: SetNull)
+  /// The administrator who last changed the pay-at-the-venue switch or limit.
+  venuePaymentChangedBy     User?                      @relation("EventVenuePaymentChangedBy", fields: [venuePaymentChangedById], references: [id], onDelete: SetNull)
+  /// Every fee decision about it, oldest first by `sequence`.
+  feeSettings               EventFeeSetting[]          @relation("EventFeeHistory")
+  /// Every change of its pay-at-the-venue switch or limit.
+  venuePaymentChanges       EventVenuePaymentChange[]
+  /// The referral codes whose scope names it.
+  referralScopes            ReferralCodeEvent[]
+  /// Payments taken at its door. Not platform money.
+  venuePayments             VenuePayment[]
+  /// Unpaid pay-at-the-venue tickets of its orders cancelled (SPEC3-XI XU).
+  venueBookingCancellations VenueBookingCancellation[]
 
   @@index([status, startsAt])
   @@index([category, startsAt])
   @@index([organizationId])
+  /// The venue branch of the listing search's OR (`venueId IN (...)`), and the
+  /// foreign key. The partial facet index covers PUBLISHED rows only, which the
+  /// listing's four statuses cannot use.
+  @@index([venueId])
+  /// Substring search on the event's own text, for the listing search. With
+  /// these every branch of the search's OR can use an index, so Postgres
+  /// answers it with one bitmap scan instead of reading every event. Built
+  /// with `fastupdate = off` (migration 20260929110000_search_index_upkeep),
+  /// which this schema language cannot express: a pending list left to grow
+  /// made the planner read every event instead.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_title_trgm_idx")
+  @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_summary_trgm_idx")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_description_trgm_idx")
+  @@index([websiteRedirectChangedById])
+  @@index([deletedById])
+  @@index([venuePaymentChangedById])
+}
+
+/// Where an event's booking fee comes from: the site's default for the order's
+/// currency, or the event's own terms.
+enum FeeSource {
+  SITE_DEFAULT
+  EVENT
+}
+
+/// How an order's ticket price is paid: online by card, or at the door.
+enum OrderPaymentMethod {
+  CARD
+  AT_VENUE
+}
+
+/// Which events a referral code applies to.
+enum ReferralCodeScope {
+  ALL_EVENTS
+  SELECTED_EVENTS
+}
+
+/// How a payment at the door was recorded: with one ticket's admission, or
+/// with several through the order's group pass.
+enum VenuePaymentVia {
+  DOOR_TICKET
+  DOOR_GROUP
+}
+
+/// Why an order's referral use was given back (SPEC3-XI XR4): the order ended
+/// without being used. Written only by apps/api/src/lib/referral-uses.js.
+enum ReferralUseReturnCause {
+  /// The card payment did not go through.
+  PAYMENT_FAILED
+  /// A booking with nothing to pay online could not be completed.
+  NOT_COMPLETED
+  /// An unpaid order was cancelled (event deletion, night cancellation).
+  UNPAID_ORDER_CANCELLED
+  /// Refunded in full, with no ticket standing.
+  REFUNDED
+  /// Its unpaid pay-at-the-venue tickets were all cancelled.
+  VENUE_UNPAID_CANCELLED
+  EVENT_CANCELLED
+  EVENT_DELETED
+  SESSION_CANCELLED
+  /// The organiser withdrew every ticket and nothing was left to refund.
+  TICKETS_REVOKED
+}
+
+// Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECK
+// `event_fee_setting_shape` (sequence from 1, a reason of 10-500 characters,
+// and the source/value rule of `event_fee_shape`) and the trigger
+// `desi_event_fee_setting_append_only` (constraint
+// `event_fee_setting_append_only`), which refuses every UPDATE except clearing
+// `setById` and every DELETE except the cascade from the event row.
+/// One fee decision about one event, never edited. Orders point at the row
+/// they were priced with. Only `apps/api/src/lib/payment-terms.js` writes it.
+model EventFeeSetting {
+  id                 String    @id @default(cuid())
+  eventId            String
+  /// 1, 2, 3 ... per event: the compare-and-set token of `paymentTerms.setFee`.
+  sequence           Int
+  source             FeeSource
+  percentageBps      Int?
+  flatCentsPerTicket Int?
+  currency           String?
+  /// Why, 10-500 characters. Shown with the event's history.
+  reason             String
+  /// Who decided. Null once the account is gone.
+  setById            String?
+  createdAt          DateTime  @default(now())
+
+  event   Event   @relation("EventFeeHistory", fields: [eventId], references: [id], onDelete: Cascade)
+  setBy   User?   @relation("EventFeeSetBy", fields: [setById], references: [id], onDelete: SetNull)
+  current Event?  @relation("EventCurrentFee")
+  orders  Order[]
+
+  @@unique([eventId, sequence])
+  @@index([setById])
+}
+
+// Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECK
+// `event_venue_payment_change_shape` (a reason of 10-500 characters, a limit of
+// 1-100000, and a limit whenever the switch is on).
+/// One change of an event's pay-at-the-venue switch or limit. Only
+/// `apps/api/src/lib/payment-terms.js` writes it.
+model EventVenuePaymentChange {
+  id          String   @id @default(cuid())
+  eventId     String
+  enabled     Boolean
+  limit       Int?
+  /// Why, 10-500 characters. Shown with the event's history.
+  reason      String
+  changedById String?
+  createdAt   DateTime @default(now())
+
+  event     Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  changedBy User? @relation("VenuePaymentChangedBy", fields: [changedById], references: [id], onDelete: SetNull)
+
+  @@index([eventId, createdAt])
+  @@index([changedById])
+}
+
+// Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECKs
+// `referral_code_shape` (the code's pattern: 6-32 of A-Z, 0-9 and '-', starting
+// and ending with a letter or digit, no '--'; a label of 1-120 characters; a
+// limit of 1-1000000; an expiry after creation; a switched-off code stamped)
+// and `referral_code_use_within_limit` (`useCount` never above `maxUses`).
+/// A code the team at The Desi Events hands out that waives an order's whole booking fee.
+/// Only apps/api/src/lib/referral-codes.js writes it, except useCount
+/// (apps/api/src/lib/referral-uses.js). Plain text, like PromoCode (ADR 0016):
+/// never in a URL, a log line, an audit row or an outbox row.
+model ReferralCode {
+  id            String            @id @default(cuid())
+  /// The text buyers type, upper case. Shown only to platform administrators.
+  code          String            @unique
+  /// A note for administrators, 1-120 characters. Never copied into an audit row.
+  label         String?
+  scope         ReferralCodeScope
+  /// Exclusive: the code stops working at this instant.
+  expiresAt     DateTime?
+  /// The most orders that may use it, 1-1000000. Null for no limit.
+  maxUses       Int?
+  /// Orders placed with it that have not given their use back.
+  useCount      Int               @default(0)
+  active        Boolean           @default(true)
+  switchedOffAt DateTime?
+  createdById   String?
+  updatedById   String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  createdBy User?               @relation("ReferralCodeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User?               @relation("ReferralCodeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  events    ReferralCodeEvent[]
+  orders    Order[]
+
+  @@index([active, expiresAt])
+  @@index([createdById])
+  @@index([updatedById])
+}
+
+/// One event in a SELECTED_EVENTS referral code's scope. Only
+/// `apps/api/src/lib/referral-codes.js` writes it.
+model ReferralCodeEvent {
+  referralCodeId String
+  eventId        String
+  addedAt        DateTime @default(now())
+
+  referralCode ReferralCode @relation(fields: [referralCodeId], references: [id], onDelete: Cascade)
+  event        Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([referralCodeId, eventId])
+  @@index([eventId])
+}
+
+// Hand-written in `20261009110000_pay_at_the_venue`: the CHECK
+// `venue_payment_shape` (amount above 0, 1-100 tickets, a currency code, an
+// authority from the door's closed list, a role of 1-40 characters, a gate of
+// 1-60), the trigger `desi_venue_payment_append_only` (constraint
+// `venue_payment_append_only`: no UPDATE except clearing `recordedById` or
+// `eventSessionId`, no DELETE) and the deferred constraint trigger
+// `desi_venue_payment_sum` (constraint `venue_payment_sum`: at commit the
+// tickets it paid number `ticketCount` and their dues sum to `amountCents`),
+// checked again at commit by `desi_ticket_venue_payment_sum` and
+// `desi_ticket_venue_payment_sum_on_delete` on `Ticket` whenever a ticket
+// joins a payment, changes its due once paid, or is removed, in any later
+// transaction.
+/// A payment taken at the door for one or more tickets of one order, recorded in the
+/// same transaction that let those tickets in. Not platform money: nothing here is
+/// posted to the ledger. Only apps/api/src/lib/venue-payments.js writes it. Never
+/// edited (trigger desi_venue_payment_append_only).
+model VenuePayment {
+  id             String          @id @default(cuid())
+  orderId        String
+  eventId        String
+  /// The night it was taken on. Null for an event with no nights.
+  eventSessionId String?
+  /// Copied from the event; a plain column, so organisation deletion rules are untouched.
+  organizationId String
+  amountCents    Int
+  currency       String
+  ticketCount    Int
+  via            VenuePaymentVia
+  /// ORGANIZATION_ROLE | EVENT_SCOPE | PLATFORM_ROLE, as the admission's
+  /// authority (`packages/permissions/src/admission.js`).
+  authority      String
+  /// The door role, as the admission's audit records it.
+  role           String
+  recordedById   String?
+  recordedAt     DateTime        @default(now())
+  gate           String?
+
+  order        Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
+  recordedBy   User?         @relation("VenuePaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+  tickets      Ticket[]
+
+  @@index([eventId, recordedAt])
+  @@index([orderId])
+  @@index([recordedById])
+  @@index([eventSessionId])
+}
+
+// Hand-written in `20261009110000_pay_at_the_venue`: the CHECK
+// `venue_booking_cancellation_shape` (1-100 tickets, a basis above 0, a kept
+// fee of 0 or more, a currency code, an authority of ORGANIZATION_ROLE or
+// PLATFORM_ROLE, a role of 1-40 characters, a reason of 10-500), the trigger
+// `desi_venue_booking_cancellation_append_only` (constraint
+// `venue_booking_cancellation_append_only`: no UPDATE except clearing
+// `cancelledById`, no DELETE) and the deferred constraint trigger
+// `desi_venue_booking_cancellation_sum` (constraint
+// `venue_booking_cancellation_sum`: at commit the tickets pointing at it number
+// `ticketCount` and their dues sum to `basisCents`), checked again at commit by
+// `desi_ticket_venue_cancellation_sum` and
+// `desi_ticket_venue_cancellation_sum_on_delete` on `Ticket` whenever a ticket
+// joins it or is removed, in any later transaction.
+/// Unpaid pay-at-the-venue tickets of one order cancelled by an organiser or the team
+/// at The Desi Events (SPEC3-XI XU). Their places were freed; The Desi Events kept their
+/// booking fee; nothing was refunded or posted to the ledger. Only
+/// apps/api/src/lib/venue-bookings.js writes it. Never edited.
+model VenueBookingCancellation {
+  id             String   @id @default(cuid())
+  orderId        String
+  eventId        String
+  /// Copied from the event; a plain column, as `VenuePayment`'s.
+  organizationId String
+  /// How many tickets it cancelled, 1-100.
+  ticketCount    Int
+  /// The door price no longer owed: the sum of its tickets' `venueDueCents`.
+  basisCents     Int
+  /// The booking fee The Desi Events kept for them. Never refunded. Only the fee is
+  /// ever kept; tax on it would go back to the buyer (SPEC3-XI XU6).
+  feeKeptCents   Int
+  currency       String
+  /// ORGANIZATION_ROLE | PLATFORM_ROLE (SPEC3-XI XU2).
+  authority      String
+  /// The role that granted it, as the door's audit records a role.
+  role           String
+  /// Why, 10-500 characters. Shown to the buyer and to the tickets' holders.
+  reason         String
+  /// Who cancelled. Null once the account is gone.
+  cancelledById  String?
+  createdAt      DateTime @default(now())
+
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  cancelledBy User?    @relation("VenueBookingCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  tickets     Ticket[]
+
+  @@index([eventId, createdAt])
+  @@index([orderId])
+  @@index([cancelledById])
 }
 
 // ---------------------------------------------------------------------------
@@ -348,6 +919,31 @@ enum TicketTypeStatus {
   CLOSED
 }
 
+/// Who can see a ticket type on the public event page.
+enum TicketTypeVisibility {
+  /// Listed publicly and bookable by anybody while it is on sale.
+  PUBLIC
+  /// Not listed publicly, and bookable only by members holding
+  /// `ticketType:manage` on the organisation. Every complimentary tier is
+  /// HIDDEN (CHECK `ticket_type_complimentary_free_and_hidden`).
+  HIDDEN
+}
+
+// Hand-written in `20260928090000_event_authoring_content_and_tier_rules`,
+// because Prisma's schema language cannot express them:
+//
+//  * the partial unique index `TicketType_reserved_session_zone_key` on
+//    ("eventSessionId", "priceZoneId") WHERE "reserved": one reserved tier
+//    prices a zone at a session;
+//  * the trigger `desi_ticket_type_zone_matches_session`: a reserved tier's
+//    zone belongs to the map version its session sells (the session's side of
+//    the same rule is `desi_event_session_map_keeps_tier_zones`, above model
+//    EventSession);
+//  * the CHECK `ticket_type_per_order_bounds` (1 <= minPerOrder <= maxPerOrder
+//    <= 50, the checkout's quantity ceiling) and
+//    `ticket_type_complimentary_free_and_hidden`;
+//  * the trigger `desi_ticket_type_description_length`: 500 characters, checked
+//    on INSERT and when the text changes, so a legacy longer row stays readable.
 model TicketType {
   id            String           @id @default(cuid())
   eventId       String
@@ -357,7 +953,9 @@ model TicketType {
   priceCents    Int
   currency      String           @default("INR")
   quantityTotal Int
-  // Denormalised counter kept in step with paid orders inside a transaction.
+  /// Incremented at settlement; decremented only when unpaid pay-at-the-venue
+  /// tickets are cancelled (apps/api/src/lib/venue-bookings.js). CHECK
+  /// ticket_type_sold_not_negative.
   quantitySold  Int              @default(0)
   minPerOrder   Int              @default(1)
   maxPerOrder   Int              @default(10)
@@ -373,16 +971,22 @@ model TicketType {
   /// migrate without inventing a session.
   eventSessionId String?
   /// For reserved seating: the price zone this tier prices. Null for general
-  /// admission, where the tier owns a quantity rather than a set of seats.
+  /// admission, where the tier owns a quantity rather than a set of seats. At
+  /// most one reserved tier prices a zone at a session: the hand-written
+  /// partial unique index `TicketType_reserved_session_zone_key`
+  /// ("eventSessionId", "priceZoneId") WHERE "reserved", which Prisma cannot
+  /// express.
   priceZoneId    String?
   /// True when this tier is sold by seat rather than by quantity.
-  reserved       Boolean          @default(false)
+  reserved       Boolean              @default(false)
   /// Complimentary tiers never charge and never reach a payment provider.
-  complimentary  Boolean          @default(false)
+  complimentary  Boolean              @default(false)
+  /// Whether the public event page lists this tier. See `TicketTypeVisibility`.
+  visibility     TicketTypeVisibility @default(PUBLIC)
 
-  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  holds      TicketHold[]
-  orderItems OrderItem[]
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  holds        TicketHold[]
+  orderItems   OrderItem[]
   eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
   priceZone    PriceZone?    @relation(fields: [priceZoneId], references: [id], onDelete: SetNull)
   eventSeats   EventSeat[]
@@ -434,17 +1038,19 @@ model TicketHold {
   /// general-admission hold on a session-less tier.
   eventSessionId String?
 
-  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
-  order      Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ticketType   TicketType    @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  order        Order?        @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
-  items      HoldItem[]
-  seats      EventSeat[]
+  items        HoldItem[]
+  seats        EventSeat[]
 
   @@index([status, expiresAt])
   @@index([ticketTypeId, status])
   @@index([userId, status])
   @@index([guestTokenHash])
+  // The foreign key from a night: deleting one finds its holds by it.
+  @@index([eventSessionId])
 }
 
 enum OrderStatus {
@@ -455,61 +1061,133 @@ enum OrderStatus {
   EXPIRED
 }
 
+// Hand-written in `20261009100000_payment_terms_and_referral_codes`: the CHECKs
+// `order_fee_parts` (`feesCents` = gross - waived), `order_fee_waiver_whole` (a
+// referral code waives the whole fee or there is no waiver) and
+// `order_fee_terms_shape` (both terms or neither, within the environment's
+// bounds; an EVENT order keeps its setting or its numbers). Hand-written in
+// `20261009110000_pay_at_the_venue`: the CHECK `order_venue_payment_shape` (a
+// CARD order owes nothing at the door; an AT_VENUE order owes the ticket price
+// after the promo there and pays only the booking fee and its tax online),
+// and, for unpaid tickets cancelled (SPEC3-XI XU), the CHECKs
+// `order_venue_cancel_shape` (the basis within the door price, the kept fee
+// within the fee charged, both 0 on a card order) and
+// `order_venue_kept_within_total` (refunded, pending and kept money never above
+// the online total, so a kept fee is never refunded). Hand-written in
+// `20261009100000_payment_terms_and_referral_codes`: the CHECK
+// `order_referral_return_shape` (a return marker has its cause and a code) and
+// the trigger `desi_order_referral_fixed` (constraints
+// `order_referral_code_fixed`: the code an order used never changes, and
+// `order_referral_return_once`: a set marker never changes).
+// The payment and fee columns are written only when the order is placed
+// (`apps/api/src/routes/orders.js`); `referralCodeId` names a code only an
+// administrator reads.
 model Order {
-  id            String      @id @default(cuid())
-  reference     String      @unique
+  id              String      @id @default(cuid())
+  reference       String      @unique
   /// Caller-supplied key that makes a retried checkout return the original
   /// order instead of creating and charging a second one.
-  idempotencyKey String?    @unique
-  eventId       String
-  userId        String?
-  buyerEmail    String
-  buyerName     String
-  status        OrderStatus @default(PENDING)
-  currency      String      @default("INR")
-  subtotalCents Int
-  discountCents Int         @default(0)
-  feesCents     Int         @default(0)
-  taxCents      Int         @default(0)
-  totalCents    Int
-  promoCodeId   String?
+  idempotencyKey  String?     @unique
+  eventId         String
+  userId          String?
+  buyerEmail      String
+  buyerName       String
+  status          OrderStatus @default(PENDING)
+  currency        String      @default("INR")
+  subtotalCents   Int
+  discountCents   Int         @default(0)
+  feesCents       Int         @default(0)
+  taxCents        Int         @default(0)
+  totalCents      Int
+  promoCodeId     String?
   /// The fee terms and tax policy this order was priced under, captured at
   /// checkout. The receipt, any refund and the ledger recompute from this
   /// rather than from the live tables, which may have moved on since.
   pricingSnapshot Json?
-  expiresAt     DateTime?
-  paidAt        DateTime?
-  cancelledAt   DateTime?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  expiresAt       DateTime?
+  paidAt          DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   /// The event, venue and organisation policies as they stood at purchase.
   /// A later edit cannot change what this buyer agreed to, which is the whole
   /// point of storing it here rather than reading it back through the event.
-  policySnapshot Json?
+  policySnapshot     Json?
   /// The session bought for, when the event has more than one.
-  eventSessionId String?
+  eventSessionId     String?
   /// Running total of everything refunded against this order, in `currency`.
   /// Denormalised so the refund ceiling is one read rather than an aggregate.
-  refundedCents  Int         @default(0)
+  refundedCents      Int     @default(0)
   /// Set when a refund has been requested but not yet settled, so a second
   /// request cannot race the first into over-refunding.
   refundPendingCents Int     @default(0)
 
-  event     Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
-  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
-  promoCode PromoCode?  @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
-  eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
-  refunds   Refund[]
-  transfers Transfer[]
-  ledgerBatches LedgerBatch[]
-  items     OrderItem[]
-  holds     TicketHold[]
-  payments  Payment[]
+  // How it is paid and the booking fee it was priced with (SPEC3 §5.4). Written
+  // only when the order is placed (`apps/api/src/routes/orders.js`); never
+  // repriced. CHECKs `order_fee_parts`, `order_fee_waiver_whole`,
+  // `order_fee_terms_shape` and `order_venue_payment_shape`.
+
+  /// CARD: everything online. AT_VENUE: the booking fee (and any tax on it)
+  /// online, the ticket price at the door.
+  paymentMethod            OrderPaymentMethod      @default(CARD)
+  /// Whose terms priced the booking fee.
+  feeSource                FeeSource               @default(SITE_DEFAULT)
+  /// The event's fee decision used, for EVENT terms. Null for SITE_DEFAULT.
+  feeSettingId             String?
+  /// The percentage used, in basis points. Null when the terms were not
+  /// recorded (orders placed before 9 October 2026 without a usable snapshot).
+  feePercentageBps         Int?
+  /// The amount per ticket used. Null exactly when `feePercentageBps` is.
+  feeFlatCentsPerTicket    Int?
+  /// The booking fee the terms came to, before any waiver.
+  feeGrossCents            Int                     @default(0)
+  /// The booking fee a referral code waived: all of it, or nothing.
+  feeWaivedCents           Int                     @default(0)
+  /// The referral code that waived it. Administrators only.
+  referralCodeId           String?
+  /// The ticket price after the promo, to be paid at the door. 0 on a card
+  /// order. Never changes.
+  venueDueCents            Int                     @default(0)
+  /// When this order's referral use was given back (it ended without being used),
+  /// and why. Set once, by apps/api/src/lib/referral-uses.js only.
+  referralUseReturnedAt    DateTime?
+  referralUseReturnCause   ReferralUseReturnCause?
+  /// Door price no longer owed: the dues of tickets cancelled unpaid (SPEC3-XI XU).
+  venueCancelledBasisCents Int                     @default(0)
+  /// The booking fee kept by The Desi Events for those tickets. Never refunded. Only the
+  /// fee is ever kept; tax on it would go back to the buyer (SPEC3-XI XU6).
+  venueFeeKeptCents        Int                     @default(0)
+
+  event              Event                      @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user               User?                      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  promoCode          PromoCode?                 @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
+  eventSession       EventSession?              @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
+  refunds            Refund[]
+  transfers          Transfer[]
+  ledgerBatches      LedgerBatch[]
+  items              OrderItem[]
+  holds              TicketHold[]
+  payments           Payment[]
+  /// The order's group pass, created lazily on the holder's first retrieval.
+  groupPass          GroupPass?
+  feeSetting         EventFeeSetting?           @relation(fields: [feeSettingId], references: [id], onDelete: SetNull)
+  referralCode       ReferralCode?              @relation(fields: [referralCodeId], references: [id], onDelete: Restrict)
+  /// Payments taken at the door for its tickets. Not platform money.
+  venuePayments      VenuePayment[]
+  /// Its unpaid pay-at-the-venue tickets cancelled, if any (SPEC3-XI XU).
+  venueCancellations VenueBookingCancellation[]
 
   @@index([status, createdAt])
   @@index([eventId, status])
   @@index([buyerEmail])
+  // The foreign key from a night: deleting one, and cancelling one, find its
+  // orders by it.
+  @@index([eventSessionId])
+  @@index([feeSettingId])
+  @@index([referralCodeId, status])
+  @@index([eventId, paymentMethod, status])
+  @@index([referralCodeId, referralUseReturnedAt])
 }
 
 model OrderItem {
@@ -522,17 +1200,30 @@ model OrderItem {
 
   /// Quantity already refunded from this line. The refund allocator reads this
   /// to enforce "you cannot refund more of a line than was bought".
-  refundedQuantity Int   @default(0)
-  refundedCents    Int   @default(0)
+  refundedQuantity       Int      @default(0)
+  refundedCents          Int      @default(0)
+  /// Names typed at checkout for a general-admission line, staged until
+  /// settlement issues the tickets, then cleared. Positional; never longer
+  /// than quantity (CHECK order_item_attendee_names_within_quantity).
+  attendeeNames          String[] @default([])
+  /// The line's ticket price after its promo share, to be paid at the door. 0
+  /// on a card order (CHECK `order_item_venue_due_shape`).
+  venueDueCents          Int      @default(0)
+  /// Tickets of this line cancelled unpaid (SPEC3-XI XU). Refunds count them as
+  /// gone (CHECK `order_item_venue_cancelled_within_line`).
+  venueCancelledQuantity Int      @default(0)
 
-  order      Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
-  tickets    Ticket[]
-  eventSeats EventSeat[]
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketType  TicketType   @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
+  tickets     Ticket[]
+  eventSeats  EventSeat[]
   refundItems RefundItem[]
-  holdItems  HoldItem[]
+  holdItems   HoldItem[]
 
   @@index([orderId])
+  // The foreign key from a tier: deleting one, and the tier editor's counts,
+  // find its order lines by it.
+  @@index([ticketTypeId])
 }
 
 enum TicketStatus {
@@ -559,6 +1250,36 @@ enum TicketStatus {
   CANCELLED
 }
 
+// Hand-written in `20260928100000_live_seat_ticket_index`, because Prisma's
+// schema language cannot express it: the partial unique index
+// `Ticket_eventSeatId_live_key` on ("eventSeatId") WHERE the status is VALID,
+// TRANSFER_PENDING or CHECKED_IN. One live ticket per seat; the plain
+// `@@index([eventSeatId])` below serves the foreign key and history lookups.
+//
+// Hand-written in `20261009110000_pay_at_the_venue`: the CHECK
+// `ticket_venue_due_shape` (no payment without an amount due); the trigger
+// `desi_ticket_venue_payment_guard` (constraints `ticket_venue_payment_fixed` and
+// `venue_payment_order`: a payment, once set, never changes, and names the
+// ticket's own order); the deferred constraint triggers
+// `desi_ticket_venue_payment_sum` and `desi_ticket_venue_payment_sum_on_delete`
+// (constraint `venue_payment_sum`: at commit, the payment a written or removed
+// ticket names still equals its tickets); and
+// `desi_check_in_ticket_admissible` refusing an admission while the amount due
+// is unpaid (`check_in_payment_due`). A ticket with an amount due is handed on
+// like any other (open question 7); the trigger `desi_ticket_venue_due_guard`
+// keeps its due with it (constraints `ticket_venue_due_fixed`: a due never
+// changes; `ticket_venue_due_successor`: a successor owes what its predecessor
+// owed; `ticket_venue_insert_unpaid`: a ticket is inserted neither paid nor
+// cancelled). For a ticket cancelled unpaid (SPEC3-XI XU): the CHECK
+// `ticket_venue_cancellation_shape` (only a REVOKED, unpaid ticket owing
+// something), the trigger `desi_ticket_venue_cancellation_guard` (constraints
+// `ticket_venue_cancellation_fixed` and `venue_cancellation_ticket`: set once,
+// to a cancellation of its own order, while the ticket goes from VALID or
+// TRANSFER_PENDING to REVOKED and was never admitted), the guard above refusing
+// a payment for it (`venue_payment_order`), and the deferred constraint
+// triggers `desi_ticket_venue_cancellation_sum` and
+// `desi_ticket_venue_cancellation_sum_on_delete` (constraint
+// `venue_booking_cancellation_sum`).
 /// One admission.
 ///
 /// Two identifiers, deliberately. `code` is the human-readable reference a
@@ -573,43 +1294,66 @@ enum TicketStatus {
 /// no order reference, no authorisation claim. Everything the gate needs to
 /// decide is looked up server-side from the hash.
 model Ticket {
-  id           String       @id @default(cuid())
-  orderItemId  String
+  id                  String       @id @default(cuid())
+  orderItemId         String
   /// Human-readable reference. Admits nobody by itself.
-  code         String       @unique
+  code                String       @unique
   /// SHA-256 of the bearer credential in the QR pass. Never the credential.
-  credentialHash String?    @unique
+  credentialHash      String?      @unique
   /// Bumped every time the credential is rotated, so an old pass is provably
   /// stale rather than merely unrecognised.
-  credentialVersion Int     @default(1)
-  credentialIssuedAt DateTime?
-  attendeeName String?
+  credentialVersion   Int          @default(1)
+  credentialIssuedAt  DateTime?
+  attendeeName        String?
   /// Who holds it now. Null for a guest purchase that was never claimed.
-  ownerUserId  String?
-  /// The seat, for reserved seating. Null for general admission.
-  eventSeatId  String?      @unique
-  status       TicketStatus @default(VALID)
-  checkedInAt  DateTime?
-  revokedAt    DateTime?
-  revokedReason String?
+  ownerUserId         String?
+  /// The seat, for reserved seating. Null for general admission. Unique among
+  /// live tickets (VALID, TRANSFER_PENDING, CHECKED_IN) by a partial index
+  /// Prisma cannot express; a handed-on or refunded row keeps its seat as
+  /// history. See ADR 0006.
+  eventSeatId         String?
+  status              TicketStatus @default(VALID)
+  checkedInAt         DateTime?
+  revokedAt           DateTime?
+  revokedReason       String?
   /// The ticket this one replaced, when it was created by a transfer or a
   /// reissue. Gives an unbroken chain from the original purchase.
-  supersedesTicketId String? @unique
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  supersedesTicketId  String?      @unique
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  /// This ticket's share of its line's door price; 0 unless paid at the venue.
+  /// Never changes (trigger desi_ticket_venue_due_guard). Written at settlement
+  /// (`apps/api/src/lib/checkout.js`) and copied to a transfer's successor
+  /// (`apps/api/src/lib/tickets.js`).
+  venueDueCents       Int          @default(0)
+  /// The door payment that paid it, or null while unpaid. Once set, never changes
+  /// (trigger desi_ticket_venue_payment_guard). Only
+  /// `apps/api/src/lib/venue-payments.js` writes it.
+  venuePaymentId      String?
+  /// The cancellation that cancelled it unpaid, or null. Set once (trigger
+  /// desi_ticket_venue_cancellation_guard). Only
+  /// `apps/api/src/lib/venue-bookings.js` writes it.
+  venueCancellationId String?
 
-  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  owner     User?     @relation("TicketOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  eventSeat EventSeat? @relation(fields: [eventSeatId], references: [id], onDelete: SetNull)
-  supersedes Ticket?  @relation("TicketSupersession", fields: [supersedesTicketId], references: [id], onDelete: SetNull)
-  supersededBy Ticket? @relation("TicketSupersession")
-  transfers TicketTransfer[]
-  checkIn   CheckIn?
-  refundItems RefundItem[]
+  orderItem         OrderItem                 @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  owner             User?                     @relation("TicketOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  eventSeat         EventSeat?                @relation(fields: [eventSeatId], references: [id], onDelete: SetNull)
+  supersedes        Ticket?                   @relation("TicketSupersession", fields: [supersedesTicketId], references: [id], onDelete: SetNull)
+  supersededBy      Ticket?                   @relation("TicketSupersession")
+  transfers         TicketTransfer[]
+  /// One for a ticket that admits once; one per night for a ticket good for
+  /// every night. See `CheckIn`.
+  checkIns          CheckIn[]
+  refundItems       RefundItem[]
+  venuePayment      VenuePayment?             @relation(fields: [venuePaymentId], references: [id], onDelete: Restrict)
+  venueCancellation VenueBookingCancellation? @relation(fields: [venueCancellationId], references: [id], onDelete: Restrict)
 
   @@index([orderItemId])
   @@index([status])
   @@index([ownerUserId])
+  @@index([eventSeatId])
+  @@index([venuePaymentId])
+  @@index([venueCancellationId])
 }
 
 enum PaymentStatus {
@@ -638,37 +1382,37 @@ enum PaymentStatus {
 /// that dies mid-call still leaves evidence that a charge may exist. Nothing
 /// here is inferred from a browser redirect.
 model Payment {
-  id          String        @id @default(cuid())
-  orderId     String
-  provider    String
-  providerRef String?
-  status      PaymentStatus @default(INITIATED)
-  amountCents Int
-  currency    String        @default("INR")
-  failureCode String?
+  id                     String        @id @default(cuid())
+  orderId                String
+  provider               String
+  providerRef            String?
+  status                 PaymentStatus @default(INITIATED)
+  amountCents            Int
+  currency               String        @default("INR")
+  failureCode            String?
   /// Caller-scoped key making retries of the same checkout idempotent.
-  idempotencyKey String?    @unique
-  attemptNumber  Int        @default(1)
+  idempotencyKey         String?       @unique
+  attemptNumber          Int           @default(1)
   /// Set when the provider's answer was ambiguous (a timeout). Money may have
   /// moved; the row must not be reused and a human must reconcile it.
-  reconciliationRequired Boolean @default(false)
+  reconciliationRequired Boolean       @default(false)
   /// The provider's own status string, kept verbatim for reconciliation.
-  rawProviderStatus String?
-  settledAt   DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  rawProviderStatus      String?
+  settledAt              DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
 
   /// The connected account the charge was made on behalf of, when the provider
   /// has that concept. Part of the webhook's identity: the same event id can
   /// arrive for the platform and for a connected account.
-  providerAccountId String?
+  providerAccountId    String?
   /// Safe display metadata only. Never a card number, never a CVC, never a
   /// cryptogram — those never reach this system at all.
-  methodBrand    String?
-  methodLast4    String?
-  methodExpMonth Int?
-  methodExpYear  Int?
-  methodType     String?
+  methodBrand          String?
+  methodLast4          String?
+  methodExpMonth       Int?
+  methodExpYear        Int?
+  methodType           String?
   /// When a client secret was issued to the browser. The secret itself is never
   /// stored or logged; this is only so a stale checkout can be recognised.
   clientSecretIssuedAt DateTime?
@@ -676,10 +1420,10 @@ model Payment {
   /// pricing change cannot silently reinterpret an old charge.
   pricingPolicyVersion String?
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  refunds Refund[]
-  disputes Dispute[]
-  ledgerBatches LedgerBatch[]
+  order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds             Refund[]
+  disputes            Dispute[]
+  ledgerBatches       LedgerBatch[]
   reconciliationTasks ReconciliationTask[]
 
   @@unique([provider, providerRef])
@@ -717,30 +1461,30 @@ enum WebhookState {
 /// account, and those are two different facts. `accountContext` is the empty
 /// string for platform events so the unique index covers every row.
 model WebhookEvent {
-  id              String    @id @default(cuid())
-  provider        String
+  id                String       @id @default(cuid())
+  provider          String
   /// The connected account the event belongs to, or '' for the platform.
-  accountContext  String    @default("")
-  providerEventId String
-  eventType       String
+  accountContext    String       @default("")
+  providerEventId   String
+  eventType         String
   /// The provider's API version for this delivery. A payload's shape is only
   /// interpretable against the version that produced it.
-  apiVersion      String?
+  apiVersion        String?
   /// When the provider says it created the event, as distinct from when we
   /// received it. Out-of-order delivery is normal and this is how it is seen.
   providerCreatedAt DateTime?
-  payload         Json
+  payload           Json
   /// SHA-256 of the exact bytes whose signature was verified. Proof that what
   /// was stored is what was signed.
-  payloadHash     String?
-  orderId         String?
-  paymentId       String?
-  state           WebhookState @default(RECEIVED)
-  attemptCount    Int       @default(0)
-  nextAttemptAt   DateTime?
-  receivedAt      DateTime  @default(now())
-  processedAt     DateTime?
-  processingError String?
+  payloadHash       String?
+  orderId           String?
+  paymentId         String?
+  state             WebhookState @default(RECEIVED)
+  attemptCount      Int          @default(0)
+  nextAttemptAt     DateTime?
+  receivedAt        DateTime     @default(now())
+  processedAt       DateTime?
+  processingError   String?
 
   @@unique([provider, accountContext, providerEventId])
   @@index([processedAt])
@@ -758,6 +1502,14 @@ enum PromoType {
   FIXED_AMOUNT
 }
 
+/// A discount code an organisation offers, org-wide or for one event.
+///
+/// Besides `promo_code_fixed_amount_currency`, the database enforces
+/// (migration `20260929090000_checkout_promos_attendees_nights`):
+/// `promo_code_value_in_range` (never negative; at most 10000 basis points for
+/// a percentage), `promo_code_percentage_has_no_currency`,
+/// `promo_code_redemptions_within_cap` (redemptions never exceed a cap of at
+/// least 1) and `promo_code_window_ordered` (a window ends after it starts).
 model PromoCode {
   id              String    @id @default(cuid())
   organizationId  String
@@ -784,6 +1536,7 @@ model PromoCode {
 
   @@unique([organizationId, code])
   @@index([eventId, active])
+  @@index([organizationId, createdAt])
 }
 
 model WaitlistEntry {
@@ -837,34 +1590,37 @@ model AuditLog {
 
 /// A browser or app sign-in that can be listed and revoked.
 model Session {
-  id           String    @id @default(cuid())
-  userId       String
+  id             String    @id @default(cuid())
+  userId         String
   /// SHA-256 of the session token. The token itself is returned once, at
   /// creation, and never persisted — a database leak must not be a login.
-  tokenHash    String    @unique
-  deviceId     String?
+  tokenHash      String    @unique
+  deviceId       String?
   /// Truncated user agent, for the "which browser is this?" line in the UI.
-  userAgent    String?
+  userAgent      String?
   /// SHA-256 of the client address plus a server-side pepper. Enough to spot a
   /// session moving between networks; not enough to recover the address.
-  ipHash       String?
-  createdAt    DateTime  @default(now())
-  lastSeenAt   DateTime  @default(now())
-  expiresAt    DateTime
+  ipHash         String?
+  createdAt      DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
+  expiresAt      DateTime
   /// Set when the session ended. A revoked row is kept so the audit trail shows
   /// that it existed and when it stopped.
-  revokedAt    DateTime?
-  revokedReason String?
+  revokedAt      DateTime?
+  revokedReason  String?
   /// When a second factor was last satisfied on this session. Step-up
   /// authentication for finance and admin work reads this, so an hours-old
   /// session cannot approve a refund on the strength of a password alone.
   mfaSatisfiedAt DateTime?
   /// Rotated on every privilege change, so a token captured before an
   /// escalation cannot be replayed after it.
-  rotatedAt    DateTime?
+  rotatedAt      DateTime?
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device        Device?             @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  /// Platform edit sittings opened in this browser session. A sitting answers
+  /// only the session that opened it.
+  platformEdits EventPlatformEdit[]
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
@@ -873,7 +1629,7 @@ model Session {
 
 /// A browser or scanner the account has used before.
 model Device {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   userId          String
   /// What the person calls it, when they have named it.
   label           String?
@@ -882,8 +1638,8 @@ model Device {
   /// Set by the owner to skip a second factor on this device, where policy
   /// allows it. Never set by the device itself.
   trustedAt       DateTime?
-  firstSeenAt     DateTime @default(now())
-  lastSeenAt      DateTime @default(now())
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
   revokedAt       DateTime?
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -906,22 +1662,22 @@ enum MfaFactorType {
 
 /// One second factor belonging to one account.
 model MfaFactor {
-  id          String        @id @default(cuid())
-  userId      String
-  type        MfaFactorType
+  id           String        @id @default(cuid())
+  userId       String
+  type         MfaFactorType
   /// A label for the UI: "Phone", "Backup codes".
-  label       String?
+  label        String?
   /// For TOTP, the shared secret sealed with the server key. For a recovery
   /// code, a SHA-256 of the code. Never a usable plaintext secret.
   secretSealed String
   /// Null until the enrolment was confirmed by a successful challenge. An
   /// unconfirmed factor never satisfies a requirement.
-  confirmedAt DateTime?
-  lastUsedAt  DateTime?
+  confirmedAt  DateTime?
+  lastUsedAt   DateTime?
   /// Single-use factors (recovery codes) are spent, not deleted.
-  usedAt      DateTime?
-  disabledAt  DateTime?
-  createdAt   DateTime      @default(now())
+  usedAt       DateTime?
+  disabledAt   DateTime?
+  createdAt    DateTime      @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -972,15 +1728,15 @@ model AuthToken {
 /// Neither the address nor the email is stored in the clear: throttling needs to
 /// know "the same actor again", not who the actor is.
 model LoginAttempt {
-  id         String   @id @default(cuid())
+  id        String   @id @default(cuid())
   /// SHA-256 of the lower-cased email plus a server pepper.
-  emailHash  String
-  ipHash     String
-  succeeded  Boolean
+  emailHash String
+  ipHash    String
+  succeeded Boolean
   /// Why it failed, in terms safe to store: BAD_PASSWORD, NO_SUCH_USER,
   /// MFA_REQUIRED, LOCKED. Never the credential that was tried.
-  outcome    String
-  createdAt  DateTime @default(now())
+  outcome   String
+  createdAt DateTime @default(now())
 
   @@index([emailHash, createdAt])
   @@index([ipHash, createdAt])
@@ -998,6 +1754,10 @@ model ScannerScope {
   createdAt    DateTime @default(now())
 
   membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  /// A real foreign key since the Phase 4 admission work; before it, a scope
+  /// could name an event that did not exist. A trigger additionally refuses a
+  /// scope naming another organisation's event — see the migration.
+  event      Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@unique([membershipId, eventId])
   @@index([eventId])
@@ -1027,14 +1787,14 @@ enum VerificationStatus {
 /// Append-only by convention and by the absence of any route that updates it:
 /// the current status lives on `Organization`, and this is how it got there.
 model OrganizationVerificationEvent {
-  id             String             @id @default(cuid())
+  id             String              @id @default(cuid())
   organizationId String
   fromStatus     VerificationStatus?
   toStatus       VerificationStatus
   /// The moderator, or null when the transition was automatic.
   actorId        String?
   reason         String?
-  createdAt      DateTime           @default(now())
+  createdAt      DateTime            @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -1048,6 +1808,25 @@ enum InvitationStatus {
   EXPIRED
 }
 
+/// How an invitation's code reached the invitee.
+enum InvitationDelivery {
+  /// Sent by the email provider. The inviter never saw the code.
+  EMAIL
+  /// Shown once to the inviter, in the response that issued it, for them to
+  /// pass on themselves. Never stored, logged or audited.
+  MANUAL
+}
+
+// Hand-written in `20260928120000_team_delivery_and_organisation_provenance`,
+// because Prisma's schema language cannot express it: the partial unique index
+// `Invitation_one_pending_per_address` on ("organizationId", lower("email"))
+// WHERE "status" = 'PENDING'. One live code per address per organisation.
+//
+// Hand-written in `20260930100000_organiser_invitations_and_review_gate`: the
+// CHECK `invitation_pending_role_is_owner_grantable`. A waiting team invitation
+// offers only FINANCE, STAFF, SCANNER or VIEWER; roles that create or publish
+// events come from the team at The Desi Events (an organiser invitation, or a super
+// administrator's direct grant).
 /// An invitation to join an organisation with a named role.
 ///
 /// The token is hashed and single-use, and the role is fixed at issue. An
@@ -1056,20 +1835,23 @@ enum InvitationStatus {
 /// no update path and acceptance is guarded by `Membership.invitationId` being
 /// unique.
 model Invitation {
-  id             String           @id @default(cuid())
-  organizationId String
+  id               String              @id @default(cuid())
+  organizationId   String
   /// Lower-cased address the invitation was sent to. The acceptor's own address
   /// must match it, so a forwarded link does not admit the wrong person.
-  email          String
-  role           OrgRole
-  tokenHash      String           @unique
-  invitedById    String
-  status         InvitationStatus @default(PENDING)
-  expiresAt      DateTime
-  acceptedAt     DateTime?
+  email            String
+  role             OrgRole
+  tokenHash        String              @unique
+  invitedById      String
+  status           InvitationStatus    @default(PENDING)
+  expiresAt        DateTime
+  acceptedAt       DateTime?
   acceptedByUserId String?
-  revokedAt      DateTime?
-  createdAt      DateTime         @default(now())
+  revokedAt        DateTime?
+  createdAt        DateTime            @default(now())
+  /// How the code went out. Null for an invitation issued before delivery
+  /// modes existed: no code was delivered to anybody.
+  deliveryMode     InvitationDelivery?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   invitedBy    User         @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
@@ -1078,6 +1860,64 @@ model Invitation {
 
   @@index([organizationId, status])
   @@index([email, status])
+  @@index([expiresAt])
+}
+
+// Hand-written in `20260930100000_organiser_invitations_and_review_gate`: the
+// partial unique index `OrganizerInvitation_one_pending_per_address` on
+// (lower("email")) WHERE "status" = 'PENDING', and the CHECKs
+// `organizer_invitation_email_lower`, `_name_length`, `_description_length`,
+// `_website_shape`, `_note_length`, `_token_is_digest`,
+// `_expires_after_creation`, `_accepted_shape`, `_revoked_shape` and
+// `_org_only_when_accepted`.
+/// An invitation from the team at The Desi Events to start an organisation here, as
+/// its owner.
+///
+/// Apart from a super administrator's direct grant, the only way anybody comes
+/// to hold an organisation role that creates or publishes events. The code is
+/// hashed and single-use; the address it was issued to must be the address of
+/// the account that accepts it. The organisation's public description and
+/// website are written by the administrator here, never by the recipient.
+model OrganizerInvitation {
+  id                      String             @id @default(cuid())
+  /// Lower-cased. The accepting account's address must match it.
+  email                   String
+  /// The name the organisation is created with.
+  organizationName        String
+  /// The organisation's public description, written by the administrator.
+  organizationDescription String?
+  /// The organisation's website, written by the administrator: the event
+  /// website's address rules.
+  organizationWebsiteUrl  String?
+  /// Written by the inviting administrator for the recipient only. Never public.
+  note                    String?
+  /// Null until accepted, then the organisation it created.
+  organizationId          String?
+  tokenHash               String             @unique
+  invitedById             String
+  status                  InvitationStatus   @default(PENDING)
+  deliveryMode            InvitationDelivery
+  expiresAt               DateTime
+  acceptedAt              DateTime?
+  acceptedByUserId        String?
+  revokedAt               DateTime?
+  revokedById             String?
+  /// The invitation this one replaced when a new code was issued.
+  supersedesId            String?            @unique
+  createdAt               DateTime           @default(now())
+
+  organization Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  invitedBy    User                 @relation("OrganizerInvitationInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+  acceptedBy   User?                @relation("OrganizerInvitationAcceptedBy", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+  revokedBy    User?                @relation("OrganizerInvitationRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+  supersedes   OrganizerInvitation? @relation("OrganizerInvitationReissue", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy OrganizerInvitation? @relation("OrganizerInvitationReissue")
+  membership   Membership?
+
+  @@index([status, createdAt])
+  @@index([email, status])
+  @@index([organizationId])
+  @@index([invitedById])
   @@index([expiresAt])
 }
 
@@ -1092,14 +1932,14 @@ model Invitation {
 
 /// A named seating layout belonging to a venue, e.g. "Main hall, end stage".
 model VenueMap {
-  id        String   @id @default(cuid())
-  venueId   String
-  name      String
+  id         String    @id @default(cuid())
+  venueId    String
+  name       String
   /// Free text describing what this layout is for.
-  notes     String?
+  notes      String?
   archivedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   venue    Venue             @relation(fields: [venueId], references: [id], onDelete: Cascade)
   versions VenueMapVersion[]
@@ -1243,38 +2083,63 @@ enum EventSessionStatus {
   COMPLETED
 }
 
+// Hand-written in `20260928090000_event_authoring_content_and_tier_rules`: the
+// trigger `desi_event_session_map_keeps_tier_zones` refuses moving a session to
+// another map version, or to general admission, while a ticket type on it
+// prices a zone of the version it has.
+//
+// Hand-written in `20260930150000_event_full_control`: the CHECK
+// `event_session_cancellation_stamped` (status CANCELLED exactly when
+// `cancelledAt` is set; a reason, when given, 1-500 characters) and the trigger
+// `desi_event_session_cancel_is_final` (constraint
+// `event_session_cancellation_final`): a cancelled night does not come back.
 /// One performance of an event: a date, a time, a door time, a sales window.
 ///
 /// Phase 1 events carried a single start and end on the event itself. Those
 /// columns remain and stay authoritative for single-session events; a session
 /// row is what makes a run of nine Navratri nights one listing.
 model EventSession {
-  id            String             @id @default(cuid())
-  eventId       String
+  id                 String             @id @default(cuid())
+  eventId            String
   /// Stored UTC; render with `timezone`.
-  startsAt      DateTime
-  endsAt        DateTime
-  doorsOpenAt   DateTime?
-  timezone      String             @default("Asia/Kolkata")
-  salesStartAt  DateTime?
-  salesEndAt    DateTime?
-  status        EventSessionStatus @default(SCHEDULED)
+  startsAt           DateTime
+  endsAt             DateTime
+  doorsOpenAt        DateTime?
+  timezone           String             @default("Asia/Kolkata")
+  salesStartAt       DateTime?
+  salesEndAt         DateTime?
+  status             EventSessionStatus @default(SCHEDULED)
   /// The frozen layout this session sells. Null for a general-admission
   /// session. Once anything is sold it may not change.
-  venueMapVersionId String?
-  /// General-admission capacity, for a session with no seat map.
-  capacity      Int?
-  sortOrder     Int                @default(0)
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  venueMapVersionId  String?
+  /// General-admission capacity, for a session with no seat map. Positive when
+  /// set (CHECK `event_session_capacity_positive`).
+  capacity           Int?
+  sortOrder          Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  /// Short organiser-facing name for this performance, e.g. "Night 1". Null
+  /// means the date alone labels it. 1-60 characters once trimmed (CHECK
+  /// `event_session_label_length`).
+  label              String?
+  /// Set when the night was cancelled (status CANCELLED, which is final).
+  cancelledAt        DateTime?
+  /// Why, as the person cancelling it wrote it.
+  cancellationReason String?
+  /// False when the source of an imported event listed no end time, so
+  /// `endsAt` (and the event's) is a planning estimate (start + 3 hours) that
+  /// no public page, card, JSON-LD or social image shows.
+  endTimeListed      Boolean            @default(true)
 
-  event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  venueMapVersion VenueMapVersion? @relation(fields: [venueMapVersionId], references: [id], onDelete: Restrict)
+  event           Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  venueMapVersion VenueMapVersion?    @relation(fields: [venueMapVersionId], references: [id], onDelete: Restrict)
   eventSeats      EventSeat[]
   ticketTypes     TicketType[]
   holds           TicketHold[]
   orders          Order[]
   checkIns        CheckIn[]
+  changeNotices   EventChangeNotice[]
+  venuePayments   VenuePayment[]
 
   @@index([eventId, startsAt])
   @@index([status, startsAt])
@@ -1301,27 +2166,29 @@ enum EventSeatStatus {
 /// race gets zero rows updated and is told the seat is gone — rather than both
 /// buyers being told yes.
 model EventSeat {
-  id             String          @id @default(cuid())
-  eventSessionId String
-  seatId         String
-  ticketTypeId   String?
-  status         EventSeatStatus @default(AVAILABLE)
+  id                 String          @id @default(cuid())
+  eventSessionId     String
+  seatId             String
+  ticketTypeId       String?
+  status             EventSeatStatus @default(AVAILABLE)
   /// The hold currently reserving it, when status is HELD.
-  holdId         String?
+  holdId             String?
   /// The line it was sold on, when status is SOLD or COMPLIMENTARY.
-  orderItemId    String?
+  orderItemId        String?
   /// Price override for this seat at this session, in the tier's currency.
   /// Null means the tier's price applies.
   priceCentsOverride Int?
-  blockedReason  String?
-  updatedAt      DateTime        @updatedAt
+  blockedReason      String?
+  updatedAt          DateTime        @updatedAt
 
   eventSession EventSession @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
   seat         Seat         @relation(fields: [seatId], references: [id], onDelete: Restrict)
   ticketType   TicketType?  @relation(fields: [ticketTypeId], references: [id], onDelete: SetNull)
   hold         TicketHold?  @relation(fields: [holdId], references: [id], onDelete: SetNull)
   orderItem    OrderItem?   @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
-  ticket       Ticket?
+  /// Every ticket that has held this seat. At most one is live at a time
+  /// (`Ticket_eventSeatId_live_key`); the rest are its history.
+  tickets      Ticket[]
 
   @@unique([eventSessionId, seatId])
   @@index([eventSessionId, status])
@@ -1333,20 +2200,23 @@ model EventSeat {
 /// One line of a hold: either a quantity of a general-admission tier, or one
 /// named seat.
 model HoldItem {
-  id           String  @id @default(cuid())
-  holdId       String
-  ticketTypeId String
+  id             String  @id @default(cuid())
+  holdId         String
+  ticketTypeId   String
   /// Always 1 for a seated item.
-  quantity     Int     @default(1)
-  eventSeatId  String?
+  quantity       Int     @default(1)
+  eventSeatId    String?
   /// The order line that will pay for this seat, stamped when the hold is
   /// attached to an order. Settlement reads it instead of re-deriving the line
   /// from the ticket type, which cannot tell two lines of one tier apart when
   /// seats in a single selection sit in different price zones.
-  orderItemId  String?
+  orderItemId    String?
   /// What this seat cost on that line, frozen when the order was priced, so a
   /// later change to the zone override cannot alter what was charged.
   unitPriceCents Int?
+  /// The name typed for this seat at checkout, staged until settlement, then
+  /// cleared. Only a seated item carries one (CHECK hold_item_attendee_name_seated).
+  attendeeName   String?
 
   hold       TicketHold @relation(fields: [holdId], references: [id], onDelete: Cascade)
   ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
@@ -1356,6 +2226,9 @@ model HoldItem {
   @@index([holdId])
   @@index([eventSeatId])
   @@index([orderItemId])
+  // The foreign key from a tier: deleting one, and the tier editor's counts,
+  // find its hold lines by it.
+  @@index([ticketTypeId])
 }
 
 // ---------------------------------------------------------------------------
@@ -1367,15 +2240,15 @@ model HoldItem {
 /// Append-only: there is no route that updates or deletes a row here, because
 /// "who approved this, and why" is not a field that should be editable.
 model EventModerationAction {
-  id         String       @id @default(cuid())
-  eventId    String
-  actorId    String?
-  fromStatus EventStatus?
-  toStatus   EventStatus
-  reason     String?
+  id               String       @id @default(cuid())
+  eventId          String
+  actorId          String?
+  fromStatus       EventStatus?
+  toStatus         EventStatus
+  reason           String?
   /// What the moderator asked to be changed, for CHANGES_REQUIRED.
   requestedChanges Json?
-  createdAt  DateTime     @default(now())
+  createdAt        DateTime     @default(now())
 
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
   actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
@@ -1399,41 +2272,425 @@ enum MediaScanStatus {
   ERROR
 }
 
-/// An uploaded image or document.
+/// What an event picture is for.
+enum MediaKind {
+  /// The event's one cover picture. It replaces the drawn poster wherever the
+  /// event is shown; at most one per event.
+  EVENT_COVER
+  /// One of at most eight gallery pictures on the event page, ordered by
+  /// `position`.
+  EVENT_GALLERY
+}
+
+// Hand-written in `20260928130000_event_media`, because Prisma's schema
+// language cannot express them: the trigger `desi_media_gallery_cap` (at most
+// eight gallery pictures per event); and the CHECKs
+// `media_asset_event_media_shape`, `media_asset_position_by_kind`,
+// `media_asset_approved_is_servable`, `media_asset_rejection_has_note` and
+// `media_asset_decision_is_stamped`.
+//
+// Hand-written in `20260930150000_event_full_control`: the partial unique index
+// `MediaAsset_one_current_cover_per_event_key` on ("eventId") WHERE "kind" =
+// 'EVENT_COVER' AND "replacesMediaId" IS NULL, which replaced
+// `MediaAsset_one_cover_per_event_key` (a waiting replacement cover is the
+// second cover row); the CHECK `media_asset_replacement_shape` (a replacement is
+// a cover, never APPROVED while it points, never itself); and the trigger
+// `desi_media_replacement_matches` (constraint
+// `media_asset_replacement_matches`): it replaces the current cover of its own
+// event.
+/// An uploaded image.
 ///
-/// The bytes live in object storage; this row is the metadata and the gate. A
-/// public surface may only render an asset that is both APPROVED and CLEAN, so
-/// an unscanned upload cannot appear on a listing.
+/// The bytes live in `MediaBlob`, behind the `MediaStorage` adapter; this row
+/// is the metadata and the gate. `CLEAN` means the structural check passed. A
+/// public surface renders only an asset that is APPROVED, CLEAN and sanitised,
+/// on a publicly visible event, so an unchecked upload cannot appear on a
+/// listing.
 model MediaAsset {
-  id          String                @id @default(cuid())
+  id               String                @id @default(cuid())
   /// What owns it: EVENT, VENUE, ORGANIZATION.
-  ownerType   String
-  ownerId     String
-  eventId     String?
-  kind        String
-  /// Key in object storage. Unique so two rows cannot claim the same object.
-  storageKey  String                @unique
-  contentType String
-  byteSize    Int
-  width       Int?
-  height      Int?
+  ownerType        String
+  ownerId          String
+  eventId          String?
+  kind             MediaKind
+  /// Storage key. Unique so two rows cannot claim the same bytes.
+  storageKey       String                @unique
+  contentType      String
+  byteSize         Int
+  width            Int?
+  height           Int?
   /// SHA-256 of the stored bytes, for de-duplication and tamper detection.
-  checksum    String?
+  checksum         String?
   /// Set once EXIF has been stripped. An asset with location metadata still in
   /// it is not servable.
-  sanitisedAt DateTime?
+  sanitisedAt      DateTime?
   moderationStatus MediaModerationStatus @default(PENDING)
-  scanStatus  MediaScanStatus       @default(PENDING)
-  scanNote    String?
-  uploadedById String?
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
+  scanStatus       MediaScanStatus       @default(PENDING)
+  scanNote         String?
+  uploadedById     String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  /// Describes the picture for people who cannot see it. Required for event
+  /// media (CHECK `media_asset_event_media_shape`). Public.
+  altText          String?
+  /// 0-7 for a gallery picture; null for a cover.
+  position         Int?
+  /// When a moderator last decided on it, and who.
+  moderatedAt      DateTime?
+  moderatedById    String?
+  /// Why it was rejected. Shown to the organiser, never public.
+  moderationNote   String?
+  /// A replacement cover waiting for review: the cover it will replace, which
+  /// stays public until this one is approved. Null for every other picture.
+  /// Unique (one waiting replacement per cover); cleared by ON DELETE SET NULL
+  /// when the replaced cover goes.
+  replacesMediaId  String?               @unique
 
-  event      Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  uploadedBy User?  @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  event        Event?             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedBy   User?              @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  moderatedBy  User?              @relation("MediaModeratedBy", fields: [moderatedById], references: [id], onDelete: SetNull)
+  blob         MediaBlob?
+  replaces     MediaAsset?        @relation("MediaReplacement", fields: [replacesMediaId], references: [id], onDelete: SetNull)
+  replacedBy   MediaAsset?        @relation("MediaReplacement")
+  /// The import record this picture was copied for, when it was.
+  importImages EventImportImage[]
 
   @@index([ownerType, ownerId])
   @@index([moderationStatus, scanStatus])
+  @@index([eventId, kind, position])
+  @@index([moderatedById])
+}
+
+/// The bytes of one `MediaAsset`: the Postgres storage adapter's table, and the
+/// only place picture bytes live. Deleted with its asset.
+model MediaBlob {
+  storageKey String   @id
+  bytes      Bytes
+  /// Equals the length of `bytes`, 1 byte to 10 MiB (CHECK `media_blob_size_matches`).
+  byteSize   Int
+  /// SHA-256 of `bytes`, lower-case hex.
+  checksum   String
+  createdAt  DateTime @default(now())
+
+  asset MediaAsset @relation(fields: [storageKey], references: [storageKey], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Full control of posted events
+//
+// Migration `20260930150000_event_full_control`.
+// ---------------------------------------------------------------------------
+
+// Hand-written in `20260930150000_event_full_control`: the partial unique index
+// `EventPlatformEdit_one_open_per_actor_key` ("eventId", "actorId") WHERE
+// "closedAt" IS NULL, and the CHECK `event_platform_edit_shape` (a reason of
+// 10-500 characters, at most two hours long, closed exactly when it has an
+// ending). Only `lib/event-authority.js` and `routes/event-control.js` write it.
+/// One sitting in which an administrator at The Desi Events edits an organisation's
+/// posted event: a reason, a step-up, a time box, one browser session. Every
+/// write made under it is audited with its id.
+model EventPlatformEdit {
+  id        String           @id @default(cuid())
+  eventId   String
+  actorId   String?
+  /// The browser session that opened it. A write from any other session is
+  /// refused. Null once that session row is gone, which no request can match,
+  /// so the sitting is then effectively closed.
+  sessionId String?
+  /// Shown to the organiser, without the administrator's name.
+  reason    String
+  openedAt  DateTime         @default(now())
+  expiresAt DateTime
+  closedAt  DateTime?
+  endedBy   PlatformEditEnd?
+
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  actor   User?    @relation("EventPlatformEditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, openedAt])
+  @@index([actorId])
+  @@index([sessionId])
+}
+
+// Hand-written in `20260930150000_event_full_control`: the CHECK
+// `event_change_notice_shape`. Only `lib/event-change-notices.js` writes it.
+/// What changed about an event after people bought tickets, as they are shown
+/// it on their order and ticket pages. One row per change, not per order (the
+/// outbox has those).
+model EventChangeNotice {
+  id             String          @id @default(cuid())
+  eventId        String
+  /// Set when the change was to one night only.
+  eventSessionId String?
+  kind           EventChangeKind
+  fields         String[]        @default([])
+  /// The sentences, frozen when written ("the start time").
+  changed        String[]        @default([])
+  before         Json?
+  after          Json?
+  reason         String?
+  byPlatform     Boolean         @default(false)
+  revision       Int?
+  createdAt      DateTime        @default(now())
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, createdAt])
+  @@index([eventSessionId])
+}
+
+// ---------------------------------------------------------------------------
+// Events imported from another site
+//
+// Migration `20260930160000_event_imports`. The CHECKs are hand-written there:
+// `event_import_run_shape`, `event_import_item_shape` and
+// `event_import_image_shape`. Only `apps/api/src/lib/event-import.js` writes
+// these three tables.
+// ---------------------------------------------------------------------------
+
+/// One upload of an import file: the dataset, the plan an administrator read,
+/// and, once applied, who applied it. A run is applied at most once.
+model EventImportRun {
+  id            String               @id @default(cuid())
+  source        EventImportSource
+  status        EventImportRunStatus @default(PREVIEWED)
+  /// The uploaded file's name, 1-200 characters.
+  fileName      String
+  /// SHA-256 of the canonical dataset, lower-case hex.
+  datasetSha256 String
+  /// The dataset as uploaded, at most 2 MiB as text.
+  dataset       Json
+  /// What applying it does, row by row.
+  plan          Json
+  /// SHA-256 of the canonical plan, lower-case hex. Apply recomputes the plan
+  /// and refuses when it differs.
+  planDigest    String
+  /// 1-500 events.
+  eventCount    Int
+  createdById   String?
+  createdAt     DateTime             @default(now())
+  /// A plan is applied within an hour or not at all.
+  expiresAt     DateTime
+  appliedAt     DateTime?
+  appliedById   String?
+  /// Counts written when it was applied.
+  summary       Json?
+
+  createdBy User?             @relation("EventImportRunCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  appliedBy User?             @relation("EventImportRunAppliedBy", fields: [appliedById], references: [id], onDelete: SetNull)
+  items     EventImportItem[]
+
+  @@index([createdAt])
+  @@index([createdById])
+  @@index([appliedById])
+}
+
+/// One imported event and where it came from: the source's id and page, who
+/// imported it, who approved it, and where an administrator moved it. Unique
+/// per `(source, sourceId)`, so a re-import updates rather than duplicates.
+model EventImportItem {
+  id                           String            @id @default(cuid())
+  source                       EventImportSource
+  /// The source's own id for the listing, 1-12 digits.
+  sourceId                     String
+  /// The listing's https page.
+  sourceUrl                    String
+  eventId                      String            @unique
+  /// The run that last created or updated it.
+  lastRunId                    String?
+  importedById                 String?
+  importedAt                   DateTime          @default(now())
+  lastSyncedAt                 DateTime          @default(now())
+  /// When the source was read.
+  scrapedAt                    DateTime
+  /// The organiser the source names, shown as "Presented by".
+  presentedBy                  String?
+  /// The prices as the source listed them: `[{name, priceCents, currency,
+  /// note}]`, at most 20. No ticket type is made from them.
+  prices                       Json              @default("[]")
+  priceText                    String?
+  /// What the curator noted about the listing, shown to administrators only.
+  importNotes                  String[]          @default([])
+  approvedById                 String?
+  approvedAt                   DateTime?
+  reassignedAt                 DateTime?
+  reassignedById               String?
+  reassignedFromOrganizationId String?
+  reassignedToOrganizationId   String?
+
+  event                      Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  lastRun                    EventImportRun?    @relation(fields: [lastRunId], references: [id], onDelete: SetNull)
+  importedBy                 User?              @relation("EventImportItemImportedBy", fields: [importedById], references: [id], onDelete: SetNull)
+  approvedBy                 User?              @relation("EventImportItemApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  reassignedBy               User?              @relation("EventImportItemReassignedBy", fields: [reassignedById], references: [id], onDelete: SetNull)
+  reassignedFromOrganization Organization?      @relation("EventImportItemReassignedFrom", fields: [reassignedFromOrganizationId], references: [id], onDelete: SetNull)
+  reassignedToOrganization   Organization?      @relation("EventImportItemReassignedTo", fields: [reassignedToOrganizationId], references: [id], onDelete: SetNull)
+  images                     EventImportImage[]
+
+  @@unique([source, sourceId])
+  @@index([lastRunId])
+  @@index([importedById])
+  @@index([approvedById])
+  @@index([reassignedById])
+  @@index([reassignedFromOrganizationId])
+  @@index([reassignedToOrganizationId])
+}
+
+/// One picture the source listed for an imported event, and whether it has
+/// been copied. The URL is read by administrators only; no public page or
+/// payload names it. There is deliberately no coupling between STORED and
+/// `mediaAssetId`: the organiser may remove the picture later.
+model EventImportImage {
+  id           String                 @id @default(cuid())
+  itemId       String
+  /// The source's https address for it.
+  url          String
+  role         EventImportImageRole
+  /// The description the dataset gives, 1-300 characters.
+  alt          String
+  position     Int
+  status       EventImportImageStatus @default(WAITING)
+  /// Why the last attempt failed (`HOST_NOT_ALLOWED`, `TIMEOUT`, ...).
+  failureCode  String?
+  attempts     Int                    @default(0)
+  lastTriedAt  DateTime?
+  /// The stored picture, once copied.
+  mediaAssetId String?
+
+  item       EventImportItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  mediaAsset MediaAsset?     @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([itemId, url])
+  @@index([mediaAssetId])
+}
+
+// ---------------------------------------------------------------------------
+// Visits to event pages
+//
+// Migration `20260930130000_event_traffic_analytics`. Nothing here holds an
+// address, a browser string, a URL, a referring site, an account or a time of
+// day. The CHECKs are hand-written there: `traffic_event_source_only_on_views`,
+// `traffic_event_placement_fits_kind`, `traffic_event_visitor_hash_shape`,
+// `traffic_event_dedupe_key_shape`, `traffic_daily_counts_not_negative`,
+// `traffic_daily_sources_add_up`, `traffic_daily_placements_add_up`,
+// `traffic_daily_visitors_within_views`,
+// `traffic_daily_click_visitors_within_clicks`,
+// `traffic_daily_redirect_visitors_within_redirects`, `traffic_salt_shape`,
+// `traffic_rollup_state_singleton` and `traffic_rollup_state_lease_pair`.
+// ---------------------------------------------------------------------------
+
+/// What one counted moment on or towards an event's page was.
+enum TrafficEventKind {
+  /// The event's public page was opened (a browser beacon).
+  PAGE_VIEW
+  /// The event's card was clicked on the home page, the events list or search.
+  CARD_CLICK
+  /// "Choose tickets" on the event page.
+  TICKETS_CLICK
+  /// "Choose seats" on the event page.
+  SEATS_CLICK
+  /// Somebody followed "Visit the organiser's website" (counted by the server).
+  WEBSITE_REDIRECT
+}
+
+/// Where the moment happened.
+enum TrafficPlacement {
+  HOME
+  LISTING
+  SEARCH
+  EVENT_PAGE
+}
+
+/// Where a page view came from, as a category. Never the referring address.
+enum TrafficSource {
+  DIRECT
+  INTERNAL
+  SEARCH
+  SOCIAL
+  OTHER
+}
+
+/// One counted moment, kept for at most two days after its UTC day and then
+/// deleted by the traffic roll-up, once it has been added up.
+///
+/// `visitorHash` is a keyed digest of the event and an in-memory fingerprint
+/// under that day's random salt, truncated; it is null when the browser sent
+/// Global Privacy Control or Do Not Track. A moment with no address at all is
+/// not stored. `dedupeKey` is keyed by the day's salt too, so it cannot be
+/// recomputed from the row's columns. The id is a random UUID v4 because a
+/// cuid carries its creation time.
+model TrafficEvent {
+  id          String           @id @default(uuid(4))
+  eventId     String
+  kind        TrafficEventKind
+  placement   TrafficPlacement
+  /// Set for PAGE_VIEW only.
+  source      TrafficSource?
+  /// The UTC calendar day it happened on.
+  day         DateTime         @db.Date
+  visitorHash String?          @db.Char(32)
+  /// One row per visitor per slot. Null exactly when `visitorHash` is null.
+  dedupeKey   String?          @unique @db.Char(64)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([day, eventId])
+  @@index([eventId])
+}
+
+/// One event's visits on one UTC day, recomputed from `TrafficEvent` by the
+/// roll-up (values are set, never added to). The only visits table a screen reads.
+model TrafficDaily {
+  eventId                 String
+  day                     DateTime @db.Date
+  views                   Int      @default(0)
+  /// Distinct visitor codes among the day's page views.
+  visitors                Int      @default(0)
+  /// Page views with no visitor code (a privacy signal).
+  anonymousViews          Int      @default(0)
+  viewsDirect             Int      @default(0)
+  viewsInternal           Int      @default(0)
+  viewsSearch             Int      @default(0)
+  viewsSocial             Int      @default(0)
+  viewsOther              Int      @default(0)
+  cardClicks              Int      @default(0)
+  cardClicksHome          Int      @default(0)
+  cardClicksListing       Int      @default(0)
+  cardClicksSearch        Int      @default(0)
+  ticketClicks            Int      @default(0)
+  seatClicks              Int      @default(0)
+  /// Distinct visitor codes among the day's ticket and seat clicks.
+  ticketClickVisitors     Int      @default(0)
+  websiteRedirects        Int      @default(0)
+  websiteRedirectVisitors Int      @default(0)
+  /// True for figures the development seed wrote to show how a page looks.
+  /// The roll-up always writes false. Screens say so when any summed row is.
+  demonstration           Boolean  @default(false)
+  computedAt              DateTime
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, day])
+  @@index([day])
+}
+
+/// The random salt for one UTC day's visitor codes. Deleted from the live
+/// database once the day is over; backups taken during the day keep it for as
+/// long as they are kept.
+model TrafficSalt {
+  day       DateTime @id @db.Date
+  salt      String   @db.Char(64)
+  createdAt DateTime @default(now())
+}
+
+/// The roll-up's lease and its last completion, in one row (`id = 'traffic-rollup'`,
+/// inserted by the migration).
+model TrafficRollupState {
+  id              String    @id
+  leaseOwner      String?
+  leaseExpiresAt  DateTime?
+  lastCompletedAt DateTime?
 }
 
 // ---------------------------------------------------------------------------
@@ -1441,7 +2698,7 @@ model MediaAsset {
 //
 // Nothing in this section stores a card number, a CVC, a bank account, a
 // national identifier or a document image. Those are collected by the payment
-// provider's own hosted onboarding and never traverse Desi-Event. What is
+// provider's own hosted onboarding and never traverse The Desi Events. What is
 // stored here is the provider's identifier for a thing, its status, and the
 // money we believe moved — so that belief can be reconciled against theirs.
 // ---------------------------------------------------------------------------
@@ -1527,6 +2784,8 @@ enum RefundReason {
   ORGANIZER_GOODWILL
   FRAUDULENT
   OTHER
+  /// A booking fee refunded by hand by the team at The Desi Events (`platformFees.refund`).
+  BOOKING_FEE
 }
 
 /// One refund against one payment.
@@ -1536,49 +2795,49 @@ enum RefundReason {
 /// order's remaining refundable balance inside the same transaction that
 /// reserves it, so two concurrent requests cannot together exceed the total.
 model Refund {
-  id             String       @id @default(cuid())
-  orderId        String
-  paymentId      String
-  provider       String
+  id                       String       @id @default(cuid())
+  orderId                  String
+  paymentId                String
+  provider                 String
   /// The provider's refund identifier, once it has one.
-  providerRefundId String?
-  amountCents    Int
-  currency       String
-  reason         RefundReason @default(CUSTOMER_REQUEST)
-  reasonNote     String?
-  status         RefundStatus @default(REQUESTED)
+  providerRefundId         String?
+  amountCents              Int
+  currency                 String
+  reason                   RefundReason @default(CUSTOMER_REQUEST)
+  reasonNote               String?
+  status                   RefundStatus @default(REQUESTED)
   /// How the amount breaks down across face value, fees, tax and discount,
   /// computed under the order's pricing snapshot rather than live tables.
-  allocation     Json?
+  allocation               Json?
   /// Whether the platform fee was refunded too, which is a policy decision and
   /// not a provider default.
-  platformFeeRefundedCents Int @default(0)
+  platformFeeRefundedCents Int          @default(0)
   /// Whether an organiser transfer had to be reversed to fund this.
-  transferReversedCents    Int @default(0)
-  requestedById  String?
-  approvedById   String?
-  idempotencyKey String       @unique
+  transferReversedCents    Int          @default(0)
+  requestedById            String?
+  approvedById             String?
+  idempotencyKey           String       @unique
   /// Whether the tickets on the refunded lines were revoked.
-  ticketsRevoked Boolean      @default(false)
+  ticketsRevoked           Boolean      @default(false)
   /// Whether the seats or quantity went back on sale, which depends on the
   /// event's state and how close it is.
-  inventoryReturned Boolean   @default(false)
-  failureCode    String?
-  rawProviderStatus String?
+  inventoryReturned        Boolean      @default(false)
+  failureCode              String?
+  rawProviderStatus        String?
   /// When it was handed to the provider. Written before the call, so a process
   /// that dies during it still leaves evidence that a refund may exist.
-  submittedAt    DateTime?
+  submittedAt              DateTime?
   /// How many times submission has been attempted.
-  attempts       Int          @default(0)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  settledAt      DateTime?
+  attempts                 Int          @default(0)
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+  settledAt                DateTime?
 
-  order       Order        @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  payment     Payment      @relation(fields: [paymentId], references: [id], onDelete: Restrict)
-  requestedBy User?        @relation("RefundRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
-  approvedBy  User?        @relation("RefundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-  items       RefundItem[]
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  payment       Payment       @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  requestedBy   User?         @relation("RefundRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  approvedBy    User?         @relation("RefundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  items         RefundItem[]
   ledgerBatches LedgerBatch[]
 
   @@unique([provider, providerRefundId])
@@ -1588,7 +2847,7 @@ model Refund {
 
 /// What one refund took back from one order line.
 model RefundItem {
-  id          String @id @default(cuid())
+  id          String  @id @default(cuid())
   refundId    String
   orderItemId String
   quantity    Int
@@ -1712,7 +2971,7 @@ enum PayoutStatus {
 
 /// Money moved from an organiser's connected account to their bank.
 ///
-/// Desi-Event does not hold organiser funds and does not schedule these: the
+/// The Desi Events does not hold organiser funds and does not schedule these: the
 /// provider does. This row mirrors the provider's state so an organiser can see
 /// it without a second login.
 model Payout {
@@ -1774,16 +3033,16 @@ enum LedgerAccountType {
 
 /// One account in the chart of accounts.
 model LedgerAccount {
-  id       String            @id @default(cuid())
+  id        String            @id @default(cuid())
   /// Stable machine code, e.g. `processor_clearing`. Referenced by name in
   /// code rather than by id, so a fixture and a production row agree.
-  code     String            @unique
-  name     String
-  type     LedgerAccountType
-  currency String?
+  code      String            @unique
+  name      String
+  type      LedgerAccountType
+  currency  String?
   /// False for an account kept only for historical entries.
-  active   Boolean           @default(true)
-  createdAt DateTime         @default(now())
+  active    Boolean           @default(true)
+  createdAt DateTime          @default(now())
 
   entries LedgerEntry[]
 
@@ -1814,46 +3073,46 @@ enum LedgerBatchKind {
 
 /// A set of entries that balance, posted as one atomic act.
 model LedgerBatch {
-  id            String            @id @default(cuid())
+  id                 String            @id @default(cuid())
   /// Human-readable reference used in reports and support conversations.
-  reference     String            @unique
-  kind          LedgerBatchKind
-  status        LedgerBatchStatus @default(DRAFT)
-  currency      String
+  reference          String            @unique
+  kind               LedgerBatchKind
+  status             LedgerBatchStatus @default(DRAFT)
+  currency           String
   /// Sum of the debit entries, in minor units. Equal to `creditCents` once
   /// posted; both are stored so the balance check is a column comparison
   /// rather than an aggregate at write time.
-  debitCents    Int               @default(0)
-  creditCents   Int               @default(0)
+  debitCents         Int               @default(0)
+  creditCents        Int               @default(0)
   /// What caused it: ORDER, REFUND, DISPUTE, TRANSFER, PAYOUT.
-  sourceType    String
-  sourceId      String
+  sourceType         String
+  sourceId           String
   /// Unique, so the same source event cannot post twice however many times a
   /// webhook is delivered.
-  idempotencyKey String           @unique
-  orderId       String?
-  paymentId     String?
-  refundId      String?
-  disputeId     String?
-  transferId    String?
-  payoutId      String?
+  idempotencyKey     String            @unique
+  orderId            String?
+  paymentId          String?
+  refundId           String?
+  disputeId          String?
+  transferId         String?
+  payoutId           String?
   /// The batch this one corrects. Set only on CORRECTION batches.
-  compensatesBatchId String?      @unique
+  compensatesBatchId String?           @unique
   /// Who or what posted it. Null means a system job.
-  actorId       String?
-  createdAt     DateTime          @default(now())
-  postedAt      DateTime?
+  actorId            String?
+  createdAt          DateTime          @default(now())
+  postedAt           DateTime?
 
-  entries  LedgerEntry[]
-  order    Order?       @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  payment  Payment?     @relation(fields: [paymentId], references: [id], onDelete: Restrict)
-  refund   Refund?      @relation(fields: [refundId], references: [id], onDelete: Restrict)
-  dispute  Dispute?     @relation(fields: [disputeId], references: [id], onDelete: Restrict)
-  transfer Transfer?    @relation(fields: [transferId], references: [id], onDelete: Restrict)
-  payout   Payout?      @relation(fields: [payoutId], references: [id], onDelete: Restrict)
-  actor    User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
-  compensates LedgerBatch? @relation("LedgerCompensation", fields: [compensatesBatchId], references: [id], onDelete: Restrict)
-  compensatedBy LedgerBatch? @relation("LedgerCompensation")
+  entries       LedgerEntry[]
+  order         Order?        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  payment       Payment?      @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  refund        Refund?       @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  dispute       Dispute?      @relation(fields: [disputeId], references: [id], onDelete: Restrict)
+  transfer      Transfer?     @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  payout        Payout?       @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+  actor         User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  compensates   LedgerBatch?  @relation("LedgerCompensation", fields: [compensatesBatchId], references: [id], onDelete: Restrict)
+  compensatedBy LedgerBatch?  @relation("LedgerCompensation")
 
   @@index([status, postedAt])
   @@index([sourceType, sourceId])
@@ -1870,17 +3129,17 @@ enum LedgerDirection {
 /// the sign, because a negative debit is a credit somebody forgot to think
 /// about.
 model LedgerEntry {
-  id          String          @id @default(cuid())
-  batchId     String
-  accountId   String
-  direction   LedgerDirection
-  amountCents Int
-  currency    String
+  id             String          @id @default(cuid())
+  batchId        String
+  accountId      String
+  direction      LedgerDirection
+  amountCents    Int
+  currency       String
   /// Free-text line description shown in reports.
-  memo        String?
+  memo           String?
   /// Denormalised so a report can group without joining the batch.
   organizationId String?
-  createdAt   DateTime        @default(now())
+  createdAt      DateTime        @default(now())
 
   batch   LedgerBatch   @relation(fields: [batchId], references: [id], onDelete: Restrict)
   account LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
@@ -1907,21 +3166,21 @@ enum TicketTransferStatus {
 /// Accepting mints a new ticket and kills the old credential, so the sender's
 /// screenshot stops working the moment the recipient accepts.
 model TicketTransfer {
-  id           String               @id @default(cuid())
-  ticketId     String
-  fromUserId   String?
+  id             String               @id @default(cuid())
+  ticketId       String
+  fromUserId     String?
   /// Lower-cased recipient address. The acceptor must match it.
-  toEmail      String
-  toUserId     String?
-  tokenHash    String               @unique
-  status       TicketTransferStatus @default(PENDING)
-  expiresAt    DateTime
-  acceptedAt   DateTime?
-  declinedAt   DateTime?
-  cancelledAt  DateTime?
+  toEmail        String
+  toUserId       String?
+  tokenHash      String               @unique
+  status         TicketTransferStatus @default(PENDING)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  declinedAt     DateTime?
+  cancelledAt    DateTime?
   /// The ticket minted for the recipient on acceptance.
-  resultTicketId String?            @unique
-  createdAt    DateTime             @default(now())
+  resultTicketId String?              @unique
+  createdAt      DateTime             @default(now())
 
   ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   fromUser User?  @relation("TicketTransferFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
@@ -1933,37 +3192,86 @@ model TicketTransfer {
 }
 
 enum CheckInMethod {
-  /// A camera read the QR pass.
+  /// The secure pass credential was presented. The door's camera path sends
+  /// it, but the server cannot attest that a camera was involved.
   QR_SCAN
-  /// A human typed the reference, because the camera could not.
-  MANUAL_LOOKUP
-  /// An accessible alternative: the code read aloud and entered by staff.
+  /// A human typed the printed reference, because the camera could not. Was
+  /// `MANUAL_LOOKUP`; renamed in place so existing rows kept their meaning.
+  MANUAL_CODE
+  /// Declared and written by nothing. The server cannot tell a code read aloud
+  /// from one typed, so there is no truthful way to record this; removing an
+  /// enum value means rebuilding the type, which is not worth doing for a label
+  /// the application refuses to emit.
   ASSISTED
 }
 
-/// One admission through the door.
+/// One admission through the door: a ticket, on one night.
 ///
-/// `ticketId` is unique. One ticket, one attendance, enforced by the database —
-/// so two gates scanning the same pass at the same moment produce one row and
-/// one of them is told, truthfully, that it has already been used.
+/// Two gates scanning the same pass at the same moment produce one row, and one
+/// of them is told, truthfully, that it has already been used.
+///
+/// A ticket for one night — its seat's, else its tier's — admits once, on that
+/// night. A ticket good for every night (a tier with no night, on an event of
+/// more than one) admits once on each night, and stays VALID between them.
+/// Unique on (ticketId, eventSessionId); the partial unique index
+/// `CheckIn_ticketId_no_night_key`, which Prisma cannot express, allows one row
+/// with no night. The trigger `desi_check_in_ticket_admissible` refuses a
+/// ticket that does not admit, a night that is not the ticket's own or not its
+/// event's, an every-night admission that names no night, and a second
+/// admission of a ticket that admits once.
 model CheckIn {
-  id             String        @id @default(cuid())
-  ticketId       String        @unique
-  eventSessionId String?
+  id              String        @id @default(cuid())
+  ticketId        String
+  /// The night the ticket was let in on. Null only for a ticket on an event of
+  /// one night or none whose tier names no night.
+  eventSessionId  String?
   scannedByUserId String?
-  deviceId       String?
-  method         CheckInMethod @default(QR_SCAN)
-  scannedAt      DateTime      @default(now())
+  deviceId        String?
+  method          CheckInMethod @default(QR_SCAN)
+  scannedAt       DateTime      @default(now())
   /// The gate or door, when the venue distinguishes them.
-  gate           String?
+  gate            String?
+  /// Set when admitted through the order's group pass. The trigger
+  /// `desi_check_in_group_pass_matches` refuses a ticket outside the pass's
+  /// order, or one no longer held by that order's buyer.
+  groupPassId     String?
 
   ticket       Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
   scannedBy    User?         @relation(fields: [scannedByUserId], references: [id], onDelete: SetNull)
   device       Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  groupPass    GroupPass?    @relation(fields: [groupPassId], references: [id], onDelete: SetNull)
 
+  @@unique([ticketId, eventSessionId])
   @@index([eventSessionId, scannedAt])
   @@index([scannedByUserId])
+  @@index([groupPassId])
+}
+
+/// One QR pass that admits every ticket of an order still held by its buyer.
+///
+/// One row per order, created lazily on the holder's first retrieval, so
+/// checkout and existing orders are untouched. There is no holder column: the
+/// holder is `order.userId`, a single source of truth. Like `Ticket`, only
+/// digests are stored — the credential and the typed code are shown to the
+/// holder and never kept (CHECK `group_pass_digests_are_sha256`), and both are
+/// issued together or not at all (`group_pass_digests_together`).
+model GroupPass {
+  id                 String    @id @default(cuid())
+  orderId            String    @unique
+  /// SHA-256 of 'G1.' + HMAC, never the credential.
+  credentialHash     String?   @unique
+  /// SHA-256 of the DEG- code, never the code.
+  codeHash           String?   @unique
+  /// Bumped on every rotation, so an old pass is provably stale.
+  credentialVersion  Int       @default(1)
+  credentialIssuedAt DateTime?
+  rotatedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  checkIns CheckIn[]
 }
 
 // ---------------------------------------------------------------------------
@@ -2004,52 +3312,52 @@ enum NotificationStatus {
 /// happen. `dedupeKey` is unique, so a retried job or a replayed webhook
 /// produces one email.
 model NotificationOutbox {
-  id          String              @id @default(cuid())
-  template    String
-  channel     NotificationChannel @default(EMAIL)
+  id                String              @id @default(cuid())
+  template          String
+  channel           NotificationChannel @default(EMAIL)
   /// Recipient address. Present because it must be sent to; never logged.
-  recipient   String
-  userId      String?
+  recipient         String
+  userId            String?
   /// Template variables. Must contain no secret and no bearer token: action
   /// links are minted as AuthTokens and referenced by id.
-  payload     Json
-  status      NotificationStatus  @default(QUEUED)
+  payload           Json
+  status            NotificationStatus  @default(QUEUED)
   /// Unique per logical message, so at-least-once job delivery is
   /// exactly-once email.
-  dedupeKey   String              @unique
-  attempts    Int                 @default(0)
-  maxAttempts Int                 @default(5)
-  scheduledFor DateTime           @default(now())
-  sentAt      DateTime?
+  dedupeKey         String              @unique
+  attempts          Int                 @default(0)
+  maxAttempts       Int                 @default(5)
+  scheduledFor      DateTime            @default(now())
+  sentAt            DateTime?
   /// The business event this message describes, e.g. `event.cancelled`. The
   /// dedupe key is derived from it together with the recipient, the channel and
   /// the template version, so two different messages about one event do not
   /// collide and one message about it is never sent twice.
-  businessEvent String?
+  businessEvent     String?
   /// Bumped when a template's content changes enough that a recipient should
   /// receive the new one even though they received the old.
-  templateVersion Int             @default(1)
+  templateVersion   Int                 @default(1)
   /// The worker holding the lease. Null unless the row is CLAIMED.
-  leaseOwner  String?
+  leaseOwner        String?
   /// When the lease lapses and another worker may take the row. A worker that
   /// dies mid-send leaves this in the past, which is what makes the row
   /// recoverable without anybody having to decide that it failed.
-  leaseExpiresAt DateTime?
-  lastAttemptAt DateTime?
+  leaseExpiresAt    DateTime?
+  lastAttemptAt     DateTime?
   /// PERMANENT or TRANSIENT. A permanent failure is not retried.
-  failureCategory String?
+  failureCategory   String?
   /// The provider's identifier for the delivery, when it gave one. Never the
   /// message body.
   providerMessageId String?
   /// Whose message this is, for operator scoping. Null for platform messages.
-  organizationId String?
+  organizationId    String?
   /// Provider error, sanitised. Never a payload dump.
-  lastError   String?
+  lastError         String?
   /// Whether this message may be suppressed by preferences. False for
   /// verification, password reset and anything else a security flow needs.
-  suppressible Boolean            @default(true)
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  suppressible      Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
 
   @@index([status, scheduledFor])
   @@index([userId])
@@ -2060,14 +3368,14 @@ model NotificationOutbox {
 
 /// What one person wants to be told about.
 model NotificationPreference {
-  id       String              @id @default(cuid())
-  userId   String
+  id        String              @id @default(cuid())
+  userId    String
   /// A category rather than a template, so adding a template does not silently
   /// opt everybody in to a new kind of message.
-  category String
-  channel  NotificationChannel
-  enabled  Boolean             @default(true)
-  updatedAt DateTime           @updatedAt
+  category  String
+  channel   NotificationChannel
+  enabled   Boolean             @default(true)
+  updatedAt DateTime            @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -2082,20 +3390,20 @@ model NotificationPreference {
 /// different body is told it conflicts rather than silently handed somebody
 /// else's answer.
 model IdempotencyRecord {
-  id           String    @id @default(cuid())
-  scope        String
-  key          String
+  id             String    @id @default(cuid())
+  scope          String
+  key            String
   /// SHA-256 of the canonicalised request body.
-  requestHash  String
+  requestHash    String
   /// Null while in flight. A second request arriving now waits or conflicts
   /// rather than starting a duplicate.
-  lockedAt     DateTime?
-  completedAt  DateTime?
+  lockedAt       DateTime?
+  completedAt    DateTime?
   responseStatus Int?
   /// The response to replay. Never contains a client secret.
-  responseBody Json?
-  expiresAt    DateTime
-  createdAt    DateTime  @default(now())
+  responseBody   Json?
+  expiresAt      DateTime
+  createdAt      DateTime  @default(now())
 
   @@unique([scope, key])
   @@index([expiresAt])
@@ -2130,40 +3438,40 @@ enum ReconciliationKind {
 /// the before and after state are both audited — because the whole point of
 /// this table is the cases where the machine must not decide alone.
 model ReconciliationTask {
-  id          String              @id @default(cuid())
-  kind        ReconciliationKind
-  state       ReconciliationState @default(OPEN)
-  paymentId   String?
-  orderId     String?
-  refundId    String?
-  webhookEventId String?
+  id               String              @id @default(cuid())
+  kind             ReconciliationKind
+  state            ReconciliationState @default(OPEN)
+  paymentId        String?
+  orderId          String?
+  refundId         String?
+  webhookEventId   String?
   /// The provider's identifier for whatever is in doubt.
-  providerRef String?
+  providerRef      String?
   /// What we believe, at creation. Kept verbatim so a later fix does not erase
   /// what the problem looked like.
-  localState  Json?
+  localState       Json?
   /// What the provider said, the last time it was asked.
-  providerState Json?
-  attempts    Int                 @default(0)
-  lastError   String?
-  assignedToId String?
+  providerState    Json?
+  attempts         Int                 @default(0)
+  lastError        String?
+  assignedToId     String?
   /// What the operator decided, in machine-readable terms.
-  resolution  String?
-  resolutionNote String?
-  resolvedAt  DateTime?
-  resolvedById String?
-  escalatedAt DateTime?
+  resolution       String?
+  resolutionNote   String?
+  resolvedAt       DateTime?
+  resolvedById     String?
+  escalatedAt      DateTime?
   escalationReason String?
   /// Whose work item this is, for operator scoping. Null means platform-level.
-  organizationId String?
+  organizationId   String?
   /// Operator notes, appended and never replaced: `[{at, actorId, note}]`.
-  notes       Json?
+  notes            Json?
   /// The transfer, payout or dispute in doubt, when that is what this is about.
-  transferId  String?
-  payoutId    String?
-  disputeId   String?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  transferId       String?
+  payoutId         String?
+  disputeId        String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
   payment    Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   assignedTo User?    @relation(fields: [assignedToId], references: [id], onDelete: SetNull)

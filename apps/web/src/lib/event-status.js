@@ -20,6 +20,13 @@
  * @file lib/event-status
  */
 
+import {
+  LIVE_STATUSES,
+  MATERIAL_FIELDS as LIFECYCLE_MATERIAL_FIELDS,
+  SESSION_MATERIAL_FIELDS as LIFECYCLE_SESSION_MATERIAL_FIELDS,
+  editModeFor,
+} from '@desi-event/schemas/lifecycle'
+
 /**
  * @typedef {object} StatusReading
  * @property {string} label The state's name, in words a person uses.
@@ -49,7 +56,7 @@ const READINGS = Object.freeze({
     next: 'A moderator has asked for something specific. Make the changes and send it back.',
   },
   APPROVED: {
-    label: 'Approved, not yet public',
+    label: 'Approved, not public',
     tone: 'success',
     whose: 'you',
     next: 'A moderator said yes. Nothing is public until you publish it, which is your decision and your timing.',
@@ -88,25 +95,31 @@ const READINGS = Object.freeze({
     label: 'Postponed',
     tone: 'warning',
     whose: 'you',
-    next: 'Ticket holders have been told. Set a new date to bring it back.',
+    next: 'A notice has been recorded for every ticket holder. Set a new date to bring it back.',
   },
   CANCELLED: {
     label: 'Cancelled',
     tone: 'danger',
     whose: 'nobody',
-    next: 'Refunds have been requested for every paid order. This cannot be undone.',
+    next: 'Refunds have been requested for every paid order. Its words and pictures can still be updated.',
   },
   REJECTED: {
     label: 'Rejected',
     tone: 'danger',
     whose: 'you',
-    next: 'A moderator said no and gave a reason. A rejected event can be reworked as a new draft.',
+    next: 'A moderator said no and gave a reason. You can move it back to draft, rework it and send it for review again.',
   },
   ARCHIVED: {
     label: 'Archived',
     tone: 'neutral',
     whose: 'nobody',
     next: 'Kept for the record. Orders and tickets still point at it.',
+  },
+  DELETED: {
+    label: 'Deleted',
+    tone: 'danger',
+    whose: 'the team at The Desi Events',
+    next: 'Its page is off the site and nothing can be bought. The Desi Events team can restore it.',
   },
 })
 
@@ -144,6 +157,74 @@ export function statusReading(status) {
 export const EDITABLE = new Set(['DRAFT', 'CHANGES_REQUIRED'])
 
 /**
+ * Statuses in which an edit can reach somebody who has already committed.
+ *
+ * Imported from `@desi-event/schemas/lifecycle`, the narrow subpath the API
+ * reads the same list from, so the web and the server cannot disagree about
+ * which events are live.
+ *
+ * @type {ReadonlySet<string>}
+ */
+export const LIVE = LIVE_STATUSES
+
+/**
+ * The event fields whose change after publication needs a confirmation and a
+ * reason: the date, the zone, the venue, the age limit, whether it is online,
+ * its link and the policies. From the same lifecycle subpath the API reads.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const MATERIAL_FIELDS = LIFECYCLE_MATERIAL_FIELDS
+
+/**
+ * The same, for one session: its start, end, time zone and door time.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const SESSION_MATERIAL_FIELDS = LIFECYCLE_SESSION_MATERIAL_FIELDS
+
+/**
+ * How each material field reads to a person, mirroring the API's
+ * `FIELD_LABELS` in `lib/event-material-change.js`, so the panel's "You are
+ * changing …" and the server's refusal use the same words.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const MATERIAL_FIELD_LABELS = Object.freeze({
+  startsAt: 'the start time',
+  endsAt: 'the end time',
+  timezone: 'the time zone',
+  venueId: 'the venue',
+  policies: 'the policies',
+  ageRestriction: 'the age restriction',
+  isOnline: 'whether it is online',
+  onlineUrl: 'the online address',
+  doorsOpenAt: 'the door time',
+})
+
+/**
+ * How the editor treats an event in a status: `editModeFor` from
+ * `@desi-event/schemas/lifecycle`, the one function the API decides with, so
+ * the editor and the server cannot disagree about what may change.
+ *
+ * - `draft`: every field is an input and saves as it is typed.
+ * - `live`: the page is public. Everything can change without another review.
+ *   Housekeeping saves as it is typed; the date, place and terms are inputs
+ *   too, and a change to one is confirmed with a reason before it is sent,
+ *   because people holding tickets are shown it.
+ * - `content`: finished or cancelled. Its words and pictures can still be
+ *   updated; its date, place, terms, nights and ticket types cannot.
+ * - `locked`: in review, approved, rejected, archived or deleted; nothing is
+ *   edited here.
+ *
+ * @param {string} status An `EventStatus`.
+ * @returns {'draft'|'live'|'content'|'locked'} The mode.
+ */
+export function editMode(status) {
+  return editModeFor(status)
+}
+
+/**
  * The lifecycle commands, and how each one asks.
  *
  * `reason` says whether the command needs one, and `confirm` whether it is the
@@ -160,6 +241,23 @@ export const COMMANDS = Object.freeze({
     label: 'Send for review',
     verb: 'Sending for review',
     reason: 'optional',
+    confirm: null,
+    tone: 'primary',
+  },
+  rework: {
+    path: 'rework',
+    label: 'Rework as a draft',
+    verb: 'Moving back to draft',
+    reason: 'none',
+    confirm:
+      'This moves the event back to draft so you can change it and send it for review again. The moderator’s reasons stay in the history.',
+    tone: 'primary',
+  },
+  reschedule: {
+    path: 'reschedule',
+    label: 'Set a new date and bring it back',
+    verb: 'Bringing it back',
+    reason: 'required',
     confirm: null,
     tone: 'primary',
   },
@@ -200,7 +298,8 @@ export const COMMANDS = Object.freeze({
     label: 'Postpone',
     verb: 'Postponing',
     reason: 'required',
-    confirm: 'Postponing tells every ticket holder the date is off. Continue?',
+    confirm:
+      'Postponing records a notice for every ticket holder that the date is off. Notices are not emailed, so tell them yourself too. Continue?',
     tone: 'secondary',
   },
   cancel: {

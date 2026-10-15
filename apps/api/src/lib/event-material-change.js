@@ -29,9 +29,10 @@
  * ## What it does not do
  *
  * **It does not send anything.** The rows are `QUEUED` in
- * `NotificationOutbox`. No outbox worker exists in this repository yet, so
- * nothing is delivered and nothing here claims otherwise — the count returned
- * is of work *created*, not of people told.
+ * `NotificationOutbox`. The worker's outbox drain hands them to the email
+ * provider this build has, which is the in-memory one, so nothing reaches a
+ * ticket holder and nothing here claims otherwise — the count returned is of
+ * work *created*, not of people told.
  *
  * **It does not touch a snapshot.** An order carries the policies as they stood
  * when it was placed, precisely so a later edit cannot change what a buyer
@@ -44,27 +45,23 @@
  * @file @desi-event/api/lib/event-material-change
  */
 
-import { MATERIAL_FIELDS, materialChanges } from '@desi-event/schemas/lifecycle'
+import {
+  MATERIAL_FIELDS,
+  SESSION_MATERIAL_FIELDS,
+  materialChanges,
+} from '@desi-event/schemas/lifecycle'
 import { isSuppressible } from '@desi-event/notifications'
 
+import { recordChangeNotice, withholdNoticeValues } from './event-change-notices.js'
 import { unprocessable } from './errors.js'
 
 /**
  * Statuses in which an edit can reach somebody who has already committed.
  *
- * `PUBLISHED` is on the list although nothing may have sold yet: the page is
- * public, somebody has it in their calendar, and a date that moves without a
- * word is the same betrayal whether or not money changed hands.
- *
- * `APPROVED` is not, and neither is `REVIEW_PENDING`: those are refused
- * outright elsewhere, because editing a version a moderator is holding — or has
- * just said yes to — invalidates the decision rather than amending a deal.
- *
- * @type {ReadonlySet<string>}
+ * Defined once in `@desi-event/schemas/lifecycle`, which the web reads too, and
+ * re-exported here so existing importers keep working.
  */
-export const LIVE_STATUSES = Object.freeze(
-  new Set(['PUBLISHED', 'ON_SALE', 'SALES_PAUSED', 'SOLD_OUT', 'POSTPONED']),
-)
+export { LIVE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 /** How each material field reads in a refusal or a notice. */
 const FIELD_LABELS = Object.freeze({
@@ -76,6 +73,7 @@ const FIELD_LABELS = Object.freeze({
   ageRestriction: 'the age restriction',
   isOnline: 'whether it is online',
   onlineUrl: 'the online address',
+  doorsOpenAt: 'the door time',
 })
 
 /**
@@ -156,6 +154,66 @@ export function describeFields(fields) {
 }
 
 /**
+ * How a set of a session's material fields reads in a sentence.
+ *
+ * @param {string[]} fields Field names.
+ * @returns {string[]} One phrase per field, in the order `SESSION_MATERIAL_FIELDS` lists them.
+ */
+export function describeSessionFields(fields) {
+  return SESSION_MATERIAL_FIELDS.filter((field) => fields.includes(field)).map(
+    (field) => FIELD_LABELS[field] ?? field,
+  )
+}
+
+/**
+ * How the nights that moved with a reschedule read in a notice.
+ *
+ * A reschedule can leave the event's own start and end where they were and
+ * move only its nights; the notice must still say what changed, not arrive
+ * with an empty list. One phrase per session field that moved on any night,
+ * with how many nights it moved on.
+ *
+ * @param {object[]|null} sessions `{id, fields}` summaries of the nights that moved.
+ * @returns {string[]} Phrases such as "the start time of 2 nights".
+ */
+export function describeMovedSessions(sessions) {
+  if (!Array.isArray(sessions) || sessions.length === 0) return []
+
+  return SESSION_MATERIAL_FIELDS.flatMap((field) => {
+    const count = sessions.filter((moved) => (moved.fields ?? []).includes(field)).length
+
+    if (count === 0) return []
+
+    return [`${FIELD_LABELS[field] ?? field} of ${count === 1 ? 'one night' : `${count} nights`}`]
+  })
+}
+
+/**
+ * Refuse a change to a live session's date or time that nobody confirmed.
+ *
+ * @param {string[]} material The session's material fields being changed.
+ * @param {string} status The event's status.
+ * @returns {void}
+ * @throws {Error} A 422 naming the fields.
+ */
+export function refuseUnconfirmedSession(material, status) {
+  const described = describeSessionFields(material)
+
+  throw unprocessable(
+    `This event is ${status}, and this change alters ${described.join(', ')} of a night people may have bought tickets for. ` +
+      'Confirm the change explicitly and give a reason that can be sent to them.',
+    {
+      problems: described.map(
+        (phrase) =>
+          `Changing ${phrase} of this session after publication needs an explicit confirmation.`,
+      ),
+      fields: material,
+      status,
+    },
+  )
+}
+
+/**
  * Refuse a material change that nobody confirmed.
  *
  * A 422 rather than a 403: the caller is allowed to do this, they just have not
@@ -198,15 +256,57 @@ export function refuseUnconfirmed(material, status) {
  * @param {object} options.before The stored values, keyed by field.
  * @param {object} options.after The new values, keyed by field.
  * @param {string} options.reason The prose a ticket holder reads.
+ * @param {object} [options.session] A session whose own dates changed. Narrows
+ *   the notice to the orders for that night — placed for it, or holding a
+ *   ticket type on it or on every night — and says which night it was.
+ * @param {object[]} [options.sessions] Sessions that moved with the event, as
+ *   `{id, before, after}` summaries, carried in the notice so one message
+ *   covers the whole reschedule.
+ * @param {'MATERIAL_CHANGE'|'SESSION_CHANGE'|'RESCHEDULED'} [options.kind] What ticket holders are
+ *   shown it as; a night's own change by default when `session` is given, the
+ *   event's otherwise.
+ * @param {boolean} [options.byPlatform] Whether the team at The Desi Events made it, in
+ *   an editing sitting or as a SUPER_ADMIN under Rule L. Carried in every
+ *   notice so the message says who, never which person.
  * @returns {Promise<{orders: number, notifications: number}>} What was created.
  */
 export async function materialChangeWork(tx, options) {
   // No `actorId`: an outbox row is what a ticket holder receives, and who
   // pressed the button is not their business. The audit record carries it.
-  const { event, revision, material, before, after, reason } = options
+  const {
+    event,
+    revision,
+    material,
+    before,
+    after,
+    reason,
+    session = null,
+    sessions = null,
+    kind = session ? 'SESSION_CHANGE' : 'MATERIAL_CHANGE',
+    byPlatform = false,
+  } = options
 
   const orders = await tx.order.findMany({
-    where: { eventId: event.id, status: { in: ['PENDING', 'PAID'] } },
+    where: {
+      eventId: event.id,
+      status: { in: ['PENDING', 'PAID'] },
+      ...(session
+        ? {
+            OR: [
+              { eventSessionId: session.id },
+              {
+                items: {
+                  some: {
+                    ticketType: {
+                      OR: [{ eventSessionId: session.id }, { eventSessionId: null }],
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    },
   })
 
   let notifications = 0
@@ -242,10 +342,26 @@ export async function materialChangeWork(tx, options) {
             orderId: order.id,
             orderReference: order.reference ?? null,
             changedFields: material,
-            changed: describeFields(material),
-            before,
-            after,
+            changed: session
+              ? describeSessionFields(material)
+              : [...describeFields(material), ...describeMovedSessions(sessions)],
+            // Without the joining link: an outbox row is read by a worker and
+            // by whoever is debugging it, and the message only names what
+            // changed. The holder reads the link where it is gated.
+            before: withholdNoticeValues(before) ?? {},
+            after: withholdNoticeValues(after) ?? {},
             reason,
+            byPlatform: Boolean(byPlatform),
+            ...(session
+              ? {
+                  sessionId: session.id,
+                  sessionStartsAt:
+                    session.startsAt instanceof Date
+                      ? session.startsAt.toISOString()
+                      : (session.startsAt ?? null),
+                }
+              : {}),
+            ...(sessions ? { sessions } : {}),
           },
           dedupeKey,
           // A change to what somebody bought is not marketing, and a
@@ -259,6 +375,24 @@ export async function materialChangeWork(tx, options) {
 
     notifications += created.count
   }
+
+  // What holders are shown on their order and ticket pages: one notice for the
+  // change, whoever holds a ticket, written here and nowhere else for these
+  // three kinds (SPEC2-XI X-C).
+  await recordChangeNotice(tx, {
+    event,
+    kind,
+    fields: [...material, ...(sessions ?? []).flatMap((moved) => moved.fields ?? [])],
+    changed: session
+      ? describeSessionFields(material)
+      : [...describeFields(material), ...describeMovedSessions(sessions)],
+    before,
+    after,
+    reason,
+    session,
+    byPlatform,
+    revision,
+  })
 
   return { orders: orders.length, notifications }
 }

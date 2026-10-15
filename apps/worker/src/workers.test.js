@@ -10,6 +10,11 @@ describe('concurrencyFor', () => {
     expect(concurrencyFor(QUEUE_NAMES.HOLDS, 50)).toBe(1)
   })
 
+  it('pins the traffic roll-up to one: its lease already serialises runs', () => {
+    expect(concurrencyFor(QUEUE_NAMES.ANALYTICS, 50)).toBe(1)
+    expect(concurrencyFor('analytics', 8)).toBe(1)
+  })
+
   it('uses the configured value for the I/O-bound queues', () => {
     for (const name of [QUEUE_NAMES.EMAIL, QUEUE_NAMES.TICKETS, QUEUE_NAMES.SEARCH]) {
       expect(concurrencyFor(name, 12)).toBe(12)

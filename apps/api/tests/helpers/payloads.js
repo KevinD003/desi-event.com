@@ -68,3 +68,104 @@ export function expectNoNeedles(expect, body, needles) {
     expect(scanned, `the payload carries "${needle}"`).not.toContain(needle.toLowerCase())
   }
 }
+
+/**
+ * Assert that a payload does not carry one particular secret.
+ *
+ * {@link expectNoNeedles} is the wrong instrument for a bearer secret: it
+ * masks every run of twenty to thirty-two lower-case alphanumerics before it
+ * looks, so a code in exactly that shape would be blanked and never found. This
+ * looks for the secret itself — raw text, case-sensitive, nothing masked.
+ *
+ * The failure message never contains the secret, and neither does Vitest's
+ * report of it: the assertion is on a boolean, so the only values it can print
+ * are `true` and `false`. A test log is a log.
+ *
+ * @param {object} expect Vitest's `expect`, passed in so this file imports nothing.
+ * @param {string|object} body The payload: text, or a value to serialise as JSON.
+ * @param {string} secret The one-time secret that must not be there.
+ * @returns {void} Nothing.
+ * @throws {TypeError} When the secret is not a non-empty string, which would pass vacuously.
+ */
+export function expectNoSecret(expect, body, secret) {
+  if (typeof secret !== 'string' || secret.length === 0) {
+    throw new TypeError('expectNoSecret needs the secret itself, as a non-empty string.')
+  }
+
+  const text = typeof body === 'string' ? body : JSON.stringify(body)
+
+  expect(String(text).includes(secret), 'the payload carries the one-time secret').toBe(false)
+}
+
+/**
+ * Every key a parsed payload carries, at any depth, with where it sits.
+ *
+ * A needle scan reads text; this reads structure, so a key is found whatever
+ * its value is (a null, a number, an object) and wherever it is nested: the
+ * second ticket of the third booking counts as much as the top of the body.
+ * Array positions are written `[]`, so one key named in every element of a
+ * list is one path.
+ *
+ * @param {unknown} value A parsed JSON value.
+ * @param {string} [path] Where `value` sits.
+ * @param {Map<string, Set<string>>} [into] Key to the paths it was found at.
+ * @returns {Map<string, Set<string>>} The keys.
+ */
+export function keysIn(value, path = '', into = new Map()) {
+  if (Array.isArray(value)) {
+    for (const item of value) keysIn(item, `${path}[]`, into)
+  } else if (value && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      const at = path ? `${path}.${key}` : key
+
+      if (!into.has(key)) into.set(key, new Set())
+      into.get(key).add(at)
+      keysIn(child, at, into)
+    }
+  }
+
+  return into
+}
+
+/**
+ * Assert that a payload carries none of these keys, at any depth.
+ *
+ * The failure names each key with where it was found, so a leak three levels
+ * down reads as `data.bookings[].tickets[].referralCodeId`, not as a diff.
+ *
+ * @param {object} expect Vitest's `expect`, passed in so this file imports nothing.
+ * @param {string|object} body The payload: JSON text, or a parsed value.
+ * @param {ReadonlyArray<string>} keys What must not be there.
+ * @returns {void} Nothing.
+ */
+export function expectNoKeys(expect, body, keys) {
+  const found = keysIn(typeof body === 'string' ? JSON.parse(body) : body)
+
+  expect(
+    keys
+      .filter((key) => found.has(key))
+      .map((key) => `${key} at ${[...found.get(key)].join(', ')}`),
+  ).toEqual([])
+}
+
+/**
+ * Every object in a parsed payload that has a key of this name, with the
+ * value under it: the shape of one field wherever it appears.
+ *
+ * @param {unknown} value A parsed JSON value.
+ * @param {string} key The key.
+ * @param {unknown[]} [into] Where to collect.
+ * @returns {unknown[]} The values found under that key.
+ */
+export function valuesOf(value, key, into = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) valuesOf(item, key, into)
+  } else if (value && typeof value === 'object') {
+    for (const [name, child] of Object.entries(value)) {
+      if (name === key) into.push(child)
+      valuesOf(child, key, into)
+    }
+  }
+
+  return into
+}

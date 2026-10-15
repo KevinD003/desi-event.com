@@ -31,6 +31,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Select, Textarea } from './ui.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -157,13 +158,14 @@ export function ReconciliationActions({ task, mayAct }) {
   const [announcement, setAnnouncement] = useState('')
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const available = ACTIONS.filter((action) => action.states.includes(task.state))
   const action = ACTIONS.find((candidate) => candidate.key === pending) ?? null
 
   if (!mayAct) {
     return (
-      <p className="mt-4 rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+      <p className="mt-4 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
         Resolving payment reconciliation is platform work. You can see this item because it belongs
         to an organisation you have finance access to; acting on it needs a capability no
         organisation role carries.
@@ -173,7 +175,7 @@ export function ReconciliationActions({ task, mayAct }) {
 
   if (available.length === 0) {
     return (
-      <p className="mt-4 rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+      <p className="mt-4 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
         This item is resolved. Its history stays readable and nothing here can reopen it — a closed
         item that could be reopened is an audit trail that can be rewritten.
       </p>
@@ -193,7 +195,7 @@ export function ReconciliationActions({ task, mayAct }) {
     setError(null)
     setDetail(null)
     setNote('')
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -204,7 +206,7 @@ export function ReconciliationActions({ task, mayAct }) {
   function dismiss() {
     setPending(null)
     setStepUp(false)
-    queueMicrotask(() => returnFocus.current?.focus())
+    focusAfterRender(returnFocus)
   }
 
   /**
@@ -253,7 +255,7 @@ export function ReconciliationActions({ task, mayAct }) {
       // `why` is the provider's own account of the disagreement, and it is the
       // most useful sentence on the screen when a resolve is refused.
       setDetail(parsed?.error?.details?.why ?? null)
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setError('The service is not responding. Nothing has been recorded.')
     } finally {
@@ -265,7 +267,7 @@ export function ReconciliationActions({ task, mayAct }) {
 
   return (
     <div className="mt-4">
-      <p aria-live="polite" role="status" className="text-sm text-slate-700">
+      <p aria-live="polite" role="status" className="text-sm text-ink-muted">
         {announcement}
       </p>
 
@@ -280,7 +282,7 @@ export function ReconciliationActions({ task, mayAct }) {
               >
                 {candidate.label}
               </Button>
-              <p className="mt-1 text-sm text-slate-600">{candidate.description}</p>
+              <p className="mt-1 text-sm text-ink-muted">{candidate.description}</p>
             </li>
           ))}
         </ul>
@@ -292,10 +294,10 @@ export function ReconciliationActions({ task, mayAct }) {
           tabIndex={-1}
           role="group"
           aria-label={action.label}
-          className="mt-3 rounded-card border border-slate-300 bg-white p-4 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <h3 className="font-semibold text-indigo-night-900">{action.label}</h3>
-          <p className="mt-1 text-sm text-slate-700">{action.description}</p>
+          <h3 className="font-semibold text-ink">{action.label}</h3>
+          <p className="mt-1 text-sm text-ink-muted">{action.description}</p>
 
           {error ? (
             <div className="mt-3">
@@ -333,7 +335,7 @@ export function ReconciliationActions({ task, mayAct }) {
                   ))}
                 </Select>
               </FormField>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-ink-muted">
                 {RESOLUTIONS.find((option) => option.value === resolution)?.meaning}
               </p>
             </div>

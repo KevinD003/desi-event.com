@@ -131,14 +131,55 @@ well because it must hold for code that does not exist yet.
 `ticket_credential_version_positive` guards the rotation counter. A transfer
 clears the old hash so the old pass matches nothing.
 
-`CheckIn.ticketId` is unique, and `desi_check_in_ticket_admissible` refuses a row
-for a ticket that is not admissible. Together those make "admitted once" true
-under two scanners racing rather than merely under one steward retrying. See
-`docs/CHECK_IN.md`.
+`CheckIn` is unique on `(ticketId, eventSessionId)`, with the partial index
+`CheckIn_ticketId_no_night_key` for a row with no night, and
+`desi_check_in_ticket_admissible` locks the ticket and refuses a row for a ticket
+that is not admissible, on a night that is not its own, or a second row for a
+ticket that admits once. Together those make "admitted once" — once each night,
+for a ticket good for every night — true under two scanners racing rather than
+merely under one steward retrying. See `docs/CHECK_IN.md` and "Admission per
+night" below.
 
 `CheckIn.deviceId` is a **foreign key to a registered `Device`**. The scanner's
 own free-text identifier goes into the audit metadata instead; putting it in the
 column was a guaranteed 500 at a door, found by the load suite.
+
+### One live ticket per seat — 2026-09-29
+
+Migration `20260928100000_live_seat_ticket_index` (ADR 0006).
+`Ticket.eventSeatId` is no longer fully unique. The partial unique index
+`Ticket_eventSeatId_live_key` covers `"eventSeatId"` only while
+`"eventSeatId" IS NOT NULL AND "status" IN ('VALID', 'TRANSFER_PENDING',
+'CHECKED_IN')`, and a plain `Ticket_eventSeatId_idx` serves the foreign key and
+history lookups. A handed-on (`TRANSFERRED`) or `REFUNDED` row keeps its seat as
+the record of who held it; `EventSeat.tickets` is therefore a list, of which at
+most one is live. Prisma cannot express a partial index, so `schema.prisma`
+carries a comment above `Ticket` pointing at the migration, and
+`apps/api/tests/helpers/prisma-stub.js` enforces the same predicate for the
+stub-based tests. The fresh-database verifier probes the index by name.
+
+### The group pass — 2026-09-29
+
+Migration `20260928110000_group_pass`.
+
+| Column                        | Holds                                               | Constraint                                 |
+| ----------------------------- | --------------------------------------------------- | ------------------------------------------ |
+| `GroupPass.orderId`           | The order it covers; one pass per order             | unique; `ON DELETE CASCADE` from `Order`   |
+| `GroupPass.credentialHash`    | SHA-256 of the QR content, never the content        | unique; `group_pass_digests_are_sha256`    |
+| `GroupPass.codeHash`          | SHA-256 of the printed `DEG-` code, never the code  | unique; `group_pass_digests_are_sha256`    |
+| `GroupPass.credentialVersion` | Bumped when the buyer replaces the pass             | `group_pass_version_positive`              |
+| (both digests)                | Issued together or not at all                       | `group_pass_digests_together`              |
+| `CheckIn.groupPassId`         | Which group pass admitted this ticket, when one did | foreign key, `ON DELETE SET NULL`; indexed |
+
+The row has no holder column: the order's `userId` is the one source of truth
+for whose pass it is. The row is created on the buyer's first request for it,
+so checkout, the webhook and existing orders needed no backfill.
+
+`desi_check_in_group_pass_matches` refuses a `CheckIn` that names a group pass
+for a ticket on another order, or for a ticket whose owner is no longer the
+order's buyer. The unique `CheckIn(ticketId, eventSessionId)` still makes each
+admission happen once (once each night, for a ticket good for every night),
+whether it came through a group or alone.
 
 ---
 
@@ -157,6 +198,120 @@ the arithmetic that a form could get wrong and a database should not accept.
 
 ---
 
+## Event authoring: tiers and the event page
+
+Migration `20260928090000_event_authoring_content_and_tier_rules`. The rules
+the organiser's editor and the authoring routes keep are in
+`apps/api/src/lib/event-authoring.js`; these are the floor underneath them.
+
+`TicketTypeVisibility` is `PUBLIC` or `HIDDEN`, and `TicketType.visibility`
+defaults to `PUBLIC`. A `HIDDEN` tier is left out of every public read — the
+event page, its lowest price and its structured data — and is meant to be
+booked only by the organisation's own team. Every complimentary tier that
+existed before the migration was made `HIDDEN`.
+
+| Rule                                              | What it holds                                                                                                                                    |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ticket_type_per_order_bounds`                    | At least 1 and at most 50 per order, and the least never above the most (existing rows were clamped first)                                       |
+| `ticket_type_complimentary_free_and_hidden`       | A complimentary tier costs 0 and is `HIDDEN`                                                                                                     |
+| trigger `desi_ticket_type_description_length`     | A description of at most 500 characters, checked on insert and when the text changes, so a longer legacy row stays readable and sellable         |
+| `TicketType_eventId_name_key`                     | Two tiers on one event do not share a name (hand-written in `20260916000000_event_draft_revision`; exact comparison)                             |
+| `TicketType_reserved_session_zone_key`            | One reserved tier prices a zone at a session (a partial unique index `WHERE "reserved"`, so it lives in the migration)                           |
+| trigger `desi_ticket_type_zone_matches_session`   | A tier's price zone is on the map version its session sells                                                                                      |
+| trigger `desi_event_session_map_keeps_tier_zones` | A session does not move to another map version, or to general admission, while a tier on it prices a zone of the version it has                  |
+| `event_session_capacity_positive`                 | A general-admission capacity, when set, is above zero                                                                                            |
+| `event_faq_shape`, `event_performers_shape`, …    | The event page's lists are JSON arrays of at most 30 questions, 64 performers, 40 running-order entries and 30 sponsors; the links are an object |
+| `event_content_text_lengths`                      | Dress code 500, directions 2,000, public email 254 and public phone 24 characters at most                                                        |
+
+`Event` gained nine columns for the public page, every one nullable:
+`performers`, `runningOrder`, `faq`, `sponsors`, `socialLinks` (JSON), and
+`dressCode`, `directions`, `publicContactEmail`, `publicContactPhone` (text).
+The public contact pair is the organiser's choice to publish and is distinct
+from `Organization.contactEmail`, which stays private; on the wire it is
+`publicEmail` and `publicPhone`. The migration filled `performers` from the old
+`artists` list, names only and in billing order. The shape of each entry — a
+performer's role and bio, https-only sponsor and social links, each social link
+on its own network's domains — is validated by `@desi-event/schemas` before a
+write; the database checks only the outer shape and the lengths.
+
+The zone rule has two sides because either write can break it: a tier naming a
+zone from another version, or a session moving versions under a tier. The tier
+trigger reads the session row `FOR SHARE`, which conflicts with the lock an
+update of the session takes, so the two writes run one after the other and the
+second sees the first. Checkout never takes that lock.
+
+Every one of these is refused by the API first, with a sentence rather than a
+constraint name: a taken name or zone, a zone from another version, a priced or
+public complimentary tier and a tier past a limit are all 422s, and a removal
+something still depends on is a 409. The two unique indexes are also the net
+under that check — a write racing past it is read as 409 `TIER_NAME_TAKEN` or
+`TIER_ZONE_TAKEN`, never a 500. `apps/api/tests/event-authoring-live-integration.test.js`
+drives those refusals through the real app on a freshly migrated database and
+provokes both indexes directly; `pnpm db:verify:fresh` pushes against the zone
+index beside the other partial indexes. The other checks and triggers are not
+yet pushed against directly by a probe.
+
+Removing a session deletes the ticket types priced for it (`onDelete: Cascade`)
+once nothing depends on them, and the `event.session_removed` audit row names
+them. A published or on-sale event keeps at least one session (409
+`LAST_SESSION`); that rule is the API's, not the database's.
+
+---
+
+## Event pictures
+
+Migration `20260928130000_event_media`. The pipeline around these tables is in
+[MEDIA.md](MEDIA.md).
+
+`MediaKind` is `EVENT_COVER` or `EVENT_GALLERY`; `MediaAsset.kind` was free
+text and was converted in place, behind a guard that stops the migration on
+any other value. `MediaAsset` gained `altText` (the organiser's description,
+public), `position` (a gallery picture's place, 0–7), and the review stamp
+`moderatedAt`, `moderatedById` and `moderationNote` (the reason a picture was
+taken down: shown to its organiser as `rejectionReason`, never public).
+`Event.coverImageUrl` is gone: an external address the organiser's browser
+fetched is exactly what uploads replace, and the migration drops them rather
+than fetching them. What it dropped is kept: before the column goes, it writes
+one `AuditLog` row per event that had an address — action
+`event.cover_address_dropped`, entity the event, no actor, metadata
+`{ organizationId, coverImageUrl, migration }` — with the address's user name,
+password, query string and fragment removed, since that is where a signed link
+carries its secret. `pnpm db:verify:upgrade` checks these rows.
+
+`MediaBlob` holds the bytes — `bytea`, stored `EXTERNAL` because the formats are
+already compressed — one row per picture, keyed by `MediaAsset.storageKey`
+with `ON DELETE CASCADE`. Deleting a picture or its event deletes the bytes.
+The bytes are in their own table so that loading a picture's row never loads a
+megabyte with it.
+
+| Rule                                 | What it holds                                                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `media_asset_event_media_shape`      | An event picture belongs to its event, has a 1–300 character description, is a JPEG, PNG or WebP of at most 8000 pixels a side and 10 MiB, with a SHA-256 checksum |
+| `media_asset_position_by_kind`       | A cover has no position; a gallery picture has one from 0 to 7                                                                                                     |
+| `media_asset_approved_is_servable`   | An approved picture was sanitised and passed the structural check                                                                                                  |
+| `media_asset_rejection_has_note`     | A picture taken down says why                                                                                                                                      |
+| `media_asset_decision_is_stamped`    | A decided picture says when                                                                                                                                        |
+| `MediaAsset_one_cover_per_event_key` | One cover per event (a partial unique index, so it lives in the migration)                                                                                         |
+| trigger `desi_media_gallery_cap`     | At most eight gallery pictures per event                                                                                                                           |
+| `media_blob_size_matches`            | A blob's recorded size is its real size, between 1 byte and 10 MiB                                                                                                 |
+| `media_blob_checksum_shape`          | A blob's checksum is SHA-256-shaped                                                                                                                                |
+
+The gallery cap cannot be an index — a count is not a key — so the trigger
+counts, after locking the event row `FOR NO KEY UPDATE` so that two parallel
+uploads take turns and the second sees the first. That lock conflicts with
+itself and with an authoring write's revision bump, and not with the
+`FOR KEY SHARE` a checkout's foreign-key insert takes, so an upload never makes
+a buyer wait. There is deliberately no unique index on `position`: a reorder
+passes through a moment where two pictures share one.
+
+`pnpm db:verify:fresh` pushes against every rule above on a fresh database —
+the cover index beside the other partial indexes, the rest in
+`packages/db/scripts/media-probes.mjs` — and
+`apps/api/tests/event-media-integration.test.js` races ten parallel uploads
+against the cap.
+
+---
+
 ## Identity
 
 `Session`, `Device`, `MfaFactor`, `AuthToken`, `LoginAttempt`. Sessions carry
@@ -165,6 +320,30 @@ every privilege change. `AuthToken` rows are single-purpose
 (`AuthTokenPurpose`), so a token minted for one thing cannot be spent on
 another. `ScannerScope` narrows a membership to particular events — a steward at
 one door is not an organisation-wide capability.
+
+### Invitations and who created an organisation — 2026-09-29
+
+Migration `20260928120000_team_delivery_and_organisation_provenance`.
+
+- **`Invitation.deliveryMode`** (`InvitationDelivery`: `EMAIL`, `MANUAL`,
+  nullable) records how each invitation's code went out (ADR 0008). Rows
+  written before the column existed are null. The code itself is never stored;
+  `Invitation.tokenHash` holds its SHA-256, as before.
+- **`Invitation_one_pending_per_address`** is a partial unique index on
+  `("organizationId", lower("email")) WHERE "status" = 'PENDING'`: at most one
+  live invitation per address per organisation, whatever its case, so two
+  issued at the same moment produce one invitation and one conflict. The
+  migration first revoked older duplicate pending invitations, keeping the
+  newest (ties broken by id).
+- **`Organization.createdById`** names the account that created an
+  organisation through `POST /v1/organizations`, with an index on
+  `("createdById", "createdAt")` that serves the three-a-day limit.
+  Nullable with `ON DELETE SET NULL`: seeded and platform-made organisations
+  have none. It is never on the wire.
+
+A role change of any kind ends sessions with the revocation reason
+`role_changed` (NF-10), written to `Session.revokedReason` like every other
+reason.
 
 ---
 
@@ -253,8 +432,10 @@ narrower than "this is done":
 > `SKIPPED_DISABLED` row when enforcement is not activated, which is the
 > expected state everywhere today. What remains true is the sentence beside it,
 > and it is the one that matters: **no scheduled retention job deletes
-> anything.** There is no deletion path in this repository, the sweep issues
-> `count` queries and nothing else, and
+> anything.** The retention machinery has no deletion path, the sweep issues
+> `count` queries and nothing else (the one deletion on a timer in the
+> repository is the traffic roll-up's, of raw `TrafficEvent` rows it has
+> already added up — see "Visit counting" — which is not retention), and
 > `retention_sweep_dry_run_changes_nothing` refuses to record a rehearsal that
 > claims otherwise.
 >
@@ -478,3 +659,400 @@ comparison the trigger exists to make had never run once.
 `20260921090000_payout_currency_trigger_repair` corrects the column name and
 changes nothing else. No backfill is needed, because no row naming a connected
 account could ever have been written while the broken body was installed.
+
+## Nights, guests' names and promo codes at checkout — 2026-09-29
+
+Migration `20260929090000_checkout_promos_attendees_nights`.
+
+**`EventSession.label`** is the organiser's short name for a night ("Night 2"),
+optional, 1 to 60 characters after trimming (`event_session_label_length`).
+Every surface shows it beside the night's own date. Since
+`20260929100000_check_in_per_night` the door admits by night (below).
+
+**Guests' names are staged, not stored twice.** A name typed at checkout is
+personal data about somebody who may have no account. Until settlement issues
+the tickets it waits on the line that will become them:
+
+| Column                    | Holds                                                      | Constraint                                                                   |
+| ------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `OrderItem.attendeeNames` | Names for a general-admission line, at most one per ticket | `order_item_attendee_names_within_quantity`: `cardinality <= quantity`       |
+| `HoldItem.attendeeName`   | The name for one held seat                                 | `hold_item_attendee_name_seated`: only on a seated item, 1 to 100 characters |
+
+Settlement copies each name onto its `Ticket.attendeeName` and clears the
+staging in the same transaction. Compensation (a declined payment) clears it
+too, and so does a buyer-identity redaction of an order still waiting to be
+paid. Nothing reads the staging back to a client: the names are on the tickets.
+
+**`PromoCode` is now constrained by the database**, with backfills that keep
+each existing row's meaning:
+
+| Constraint                              | Rule                                                                         |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
+| `promo_code_value_in_range`             | `value >= 0`; a percentage (basis points) at most 10000                      |
+| `promo_code_percentage_has_no_currency` | A percentage code has no currency                                            |
+| `promo_code_redemptions_within_cap`     | `redemptionCount >= 0`, and when capped, `1 <= maxRedemptions` and within it |
+| `promo_code_window_ordered`             | `endsAt` after `startsAt` when both are set                                  |
+
+The cap CHECK is the backstop behind the row lock checkout takes on the code
+(see `docs/PAYMENTS.md`). The code's text has no shape CHECK: the request
+schemas upper-case and validate every write and every lookup instead, because an
+upper-casing backfill could have collided with `@@unique([organizationId, code])`.
+`PromoCode_organizationId_createdAt_idx` serves the organiser's list.
+
+**One reserved tier per zone per night** is the partial unique index
+`TicketType_reserved_session_zone_key` on `("eventSessionId", "priceZoneId")
+WHERE "reserved"`, created by `20260928090000_event_authoring_content_and_tier_rules`
+and relied on, not recreated, here. It is what makes "which tier sells this
+seat" a question with one answer: a seat is sold under the reserved tier that
+prices its zone at that night.
+
+---
+
+## Admission per night — 2026-09-30
+
+Migration `20260929100000_check_in_per_night`.
+
+On an event of more than one night, a ticket for one night — its seat's, else
+its tier's — admits once, on that night; a ticket whose tier names no night is
+good for every night and admits once on each. Three changes make that true in
+the database rather than only in the door's code:
+
+- **`CheckIn` is unique on `(ticketId, eventSessionId)`**, replacing the unique
+  `ticketId`. Nulls are distinct in a unique index, so the partial index
+  `CheckIn_ticketId_no_night_key` (`ticketId` where `eventSessionId` is null)
+  keeps a ticket to one admission recorded with no night. Prisma's schema
+  cannot express the partial index; `Ticket.checkIn` became `Ticket.checkIns`.
+- **`desi_check_in_ticket_admissible`** locks the ticket row first, so two
+  admissions of one ticket take turns, and then refuses: a ticket that does not
+  admit (as before); a night that is not one of the ticket's event's; a night
+  other than a single-night ticket's own; an every-night admission that names
+  no night; and a second admission, on any other key, of a ticket that admits
+  once. The same night twice is left to the unique index.
+- **`desi_ticket_status_transition`** also refuses `TRANSFER_PENDING` and
+  `TRANSFERRED` for a ticket with any admission. A ticket good for every night
+  stays `VALID` between nights, so its status alone would not stop a successor
+  being issued and let in again on a night it already was.
+
+Rows written before the migration are brought under the new rules by the
+migration itself. Each ticket had at most one admission, which satisfies both
+indexes; but that admission named no night, and a ticket good for every night
+had become `CHECKED_IN` at it, so left alone the trigger would refuse it on
+every later night. So, on each event of more than one night (an event of one
+night needs no nights and is left alone):
+
+- each admission with no night is given one — the ticket's own night (its
+  seat's, else its tier's) when it has one; otherwise the night whose window
+  (doors, or the start, to the end) holds the moment it was scanned; otherwise
+  the night nearest that moment;
+- a ticket good for every night that is `CHECKED_IN`, was let in, and has a
+  night it was not let in on is `VALID` again with no `checkedInAt`, as the new
+  rules would have left it (the status trigger, which refuses that move, is
+  switched off for that one statement);
+- each ticket touched gets an `AuditLog` row with no actor — action
+  `ticket.admission_night_backfilled`, metadata `{ checkInId, eventId,
+eventSessionId, chosenBy, scannedAt, restoredToValid, previousCheckedInAt,
+migration }`.
+
+`pnpm db:verify:upgrade` seeds such admissions (a pass scanned in a night's
+window, one scanned between nights, a one-night ticket scanned in another
+night's window, a refunded pass and a one-night event) and checks each result,
+the audit rows, and that the pass is then let in on its next night and not
+twice on the first.
+
+## Invite-only posting, the website link, visit counting, full control and imports — 2026-10-06
+
+Seven migrations, in order (`PHASE3_MIGRATIONS` in
+`packages/db/scripts/verify-populated-upgrade.mjs` lists them after the earlier
+ones, and the upgrade verifier proves each against a populated database). The
+decisions behind them are ADRs 0010–0015.
+
+| Migration                                              | What it adds                                                                                                             |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `20260930090000_platform_admin_role`                   | `UserRole` value `ADMIN`, alone (an enum value cannot be used in the transaction that adds it)                           |
+| `20260930100000_organiser_invitations_and_review_gate` | `OrganizerInvitation`, `Membership.organizerInvitationId`, the review-gate trigger                                       |
+| `20260930120000_event_website_link`                    | The website link columns on `Event`, its CHECKs and trigger; `socialLinks.website` folded in                             |
+| `20260930130000_event_traffic_analytics`               | `TrafficEvent`, `TrafficDaily`, `TrafficSalt`, `TrafficRollupState` and their enums                                      |
+| `20260930140000_event_deleted_status`                  | `EventStatus` value `DELETED`, alone                                                                                     |
+| `20260930150000_event_full_control`                    | Deletion columns, `EventPlatformEdit`, `EventChangeNotice`, cancelled nights, replacement covers                         |
+| `20260930160000_event_imports`                         | `EventImportRun`, `EventImportItem`, `EventImportImage`, `Organization.platformHeldSource`, `EventSession.endTimeListed` |
+
+### Organiser invitations
+
+`OrganizerInvitation` has one kind: start a new organisation as its OWNER. It
+holds the address (lower case, CHECK), the organisation's name (2–120), the
+administrator-written public description (1–2000) and website (the event
+website's address pattern), a private note (1–1000), the SHA-256 digest of the
+code (`organizer_invitation_token_is_digest`; never the code), who invited,
+`status` (PENDING, ACCEPTED, REVOKED, EXPIRED), `deliveryMode`, `expiresAt`
+(after `createdAt`), acceptance and withdrawal stamps (each required by its
+status), `organizationId` (only once ACCEPTED), and `supersedesId` (unique) for
+a reissue. A partial unique index allows one PENDING invitation per address.
+`Membership.organizerInvitationId` (unique) records which invitation made an
+owner. Team invitations still waiting that offered a posting role were
+withdrawn by the migration, and CHECK
+`invitation_pending_role_is_owner_grantable` keeps new ones to roles an owner
+may grant.
+
+The privacy process reaches this table. Erasing a person replaces `email` with
+a placeholder derived from the invitation's id and nulls `note` on their
+settled invitations (accepted, withdrawn, expired), keeping the status, the
+stamps, the organisation's name, description and website and every link: the
+one their organisation was created from always, any other only when their
+account itself is erased. A waiting invitation to them refuses the erasure
+while their account would be erased (open process
+`ORGANIZER_INVITATION_PENDING`), because acceptance matches on the address; an
+erased expired invitation is not reissued (409 `NOT_OUTSTANDING`). See
+[PRIVACY_AND_RETENTION.md](PRIVACY_AND_RETENTION.md#organiser-invitations--2026-10-07).
+
+### The review gate
+
+Trigger `desi_event_status_requires_review` (`BEFORE UPDATE OF "status"`):
+APPROVED only from REVIEW_PENDING; a public status only from APPROVED, another
+public status, or a restore to the restore target of the status the event had
+when it was deleted. An INSERT is not covered (only seeds and the e2e helpers
+insert events in a public status; the API creates DRAFTs and the importer
+creates DRAFTs too).
+
+### The website link
+
+`Event.websiteUrl` (the organiser's address, normalised; CHECK
+`event_website_url_shape`), `websiteRedirectEnabled`, `websiteDecidedUrl` (where
+the link goes while it is on), `websiteDecisionPending`, `websiteSubmittedAt`,
+`websiteRedirectChangedAt`, `websiteRedirectChangedById` (FK, SET NULL) and
+`websiteRedirectReason` (1–500). CHECK `event_website_redirect_consistency`
+keeps them coherent; trigger `desi_event_website_change` recomputes "pending"
+on every write of `websiteUrl`, so an organiser's change never moves the
+switch. `socialLinks` may no longer carry `website` (`event_social_links_shape`).
+Partial indexes serve the administrators' worklist (`Event_website_pending_idx`)
+and the "on" list.
+
+### Visit counting
+
+- **`TrafficEvent`** — one raw visit: event, UTC day, kind (`PAGE_VIEW`,
+  `CARD_CLICK`, `TICKET_CLICK`, `SEAT_CLICK`, `WEBSITE_REDIRECT`), placement,
+  source (page views only), a 32-hex visitor code or none (privacy signal), and
+  a 64-hex dedupe key present exactly when the code is (unique). **No address,
+  browser string or account.** Deleted by the roll-up two days after its day.
+- **`TrafficSalt`** — the day's random secret the visitor code is made with (64
+  hex); deleted once the day is over.
+- **`TrafficDaily`** — the totals per event per UTC day: views and visitors,
+  views without a code, the five sources, card clicks by place, ticket and seat
+  clicks and their visitors, website visits and their visitors,
+  `demonstration` (true only for rows the development seed writes) and
+  `computedAt`. CHECKs: nothing negative; sources add up to views; places add up
+  to card clicks; visitors plus uncoded views within views; click and redirect
+  visitors within their clicks. Cascades with its event.
+- **`TrafficRollupState`** — one row (`traffic-rollup`, inserted by the
+  migration): the roll-up's lease and `lastCompletedAt`, which the screens show
+  as "these figures run to".
+
+### Deleted events
+
+`EventStatus` gains `DELETED`. `Event` gains `deletedAt`, `deletedById` (FK,
+SET NULL), `deletionReason` (10–500), `deletionOutcome` (REMOVED,
+CANCELLED_AND_REFUNDED, REMOVED_AFTER_EVENT), `deletionAuthority`
+(ORGANIZATION, PLATFORM), `statusBeforeDeletion` and `deletedSlug` (the slug of
+a never-public event, released). CHECK `event_deletion_consistency` sets them
+all with DELETED and clears them all otherwise, and allows
+CANCELLED_AND_REFUNDED only from CANCELLED. Trigger `desi_event_deletion_moves`
+makes `statusBeforeDeletion` the status the row really had, freezes it while
+DELETED, and lets the row leave DELETED only for
+`desi_event_restore_target(statusBeforeDeletion)`. Partial index
+`Event_deleted_idx` serves the deleted list. Only
+`apps/api/src/lib/event-deletion.js` writes these columns (a source scan); the
+development seed inserts one deleted event and leaves an existing deleted row
+untouched on a re-seed.
+
+### Platform editing, change notices, cancelled nights and replacement covers
+
+- **`EventPlatformEdit`** — one editing sitting: event, administrator, the
+  browser session it answers (FK, SET NULL), reason, `openedAt`, `expiresAt`,
+  and how it ended (`PlatformEditEnd`: CLOSED, SUPERSEDED, EVENT_DELETED,
+  EXPIRED). One open sitting per administrator per event (a partial unique
+  index); CHECK `event_platform_edit_shape`.
+- **`EventChangeNotice`** — what ticket holders are shown on their order page:
+  the kind (`EventChangeKind`: MATERIAL_CHANGE, SESSION_CHANGE, RESCHEDULED,
+  POSTPONED, CANCELLED, SESSION_CANCELLED, DELETED), the reason and whether the
+  team at The Desi Events made it. Only `lib/event-change-notices.js` writes it.
+- **`EventSession.cancelledAt`** and **`cancellationReason`** — a cancelled
+  night (CHECK `event_session_cancellation_stamped`); trigger
+  `desi_event_session_cancel_is_final` refuses bringing one back.
+- **`MediaAsset.replacesMediaId`** (unique, FK SET NULL) — a replacement cover
+  waiting for approval names the cover it replaces; CHECK
+  `media_asset_replacement_shape` and trigger `desi_media_replacement_matches`
+  keep it a cover of the same event, and the one-cover index now counts only
+  current covers.
+
+### Imports
+
+- **`Organization.platformHeldSource`** (unique; `SULEKHA`) marks the
+  organisation that holds imported events. Trigger
+  `desi_platform_held_has_no_members` refuses memberships and team invitations
+  into it.
+- **`EventImportRun`** — one upload: who planned it, the plan and its digest,
+  status, and who applied it, within its hour.
+- **`EventImportItem`** — one imported listing, unique by `(source, sourceId)`
+  and by event: the listed prices and price text, the curator's notes, the
+  listing and ticket addresses, who imported it (the administrator whose
+  import last sent it for review) and who approved it, the run that last wrote
+  it, and a reassignment (from, to, by whom).
+- **`EventImportImage`** — one picture to copy (unique by item and address):
+  its role, status, failure reason and the `MediaAsset` it became.
+- **`EventSession.endTimeListed`** — false when the listing gave no end time
+  and the stored end is the start plus three hours, which is never shown. It
+  turns true once an editor sets the end apart from that estimate (a session
+  edit or a reschedule); moving the whole night keeps it an estimate.
+
+Only `lib/event-import.js` writes the three import tables (a source scan).
+
+## Foreign keys into tiers and nights, indexed — 2026-10-08
+
+`20261008090000_foreign_key_indexes` (listed last in `PHASE3_MIGRATIONS`)
+adds the four indexes these foreign keys lacked:
+
+| Index                           | Foreign key                                                      |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `OrderItem_ticketTypeId_idx`    | `OrderItem.ticketTypeId` → `TicketType` (ON DELETE RESTRICT)     |
+| `HoldItem_ticketTypeId_idx`     | `HoldItem.ticketTypeId` → `TicketType` (ON DELETE RESTRICT)      |
+| `Order_eventSessionId_idx`      | `Order.eventSessionId` → `EventSession` (ON DELETE SET NULL)     |
+| `TicketHold_eventSessionId_idx` | `TicketHold.eventSessionId` → `EventSession` (ON DELETE CASCADE) |
+
+PostgreSQL checks a foreign key from the referenced side as well: deleting a
+tier looks for order lines and hold lines that name it, and deleting a night
+looks for (and rewrites) the orders that name it and removes its holds.
+Without an index each look read the whole table, as did the tier editor's
+counts of a tier's lines and a night's cancellation's search for its orders.
+On a copy of the shared test database (52,017 order lines, 10,160 hold lines)
+deleting one organisation with one event and one tier made one sequential
+scan of each table; with the indexes it makes none. Each index is the
+`@@index` of its model in `schema.prisma`, under Prisma's default name.
+
+## Booking fees, referral codes and paying at the venue — 2026-10-09
+
+Three migrations after `20261008090000_foreign_key_indexes`, appended to the
+upgrade verifier's list: `20261009090000_refund_reason_booking_fee` (the
+`RefundReason` value `BOOKING_FEE` alone), `20261009100000_payment_terms_and_referral_codes`
+and `20261009110000_pay_at_the_venue`. SPEC3-XI's cancellation model, return
+marker and their checks are in the last two. Every refusal below raises SQLSTATE
+23514 with its constraint name in the message and maps to a 4xx
+(`DATABASE_REFUSALS`), so none reaches a 5xx. ADRs 0016 and 0017 hold the
+reasons.
+
+### Enums
+
+`FeeSource` (`SITE_DEFAULT`, `EVENT`), `OrderPaymentMethod` (`CARD`,
+`AT_VENUE`), `ReferralCodeScope` (`ALL_EVENTS`, `SELECTED_EVENTS`),
+`VenuePaymentVia` (`DOOR_TICKET`, `DOOR_GROUP`) and `ReferralUseReturnCause`
+(`PAYMENT_FAILED`, `NOT_COMPLETED`, `UNPAID_ORDER_CANCELLED`, `REFUNDED`,
+`VENUE_UNPAID_CANCELLED`, `EVENT_CANCELLED`, `EVENT_DELETED`,
+`SESSION_CANCELLED`, `TICKETS_REVOKED`).
+
+### Models and columns, with their only writers
+
+| Model / columns                                                                                                                                      | What it holds                                                                                                                                                  | Only written by                                                       |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `Event.feeSource`, `feePercentageBps`, `feeFlatCentsPerTicket`, `feeCurrency`, `feeSettingId`                                                        | the event's own booking fee, or the site default; `feeSettingId` points at the current decision while the terms are the event's                                | `lib/payment-terms.js`                                                |
+| `Event.venuePaymentEnabled`, `venuePaymentLimit`, `venuePaymentChangedAt`, `venuePaymentChangedById`, `venuePaymentReason`                           | the pay-at-the-venue switch, its limit across all buyers, and the last change                                                                                  | `lib/payment-terms.js`                                                |
+| `EventFeeSetting`                                                                                                                                    | one fee decision: sequence per event, source, numbers, currency, reason, who, when. Never edited                                                               | `lib/payment-terms.js`                                                |
+| `EventVenuePaymentChange`                                                                                                                            | one change of the switch or limit, with its reason                                                                                                             | `lib/payment-terms.js`                                                |
+| `ReferralCode`                                                                                                                                       | the code (plain text, upper case, unique), label, scope, expiry, limit, `useCount`, on/off, maker                                                              | `lib/referral-codes.js`; `useCount` only `lib/referral-uses.js`       |
+| `ReferralCodeEvent`                                                                                                                                  | one event of a chosen-events code                                                                                                                              | `lib/referral-codes.js`                                               |
+| `Order.paymentMethod`, `feeSource`, `feeSettingId`, `feePercentageBps`, `feeFlatCentsPerTicket`, `feeGrossCents`, `feeWaivedCents`, `referralCodeId` | how the order pays, and the fee it was priced with: the terms, the gross fee, the part a referral code waived, the code                                        | `routes/orders.js` (at placing)                                       |
+| `Order.venueDueCents`, `OrderItem.venueDueCents`                                                                                                     | the ticket price to pay at the door, for the order and each line; 0 for a card order                                                                           | `routes/orders.js`                                                    |
+| `Ticket.venueDueCents`                                                                                                                               | the ticket's share of its line's door price. Never changes                                                                                                     | `lib/checkout.js` (issuing), `lib/tickets.js` (copied to a successor) |
+| `VenuePayment`                                                                                                                                       | a payment taken at the door for one or more tickets of one order, with its night, door authority, role, who and gate. Never edited                             | `lib/venue-payments.js`                                               |
+| `Ticket.venuePaymentId`                                                                                                                              | the payment that paid the ticket. Set once                                                                                                                     | `lib/venue-payments.js`                                               |
+| `VenueBookingCancellation`                                                                                                                           | unpaid tickets of one order cancelled: count, door price no longer owed (`basisCents`), booking fee kept, currency, authority, role, reason, who. Never edited | `lib/venue-bookings.js`                                               |
+| `Ticket.venueCancellationId`, `OrderItem.venueCancelledQuantity`, `Order.venueCancelledBasisCents`, `Order.venueFeeKeptCents`                        | which cancellation withdrew a ticket; the line's cancelled count; the order's sums                                                                             | `lib/venue-bookings.js`                                               |
+| `Order.referralUseReturnedAt`, `referralUseReturnCause`                                                                                              | the referral use given back, once, and why                                                                                                                     | `lib/referral-uses.js`                                                |
+| `TicketType.quantitySold`                                                                                                                            | decremented only by cancel-unpaid (by the tickets it withdrew); incremented only by settlement                                                                 | `lib/venue-bookings.js` (down), `lib/checkout.js` (up)                |
+
+`VenuePayment.organizationId` and `VenueBookingCancellation.organizationId` are
+plain columns copied from the event, with no foreign key, so organisation
+deletion rules are untouched.
+
+### CHECKs
+
+- `event_fee_shape`: site default with no numbers, or the event's own terms with
+  0–3000 basis points, 0–10,000 minor units and a currency code.
+  `event_fee_setting_shape`: the same rule on a decision, a sequence from 1 and
+  a reason of 10–500 characters.
+- `event_venue_payment_shape` and `event_venue_payment_change_shape`: a reason
+  of 10–500 characters, a limit of 1–100,000, and a limit whenever the switch is
+  on.
+- `referral_code_shape` (the code's pattern, a label of 1–120 characters, a
+  limit of 1–1,000,000, `useCount ≥ 0`, an expiry after creation, a
+  switched-off code stamped) and `referral_code_use_within_limit` (`useCount ≤
+maxUses`; its refusal is the buyer's `REFERRAL_NOT_ACCEPTED`).
+- `order_fee_parts` (`feesCents = feeGrossCents − feeWaivedCents`, waived within
+  gross), `order_fee_waiver_whole` (a code waives all of a positive fee; no code,
+  no waiver) and `order_fee_terms_shape` (both numbers or neither, within the
+  environment's bounds, and an `EVENT` order explainable after its decision row
+  is gone).
+- `order_referral_return_shape`: a return marker only on an order with a code,
+  with its cause.
+- `order_venue_payment_shape`: a card order owes nothing at the door; a
+  pay-at-the-venue order owes its discounted ticket price there and pays only
+  `feesCents + taxCents` online. `order_item_venue_due_shape`: a line's door
+  price within its subtotal. `ticket_venue_due_shape`: a paid ticket owes
+  something.
+- `venue_payment_shape`: an amount above 0, 1–100 tickets, a currency, an
+  authority from the door's closed list, a role of 1–40 and a gate of 1–60
+  characters.
+- `venue_booking_cancellation_shape`: 1–100 tickets, a basis above 0, a kept fee
+  of 0 or more, `ORGANIZATION_ROLE` or `PLATFORM_ROLE`, a role of 1–40 and a
+  reason of 10–500 characters. `ticket_venue_cancellation_shape`: a cancelled
+  ticket is REVOKED, unpaid and owed something.
+- `order_venue_cancel_shape`: the door price no longer owed within what was
+  owed, the fee kept within the fee charged, and neither on a card order.
+  `order_venue_kept_within_total`: `refundedCents + refundPendingCents +
+venueFeeKeptCents ≤ totalCents`, so no refund reaches a kept fee.
+- `order_item_venue_cancelled_within_line`: refunded and cancelled tickets
+  together within the line. `ticket_type_sold_not_negative`: `quantitySold ≥ 0`.
+
+### Triggers
+
+- `desi_event_fee_setting_append_only`: no edit of a fee decision but clearing
+  `setById`, no delete but the cascade from the event row.
+- `desi_order_referral_fixed`: an order keeps the code it was placed with
+  (`order_referral_code_fixed`) and a set return marker never changes
+  (`order_referral_return_once`).
+- `desi_check_in_ticket_admissible` (replaced, its per-night rules verbatim):
+  no admission while a ticket owes and is unpaid (`check_in_payment_due`).
+- `desi_ticket_venue_due_guard`: a ticket's due never changes, a transfer
+  successor owes what its predecessor owed, and a ticket is not inserted
+  already paid or cancelled (`ticket_venue_due_fixed`,
+  `ticket_venue_due_successor`, `ticket_venue_insert_unpaid`).
+- `desi_ticket_venue_payment_guard`: the payment is set once, to its own order's
+  (`ticket_venue_payment_fixed`, `venue_payment_order`).
+- `desi_venue_payment_append_only`; `desi_venue_payment_sum` (deferred) with
+  `desi_ticket_venue_payment_sum` and `desi_ticket_venue_payment_sum_on_delete`
+  (deferred, from the ticket side): a payment equals its tickets at every commit
+  (`venue_payment_sum`).
+- `desi_ticket_venue_cancellation_guard` (`ticket_venue_cancellation_fixed`,
+  `venue_cancellation_ticket`), `desi_venue_booking_cancellation_append_only`
+  and `desi_venue_booking_cancellation_sum` with
+  `desi_ticket_venue_cancellation_sum` and `…_on_delete` (deferred): a
+  cancellation equals its tickets' dues at every commit
+  (`venue_booking_cancellation_sum`).
+
+The ticket status trigger is left as `20260929100000_check_in_per_night` wrote
+it: a ticket that owes a payment can be handed on (question 7), and one already
+let in still cannot.
+
+### How a past order stays explainable
+
+| Question                            | Answered by                                                                                                                        |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Card or at the venue?               | `Order.paymentMethod`                                                                                                              |
+| Which fee terms?                    | `feeSource`, `feePercentageBps`, `feeFlatCentsPerTicket` (the numbers used), `feeSettingId` (the decision, with who, when and why) |
+| How much fee?                       | `feeGrossCents` (worked out), `feeWaivedCents`, `feesCents` (charged)                                                              |
+| Waived by which code?               | `referralCodeId` (administrators only)                                                                                             |
+| Tax applied?                        | `taxCents`; `pricingSnapshot.tax.applied`, `notAppliedReason`                                                                      |
+| Due and paid at the door?           | `Order.venueDueCents`; per ticket `venueDueCents` and `venuePaymentId`; who, when, how much, which night: `VenuePayment`           |
+| Cancelled unpaid, and the fee kept? | `Ticket.venueCancellationId`; `VenueBookingCancellation`; `Order.venueCancelledBasisCents`, `venueFeeKeptCents`                    |
+| Referral use given back?            | `Order.referralUseReturnedAt`, `referralUseReturnCause`                                                                            |
+
+Orders placed before 9 October 2026 have no recorded terms unless their pricing
+snapshot carried them (the backfill copied those); their order page says the
+terms were not recorded.
