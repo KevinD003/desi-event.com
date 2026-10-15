@@ -29,6 +29,20 @@ const SHARE = {
 }
 
 describe('root layout metadata', () => {
+  it('describes a catalogue in the USA and Canada, and claims US dollars only for tickets sold here', () => {
+    for (const words of [
+      metadata.title.default,
+      metadata.description,
+      metadata.openGraph.title,
+      metadata.twitter.description,
+    ]) {
+      expect(words).toMatch(/across the USA and Canada/u)
+    }
+
+    expect(metadata.description).toMatch(/Tickets sold here are priced in US dollars/u)
+    expect(metadata.description).not.toMatch(/every price shown in US dollars/u)
+  })
+
   it('resolves relative addresses against an absolute base', () => {
     expect(metadata.metadataBase).toBeInstanceOf(URL)
     expect(metadata.metadataBase.protocol).toMatch(/^https?:$/u)

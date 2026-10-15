@@ -77,9 +77,14 @@ export function taxNameInSentence(place = {}) {
  * The locale used to render money for a currency.
  *
  * Grouping differs: Indian numbering groups in lakhs (`₹1,49,900`), so INR is
- * formatted `en-IN` while USD, CAD and GBP use their own conventions. The
- * catalogue sells in US dollars, so USD is the default and `en-US` the
- * fallback; any other currency the API sends still formats as itself.
+ * formatted `en-IN`, and GBP `en-GB`. The catalogue sells in US dollars, so
+ * USD is the default and `en-US` the fallback; any other currency the API
+ * sends still formats as itself.
+ *
+ * Canadian and Australian dollars are formatted `en-US` too, so they read
+ * `CA$25.00` and `A$25.00`. Their own locales write a bare `$25.00`, which on
+ * a site whose prices are otherwise US dollars says the wrong currency: an
+ * event copied from a Sulekha listing in Toronto lists its prices in CAD.
  *
  * @param {string} [currency] ISO 4217 code.
  * @returns {string} A BCP 47 locale tag.
@@ -87,7 +92,7 @@ export function taxNameInSentence(place = {}) {
 export function localeForCurrency(currency = 'USD') {
   const code = String(currency || 'USD').toUpperCase()
 
-  return { USD: 'en-US', INR: 'en-IN', CAD: 'en-CA', GBP: 'en-GB', AUD: 'en-AU' }[code] ?? 'en-US'
+  return { USD: 'en-US', INR: 'en-IN', CAD: 'en-US', GBP: 'en-GB', AUD: 'en-US' }[code] ?? 'en-US'
 }
 
 /**

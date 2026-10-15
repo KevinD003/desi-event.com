@@ -4,9 +4,14 @@
  * Platform administrators and super administrators edit a posted event in an
  * editing session opened with a reason, delete any event and restore a
  * deleted one (SPEC2-XI X-7, X-12). This is where they find it: a search, a
- * status, an organisation, the deleted ones on their own filter, and three
- * orders. Each row opens the event's own page, where every one of those
- * actions is.
+ * status, an organisation, the events taken off the site (deleted) on their
+ * own filter, the events copied from Sulekha on theirs, and three orders. Each
+ * row opens the event's own page, where every one of those actions is.
+ *
+ * Deleting erases nothing, so the page says so: a deleted event is listed
+ * under "Taken off the site (deleted)", each row offering "Restore…", which
+ * puts it back (ADR 0014 §6). A published event comes back published at the
+ * same web address; what any other comes back as is said on its row.
  *
  * Each row also says the event's booking fee (the platform fee) — the site
  * default, none, or its own terms — and whether it can be paid for at the
@@ -53,13 +58,27 @@ export const NOT_FOR_THIS_ACCOUNT =
 
 /** What the page says about itself. */
 export const INTRODUCTION =
-  'Every organisation’s events. Open one to edit it once it is published, in an editing session you open with a reason; to delete it; or, once it is deleted, to restore it. The organiser sees each change and its reason.'
+  'Every organisation’s events. Open one to edit it once it is published, in an editing session you open with a reason; to delete it, which takes it off the site; or, once it is deleted, to restore it, which puts it back. Deleting erases nothing, so a deleted event can be restored at any time. The organiser sees each change and its reason.'
+
+/** What the list of deleted events says above its rows. */
+export const RESTORE_NOTE =
+  'These events were taken off the site. Nothing about them was erased: choose “Restore…” on a row to put that event back, at any time, with a reason. A published event comes back published, at the same web address; each row says what its event comes back as.'
+
+/** What the page says once an event has been deleted from it. */
+export const DELETED_STATUS =
+  'Event deleted: it is off the site. It can be put back at any time from “Taken off the site (deleted)”, with “Restore…”.'
 
 /** Which events the list holds: the ones on the site, or the deleted ones. */
 export const SHOWING = Object.freeze([
   { value: 'exclude', label: 'Current events' },
-  { value: 'only', label: 'Deleted' },
+  { value: 'only', label: 'Taken off the site (deleted)' },
   { value: 'include', label: 'Both' },
+])
+
+/** Whether the list holds every event, or only those copied from a Sulekha listing. */
+export const SOURCES = Object.freeze([
+  { value: undefined, label: 'From every source' },
+  { value: 'only', label: 'Copied from Sulekha' },
 ])
 
 /** The orders the list can take, the API's default first. */
@@ -96,7 +115,7 @@ const ID_PATTERN = /^[a-z][a-z0-9]{7,31}$/u
  * The filters from the address bar, each dropped when the API would refuse it.
  *
  * @param {Record<string, string|string[]>} query The query string.
- * @returns {{q?: string, status?: string, organizationId?: string, deleted: string, sort: string, page: number, searchDropped: boolean}} The filters.
+ * @returns {{q?: string, status?: string, organizationId?: string, deleted: string, imported?: string, sort: string, page: number, searchDropped: boolean}} The filters.
  */
 export function readFilters(query = {}) {
   const raw = typeof query.q === 'string' ? query.q.trim() : ''
@@ -111,6 +130,7 @@ export function readFilters(query = {}) {
         ? query.organizationId
         : undefined,
     deleted: SHOWING.some((each) => each.value === query.deleted) ? query.deleted : 'exclude',
+    imported: query.imported === 'only' ? 'only' : undefined,
     sort: SORTS.some((each) => each.value === query.sort) ? query.sort : SORTS[0].value,
     page: readPage(query.page),
   }
@@ -131,6 +151,7 @@ function hrefParams(filters, changes = {}) {
     status: next.status ?? null,
     organizationId: next.organizationId ?? null,
     deleted: next.deleted === 'exclude' ? null : next.deleted,
+    imported: next.imported ?? null,
     sort: next.sort === SORTS[0].value ? null : next.sort,
     page: next.page ?? 1,
   }
@@ -270,6 +291,7 @@ export default async function AdminEventsPage({ searchParams } = {}) {
       status: filters.status,
       organizationId: filters.organizationId,
       deleted: filters.deleted,
+      ...(filters.imported ? { imported: filters.imported } : {}),
       sort: filters.sort,
       page: filters.page,
       perPage: LIST_PAGE_SIZE,
@@ -293,7 +315,7 @@ export default async function AdminEventsPage({ searchParams } = {}) {
       <p className="mt-2 max-w-3xl text-ink-muted">{INTRODUCTION}</p>
 
       <p role="status" aria-live="polite" className="mt-2 text-sm font-medium text-ink">
-        {query.deleted === '1' ? 'Event deleted.' : ''}
+        {query.deleted === '1' ? DELETED_STATUS : ''}
       </p>
 
       <nav aria-label="Which events" className="mt-4">
@@ -320,6 +342,36 @@ export default async function AdminEventsPage({ searchParams } = {}) {
         </ul>
       </nav>
 
+      <nav aria-label="Where events come from" className="mt-2">
+        <ul className="flex flex-wrap gap-2">
+          {SOURCES.map((each) => {
+            const current = each.value === filters.imported
+
+            return (
+              <li key={each.label}>
+                <Link
+                  href={listHref(PATH, hrefParams(filters, { imported: each.value, page: 1 }))}
+                  aria-current={current ? 'page' : undefined}
+                  className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                    current
+                      ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
+                      : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
+                  }`}
+                >
+                  {each.label}
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      </nav>
+
+      {filters.deleted !== 'exclude' ? (
+        <p className="mt-4 max-w-3xl rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink">
+          {RESTORE_NOTE}
+        </p>
+      ) : null}
+
       <form
         method="get"
         action={PATH}
@@ -332,6 +384,7 @@ export default async function AdminEventsPage({ searchParams } = {}) {
         {filters.organizationId ? (
           <input type="hidden" name="organizationId" value={filters.organizationId} />
         ) : null}
+        {filters.imported ? <input type="hidden" name="imported" value={filters.imported} /> : null}
         <div className="flex min-w-0 flex-col gap-1.5">
           <label htmlFor="admin-events-search" className="text-sm font-medium text-ink">
             Search by title, web address or organisation
@@ -387,7 +440,14 @@ export default async function AdminEventsPage({ searchParams } = {}) {
         </button>
         {filters.q || filters.status || filters.organizationId ? (
           <Link
-            href={listHref(PATH, hrefParams({ deleted: filters.deleted, sort: filters.sort }))}
+            href={listHref(
+              PATH,
+              hrefParams({
+                deleted: filters.deleted,
+                imported: filters.imported,
+                sort: filters.sort,
+              }),
+            )}
             className={PAGER_LINK_CLASSES}
           >
             Clear the filters
@@ -440,7 +500,9 @@ export default async function AdminEventsPage({ searchParams } = {}) {
               filters.q
                 ? `No event matches “${filters.q}”.`
                 : filters.deleted === 'only'
-                  ? 'No event has been deleted.'
+                  ? filters.imported
+                    ? 'No event copied from Sulekha has been taken off the site.'
+                    : 'No event has been taken off the site.'
                   : 'No event matches these filters.'
             }
           />

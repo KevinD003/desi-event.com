@@ -266,6 +266,28 @@ describe('EventCard for an event copied from its Sulekha listing', () => {
 
     expect(screen.getByText('Cancelled')).toBeInTheDocument()
   })
+
+  it('writes a Canadian listing’s price in CA$, in its own zone and city', () => {
+    const cad = (name, priceCents) => ({ name, priceCents, currency: 'CAD' })
+    const { container } = render(
+      <EventCard
+        event={{
+          ...imported([cad('Child', 0), cad('Adult', 3000)], {
+            presentedBy: 'Toronto Garba Collective',
+          }),
+          city: 'Toronto',
+          venueName: 'Harbourfront Hall',
+          timezone: 'America/Toronto',
+          startsAt: '2026-11-08T00:30:00.000Z',
+        }}
+      />,
+    )
+
+    expect(screen.getByText('On Sulekha from CA$30.00')).toBeInTheDocument()
+    expect(container.textContent).toContain('Harbourfront Hall · Toronto')
+    expect(container.textContent).toMatch(/7:30\sPM EST/u)
+    expect(container.textContent).not.toMatch(/(?<!CA)\$30\.00/u)
+  })
 })
 
 describe('AvailabilityChip', () => {

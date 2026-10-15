@@ -256,10 +256,33 @@ export function formatEventLocation(event) {
 }
 
 /**
+ * The country a venue's two-letter code names, in English, or null.
+ *
+ * @param {string|null|undefined} code An ISO 3166-1 alpha-2 code.
+ * @returns {string|null} "Canada", or null for no code or one `Intl` cannot name.
+ */
+function countryName(code) {
+  if (typeof code !== 'string' || !/^[A-Za-z]{2}$/u.test(code.trim())) return null
+
+  const upper = code.trim().toUpperCase()
+
+  try {
+    const name = new Intl.DisplayNames(['en-US'], { type: 'region' }).of(upper)
+
+    return name && name !== upper ? name : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Format a full postal address as separate lines.
  *
  * The region and postal code share a line, as a US address writes them —
- * `Edison, NJ 08837` — and as most other countries' addresses tolerate.
+ * `Edison, NJ 08837` — and as a Canadian one does too — `Toronto, ON M5V 2T6`.
+ * A venue outside the United States ends with its country, "Canada", because
+ * the catalogue is mostly American and a province code alone is easy to
+ * misread as a state.
  *
  * @param {object|null|undefined} venue A venue record.
  * @returns {string[]} Address lines, omitting the parts the venue does not have.
@@ -268,11 +291,16 @@ export function formatVenueAddress(venue) {
   if (!venue) return []
 
   const locality = [venue.city, venue.region].filter(Boolean).join(', ')
+  const country =
+    typeof venue.country === 'string' && venue.country.trim().toUpperCase() !== 'US'
+      ? countryName(venue.country)
+      : null
 
   return [
     venue.addressLine1,
     venue.addressLine2,
     [locality, venue.postalCode].filter(Boolean).join(' '),
+    country,
   ].filter(Boolean)
 }
 

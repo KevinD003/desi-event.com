@@ -315,14 +315,14 @@ function Hero({ cities, listed, lead, counted = false }) {
           <FadeIn>
             <p className="mb-5 flex items-center gap-2.5 text-micro font-bold tracking-eyebrow text-accent-inverse uppercase">
               <Diamond />
-              Garba &amp; dandiya nights · across the USA
+              Garba &amp; dandiya nights · across the USA and Canada
             </p>
           </FadeIn>
           <Headline />
           <FadeIn delay={0.34}>
             <p className="mt-6 max-w-lg text-body text-ink-inverse-muted">
-              Garba, dandiya and raas nights from Edison to Santa Clara. Prices are in US dollars,
-              and the booking fee is shown before you reach checkout.
+              Garba, dandiya and raas nights from Edison to Santa Clara. Tickets sold here are
+              priced in US dollars, and the booking fee is shown before you reach checkout.
             </p>
           </FadeIn>
           <FadeIn delay={0.4} className="mt-8">
@@ -560,8 +560,8 @@ export default async function HomePage() {
             title="How tickets work here"
             aside={
               <p className="max-w-md text-body text-ink-muted">
-                Prices are in US dollars. US sales tax is not calculated in this demo, so checkout
-                shows it as $0.00.
+                Tickets sold here are priced in US dollars. US sales tax is not calculated in this
+                demo, so checkout shows it as $0.00.
               </p>
             }
           />

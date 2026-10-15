@@ -149,6 +149,22 @@ describe('formatEventStart', () => {
     ).toBe('Fri, Dec 11 · 7:30 PM EST')
   })
 
+  it('reads British Columbia at -07:00 after 1 November 2026, which needs tzdata 2026b or later', () => {
+    // The server renders this page: on older time-zone data it would print 6:00 PM.
+    expect(
+      formatEventStart(
+        { startsAt: '2026-11-29T02:00:00.000Z', timezone: 'America/Vancouver' },
+        { now },
+      ),
+    ).toMatch(/^Sat, Nov 28 · 7:00 PM /u)
+    expect(
+      formatEventStart(
+        { startsAt: '2026-11-29T02:00:00.000Z', timezone: 'America/Los_Angeles' },
+        { now },
+      ),
+    ).toBe('Sat, Nov 28 · 6:00 PM PST')
+  })
+
   it('adds the year only when it is not the current one', () => {
     expect(
       formatEventStart(
@@ -281,6 +297,34 @@ describe('formatVenueAddress', () => {
 
   it('returns nothing for a missing venue', () => {
     expect(formatVenueAddress(null)).toEqual([])
+  })
+
+  it('writes a Canadian address with its province and postal code, then names the country', () => {
+    expect(
+      formatVenueAddress({
+        addressLine1: '255 Front St W',
+        addressLine2: null,
+        city: 'Toronto',
+        region: 'ON',
+        postalCode: 'M5V 2T6',
+        country: 'CA',
+      }),
+    ).toEqual(['255 Front St W', 'Toronto, ON M5V 2T6', 'Canada'])
+  })
+
+  it('does not add the country to a US address, and leaves out a code it cannot name', () => {
+    expect(
+      formatVenueAddress({
+        addressLine1: '500 W Las Colinas Blvd',
+        city: 'Irving',
+        region: 'TX',
+        postalCode: '75039',
+        country: 'US',
+      }),
+    ).toEqual(['500 W Las Colinas Blvd', 'Irving, TX 75039'])
+    expect(
+      formatVenueAddress({ addressLine1: '1 Main St', city: 'Somewhere', country: 'USA' }),
+    ).toEqual(['1 Main St', 'Somewhere'])
   })
 })
 

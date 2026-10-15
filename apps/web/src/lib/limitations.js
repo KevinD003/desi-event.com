@@ -178,7 +178,7 @@ export const LIMITATIONS = Object.freeze([
     name: 'Keeping imported events up to date',
     status: 'NOT IMPLEMENTED',
     meaning:
-      'Some events were copied from their listings on Sulekha.com on 29–30 September 2026 and are shown under “Sulekha Events”, each naming the organiser who presents it. They are not updated automatically: a change made on Sulekha afterwards shows here only when an administrator at The Desi Events imports a newer listing. Tickets for them are sold on Sulekha, not here, and their prices are shown as Sulekha listed them on that date. Where Sulekha gave no end time, only the start is shown. Their pictures were copied when they were imported; an event whose pictures could not be copied shows a generated poster. Only events in Texas were copied.',
+      'Some events were copied from their listings on Sulekha.com and are shown under “Sulekha Events”, each naming the organiser who presents it. They are not updated automatically: a change made on Sulekha afterwards shows here only when an administrator at The Desi Events imports a newer listing. Tickets for them are sold on Sulekha, not here, and their prices are shown as Sulekha listed them on the day the listing was read, which each event’s page names. Where Sulekha gave no end time, only the start is shown. Their pictures were copied when they were imported; an event whose pictures could not be copied shows a generated poster. The events copied are in the United States and Canada; a Canadian event’s prices are in Canadian dollars, written CA$, and its times are the venue’s own.',
   },
   {
     id: 'website-link-checks',

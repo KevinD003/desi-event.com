@@ -5,7 +5,7 @@ How work gets into this repository.
 ## Before you start
 
 ```bash
-nvm use            # Node 22.22.2, from .nvmrc
+nvm use            # Node 22.23.3, from .nvmrc
 corepack enable    # pnpm 10.33.0, from packageManager
 pnpm install
 ```

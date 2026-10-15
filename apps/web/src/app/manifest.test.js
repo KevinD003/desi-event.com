@@ -36,6 +36,12 @@ function pngSize(bytes) {
 describe('manifest', () => {
   const value = manifest()
 
+  it('describes a catalogue in the USA and Canada, with US dollars claimed only for tickets sold here', () => {
+    expect(value.description).toMatch(/across the USA and Canada/u)
+    expect(value.description).toMatch(/Tickets sold here are priced in US dollars/u)
+    expect(value.description).not.toMatch(/every price shown in US dollars/u)
+  })
+
   it('names the site and opens at the front page, inside the site', () => {
     expect(value.name).toBe('The Desi Events')
     expect(value.short_name).toBe('The Desi Events')

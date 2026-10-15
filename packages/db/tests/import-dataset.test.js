@@ -11,8 +11,16 @@
  * title-cased), the category mapping, every curator's note word for word, the
  * two hosts the file may name, and no personal contact details anywhere.
  *
+ * The second file, `data/imports/sulekha-north-america-2026.json`, is the
+ * owner's own Sulekha export of 397 listings in the United States and Canada
+ * ("Add all these events into our website"), curated on 15 October 2026 by a
+ * script kept outside the repository (ADR 0015, addendum). It is held to the
+ * same rules as the Texas file, plus what a second country brings: a time zone
+ * for each venue with the right offset on its date, two-letter regions, and
+ * Canadian prices in CAD with a note saying so.
+ *
  * The API checks every uploaded file again at run time
- * (`apps/api/src/lib/import-dataset.js`); this test holds the committed one.
+ * (`apps/api/src/lib/import-dataset.js`); this test holds the committed ones.
  */
 
 import { readFileSync } from 'node:fs'
@@ -344,6 +352,534 @@ describe('the Sulekha Texas dataset', () => {
       expect(event.presentedBy, event.sourceId).toEqual(expect.any(String))
       expect(event.sourceId).toMatch(/^[0-9]{1,12}$/u)
       expect(Number.isNaN(Date.parse(event.scrapedAt))).toBe(false)
+    }
+  })
+})
+
+const NA_FILE = new URL('../data/imports/sulekha-north-america-2026.json', import.meta.url)
+const naText = readFileSync(NA_FILE, 'utf8')
+const naDataset = JSON.parse(naText)
+const naEvents = naDataset.events
+const naById = new Map(naEvents.map((event) => [event.sourceId, event]))
+const naImages = naEvents.flatMap((event) => event.images)
+const naPrices = naEvents.flatMap((event) => event.prices)
+
+/** The upload has no collection time, so the curation day at midnight UTC stands for it. */
+const NA_SCRAPED_AT = '2026-10-15T00:00:00Z'
+
+/**
+ * The zone of each region, with the city exceptions the export needs (a
+ * region spanning two zones). Every venue's zone must be this.
+ */
+const NA_ZONES = {
+  'CA-AB': 'America/Edmonton',
+  'CA-BC': 'America/Vancouver',
+  'CA-ON': 'America/Toronto',
+  'US-AZ': 'America/Phoenix',
+  'US-CA': 'America/Los_Angeles',
+  'US-CO': 'America/Denver',
+  'US-CT': 'America/New_York',
+  'US-DC': 'America/New_York',
+  'US-FL': 'America/New_York',
+  'US-GA': 'America/New_York',
+  'US-IL': 'America/Chicago',
+  'US-IN': 'America/Indiana/Indianapolis',
+  'US-KY': 'America/New_York',
+  'US-MA': 'America/New_York',
+  'US-MD': 'America/New_York',
+  'US-MI': 'America/Detroit',
+  'US-MN': 'America/Chicago',
+  'US-NC': 'America/New_York',
+  'US-NJ': 'America/New_York',
+  'US-NV': 'America/Los_Angeles',
+  'US-NY': 'America/New_York',
+  'US-OH': 'America/New_York',
+  'US-PA': 'America/New_York',
+  'US-TN': 'America/Chicago',
+  'US-TX': 'America/Chicago',
+  'US-VA': 'America/New_York',
+  'US-WA': 'America/Los_Angeles',
+}
+const NA_ZONE_CITY_EXCEPTIONS = {
+  'US-IN-Gary': 'America/Chicago',
+  'US-KY-Louisville': 'America/Kentucky/Louisville',
+}
+
+/**
+ * The curation's category table, in its priority order (ADR 0015 addendum):
+ * the Sulekha category that decided, upper-cased, and where it is listed.
+ */
+const NA_CATEGORY_MAP = {
+  NAVRATRI_DANDIYA: 'GARBA_DANDIYA',
+  DIWALI: 'CULTURAL_FESTIVAL',
+  COMEDY: 'COMEDY',
+  DRAMA: 'THEATRE',
+  DRAMA_EVENTS: 'THEATRE',
+  THEATER: 'THEATRE',
+  POETRY: 'THEATRE',
+  DEVOTIONAL: 'RELIGIOUS',
+  RELIGIOUS: 'RELIGIOUS',
+  SPIRITUAL: 'RELIGIOUS',
+  CLASSICAL_MUSIC_CONCERTS: 'MUSIC_CONCERT',
+  CLASSICAL: 'MUSIC_CONCERT',
+  LIVE_CONCERT: 'MUSIC_CONCERT',
+  LIVE_IN_CONCERT: 'MUSIC_CONCERT',
+  BOLLYWOOD_PARTY: 'BOLLYWOOD_NIGHT',
+  NIGHT_PARTY: 'BOLLYWOOD_NIGHT',
+  BOLLYWOOD: 'BOLLYWOOD_NIGHT',
+  MUSIC: 'MUSIC_CONCERT',
+  SINGING: 'MUSIC_CONCERT',
+  FOOD_DRINK: 'FOOD_FESTIVAL',
+  CHRISTMAS: 'CULTURAL_FESTIVAL',
+  NEW_YEAR_EVE: 'CULTURAL_FESTIVAL',
+  EXHIBITION: 'CULTURAL_FESTIVAL',
+  FASHION_SHOW: 'CULTURAL_FESTIVAL',
+  MAGIC_SHOW: 'THEATRE',
+  DANCE: 'CULTURAL_FESTIVAL',
+  FUSION: 'CULTURAL_FESTIVAL',
+  FUSION_SHOW_EVENTS: 'CULTURAL_FESTIVAL',
+}
+/** Listings the table would misfile, by what the listing itself says it is. */
+const NA_CATEGORY_EXCEPTIONS = {
+  401497: 'NETWORKING',
+  402195: 'BOLLYWOOD_NIGHT',
+  402162: 'BOLLYWOOD_NIGHT',
+  400992: 'RELIGIOUS',
+  401397: 'RELIGIOUS',
+  401860: 'MUSIC_CONCERT',
+}
+/** What a Garba & Dandiya listing's own title or description must say (Sulekha tags pujas Navratri/Dandiya too). */
+const GARBA_WORDS = /\b(?:garba|garbo|dandiya|raas|navr[aā]?tri|navar[aā]tri)/iu
+/** Tagged Navratri/Dandiya, but nothing in the listing says garba: listed by the next rule, and noted. */
+const NA_NOT_GARBA = {
+  401255: 'RELIGIOUS',
+  401398: 'MUSIC_CONCERT',
+  401401: 'MUSIC_CONCERT',
+  401582: 'MUSIC_CONCERT',
+  401613: 'MUSIC_CONCERT',
+  401614: 'MUSIC_CONCERT',
+  402149: 'COMEDY',
+}
+/** Sulekha categories The Desi Events has no equivalent of. */
+const NA_INEXACT = {
+  POETRY: 'Poetry',
+  CHRISTMAS: 'Christmas',
+  NEW_YEAR_EVE: 'New Year Eve',
+  EXHIBITION: 'Exhibition',
+  FASHION_SHOW: 'Fashion Show',
+  MAGIC_SHOW: 'Magic Show',
+  DANCE: 'Dance',
+  FUSION: 'Fusion',
+  FUSION_SHOW_EVENTS: 'Fusion Show & Events',
+}
+const SITE_CATEGORY_WORDS = {
+  ...CATEGORY_WORDS,
+  BOLLYWOOD_NIGHT: 'Bollywood Nights',
+  GARBA_DANDIYA: 'Garba & Dandiya',
+  COMEDY: 'Comedy',
+  RELIGIOUS: 'Religious & Devotional',
+}
+
+/** Listings the export marks Cancelled: never imported. */
+const NA_CANCELLED = ['400151', '400963', '401314', '401541', '401564', '401719', '402053']
+
+/** Listings also in the Texas file. The importer plans them as updates or leaves them unchanged. */
+const NA_TEXAS_OVERLAP = [
+  '400647',
+  '400972',
+  '400973',
+  '401212',
+  '401453',
+  '401558',
+  '401676',
+  '401721',
+  '401885',
+  '402109',
+]
+
+/** A sales state or a call to hurry. Allowed in a curator's note only, never in public text. */
+const URGENCY =
+  /selling\s+fast|sold\s*-?\s*out|sell-?out|hurry|last\s+chance|few\s+left|final\s+call|almost\s+full|open\s+soon/iu
+
+/** What `publicPriceName` would still take out of a price name (apps/api/src/lib/presenters.js). */
+const SALES_NOTE_IN_NAME = new RegExp(
+  [
+    String.raw`\b(?:ends|ending|end\s+(?:on|by|at)|until|till|closes?|closing|expires?|expiring|deadline)\b`,
+    String.raw`\b(?:final|last)\s+(?:call|chance|days?|hours?|few)\b`,
+    String.raw`\b(?:sold\s+out|selling\s+fast|almost\s+(?:full|gone|sold\s+out)|few\s+left|\d+\s+left|limited|hurry)\b`,
+    String.raw`\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b`,
+  ].join('|'),
+  'iu',
+)
+
+/**
+ * The offset, as `±hh:mm`, and the wall-clock time a zone has at an instant.
+ *
+ * @param {string} timeZone An IANA zone.
+ * @param {number} epoch Milliseconds since the epoch.
+ * @returns {{offset: string, wall: string}} For example `-05:00` and `2026-10-16T19:00`.
+ */
+function zoneAt(timeZone, epoch) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'longOffset',
+    })
+      .formatToParts(new Date(epoch))
+      .map((part) => [part.type, part.value]),
+  )
+  const offset = parts.timeZoneName === 'GMT' ? '+00:00' : parts.timeZoneName.slice(3)
+
+  return {
+    offset,
+    wall: `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`,
+  }
+}
+
+/**
+ * Whether an ISO time is written with the offset its zone has at that moment,
+ * and so reads as the same wall-clock time there.
+ *
+ * @param {string} iso `YYYY-MM-DDTHH:MM:SS±hh:mm`.
+ * @param {string} timeZone An IANA zone.
+ * @returns {boolean} True when offset and wall time agree with the zone.
+ */
+function offsetMatchesZone(iso, timeZone) {
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}):\d{2}([+-]\d{2}:\d{2})$/u.exec(iso)
+
+  if (!match) return false
+
+  const at = zoneAt(timeZone, Date.parse(iso))
+
+  return at.offset === match[2] && at.wall === match[1]
+}
+
+describe('the Sulekha North America dataset', () => {
+  it('parses with importDatasetSchema', () => {
+    const parsed = importDatasetSchema.safeParse(naDataset)
+
+    expect(parsed.success, JSON.stringify(parsed.error?.issues?.slice(0, 5))).toBe(true)
+  })
+
+  it('declares the same file shape as the Texas file, collected on the day it was curated', () => {
+    expect(Object.keys(naDataset)).toEqual(Object.keys(dataset))
+    expect(naDataset).toMatchObject({
+      format: IMPORT_DATASET_FORMAT,
+      source: 'SULEKHA',
+      sourceName: 'Sulekha',
+      sourceSite: 'https://events.sulekha.com/',
+      collectedFrom: NA_SCRAPED_AT,
+      collectedTo: NA_SCRAPED_AT,
+      curatedOn: '2026-10-15',
+      imageHosts: ['usimg.sulekha.io'],
+    })
+    expect(Buffer.byteLength(naText)).toBeLessThan(2 * 1024 * 1024)
+  })
+
+  it('holds the stated totals', () => {
+    const withPrices = naEvents.filter((event) => event.prices.length > 0)
+
+    expect(naEvents).toHaveLength(294)
+    expect(naImages).toHaveLength(497)
+    expect(new Set(naImages.map((image) => image.url)).size).toBe(497)
+    expect(naImages.filter((image) => image.role === 'cover')).toHaveLength(286)
+    expect(naImages.filter((image) => image.role === 'gallery')).toHaveLength(211)
+    expect(withPrices).toHaveLength(273)
+    expect(naPrices).toHaveLength(1008)
+    expect(naEvents.filter((event) => event.prices.length === 0)).toHaveLength(21)
+    expect(naEvents.filter((event) => event.endsAt === null)).toHaveLength(94)
+    expect(naEvents.filter((event) => event.importNotes.length > 0)).toHaveLength(197)
+    expect(naEvents.filter((event) => event.venue.country === 'US')).toHaveLength(264)
+    expect(naEvents.filter((event) => event.venue.country === 'CA')).toHaveLength(30)
+  })
+
+  it('names each listing once, in order of start', () => {
+    expect(new Set(naEvents.map((event) => event.sourceId)).size).toBe(naEvents.length)
+
+    for (let i = 1; i < naEvents.length; i += 1) {
+      const before = naEvents[i - 1]
+      const after = naEvents[i]
+      const order =
+        Date.parse(before.startsAt) - Date.parse(after.startsAt) ||
+        Number(before.sourceId) - Number(after.sourceId)
+
+      expect(order, `${before.sourceId} before ${after.sourceId}`).toBeLessThan(0)
+    }
+  })
+
+  it('leaves out the cancelled listings', () => {
+    for (const dropped of NA_CANCELLED) {
+      expect(naById.has(dropped), dropped).toBe(false)
+      expect(naText.includes(`_${dropped}"`)).toBe(false)
+    }
+  })
+
+  it('names only usimg.sulekha.io for pictures and events.sulekha.com for listings and tickets', () => {
+    expect(naImages.every((image) => host(image.url) === 'usimg.sulekha.io')).toBe(true)
+    expect(naImages.every((image) => new URL(image.url).protocol === 'https:')).toBe(true)
+    expect(naImages.some((image) => image.url.includes('/images/organizer/'))).toBe(false)
+    expect(naEvents.every((event) => host(event.sourceUrl) === 'events.sulekha.com')).toBe(true)
+    expect(naEvents.every((event) => new URL(event.sourceUrl).protocol === 'https:')).toBe(true)
+    expect(naEvents.every((event) => event.ticketUrl === event.sourceUrl)).toBe(true)
+    expect(naEvents.every((event) => event.sourceUrl.endsWith(`_${event.sourceId}`))).toBe(true)
+  })
+
+  it('maps every category by the priority table, with its exceptions and notes', () => {
+    for (const event of naEvents) {
+      expect(EVENT_CATEGORIES).toContain(event.category)
+      expect(event.category, event.sourceId).toBe(
+        NA_CATEGORY_EXCEPTIONS[event.sourceId] ?? NA_CATEGORY_MAP[event.sourceCategory],
+      )
+
+      const inexact = NA_INEXACT[event.sourceCategory]
+
+      if (inexact && !NA_CATEGORY_EXCEPTIONS[event.sourceId]) {
+        expect(event.importNotes, event.sourceId).toContain(
+          `Sulekha lists this as ${inexact}; The Desi Events has no such category, so it is listed under ${SITE_CATEGORY_WORDS[event.category]}. If another fits better, change it in an editing session once the event is published.`,
+        )
+      }
+    }
+
+    for (const sourceId of Object.keys(NA_CATEGORY_EXCEPTIONS)) {
+      expect(
+        naById
+          .get(sourceId)
+          .importNotes.some((note) => note.startsWith('Sulekha lists this under')),
+        sourceId,
+      ).toBe(true)
+    }
+  })
+
+  it('lists under Garba & Dandiya only what says garba, dandiya, raas or Navratri, noting the rest', () => {
+    for (const event of naEvents.filter((e) => e.category === 'GARBA_DANDIYA')) {
+      expect(GARBA_WORDS.test(`${event.title}\n${event.description}`), event.sourceId).toBe(true)
+    }
+
+    for (const [sourceId, category] of Object.entries(NA_NOT_GARBA)) {
+      const event = naById.get(sourceId)
+
+      expect(event.category, sourceId).toBe(category)
+      expect(GARBA_WORDS.test(`${event.title}\n${event.description}`), sourceId).toBe(false)
+      expect(
+        event.importNotes.some(
+          (note) =>
+            note.startsWith('Sulekha lists this under') &&
+            note.includes(
+              'nothing in its title or description mentions garba, dandiya, raas or Navratri',
+            ) &&
+            note.includes(`under ${SITE_CATEGORY_WORDS[category]}, not under Garba & Dandiya.`),
+        ),
+        sourceId,
+      ).toBe(true)
+    }
+
+    expect(naEvents.filter((event) => event.category === 'GARBA_DANDIYA')).toHaveLength(73)
+  })
+
+  it('reads times with time-zone data that knows British Columbia and Alberta keep one offset', () => {
+    // tzdata 2026b: BC stays at -07:00 from 2026; 2026c: Alberta at -06:00. Ontario still falls back.
+    const lateNovember = Date.parse('2026-11-28T20:00:00Z')
+
+    expect(zoneAt('America/Vancouver', lateNovember).offset).toBe('-07:00')
+    expect(zoneAt('America/Edmonton', lateNovember).offset).toBe('-06:00')
+    expect(zoneAt('America/Toronto', lateNovember).offset).toBe('-05:00')
+    expect(zoneAt('America/Los_Angeles', lateNovember).offset).toBe('-08:00')
+
+    const bc = naEvents.filter((event) => event.timeZone === 'America/Vancouver')
+
+    expect(bc).toHaveLength(6)
+    expect(bc.every((event) => event.startsAt.endsWith('-07:00'))).toBe(true)
+    expect(naById.get('401431').startsAt).toBe('2026-11-28T19:00:00-07:00')
+    expect(naById.get('401431').endsAt).toBe('2026-11-28T20:15:00-07:00')
+    expect(
+      bc.flatMap((event) => event.importNotes).filter((note) => note.includes('Standard Time')),
+    ).toEqual([])
+    expect(naById.get('401895').importNotes).toContain(
+      'The page says PST (UTC-08:00), but America/Vancouver no longer changes its clocks and is at UTC-07:00 on this date, so the time is imported as the same clock time at UTC-07:00.',
+    )
+  })
+
+  it('keeps the day a pass covers in its price name, so no two prices of 402111 read the same', () => {
+    const event = naById.get('402111')
+    const names = event.prices.map((price) => price.name)
+
+    expect(new Set(names).size).toBe(names.length)
+    expect(names).toContain('Family (2 adults and 2 children) - Saturday and Sunday')
+    expect(names).toContain('Couple (2 adults) - Durga Puja Saturday')
+    expect(names).toContain('Individual - Durga Puja Sunday')
+    expect(event.importNotes.some((note) => note.startsWith('A sales date'))).toBe(false)
+    expect(event.importNotes).toContain(
+      'Those price names include passes for Saturday 17 October 2026, but this listing is imported for Sunday 18 October 2026 only. Check the dates with the organiser before approving it.',
+    )
+  })
+
+  it('writes every time with the offset its venue’s zone has on that date', () => {
+    for (const event of naEvents) {
+      const { country, region, city } = event.venue
+
+      expect(event.timeZone, event.sourceId).toBe(
+        NA_ZONE_CITY_EXCEPTIONS[`${country}-${region}-${city}`] ?? NA_ZONES[`${country}-${region}`],
+      )
+      expect(offsetMatchesZone(event.startsAt, event.timeZone), event.startsAt).toBe(true)
+
+      if (event.endsAt !== null) {
+        expect(offsetMatchesZone(event.endsAt, event.timeZone), event.endsAt).toBe(true)
+        expect(Date.parse(event.endsAt)).toBeGreaterThan(Date.parse(event.startsAt))
+        expect(Date.parse(event.endsAt) - Date.parse(event.startsAt)).toBeLessThanOrEqual(
+          24 * 3_600_000,
+        )
+      }
+    }
+
+    // Daylight saving: Eastern time is -04:00 before 1 November 2026 and -05:00 after.
+    const offsets = new Set(
+      naEvents
+        .filter((event) => event.timeZone === 'America/New_York')
+        .map((e) => e.startsAt.slice(-6)),
+    )
+
+    expect([...offsets].sort()).toEqual(['-04:00', '-05:00'])
+    expect(
+      naEvents
+        .filter((event) => event.timeZone === 'America/Phoenix')
+        .every((event) => event.startsAt.endsWith('-07:00')),
+    ).toBe(true)
+  })
+
+  it('starts every listing on or after the day it was curated, and after it was collected', () => {
+    for (const event of naEvents) {
+      expect(event.startsAt.slice(0, 10) >= naDataset.curatedOn, event.sourceId).toBe(true)
+      expect(Date.parse(event.startsAt)).toBeGreaterThan(Date.parse(NA_SCRAPED_AT))
+      expect(event.scrapedAt).toBe(NA_SCRAPED_AT)
+    }
+  })
+
+  it('gives every venue a two-letter region and its country’s currency, noting Canadian dollars', () => {
+    for (const event of naEvents) {
+      expect(['US', 'CA']).toContain(event.venue.country)
+      expect(event.venue.region).toMatch(/^[A-Z]{2}$/u)
+
+      const currency = event.venue.country === 'CA' ? 'CAD' : 'USD'
+
+      expect(
+        event.prices.every((price) => price.currency === currency),
+        event.sourceId,
+      ).toBe(true)
+
+      if (event.venue.country === 'CA') {
+        expect(event.venue.postalCode).toMatch(/^[A-Z]\d[A-Z] \d[A-Z]\d$/u)
+
+        if (event.prices.length > 0) {
+          expect(
+            event.importNotes.some((note) => note.includes('Canadian dollars')),
+            event.sourceId,
+          ).toBe(true)
+          expect(event.priceText.startsWith('CA$') || event.priceText === 'Free').toBe(true)
+        }
+      } else {
+        expect(event.venue.postalCode).toMatch(/^\d{5}$/u)
+      }
+    }
+
+    expect(naPrices.filter((price) => price.currency === 'CAD')).toHaveLength(50)
+    expect(naText.includes('"Ontario"')).toBe(false)
+  })
+
+  it('keeps sales states and calls to hurry out of everything public', () => {
+    for (const event of naEvents) {
+      const shown = [
+        event.title,
+        event.summary,
+        event.description,
+        event.priceText ?? '',
+        event.ageRestriction ?? '',
+        ...event.prices.map((price) => price.name),
+        ...event.faq.flatMap((entry) => [entry.q, entry.a]),
+        ...event.images.map((image) => image.alt),
+      ].join('\n')
+
+      expect(shown.match(URGENCY)?.[0] ?? null, event.sourceId).toBeNull()
+
+      for (const price of event.prices) {
+        expect(price.name.match(SALES_NOTE_IN_NAME)?.[0] ?? null, price.name).toBeNull()
+        expect([null, 'Sold Out']).toContain(price.note)
+      }
+    }
+
+    // The status Sulekha showed reaches the administrator only.
+    expect(
+      naEvents.filter((event) =>
+        event.importNotes.some((note) => note.startsWith("Sulekha's export (curated 2026-10-15)")),
+      ),
+    ).toHaveLength(43)
+  })
+
+  it('carries no email address and no phone number anywhere', () => {
+    expect(naText.includes('@')).toBe(false)
+    expect(EMAIL_PATTERN.test(naText)).toBe(false)
+
+    for (const pattern of PHONE_PATTERNS) {
+      expect(naText.match(pattern)?.[0] ?? null, String(pattern)).toBeNull()
+    }
+  })
+
+  it('describes every picture in 1 to 300 characters, with one cover first wherever there is a picture', () => {
+    for (const image of naImages) {
+      expect(image.alt.trim().length).toBeGreaterThanOrEqual(1)
+      expect(image.alt.length).toBeLessThanOrEqual(300)
+    }
+
+    for (const event of naEvents) {
+      if (event.images.length === 0) continue
+
+      expect(event.images.map((image) => image.role).filter((role) => role === 'cover')).toEqual([
+        'cover',
+      ])
+      expect(event.images[0].role, event.sourceId).toBe('cover')
+    }
+
+    expect(
+      naEvents
+        .filter((event) => event.images.length === 0)
+        .map((event) => event.sourceId)
+        .sort(),
+    ).toEqual(['401779', '401834', '401966', '401970', '402195', '402252', '402260', '402309'])
+  })
+
+  it('asks only the refund question, and names who presents each listing', () => {
+    for (const event of naEvents) {
+      expect(
+        event.faq.every((entry) => entry.q === 'What is the refund policy?'),
+        event.sourceId,
+      ).toBe(true)
+      expect(event.faq.length).toBeLessThanOrEqual(1)
+      expect(event.presentedBy, event.sourceId).toEqual(expect.any(String))
+      expect(event.sourceId).toMatch(/^[0-9]{1,12}$/u)
+      expect(event.performers.every((performer) => performer.role === null)).toBe(true)
+    }
+  })
+
+  it('keeps the listings also in the Texas file, each noting how this export differs', () => {
+    const overlap = naEvents.filter((event) => byId.has(event.sourceId)).map((e) => e.sourceId)
+
+    expect(overlap.sort()).toEqual(NA_TEXAS_OVERLAP)
+
+    for (const sourceId of NA_TEXAS_OVERLAP) {
+      const event = naById.get(sourceId)
+
+      expect(event.sourceUrl).toBe(byId.get(sourceId).sourceUrl)
+      expect(
+        event.importNotes.some((note) =>
+          note.startsWith('This listing is also in sulekha-texas-2026.json'),
+        ),
+        sourceId,
+      ).toBe(true)
     }
   })
 })

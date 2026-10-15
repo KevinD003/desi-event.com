@@ -22,7 +22,12 @@
  * plan and refuses one that has changed since the administrator read it.
  *
  * The user states that they own Sulekha.com and asked for its Texas events and
- * their photos to be imported; that is recorded as their statement.
+ * their photos to be imported, and later for every event of their own Sulekha
+ * export, in the United States and Canada; that is recorded as their
+ * statement. Nothing here assumes a country: a venue's country, region and
+ * postal code, a listing's zone and a price's currency are each carried as the
+ * file gives them (a Toronto listing: `CA`, `ON`, `M5V 2T6`,
+ * `America/Toronto`, `CAD`).
  */
 
 import { createHash } from 'node:crypto'

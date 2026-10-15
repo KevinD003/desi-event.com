@@ -325,6 +325,78 @@ export function slugReleased(event) {
   return Boolean(event?.id) && event?.slug === `deleted-${event.id}`
 }
 
+/** Statuses a restore brings an event back on the site in. */
+const BACK_ON_THE_SITE = new Set([
+  'PUBLISHED',
+  'ON_SALE',
+  'SALES_PAUSED',
+  'SOLD_OUT',
+  'POSTPONED',
+  'CANCELLED',
+  'COMPLETED',
+])
+
+/**
+ * What the team at The Desi Events reads where they delete a posted event:
+ * that deleting erases nothing and can be undone at any time, and what a
+ * restore brings back (ADR 0014 §6). For an event copied from Sulekha, which
+ * nobody can buy a ticket to here, deleting only takes it off the site.
+ *
+ * @param {object} event The event: `importedFrom` when it is held for an import.
+ * @returns {string[]} The sentences, in reading order.
+ */
+export function deletionReversibleSentences(event) {
+  const imported = event?.importedFrom ?? null
+  const sentences = [
+    'Deleting erases nothing: the event is kept, and you can put it back on the site at any time with “Restore…”, here or under “Taken off the site (deleted)” in All events, giving a reason.',
+    'A published event comes back published, at the same web address. One on sale or sold out comes back with its sales paused; one cancelled and refunded when it was deleted comes back cancelled, its refunds standing.',
+  ]
+
+  if (imported) {
+    sentences.push(
+      imported.presentedBy
+        ? `This event was copied from Sulekha, and its tickets are sold there, not here, so deleting it only takes it off the site. Restoring it brings it back with ${imported.presentedBy} named as its organiser, and its “Buy tickets on Sulekha” link as it was.`
+        : 'This event was copied from Sulekha, and its tickets are sold there, not here, so deleting it only takes it off the site. Restoring it brings it back with its “Buy tickets on Sulekha” link as it was.',
+    )
+  }
+
+  return sentences
+}
+
+/**
+ * What a deleted event's record says to the team at The Desi Events above
+ * "Restore…": that nothing was erased, that it can be restored at any time,
+ * and where it comes back to.
+ *
+ * @param {object} event The deleted event, with its `deletion` record, `slug` and `importedFrom`.
+ * @returns {string[]} The sentences, in reading order.
+ */
+export function restoreSentences(event) {
+  const statusBefore = event?.deletion?.statusBefore ?? 'DRAFT'
+  const backOnTheSite = BACK_ON_THE_SITE.has(restoreTarget(statusBefore))
+  const imported = event?.importedFrom ?? null
+  const sentences = [
+    backOnTheSite
+      ? 'Nothing about this event was erased: you can put it back on the site at any time with “Restore…”, giving a reason.'
+      : 'Nothing about this event was erased: you can restore it at any time with “Restore…”, giving a reason.',
+    restoreTargetReading(statusBefore),
+  ]
+
+  if (backOnTheSite && event?.slug && !slugReleased(event)) {
+    sentences.push(`It comes back at the same web address, /events/${event.slug}.`)
+  }
+
+  if (backOnTheSite && imported) {
+    sentences.push(
+      imported.presentedBy
+        ? `It is still presented by ${imported.presentedBy}, and its “Buy tickets on Sulekha” link comes back as it was.`
+        : 'Its “Buy tickets on Sulekha” link comes back as it was.',
+    )
+  }
+
+  return sentences
+}
+
 /**
  * What a deletion did, as the deleted event's record says it.
  *

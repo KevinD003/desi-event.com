@@ -20,7 +20,15 @@
  *  - two copying passes over one run's pictures at once store each listed
  *    picture once;
  *  - a file under the request's 2 MiB whose stored form is over the run's
- *    CHECK is refused with 422 `IMPORT_INVALID`, not a 500.
+ *    CHECK is refused with 422 `IMPORT_INVALID`, not a 500;
+ *  - a listing in Canada is stored with its province, postal code, zone and
+ *    CAD prices as given, its venue reused by a second listing there, and is
+ *    shown so on its page, in the listing filtered by its city, in the city
+ *    facet and through its Sulekha link;
+ *  - an administrator takes a published import off the site and puts it back
+ *    live, twice over: off its page, the listing and its link while deleted,
+ *    back at the same address with its organiser and its Sulekha link after,
+ *    the import leaving it alone meanwhile, and nothing purged.
  *
  * Collected by the API suite and by `pnpm verify:tests:fresh`, and run with
  * `REQUIRE_DATABASE=1` in CI. Nothing is cleaned up; every row carries this
@@ -944,5 +952,333 @@ when()('previewing a file near the size limit', () => {
     expect(response.json().error.code).toBe('IMPORT_INVALID')
     expect(response.json().error.problems.join(' ')).toMatch(/keep it to 2 MiB/u)
     expect(await prisma.eventImportRun.count({ where: { fileName: 'big.json' } })).toBe(before)
+  })
+})
+
+/**
+ * A listing at a Toronto venue, priced in Canadian dollars, as the North
+ * American file gives one: the province's code, a Canadian postal code, the
+ * venue's own zone and CAD.
+ *
+ * @param {string} id The listing id.
+ * @param {object} [overrides] Fields to replace.
+ * @returns {object} The listing.
+ */
+function torontoListing(id, overrides = {}) {
+  return listing(id, {
+    sourceUrl: `https://events.sulekha.com/garba-night_event-in_toronto-on_${id}`,
+    ticketUrl: `https://events.sulekha.com/garba-night_event-in_toronto-on_${id}`,
+    title: `Toronto Garba ${RUN} ${id}`,
+    timeZone: 'America/Toronto',
+    venue: {
+      name: `Harbourfront Hall ${RUN}`,
+      addressLine1: '235 Queens Quay W',
+      city: 'Toronto',
+      region: 'ON',
+      postalCode: 'M5J 2G8',
+      country: 'CA',
+    },
+    presentedBy: 'Toronto Garba Collective',
+    prices: [
+      { name: 'Adult', priceCents: 3000, currency: 'CAD', note: null },
+      { name: 'Child', priceCents: 0, currency: 'CAD', note: null },
+    ],
+    priceText: 'CA$30',
+    ...overrides,
+  })
+}
+
+when()('a listing in Canada', () => {
+  it('stores a Canadian venue, its zone and CAD prices, and shows them so on every public surface', async () => {
+    const first = sourceId()
+    const second = sourceId()
+    const run = await importFile(dataset([torontoListing(first), torontoListing(second)]))
+    const event = await eventFor(first)
+    const other = await eventFor(second)
+
+    // The venue as the listing gave it, made once and reused by the second
+    // listing at the same address.
+    const venue = await prisma.venue.findUnique({ where: { id: event.venueId } })
+
+    expect(venue).toMatchObject({
+      name: `Harbourfront Hall ${RUN}`,
+      addressLine1: '235 Queens Quay W',
+      city: 'Toronto',
+      region: 'ON',
+      postalCode: 'M5J 2G8',
+      country: 'CA',
+      timezone: 'America/Toronto',
+      provenance: 'import:sulekha',
+      organizationId: event.organizationId,
+    })
+    expect(other.venueId).toBe(event.venueId)
+    expect(await prisma.venue.count({ where: { name: `Harbourfront Hall ${RUN}` } })).toBe(1)
+
+    // The event and its night in the venue's zone; the prices kept in CAD;
+    // no ticket type made from them.
+    expect(event.timezone).toBe('America/Toronto')
+    expect((await prisma.eventSession.findFirst({ where: { eventId: event.id } })).timezone).toBe(
+      'America/Toronto',
+    )
+
+    const item = await prisma.eventImportItem.findUnique({ where: { eventId: event.id } })
+
+    expect(item.prices).toEqual([
+      { name: 'Adult', priceCents: 3000, currency: 'CAD', note: null },
+      { name: 'Child', priceCents: 0, currency: 'CAD', note: null },
+    ])
+    expect(await prisma.ticketType.count({ where: { eventId: event.id } })).toBe(0)
+
+    const approved = await approve(run.id, [event.id, other.id])
+
+    expect(approved.statusCode, approved.body).toBe(200)
+    expect(approved.json().data.results.map((result) => result.outcome)).toEqual([
+      'PUBLISHED',
+      'PUBLISHED',
+    ])
+
+    // The public page: a Canadian address, its own zone, the prices in CAD.
+    const page = await app.inject({ method: 'GET', url: `/v1/events/${event.slug}` })
+
+    expect(page.statusCode, page.body).toBe(200)
+
+    const data = page.json().data
+
+    expect(data.timezone).toBe('America/Toronto')
+    expect(data.venue).toMatchObject({
+      city: 'Toronto',
+      region: 'ON',
+      postalCode: 'M5J 2G8',
+      country: 'CA',
+    })
+    expect(data.importedFrom).toMatchObject({
+      presentedBy: 'Toronto Garba Collective',
+      prices: [
+        { name: 'Adult', priceCents: 3000, currency: 'CAD' },
+        { name: 'Child', priceCents: 0, currency: 'CAD' },
+      ],
+      ticketsOnSource: true,
+    })
+    expect(page.body).not.toMatch(/"USD"/u)
+
+    // The listing, filtered by its city, carries the same.
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/v1/events?city=Toronto&q=${encodeURIComponent(`Toronto Garba ${RUN}`)}`,
+    })
+
+    expect(listed.statusCode, listed.body).toBe(200)
+
+    const cards = listed.json().data
+
+    expect(cards.map((card) => card.id).sort()).toEqual([event.id, other.id].sort())
+    expect(cards[0]).toMatchObject({ city: 'Toronto', timezone: 'America/Toronto' })
+    expect(cards[0].importedFrom.prices.map((price) => price.currency)).toEqual(['CAD', 'CAD'])
+
+    // The city is offered as a filter of the whole catalogue.
+    const facets = await app.inject({ method: 'GET', url: '/v1/events/facets' })
+
+    expect(facets.statusCode, facets.body).toBe(200)
+    expect(
+      facets.json().data.cities.find((city) => city.value === 'Toronto')?.count,
+    ).toBeGreaterThanOrEqual(2)
+
+    // Its Sulekha link opens the listing's own page.
+    const visit = await app.inject({
+      method: 'POST',
+      url: '/v1/traffic/website-visits',
+      headers: { 'content-type': 'application/json' },
+      payload: { slug: event.slug, counted: false },
+    })
+
+    expect(visit.statusCode, visit.body).toBe(200)
+    expect(visit.json().data.url).toBe(torontoListing(first).ticketUrl)
+  })
+})
+
+when()('taking an imported event off the site and putting it back', () => {
+  /** The reason every deletion here gives. */
+  const TAKEN_OFF = 'Taken off the site while the organiser confirms the date.'
+
+  /** The reason every restore here gives. */
+  const PUT_BACK = 'The organiser confirmed the date; back on the site.'
+
+  /**
+   * What the public sees of an event: its page, the listing filtered to it,
+   * and where its website link goes.
+   *
+   * @param {object} event The event row, for its slug and title.
+   * @returns {Promise<object>} `{ page, listed, visit }`: the three answers.
+   */
+  async function publicView(event) {
+    const [page, listed, visit] = await Promise.all([
+      app.inject({ method: 'GET', url: `/v1/events/${event.slug}` }),
+      app.inject({
+        method: 'GET',
+        url: `/v1/events?perPage=100&q=${encodeURIComponent(event.title)}`,
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/v1/traffic/website-visits',
+        headers: { 'content-type': 'application/json' },
+        payload: { slug: event.slug, counted: false },
+      }),
+    ])
+
+    return { page, listed, visit }
+  }
+
+  /**
+   * Plan the same file again, as an administrator would, and read the
+   * listing's action.
+   *
+   * @param {object} file The dataset.
+   * @param {string} id The listing.
+   * @returns {Promise<string>} Its plan action.
+   */
+  async function plannedAction(file, id) {
+    const previewed = await app.inject({
+      method: 'POST',
+      url: '/v1/platform/imports',
+      headers: world.administrator.headers,
+      payload: { fileName: 'listings.json', dataset: file },
+    })
+
+    expect(previewed.statusCode, previewed.body).toBe(201)
+
+    return previewed.json().data.rows.find((row) => row.sourceId === id).action
+  }
+
+  it('takes it off and puts it back live, again and again, at the same address and with its Sulekha link', async () => {
+    const id = sourceId()
+    const file = dataset([torontoListing(id)])
+    const run = await importFile(file)
+    const imported = await eventFor(id)
+
+    expect((await approve(run.id, [imported.id])).statusCode).toBe(200)
+
+    const published = await prisma.event.findUnique({ where: { id: imported.id } })
+
+    expect(published).toMatchObject({ status: 'PUBLISHED', websiteRedirectEnabled: true })
+
+    for (const round of [1, 2]) {
+      // Taken off the site by the administrator: nothing is bought here, so
+      // the only outcome is REMOVE.
+      const before = await prisma.event.findUnique({ where: { id: imported.id } })
+      const preview = await app.inject({
+        method: 'GET',
+        url: `/v1/events/${imported.id}/deletion`,
+        headers: world.administrator.headers,
+      })
+
+      expect(preview.statusCode, preview.body).toBe(200)
+      expect(preview.json().data.outcome).toBe('REMOVE')
+
+      const deleted = await app.inject({
+        method: 'POST',
+        url: `/v1/events/${imported.id}/delete`,
+        headers: world.administrator.headers,
+        payload: {
+          revision: before.revision,
+          reason: TAKEN_OFF,
+          confirmSlug: before.slug,
+          expectedOutcome: 'REMOVE',
+        },
+      })
+
+      expect(deleted.statusCode, `round ${round}: ${deleted.body}`).toBe(200)
+
+      const off = await prisma.event.findUnique({ where: { id: imported.id } })
+
+      expect(off).toMatchObject({
+        status: 'DELETED',
+        statusBeforeDeletion: 'PUBLISHED',
+        deletionAuthority: 'PLATFORM',
+        // A web address that was public stays retired, never released.
+        slug: published.slug,
+        deletedSlug: null,
+        // The link's decision is kept as it was, for the restore.
+        websiteRedirectEnabled: true,
+        websiteDecidedUrl: published.websiteDecidedUrl,
+      })
+
+      // Off every public surface: no page, not listed, no link to follow.
+      const gone = await publicView(published)
+
+      expect(gone.page.statusCode).toBe(404)
+      expect(gone.listed.json().data.map((card) => card.id)).not.toContain(imported.id)
+      expect(gone.visit.statusCode).toBe(404)
+
+      // Planning the listing again leaves it alone while it is off the site.
+      expect(await plannedAction(file, id)).toBe('SKIPPED_DELETED')
+
+      // Put back by the administrator, with a reason.
+      const restored = await app.inject({
+        method: 'POST',
+        url: `/v1/platform/events/${imported.id}/restore`,
+        headers: world.administrator.headers,
+        payload: { revision: off.revision, reason: PUT_BACK },
+      })
+
+      expect(restored.statusCode, `round ${round}: ${restored.body}`).toBe(200)
+      expect(restored.json().data).toMatchObject({ status: 'PUBLISHED', slug: published.slug })
+
+      const back = await prisma.event.findUnique({ where: { id: imported.id } })
+
+      expect(back).toMatchObject({
+        status: 'PUBLISHED',
+        slug: published.slug,
+        organizationId: published.organizationId,
+        websiteRedirectEnabled: true,
+        websiteDecidedUrl: published.websiteDecidedUrl,
+        websiteDecisionPending: false,
+        deletedAt: null,
+        statusBeforeDeletion: null,
+      })
+
+      // Live again at the same address, presented by its organiser, its
+      // "Buy tickets on Sulekha" link going to the listing.
+      const live = await publicView(published)
+
+      expect(live.page.statusCode, live.page.body).toBe(200)
+      expect(live.page.json().data).toMatchObject({
+        status: 'PUBLISHED',
+        slug: published.slug,
+        websiteLink: { host: 'events.sulekha.com' },
+      })
+      expect(live.page.json().data.importedFrom).toMatchObject({
+        presentedBy: 'Toronto Garba Collective',
+        ticketsOnSource: true,
+      })
+      expect(live.listed.json().data.map((card) => card.id)).toContain(imported.id)
+      expect(live.visit.statusCode, live.visit.body).toBe(200)
+      expect(live.visit.json().data.url).toBe(torontoListing(id).ticketUrl)
+
+      // And the import treats it as published again.
+      expect(await plannedAction(file, id)).toBe('UNCHANGED')
+    }
+
+    // Both rounds are on the record: who, when and why.
+    const audits = await prisma.auditLog.findMany({
+      where: { entityId: imported.id, action: { in: ['event.deleted', 'event.restored'] } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+
+    expect(audits.map((row) => row.action)).toEqual([
+      'event.deleted',
+      'event.restored',
+      'event.deleted',
+      'event.restored',
+    ])
+    expect(audits.every((row) => row.actorId === world.administrator.user.id)).toBe(true)
+    expect(audits.filter((row) => row.action === 'event.restored')[0].metadata).toMatchObject({
+      from: 'DELETED',
+      to: 'PUBLISHED',
+      reason: PUT_BACK,
+    })
+
+    // Nothing was purged: its import record, its venue and its night stand.
+    expect(await prisma.eventImportItem.count({ where: { eventId: imported.id } })).toBe(1)
+    expect(await prisma.eventSession.count({ where: { eventId: imported.id } })).toBe(1)
   })
 })

@@ -128,3 +128,152 @@ addresses were kept.
   administrator could be required instead.
 - The limitations page states this as `imported-events`, and the footer says
   the catalogue is fictional except events copied from Sulekha.com listings.
+
+## Addendum — 2026-10-15: the owner's North America export
+
+The decision above is unchanged; this records a second dataset made under it.
+
+The owner's request, verbatim:
+
+> "Add all these events into our website. and admin can take out from the
+> website anytime and reshare it on live anytime."
+
+They uploaded their own Sulekha export: 397 listings as JSON, the same rows as
+CSV, and a list of 1,049 picture addresses (the three agree: same ids, titles,
+dates, statuses and pictures). As before, the owner's statement that the
+listings are theirs is recorded as their statement. Taking an event off the
+site and putting it back is the platform delete and restore of ADR 0014 §6;
+nothing in this addendum changes it.
+
+**The file.** `packages/db/data/imports/sulekha-north-america-2026.json`
+(format `desi-event-import/1`, source `SULEKHA`, curated 2026-10-15) holds
+**294 events**: 264 in the United States (23 states and DC) and 30 in Canada
+(23 ON, 6 BC, 1 AB), dated 15 October 2026 to 7 May 2027. It was converted by
+a deterministic script kept outside the repository, so a later export can be
+converted the same way, and `packages/db/tests/import-dataset.test.js` holds
+it to the same rules as the Texas file plus the ones below.
+
+**What was left out.** 51 listings Sulekha marks Ended, 7 Cancelled, and 45
+more dated before 15 October 2026 (31 Available, 9 Selling Fast, 5 Sold Out).
+No listing lacked a venue, street, city or time, and no two listings shared a
+title, date and venue. Sold Out, Selling Fast and Open Soon events (43) are
+kept, the status recorded in a note for the administrator only.
+
+**Curation rules.**
+
+- **Collection time.** The export carries no time, so `scrapedAt`,
+  `collectedFrom` and `collectedTo` are 2026-10-15T00:00:00Z.
+- **Times.** The listing's date and start time are read as wall-clock time in
+  the venue's IANA zone and written with that zone's offset on that date, so
+  daylight saving is right on both sides of 1 November 2026 and 14 March 2027
+  where the zone still changes its clocks. British Columbia (from 2026, tzdata
+  2026b) and Alberta (2026c) no longer do: they stay at -07:00 and -06:00, so
+  the six BC events are at -07:00 in November and December too. The offsets come
+  from the converting Node's time-zone data, and the site formats times through
+  Node as well, so both need tzdata 2026c or later: Node 22.23.3 (`.nvmrc`, and
+  the `engines` floor). The converter refuses older data, and the dataset test
+  and a web formatting test fail on it. A page's own label (EDT, PST…) is not
+  trusted: 71 events carry a note on a label of the wrong season (or MDT in
+  Arizona), 1 a PST label in British Columbia, which no longer uses -08:00, and
+  4 a label of another zone; each is imported as local clock time. Unlike the
+  Texas file's one case (401388), times labelled in another zone are kept as
+  clock times rather than converted, because the converted times (for example
+  3:30 PM in Surrey for "6:30 PM EDT") are the implausible ones. An end time is
+  kept when it is after the start; one earlier than the start is read as after
+  midnight only after an evening start (5 PM or later) with an end before 6 AM
+  and at most ten hours on (26 events, each noted); an end the export marks
+  estimated or derived from a duration is not imported (14), nor one that is not
+  after the start (2). 94 events have no end time.
+- **Zones.** By region, with city exceptions where a region spans two zones:
+
+  | Region                                         | Zone                           |
+  | ---------------------------------------------- | ------------------------------ |
+  | CT, DC, FL, GA, MA, MD, NC, NJ, NY, OH, PA, VA | `America/New_York`             |
+  | MI                                             | `America/Detroit`              |
+  | IN                                             | `America/Indiana/Indianapolis` |
+  | IN, Gary                                       | `America/Chicago`              |
+  | KY, Louisville                                 | `America/Kentucky/Louisville`  |
+  | IL, MN, TN, TX                                 | `America/Chicago`              |
+  | CO                                             | `America/Denver`               |
+  | AZ (no daylight saving time)                   | `America/Phoenix`              |
+  | CA, NV, WA                                     | `America/Los_Angeles`          |
+  | ON                                             | `America/Toronto`              |
+  | BC                                             | `America/Vancouver`            |
+  | AB                                             | `America/Edmonton`             |
+
+  The script also knows the exceptions this export did not need (the Florida
+  panhandle, western Kentucky, eastern Tennessee, Michigan's western Upper
+  Peninsula, El Paso, northern Idaho, Malheur County, western Nebraska,
+  Kansas and the Dakotas, Kenora, eastern British Columbia, QC as
+  `America/Toronto`).
+
+- **Venues.** Two-letter regions ("Ontario" became ON), countries US and CA,
+  Canadian postal codes as `A1A 1A1`, and venue names that were entirely lower
+  case title-cased, as in the Texas file.
+- **Currency.** Prices at US venues are USD and at Canadian venues CAD. Where
+  Sulekha writes `CA$` the currency is stated; where it writes a plain `$` or
+  a bare number at a Canadian venue, **CAD is an assumption**, recorded in that
+  event's note with "check the currency with the organiser" (20 Canadian events
+  with prices carry a currency note; 50 prices are CAD).
+- **Prices.** As listed, `priceCents` = the amount × 100, the first 20 of each
+  listing (none had more). A price name loses a bracketed or trailing part that
+  speaks of a sales date or scarcity ("(Limited Quantity)", "(Ends on 10/9)"),
+  as `publicPriceName` does at display; "@" becomes "at". A day a pass covers is
+  not a sales date: "Durga Puja Saturday 10/17" keeps "Saturday" and loses only
+  "10/17", which the public page would otherwise take out with the whole part
+  (402111, 7 names, noted with the Saturday passes being for the day before the
+  imported date). A price's note is "Sold Out" when Sulekha says so (36) and
+  otherwise null. Prices Sulekha gives as text ("Free", "$27.08 incl. $3.08
+  fee", "From $25", "$1,500 plus taxes") are imported as the amount and noted;
+  prices without an amount are left out and noted. Some listed prices include
+  Sulekha's booking fee; they are imported as listed.
+- **Categories,** by the first rule any of a listing's Sulekha categories
+  matches: Navratri/Dandiya → Garba & Dandiya, but only when the listing's own
+  title or description says garba, dandiya, raas or Navratri, because Sulekha
+  tags Durga and Kali Pujas Navratri/Dandiya too (otherwise the next rule
+  decides, noted on each: 7); Diwali → Melas & Festivals; Comedy; Drama, Drama
+  Events, Theater → Theatre; Poetry → Theatre (noted); Devotional, Religious,
+  Spiritual → Religious & Devotional; Classical Music Concerts, Classical, Live
+  Concert, Live in Concert → Live Music; Bollywood Party, Night Party, Bollywood
+  → Bollywood Nights; Music, Singing → Live Music; Food & Drink → Food
+  Festivals; Christmas, New Year Eve, Exhibition, Fashion Show, Dance, Fusion →
+  Melas & Festivals (noted); Magic Show → Theatre (noted). Live concerts come
+  before parties and generic "Music" after them because most parties are also
+  tagged Music. Six listings are exceptions, each noted: a Halloween costume
+  party tagged Comedy (402162) and a "Bollywood Style DDLJ Party" tagged only
+  Dance (402195) are Bollywood Nights, a matchmaking event (401497) is
+  Networking, a Kali Puja (400992) and a Sashti Puja (401397) are Religious &
+  Devotional, and a concert by the band Chandrabindoo (401860) is Live Music.
+  Result: 73 Garba & Dandiya, 66 Live Music, 61 Melas & Festivals, 43 Comedy, 33
+  Bollywood Nights, 10 Theatre, 7 Religious & Devotional, 1 Networking.
+- **Text.** The description is the export's own prose; the summary is its
+  first sentence (two when the first is short). Sentences that state ticket
+  availability ("a sell-out is expected"), remarks about the Sulekha page
+  ("conflicts with the date shown elsewhere") and one asking buyers to pay the
+  organiser directly were moved out of the public text into notes (9). The
+  refund policy, when given, is the one FAQ entry ("What is the refund
+  policy?"). Age limits are normalised ("All Ages", "Family-friendly" → "All
+  ages"); "Not specified…" is no age limit, with the export's words in a note
+  when they say more. Performers are names only.
+- **Pictures.** Only `usimg.sulekha.io`: Sulekha's "no image" placeholder (7)
+  is left out. A thumbnail that is a smaller copy of the listing's banner (260)
+  and organisers' logos (59) are left out, as the Texas file left them out.
+  The first picture kept is the cover. 497 pictures, 286 covers; 8 events have
+  none and show a generated poster.
+- **Overlap with the Texas file.** Ten listings are in both files (400647,
+  400972, 400973, 401212, 401453, 401558, 401676, 401721, 401885, 402109).
+  They stay in the new file; the importer plans them as updates of the drafts
+  the Texas file wrote, or keeps a posted one unless "Update from Sulekha" is
+  ticked. Each carries a note naming what the newer export changes (its
+  descriptions are shorter, and 400647 starts at 8:30 PM, not 7:00 PM).
+
+Notes: 285 on 197 events, for the administrator only.
+
+**Consequences of the addendum.**
+
+- After 7 May 2027 the North America file imports nothing.
+- The CAD assumption and the times read against a wrong zone label are
+  unconfirmed until an administrator checks them with the organiser.
+- The pictures still need a machine with direct HTTPS to `usimg.sulekha.io`;
+  in this build's environment the events show generated posters until "Retry
+  pictures" runs where the host is reachable.

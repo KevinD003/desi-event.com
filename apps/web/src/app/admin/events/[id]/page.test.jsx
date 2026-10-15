@@ -115,6 +115,43 @@ describe('one event, for the team at The Desi Events', () => {
     expect(api.getEventSessions).not.toHaveBeenCalled()
   })
 
+  it('says in the danger zone that deleting can be undone at any time with Restore', async () => {
+    await renderPage()
+
+    const said = screen.getByTestId('deletion-reversible')
+
+    expect(said).toHaveTextContent(
+      'Deleting erases nothing: the event is kept, and you can put it back on the site at any time with “Restore…”, here or under “Taken off the site (deleted)” in All events, giving a reason.',
+    )
+    expect(said).toHaveTextContent(
+      'A published event comes back published, at the same web address.',
+    )
+    expect(said).not.toHaveTextContent(/Sulekha/u)
+  })
+
+  it('says a published import only comes off the site, and comes back with its organiser and link', async () => {
+    api.getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      status: 'PUBLISHED',
+      organization: { name: 'Sulekha Events' },
+      importedFrom: {
+        sourceName: 'Sulekha',
+        presentedBy: 'Toronto Garba Collective',
+        listedOn: '2026-10-15',
+        prices: [{ name: 'Adult', priceCents: 3000, currency: 'CAD' }],
+        priceListed: true,
+        ticketsOnSource: true,
+      },
+    })
+
+    await renderPage()
+
+    expect(screen.getByRole('button', { name: 'Delete this event…' })).toBeInTheDocument()
+    expect(screen.getByTestId('deletion-reversible')).toHaveTextContent(
+      'This event was copied from Sulekha, and its tickets are sold there, not here, so deleting it only takes it off the site. Restoring it brings it back with Toronto Garba Collective named as its organiser, and its “Buy tickets on Sulekha” link as it was.',
+    )
+  })
+
   it('shows the editor, under the authority of the team at The Desi Events, once its own session is open', async () => {
     api.getPlatformEdits.mockResolvedValue([SITTING])
 

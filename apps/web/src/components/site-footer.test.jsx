@@ -38,6 +38,16 @@ describe('SiteFooter', () => {
     )
   })
 
+  it('describes a catalogue in the USA and Canada, and claims US dollars only for tickets sold here', () => {
+    const { container } = render(<SiteFooter />)
+
+    expect(container.textContent).toMatch(
+      /Garba, dandiya and Navratri nights across the USA and Canada\. Tickets sold here are priced in US dollars alongside their booking fee\./,
+    )
+    // A Canadian listing copied from Sulekha is priced in CA$, not US dollars.
+    expect(container.textContent).not.toMatch(/every price shown in US dollars/)
+  })
+
   it('links to the full list of what the site does not do', () => {
     render(<SiteFooter />)
 

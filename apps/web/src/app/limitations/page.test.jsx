@@ -294,12 +294,19 @@ describe('LimitationsPage', () => {
 
     const imported = entryFor('Keeping imported events up to date').textContent
 
-    expect(imported).toMatch(/copied from their listings on Sulekha\.com on 29–30 September 2026/)
+    expect(imported).toMatch(/copied from their listings on Sulekha\.com and are shown under/)
     expect(imported).toMatch(/They are not updated automatically/)
     expect(imported).toMatch(/Tickets for them are sold on Sulekha, not here/)
+    expect(imported).toMatch(
+      /as Sulekha listed them on the day the listing was read, which each event’s page names\./,
+    )
     expect(imported).toMatch(/Where Sulekha gave no end time, only the start is shown\./)
     expect(imported).toMatch(/shows a generated poster/)
-    expect(imported).toMatch(/Only events in Texas were copied\./)
+    expect(imported).toMatch(
+      /The events copied are in the United States and Canada; a Canadian event’s prices are in Canadian dollars, written CA\$, and its times are the venue’s own\./,
+    )
+    // No collection date or region it no longer holds to.
+    expect(imported).not.toMatch(/Only events in Texas/)
   })
 
   it('says the website link is switched by administrators and the site behind it is not checked', () => {

@@ -401,7 +401,8 @@ and API on one machine the defaults (`TRAFFIC_TRUSTED_FORWARDERS` loopback,
 See the README section "Importing the Sulekha events". In short:
 `pnpm import:events packages/db/data/imports/sulekha-texas-2026.json --as
 platform-admin@desi-event.example` plans the file; add `--apply` to import the
-events into review. Approving and publishing is done in the browser at
+events into review. `sulekha-north-america-2026.json`, in the same folder, is
+loaded the same way. Approving and publishing is done in the browser at
 `/admin/imports`. Picture copying needs direct outbound HTTPS to
 `usimg.sulekha.io` (no proxy is used); without it, set
 `IMPORT_IMAGE_SOURCE=fixtures` and `IMPORT_IMAGE_FIXTURE_DIR` to a directory of

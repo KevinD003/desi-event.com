@@ -41,7 +41,7 @@ import { ReassignEventDialog } from '../../../../components/reassign-event-dialo
 import { Badge } from '../../../../components/ui.jsx'
 import { TEXT_LINK } from '../../../../components/workspace-kit.jsx'
 import { sessionCan } from '../../../../lib/capabilities.js'
-import { NOT_POSTED_SENTENCE } from '../../../../lib/event-control.js'
+import { NOT_POSTED_SENTENCE, deletionReversibleSentences } from '../../../../lib/event-control.js'
 import { statusReading } from '../../../../lib/event-status.js'
 import { mediaReadFailure } from '../../../../lib/media.js'
 import {
@@ -262,7 +262,10 @@ function Header({ event }) {
 }
 
 /**
- * The danger zone: deleting, which needs no editing session.
+ * The danger zone: deleting, which needs no editing session. It says first
+ * that deleting can be undone at any time with "Restore…", and what a restore
+ * brings back; for an event copied from Sulekha, that deleting only takes it
+ * off the site.
  *
  * @param {object} props Component props.
  * @param {object} props.event The event.
@@ -283,6 +286,11 @@ function DangerZone({ event }) {
         and is shown before anything is deleted. The organiser sees that the team at The Desi Events
         deleted it, and the reason you give.
       </p>
+      <div data-testid="deletion-reversible" className="space-y-2 text-sm text-ink">
+        {deletionReversibleSentences(event).map((sentence) => (
+          <p key={sentence}>{sentence}</p>
+        ))}
+      </div>
       <DeleteEventDialog
         event={{ id: event.id, title: event.title, slug: event.slug }}
         listHref="/admin/events"

@@ -60,6 +60,22 @@ describe('importedPricesSentence', () => {
   })
 })
 
+describe('a listing in Canada, priced in Canadian dollars', () => {
+  const cad = (name, priceCents) => ({ name, priceCents, currency: 'CAD' })
+
+  it('writes the card price as CA$, never as a bare $ that reads as US dollars', () => {
+    expect(importedCardPrice(listed([cad('VIP', 7500), cad('General', 2500)]))).toBe(
+      'On Sulekha from CA$25.00',
+    )
+  })
+
+  it('lists each price as Sulekha listed it, in CA$', () => {
+    expect(importedPricesSentence(listed([cad('Adult', 2500), cad('Child', 0)]))).toBe(
+      'As listed on Sulekha on 30 September 2026: Adult CA$25.00, Child Free.',
+    )
+  })
+})
+
 describe('listedOnWords', () => {
   it('reads a UTC day and refuses anything else', () => {
     expect(listedOnWords('2026-09-29')).toBe('29 September 2026')

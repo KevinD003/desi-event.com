@@ -106,8 +106,10 @@ describe('what the pages say', () => {
         { currency: 'USD', cents: 1240 },
         { currency: 'CAD', cents: 300 },
       ]),
-    ).toBe('$12.40 USD and $3.00 CAD')
+    ).toBe('$12.40 USD and CA$3.00 CAD')
     expect(waivedText([{ currency: 'USD', cents: 331 }])).toBe('$3.31')
+    // Canadian dollars alone are never a bare "$", which reads as US dollars.
+    expect(waivedText([{ currency: 'CAD', cents: 300 }])).toBe('CA$3.00')
   })
 
   it('names a maker whose account is gone as a former administrator', () => {

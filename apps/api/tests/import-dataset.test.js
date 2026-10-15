@@ -214,6 +214,54 @@ describe('parseImportDataset', () => {
     expect(problems.at(-1)).toBe('41 more problems are not listed.')
   })
 
+  it('reads a listing in Canada as the file gives it: province, postal code, zone and CAD', () => {
+    const toronto = {
+      name: 'Harbourfront Hall',
+      addressLine1: '235 Queens Quay W',
+      city: 'Toronto',
+      region: 'ON',
+      postalCode: 'M5J 2G8',
+      country: 'CA',
+    }
+    const { dataset, problems } = parseImportDataset(
+      datasetWith((copy) => {
+        copy.events = copy.events.slice(0, 1).map((event) => ({
+          ...event,
+          venue: toronto,
+          timeZone: 'America/Toronto',
+          prices: [{ name: 'Adult', priceCents: 3000, currency: 'CAD', note: null }],
+        }))
+      }),
+    )
+
+    expect(problems).toEqual([])
+    expect(dataset.events[0]).toMatchObject({
+      venue: toronto,
+      timeZone: 'America/Toronto',
+      prices: [{ name: 'Adult', priceCents: 3000, currency: 'CAD', note: null }],
+    })
+
+    // Every zone the Canadian listings name is one the platform knows.
+    for (const timeZone of [
+      'America/Toronto',
+      'America/Vancouver',
+      'America/Edmonton',
+      'America/Montreal',
+    ]) {
+      const parsed = parseImportDataset(
+        datasetWith((copy) => {
+          copy.events = copy.events.slice(0, 1).map((event) => ({ ...event, timeZone }))
+        }),
+      )
+
+      expect(parsed.problems, timeZone).toEqual([])
+    }
+
+    expect(
+      planRow({ listing: dataset.events[0], existing: null, previousDigest: null, now: CURATED }),
+    ).toMatchObject({ action: 'CREATE', city: 'Toronto' })
+  })
+
   it('refuses the same listing twice', () => {
     const { problems } = parseImportDataset(
       datasetWith((copy) => {

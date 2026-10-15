@@ -453,3 +453,51 @@ describe('the structured data of an event copied from its Sulekha listing', () =
     expect(data.subEvent[0]).not.toHaveProperty('endDate')
   })
 })
+
+describe('the structured data of an event copied from a Sulekha listing in Canada', () => {
+  const toronto = {
+    ...event,
+    status: 'PUBLISHED',
+    timezone: 'America/Toronto',
+    ticketTypes: [],
+    venue: {
+      name: 'Harbourfront Hall',
+      addressLine1: '235 Queens Quay W',
+      city: 'Toronto',
+      region: 'ON',
+      postalCode: 'M5J 2G8',
+      country: 'CA',
+    },
+    organization: { name: 'Sulekha Events', slug: 'sulekha-events' },
+    importedFrom: {
+      sourceName: 'Sulekha',
+      presentedBy: 'Toronto Garba Collective',
+      listedOn: '2026-10-14',
+      prices: [{ name: 'Adult', priceCents: 3000, currency: 'CAD' }],
+      priceListed: true,
+      ticketsOnSource: true,
+    },
+  }
+
+  it('gives its address as Canadian: the province, the postal code and CA, never US', () => {
+    expect(eventJsonLd(toronto, { siteUrl: 'https://example.test' }).location).toEqual({
+      '@type': 'Place',
+      name: 'Harbourfront Hall',
+      address: {
+        '@type': 'PostalAddress',
+        streetAddress: '235 Queens Quay W',
+        addressLocality: 'Toronto',
+        addressRegion: 'ON',
+        postalCode: 'M5J 2G8',
+        addressCountry: 'CA',
+      },
+    })
+  })
+
+  it('offers no price in any currency, since its tickets are sold on Sulekha', () => {
+    const data = eventJsonLd(toronto)
+
+    expect(data.offers).toBeUndefined()
+    expect(JSON.stringify(data)).not.toMatch(/USD/u)
+  })
+})
