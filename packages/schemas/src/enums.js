@@ -44,9 +44,9 @@ export const PUBLIC_EVENT_STATUSES = Object.freeze([
 ])
 
 /**
- * Platform roles. `ADMIN` is the platform administrator (it invites organisers,
- * reviews, and switches website links), not Phase 1's catch-all, which became
- * `SUPER_ADMIN`.
+ * Platform roles. `ADMIN` is the platform administrator, which holds everything
+ * `SUPER_ADMIN` holds except changing platform roles (ADR 0018); Phase 1's
+ * catch-all became `SUPER_ADMIN`.
  */
 export const USER_ROLES = Object.freeze([
   'ATTENDEE',
@@ -477,9 +477,9 @@ export const CHECK_IN_OUTCOMES = Object.freeze(['ADMITTED', 'ALREADY_CHECKED_IN'
 /**
  * Where the authority for an admission came from.
  *
- * `PLATFORM_ROLE` is a platform super administrator admitting at an event of
- * an organisation it holds no membership in (ADR 0007). Recorded distinctly so
- * the organisation can see it.
+ * `PLATFORM_ROLE` is a platform administrator (ADMIN) or super administrator
+ * admitting at an event of an organisation it holds no membership in (ADR 0007,
+ * amended by ADR 0018). Recorded distinctly so the organisation can see it.
  */
 export const ADMISSION_AUTHORITIES = Object.freeze([
   'ORGANIZATION_ROLE',
@@ -488,8 +488,10 @@ export const ADMISSION_AUTHORITIES = Object.freeze([
 ])
 
 /**
- * The role an admission authority rests on: an organisation role, or the one
- * platform role that may admit.
+ * The role an admission authority rests on: an organisation role, or one of
+ * the two platform roles that may admit. `ADMIN` is both an organisation role
+ * and a platform role (the platform administrator, ADR 0018); the authority
+ * beside it says which.
  */
 export const ADMISSION_ROLES = Object.freeze([...ORG_ROLES, 'SUPER_ADMIN'])
 

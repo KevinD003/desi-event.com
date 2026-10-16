@@ -120,9 +120,10 @@ export const WORKSPACE_GROUPS = Object.freeze([
         // Door authority comes from a membership, or from the platform role
         // that holds `ticket:check_in` itself. The unscoped question consults
         // the platform capability list, and the permissions package refuses at
-        // load any table in which a platform role other than the super
-        // administrator holds it — so no other platform role is offered a door
-        // the API would refuse (ADR 0007).
+        // load any table in which a platform role other than the platform
+        // administrator and the super administrator holds it — so no other
+        // platform role is offered a door the API would refuse (ADR 0007,
+        // ADR 0018).
         offered: (session) =>
           membershipsWith(session, 'ticket:check_in').length > 0 ||
           sessionCan(session, 'ticket:check_in'),
@@ -137,9 +138,13 @@ export const WORKSPACE_GROUPS = Object.freeze([
       {
         href: '/organizer/team',
         label: 'Team',
-        // Membership only, as the page's picker is: a platform role is not a
-        // team, and the API lists members only to somebody inside it.
-        offered: (session) => membershipsWith(session, 'organization:view_members').length > 0,
+        // Membership, as the page's picker is: a platform role is not a team.
+        // The one exception is a platform administrator (`platform:admin`),
+        // offered the door team of the platform-held organisation that holds
+        // imported events, which nobody is a member of (ADR 0019).
+        offered: (session) =>
+          membershipsWith(session, 'organization:view_members').length > 0 ||
+          sessionCan(session, 'platform:admin'),
       },
       {
         href: '/organizer/promo-codes',
@@ -259,8 +264,9 @@ export const WORKSPACE_GROUPS = Object.freeze([
       {
         href: '/admin/users',
         label: 'People and roles',
-        // The area admits platform administrators too; this page is the
-        // super administrators' alone.
+        // Platform administrators and super administrators (`platform:admin`);
+        // the page draws the platform-role change for super administrators
+        // alone (ADR 0018).
         offered: (session) => sessionCan(session, 'platform:admin') && admits(session, 'admin'),
       },
     ],

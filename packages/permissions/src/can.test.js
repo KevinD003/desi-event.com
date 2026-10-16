@@ -176,8 +176,7 @@ const EXPECTED_ORG_MATRIX = {
  * The narrow staff roles exist so that the common platform jobs do not need
  * SUPER_ADMIN, and the interesting assertions are the absences — a moderator
  * cannot refund, a finance administrator cannot approve an event, a platform
- * administrator cannot publish, refund a ticket price, admit at a door or
- * change a role.
+ * administrator cannot change anybody's platform role (ADR 0018).
  */
 const EXPECTED_PLATFORM_MATRIX = {
   ATTENDEE: [],
@@ -195,21 +194,56 @@ const EXPECTED_PLATFORM_MATRIX = {
     'reconciliation:manage',
     'support:view_order',
   ],
-  // Exactly PLATFORM_ADMINISTRATOR_CAPABILITIES, written out by hand: the ten
-  // of SPEC2-XI O1, the three of SPEC3 §4.1 and the one of SPEC3-XI §4.1.
+  // Exactly PLATFORM_ADMINISTRATOR_CAPABILITIES, written out by hand: every
+  // capability but platform:role_manage, which is SUPER_ADMIN's alone (ADR 0018).
   ADMIN: [
     'analytics:view_all',
+    'attendee:export',
+    'connect:manage',
+    'event:cancel',
+    'event:create',
+    'event:delete',
+    'event:delete_unsold',
     'event:import',
+    'event:pause_sales',
     'event:platform_delete',
     'event:platform_edit',
+    'event:publish',
+    'event:submit_review',
+    'event:update',
     'event:view_draft',
+    'finance:view',
+    'hold:release_any',
+    'inventory:manage',
+    'ledger:manage',
     'moderation:review',
+    'order:refund',
+    'order:refund_approve',
+    'order:refund_request',
+    'order:view',
+    'organization:manage',
+    'organization:submit_verification',
+    'organization:view_members',
     'organizer:invite',
     'payment_terms:manage',
+    'payout:manage',
+    'platform:admin',
     'platform_fee:refund',
+    'privacy:redact',
+    'promo:manage',
+    'reconciliation:manage',
     'referral_code:manage',
     'report:view',
+    'retention:view',
+    'support:view_order',
+    'team:invite',
+    'team:remove',
+    'team:role_manage',
+    'ticket:check_in',
+    'ticket:revoke',
+    'ticketType:manage',
     'venue:manage',
+    'venueMap:manage',
     'venue_booking:cancel',
     'website_redirect:manage',
   ],
@@ -331,6 +365,16 @@ describe('can — platform admin override', () => {
 
   it('still fails closed on an unknown capability', () => {
     expect(can(platformAdmin, 'event:hijack', { organizationId: ORG_A })).toBe(false)
+  })
+
+  it('grants the platform administrator (ADMIN) everything but platform:role_manage', () => {
+    const admin = { id: 'usr_platform_admin', role: 'ADMIN', memberships: [] }
+
+    for (const capability of ALL_CAPABILITIES) {
+      const expected = capability !== 'platform:role_manage'
+      expect(can(admin, capability, { organizationId: ORG_B }), capability).toBe(expected)
+      expect(can(admin, capability), capability).toBe(expected)
+    }
   })
 })
 
@@ -771,15 +815,29 @@ describe('granting a role', () => {
     }
   })
 
-  it('lets a platform administrator who is not a member grant nothing', () => {
-    // ADMIN holds organizer:invite, not platform:admin: it brings organisers in
-    // through invitations and puts nobody into an existing organisation.
+  it('lets a platform administrator (platform:admin) who is not a member grant anything', () => {
+    // ADR 0018: ADMIN holds platform:admin, so it puts people into any
+    // organisation as SUPER_ADMIN does. Platform roles are not organisation
+    // roles: changing a User.role stays platform:role_manage, which it lacks.
     const admin = { id: 'usr_platform_admin', role: 'ADMIN', memberships: [] }
 
     for (const role of ORG_ROLE_ORDER) {
-      expect(canGrantOrgRole(admin, role, { organizationId: ORG_B }), role).toBe(false)
+      expect(canGrantOrgRole(admin, role, { organizationId: ORG_B }), role).toBe(true)
     }
+
+    expect(can(admin, 'platform:role_manage')).toBe(false)
   })
+
+  it.each(['SUPPORT', 'MODERATOR', 'FINANCE_ADMIN', 'ORGANIZER', 'ATTENDEE'])(
+    'lets a %s who is not a member grant nothing',
+    (platformRole) => {
+      const actor = { id: 'usr_staff', role: platformRole, memberships: [] }
+
+      for (const role of ORG_ROLE_ORDER) {
+        expect(canGrantOrgRole(actor, role, { organizationId: ORG_B }), role).toBe(false)
+      }
+    },
+  )
 
   it('throws a PermissionError naming the escalation', () => {
     expect(() =>

@@ -7,9 +7,12 @@
  *
  * In one platform-held organisation per source ("The Desi Events",
  * `Organization.platformHeldSource = 'SULEKHA'`), created VERIFIED the first
- * time an import is applied, with no members: the database refuses any
- * (`desi_platform_held_has_no_members`). Each event names the organiser who
- * presents it and keeps the prices the listing gave on its import record.
+ * time an import is applied, with no members but the door scanners a platform
+ * administrator invites for its events: the database refuses every other role
+ * (`desi_platform_held_has_no_members`, ADR 0019). A scanner edits nothing, so
+ * nobody runs an imported event but the team at The Desi Events. Each event
+ * names the organiser who presents it and keeps the prices the listing gave on
+ * its import record.
  *
  * ## Sold here, and nothing goes to the source (2026-10-15)
  *

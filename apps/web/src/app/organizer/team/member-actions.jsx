@@ -234,6 +234,7 @@ function useOutcome() {
  * @property {number|null} [eventTotal] How many events the organisation has in all, when the picker could not list every one.
  * @property {boolean} offerRoleChange Whether to offer changing this member's role.
  * @property {boolean} offerRemove Whether to offer removing this member.
+ * @property {boolean} [rescopeOnly] Whether keeping a door role and changing only its events is a change (the platform-held organisation, ADR 0019).
  */
 
 /**
@@ -250,6 +251,7 @@ export function MemberActions({
   eventTotal = null,
   offerRoleChange,
   offerRemove,
+  rescopeOnly = false,
 }) {
   const router = useRouter()
   const id = useId()
@@ -272,7 +274,12 @@ export function MemberActions({
   const returnFocus = useRef(null)
   const focusAfterRender = useFocusAfterRender()
 
-  const canChange = offerRoleChange && grantable.some((role) => role !== member.role)
+  // A different role — or, in the platform-held organisation, where a scanner
+  // stays a scanner (ADR 0019), the same door role with other events.
+  const canChange =
+    offerRoleChange &&
+    (grantable.some((role) => role !== member.role) ||
+      (rescopeOnly && isEventScoped(member.role) && grantable.includes(member.role)))
 
   if (!canChange && !offerRemove) return null
 

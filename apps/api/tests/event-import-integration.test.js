@@ -388,7 +388,7 @@ when()('the platform-held organisation and its records', () => {
     ).rejects.toThrow(/event_public_requires_review|review/u)
   })
 
-  it('takes no member: the trigger refuses one, and the API answers 409, not 500', async () => {
+  it('takes no member but a door scanner: the trigger refuses every other role, and the API answers 409, not 500', async () => {
     const id = sourceId()
 
     await importFile(dataset([listing(id)]))
@@ -426,7 +426,28 @@ when()('the platform-held organisation and its records', () => {
 
     expect(response.statusCode, response.body).toBe(409)
     expect(response.json().error.code).toBe('PLATFORM_HELD_ORGANIZATION')
-    expect(await prisma.membership.count({ where: { organizationId: organization.id } })).toBe(0)
+    // Door scanners are the one role it holds (ADR 0019), which another suite
+    // may have put in at the same moment; nothing else, ever.
+    expect(
+      await prisma.membership.count({
+        where: { organizationId: organization.id, role: { not: 'SCANNER' } },
+      }),
+    ).toBe(0)
+    expect(
+      await prisma.membership.count({
+        where: { organizationId: organization.id, userId: world.organiser.id },
+      }),
+    ).toBe(0)
+
+    // A door scanner is let in, and stays a scanner.
+    const scanner = await prisma.membership.create({
+      data: { userId: world.organiser.id, organizationId: organization.id, role: 'SCANNER' },
+    })
+
+    await expect(
+      prisma.membership.update({ where: { id: scanner.id }, data: { role: 'OWNER' } }),
+    ).rejects.toThrow(/platform_held_organization_has_no_members/u)
+    await prisma.membership.delete({ where: { id: scanner.id } })
   })
 
   it('holds one platform-held organisation per source, and one record per listing', async () => {
@@ -1164,8 +1185,9 @@ when()('selling an imported event on The Desi Events (2026-10-15)', () => {
       orderBy: { id: 'asc' },
     })
 
-    // The door: the platform-held organisation has no members, so the team's
-    // super administrator admits (the platform's door authority).
+    // The door: the team's super administrator admits on the platform's door
+    // authority, as a platform administrator may (ADR 0018); the door
+    // scanners a platform administrator invites admit by scope (ADR 0019).
     const looked = await app.inject({
       method: 'POST',
       url: '/v1/tickets/admission/preview',

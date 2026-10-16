@@ -22,8 +22,10 @@
  * The one other organisation that comes into being is made by the platform,
  * not by a person: the **platform-held** organisation an import puts listed
  * events in ({@link ensurePlatformHeldOrganization}, SPEC2-XI I-B). It is
- * VERIFIED by the importing administrator and has no members; the database
- * refuses any (trigger `desi_platform_held_has_no_members`).
+ * VERIFIED by the importing administrator and has no members but the door
+ * scanners a platform administrator invites for its events; the database
+ * refuses every other role (trigger `desi_platform_held_has_no_members`,
+ * ADR 0019).
  *
  * @module @desi-event/api/lib/organization-provisioning
  */
@@ -224,7 +226,7 @@ export const PLATFORM_HELD_VERIFICATION_NOTE =
  * Created VERIFIED, with its first verification event by the importing
  * administrator; `websiteUrl` null; paid in USD; `platformHeldSource` set,
  * which the unique index keeps to one organisation per source; no membership,
- * not even the importer's (the database refuses one). Its contact address is
+ * not even the importer's (the database refuses every role but SCANNER). Its contact address is
  * the importing administrator's own, recorded for the platform and never shown
  * publicly. It is not made through `organizations.create`, which stays 403.
  * Audited `organization.platform_held_created`.
@@ -326,7 +328,7 @@ export function isPlatformHeldSlug(slug, wanted) {
  * nothing written.
  *
  * Nobody else writes these three columns of the platform-held organisation
- * (it has no members, and no route edits it), so what
+ * (it has no members but door scanners, and no route edits it), so what
  * {@link PLATFORM_HELD_ORGANIZATIONS} says is the whole truth about them. A web
  * address another organisation has taken in the meantime is made unique, as
  * when it is created. Audited `organization.platform_held_updated` with the

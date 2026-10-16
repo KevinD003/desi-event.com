@@ -245,6 +245,18 @@ A platform `SUPER_ADMIN` may also admit at any event's door, recorded as its
 own authority on the event's audit trail; every other platform role is refused
 at the door and audited (ADR 0007, `docs/CHECK_IN.md`).
 
+_Corrected 2026-10-16._ Seven platform roles: the platform administrator,
+`ADMIN`, sits below `SUPER_ADMIN` and holds every capability except
+`platform:role_manage` (ADR 0018). Changing a platform role needs that
+capability, which only `SUPER_ADMIN` holds, and the handler still re-reads the
+caller inside its transaction and refuses anybody who is not an unsuspended
+`SUPER_ADMIN`. The account search, the organisation search, the direct grant
+and the venue merge are `platform:admin`, which `ADMIN` holds too; a direct
+grant on a super administrator's account needs a super administrator, because
+it ends every session that account holds. `ADMIN` admits at any door on
+`PLATFORM_ROLE` authority, recorded as `ADMIN`. `platform:role_manage` is
+forbidden in browser artefacts beside `platform:admin`.
+
 ### An organisation anybody can create
 
 `POST /v1/organizations` is open to any signed-in account, because a new

@@ -58,6 +58,19 @@
  * scope admits nobody; every other role does not work a door. See
  * `./team-vocabulary.js` for where that comes from.
  *
+ * ## Door access by invitation (ADR 0019)
+ *
+ * Staff and door scanners are invited for chosen events: the invite form
+ * lists the organisation's upcoming events, and the ticked ones become the
+ * person's door scope when they accept. An owner or administrator may choose
+ * any of them; a manager only the events it is scoped to itself, which is all
+ * the form lists for it. Each open invitation says which events it names.
+ *
+ * A platform administrator (`platform:admin`) is also offered "The Desi
+ * Events", the platform-held organisation that holds imported events, which it
+ * is not a member of: there it may invite door scanners for those events,
+ * change their events and remove them, and nothing else.
+ *
  * @module app/organizer/team/page
  */
 
@@ -70,7 +83,12 @@ import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { StepUpForRead } from '../../../components/step-up-for-read.jsx'
 import { formatEventDate } from '../../../lib/format.js'
 import { membershipsWith, readSession, sessionCan } from '../../../lib/session.js'
-import { formatInstant, getTeam, listOrganizationEvents } from '../../../lib/workspace-api.js'
+import {
+  formatInstant,
+  getPlatformHeldOrganization,
+  getTeam,
+  listOrganizationEvents,
+} from '../../../lib/workspace-api.js'
 import { InviteForm } from './invite-form.jsx'
 import { InvitationActions, MemberActions, TransferOwnership } from './member-actions.jsx'
 import { TeamAnnouncer } from './team-announcer.jsx'
@@ -97,6 +115,34 @@ export const INVITE_DELIVERY_SENTENCES = Object.freeze({
     'Codes are not emailed from this site. When you invite somebody, their invitation code is shown to you once, and you hand it to them yourself.',
   EMAIL: 'The code is emailed to that address. You will not see it.',
 })
+
+/** What the page says about the platform-held organisation's team. */
+export const PLATFORM_HELD_TEAM_SENTENCE =
+  'The Desi Events holds the events imported from organisers’ listings. Nobody runs them here but the team at The Desi Events, so its only members are door scanners: invite one with the events they will admit people at.'
+
+/** What a platform administrator with no organisation and no imported events is told. */
+export const NO_PLATFORM_HELD_SENTENCE =
+  'You belong to no organisation, and no event has been imported, so The Desi Events — which holds imported events — has no door team to run. Organisers run their own teams.'
+
+/** Statuses whose door is closed for good: never offered to a new door scope. */
+const CLOSED_EVENT_STATUSES = new Set(['COMPLETED', 'CANCELLED', 'REJECTED', 'ARCHIVED', 'DELETED'])
+
+/**
+ * The events a door role may be invited for: not over, and not closed.
+ *
+ * @param {Array<object>} events The organisation's events, as the list reads them.
+ * @param {number} now The instant, in milliseconds.
+ * @returns {Array<object>} The events still to come or still running.
+ */
+function upcomingDoorEvents(events, now) {
+  return events.filter((event) => {
+    if (CLOSED_EVENT_STATUSES.has(event.status)) return false
+
+    const ends = Date.parse(event.endsAt ?? event.startsAt ?? '')
+
+    return Number.isNaN(ends) || ends >= now
+  })
+}
 
 /** A header cell. */
 const TH = 'border-b border-line-strong px-3 py-2 text-left font-semibold text-ink'
@@ -181,6 +227,26 @@ function DoorScope({ role, scopedEventIds, titles }) {
 }
 
 /**
+ * Which events an open invitation will scope its door role to, in words.
+ *
+ * @param {object} props Component props.
+ * @param {string} props.role The role it offers.
+ * @param {Array<{id: string, title: string}>} props.events The events it names.
+ * @returns {JSX.Element} The description.
+ */
+function InvitationEvents({ role, events }) {
+  if (isOrganizationWide(role)) return <span>Any event of this organisation</span>
+
+  if (!isEventScoped(role)) return <span className="text-ink-muted">Does not work a door</span>
+
+  if (events.length === 0) {
+    return <span className="text-status-warning">Admits nobody: no event named</span>
+  }
+
+  return <span>Admits to: {events.map((event) => event.title).join(', ')}</span>
+}
+
+/**
  * What the page says about addresses, per visibility.
  *
  * @param {object} props Component props.
@@ -231,7 +297,26 @@ function AddressNotice({ visibility }) {
 export default async function TeamPage({ searchParams }) {
   const query = (await searchParams) ?? {}
   const session = await readSession()
-  const organizations = membershipsWith(session, 'organization:view_members')
+  const memberships = membershipsWith(session, 'organization:view_members')
+  // A platform administrator runs the door team of the platform-held
+  // organisation without being a member of it. A failed read leaves it out.
+  const platformHeld = sessionCan(session, 'platform:admin')
+    ? (await attempt(() => getPlatformHeldOrganization())).value
+    : null
+  const organizations =
+    platformHeld &&
+    !memberships.some((membership) => membership.organizationId === platformHeld.organizationId)
+      ? [...memberships, platformHeld]
+      : memberships
+
+  if (organizations.length === 0 && sessionCan(session, 'platform:admin')) {
+    return (
+      <div>
+        <h1 className="text-h2 font-semibold text-ink">Team and roles</h1>
+        <Empty title="No door team to run" description={NO_PLATFORM_HELD_SENTENCE} />
+      </div>
+    )
+  }
 
   if (organizations.length === 0) {
     return <Forbidden area="Team" backHref="/organizer" backLabel="Back to the workspace" />
@@ -241,6 +326,7 @@ export default async function TeamPage({ searchParams }) {
     organizations.find((organization) => organization.organizationId === query.organizationId) ??
     organizations[0]
   const organizationId = selected.organizationId
+  const isPlatformHeld = selected.platformHeld === true
 
   const [team, eventList] = await Promise.all([
     attempt(() => getTeam(organizationId)),
@@ -252,7 +338,7 @@ export default async function TeamPage({ searchParams }) {
   const mayChangeRoles = sessionCan(session, 'team:role_manage', organizationId)
   const mayRemove = sessionCan(session, 'team:remove', organizationId)
   const mayWithdraw = sessionCan(session, 'team:invite', organizationId)
-  const callerRole = selected.role
+  const callerRole = selected.role ?? null
   // Held through this session's own membership, never a platform role: the
   // API hands ownership on only for an owner of this organisation.
   const ownsHere = membershipsWith(session, 'organization:manage').some(
@@ -291,6 +377,17 @@ export default async function TeamPage({ searchParams }) {
   const otherChoices = (member) =>
     (member.roleChoices ?? []).filter((role) => role !== 'OWNER' && role !== member.role)
 
+  /**
+   * Whether the API lets this caller keep a door member in their role and
+   * change only their events — the one change a platform administrator may
+   * make to a scanner of the platform-held organisation.
+   *
+   * @param {{role: string, roleChoices?: string[]}} member The member.
+   * @returns {boolean} True when the member's own role is among their choices.
+   */
+  const rescopes = (member) =>
+    isPlatformHeld && isEventScoped(member.role) && (member.roleChoices ?? []).includes(member.role)
+
   const events = eventList.value
     ? eventList.value.events.map((event) => ({
         id: event.id,
@@ -308,6 +405,22 @@ export default async function TeamPage({ searchParams }) {
       : null
   const actionsColumn = mayChangeRoles || mayRemove
   const now = Date.now()
+  // A manager may give door access only for the events it is scoped to
+  // itself; an owner, an administrator or a platform administrator for any.
+  // The API decides again.
+  const limitedToOwnScope = !mayChangeRoles
+  const ownScope = new Set(
+    (data?.members ?? []).find((member) => member.self)?.scopedEventIds ?? [],
+  )
+  const doorEvents = events
+    ? upcomingDoorEvents(eventList.value.events, now)
+        .filter((event) => !limitedToOwnScope || ownScope.has(event.id))
+        .map((event) => ({
+          id: event.id,
+          title: event.title,
+          when: formatEventDate(event.startsAt, event.timezone ?? 'Asia/Kolkata'),
+        }))
+    : null
 
   return (
     <div>
@@ -320,6 +433,9 @@ export default async function TeamPage({ searchParams }) {
         they may admit people through. What you can change is decided by your own role here, and the
         server checks it again whatever this page offers.
       </p>
+      {isPlatformHeld ? (
+        <p className="mt-2 max-w-3xl text-ink-muted">{PLATFORM_HELD_TEAM_SENTENCE}</p>
+      ) : null}
 
       {organizations.length > 1 ? (
         <nav aria-label="Choose an organisation" className="mt-6">
@@ -418,7 +534,9 @@ export default async function TeamPage({ searchParams }) {
                     {data.members.map((member) => {
                       const name = safeName(member.displayName, full)
                       const offerRoleChange =
-                        mayChangeRoles && !member.self && otherChoices(member).length > 0
+                        mayChangeRoles &&
+                        !member.self &&
+                        (otherChoices(member).length > 0 || rescopes(member))
                       const offerRemove = mayRemove && !member.self && reaches(member)
 
                       return (
@@ -464,6 +582,7 @@ export default async function TeamPage({ searchParams }) {
                                   eventTotal={eventTotal}
                                   offerRoleChange={offerRoleChange}
                                   offerRemove={offerRemove}
+                                  rescopeOnly={isPlatformHeld}
                                 />
                               ) : (
                                 <span className="text-ink-muted">
@@ -495,11 +614,13 @@ export default async function TeamPage({ searchParams }) {
                 organizationId={organizationId}
                 assignableRoles={assignable}
                 deliveryMode={deliveryMode}
+                events={doorEvents}
+                limitedToOwnScope={limitedToOwnScope}
               />
             </section>
           ) : null}
 
-          {mayWithdraw ? (
+          {mayWithdraw && !isPlatformHeld ? (
             <p className="mt-4 max-w-3xl text-sm text-ink-muted">{POSTING_ROLES_SENTENCE}</p>
           ) : null}
 
@@ -530,6 +651,9 @@ export default async function TeamPage({ searchParams }) {
                         Role
                       </th>
                       <th scope="col" className={TH}>
+                        Door events
+                      </th>
+                      <th scope="col" className={TH}>
                         Invited by
                       </th>
                       <th scope="col" className={TH}>
@@ -558,6 +682,12 @@ export default async function TeamPage({ searchParams }) {
                             <td className={`${TD} break-all`}>{invitation.email ?? '—'}</td>
                           ) : null}
                           <td className={TD}>{roleLabel(invitation.role)}</td>
+                          <td className={TD}>
+                            <InvitationEvents
+                              role={invitation.role}
+                              events={invitation.events ?? []}
+                            />
+                          </td>
                           <td className={TD}>
                             {invitation.invitedByName
                               ? safeName(invitation.invitedByName, full)

@@ -402,9 +402,11 @@ export const checkInResponseSchema = z.object({
  * the events its scopes name and nothing else, so the door screen cannot even
  * offer an event the server would refuse.
  *
- * A platform super administrator is shown every organisation's current door
- * events as well, on `PLATFORM_ROLE` authority — the only authority whose role
- * is a platform role, which the refinement pins so neither half can drift.
+ * A platform administrator (ADMIN) or super administrator is shown every
+ * organisation's current door events as well, on `PLATFORM_ROLE` authority —
+ * the only authority whose role is a platform role, which the refinement pins
+ * so neither half can drift: platform authority rests on ADMIN or SUPER_ADMIN,
+ * and SUPER_ADMIN on nothing else (ADR 0018).
  * `meta.scope` says which kind of list this is; `meta.organizations` feeds the
  * organisation filter; `meta.truncated` says the list was cut at its limit.
  */
@@ -432,11 +434,15 @@ export const admissionEventsResponseSchema = z.object({
         role: admissionRoleSchema,
       })
       .superRefine((entry, ctx) => {
-        if ((entry.authority === 'PLATFORM_ROLE') !== (entry.role === 'SUPER_ADMIN')) {
+        const platform = entry.authority === 'PLATFORM_ROLE'
+        const platformRole = entry.role === 'ADMIN' || entry.role === 'SUPER_ADMIN'
+
+        if ((platform && !platformRole) || (!platform && entry.role === 'SUPER_ADMIN')) {
           ctx.addIssue({
             code: 'custom',
             path: ['role'],
-            message: 'Platform authority rests on SUPER_ADMIN, and only platform authority does',
+            message:
+              'Platform authority rests on ADMIN or SUPER_ADMIN, and SUPER_ADMIN only on platform authority',
           })
         }
       }),

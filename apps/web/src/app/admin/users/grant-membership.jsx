@@ -109,7 +109,7 @@ export function GrantMembership({ account, onChanged }) {
   const needsFactor = PRIVILEGED_ORG_ROLES.includes(role) && !account.mfaEnrolled
   const ready = Boolean(chosen) && role !== '' && role !== current?.role && reasonValid
 
-  // The API refuses a super administrator's own account here (403), so the
+  // The API refuses a platform administrator's own account here (403), so the
   // control is shown disabled with the reason rather than offered to fail.
   if (account.self) {
     return (
@@ -125,7 +125,7 @@ export function GrantMembership({ account, onChanged }) {
           Put {name} into an organisation
         </Button>
         <p id={`${id}-self`} className="mt-2 text-sm text-ink-muted">
-          This is your own account. Another super administrator must give you a role in an
+          This is your own account. Another platform administrator must give you a role in an
           organisation.
         </p>
       </div>

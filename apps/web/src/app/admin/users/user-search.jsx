@@ -21,6 +21,12 @@
  * carries `self`, and neither its role nor its memberships can be changed from
  * here — the API refuses both too.
  *
+ * Changing a platform role is the super administrators' alone (ADR 0018). The
+ * page says whether this session may, as a boolean; without it the platform
+ * role is shown and {@link PlatformRoleChange} is not drawn, and a super
+ * administrator's memberships cannot be changed either, because a grant ends
+ * every session the account holds. The API refuses both regardless.
+ *
  * After a change the same search is sent again, so the row shows what the
  * API now holds rather than what this screen guessed.
  *
@@ -52,11 +58,17 @@ const PER_PAGE = 20
  */
 
 /**
+ * @typedef {object} UserSearchProps
+ * @property {boolean} [mayChangePlatformRoles] Whether this session may change platform roles (a super administrator).
+ */
+
+/**
  * The search, and the accounts it found.
  *
+ * @param {UserSearchProps} props Component props.
  * @returns {JSX.Element} The rendered search.
  */
-export function UserSearch() {
+export function UserSearch({ mayChangePlatformRoles = false }) {
   const id = useId()
   const [terms, setTerms] = useState('')
   const [busy, setBusy] = useState(false)
@@ -177,7 +189,11 @@ export function UserSearch() {
           <ul className="mt-4 space-y-4" aria-label="Accounts found">
             {found.accounts.map((account) => (
               <li key={account.id}>
-                <AccountCard account={account} onChanged={reread} />
+                <AccountCard
+                  account={account}
+                  onChanged={reread}
+                  mayChangePlatformRoles={mayChangePlatformRoles}
+                />
               </li>
             ))}
           </ul>
@@ -209,6 +225,7 @@ function countSentence(total) {
  * @typedef {object} AccountCardProps
  * @property {object} account One account as the search answers it.
  * @property {Function} onChanged Called after a change, to read the account again.
+ * @property {boolean} mayChangePlatformRoles Whether this session may change platform roles.
  */
 
 /**
@@ -217,7 +234,7 @@ function countSentence(total) {
  * @param {AccountCardProps} props Component props.
  * @returns {JSX.Element} The card.
  */
-function AccountCard({ account, onChanged }) {
+function AccountCard({ account, onChanged, mayChangePlatformRoles }) {
   const headingId = useId()
   const privileged = PRIVILEGED_PLATFORM_ROLES.includes(account.role)
 
@@ -268,8 +285,27 @@ function AccountCard({ account, onChanged }) {
       )}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <PlatformRoleChange account={account} onChanged={onChanged} />
-        <GrantMembership account={account} onChanged={onChanged} />
+        {mayChangePlatformRoles ? (
+          <PlatformRoleChange account={account} onChanged={onChanged} />
+        ) : (
+          <div>
+            <h3 className="text-sm font-semibold text-ink">Platform role</h3>
+            <p className="mt-2 text-sm text-ink-muted">
+              Only a super administrator can change a platform role.
+            </p>
+          </div>
+        )}
+        {mayChangePlatformRoles || account.role !== 'SUPER_ADMIN' ? (
+          <GrantMembership account={account} onChanged={onChanged} />
+        ) : (
+          <div>
+            <h3 className="text-sm font-semibold text-ink">Organisation membership</h3>
+            <p className="mt-2 text-sm text-ink-muted">
+              This is a super administrator. Only another super administrator can change their
+              memberships.
+            </p>
+          </div>
+        )}
       </div>
     </article>
   )

@@ -244,10 +244,10 @@ function grantDecision(actor, targetRole, context = {}) {
  *     `OWNER_GRANTABLE_ORG_ROLES`; posting roles come from the team at The Desi Events,
  *     through an organiser invitation or a super administrator's direct grant.
  *
- * A super administrator bypasses all four, which is what `platform:admin` is
- * for. A platform administrator (`ADMIN`) does not: it holds no `team:invite`
- * and no `platform:admin`, and joins nobody to an organisation except through
- * an organiser invitation.
+ * A super administrator and a platform administrator (`ADMIN`) bypass all
+ * four, which is what `platform:admin` is for (ADR 0018). Organisation roles
+ * are not platform roles: nothing here changes anybody's `User.role`, which
+ * stays `platform:role_manage`, SUPER_ADMIN's alone.
  *
  * @param {Actor|null|undefined} actor The granting actor.
  * @param {string} targetRole The `OrgRole` being granted.

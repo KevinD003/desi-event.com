@@ -26,6 +26,10 @@
  * second factor, the next workspace page would refuse it; the success panel
  * says so first and links to where one is set up.
  *
+ * A door role invited for chosen events (ADR 0019) admits at those events from
+ * the moment it joins: the success panel names them, as the API returned them,
+ * and links to the door.
+ *
  * @module app/account/invitations/invitation-accept-form
  */
 
@@ -37,7 +41,7 @@ import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { Alert, Button, FormField, Input } from '../../../components/ui.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
 import { describeApiRefusal, parseRetryAfter } from '../../../lib/refusal.js'
-import { roleLabel } from '../../organizer/team/team-vocabulary.js'
+import { isEventScoped, roleLabel } from '../../organizer/team/team-vocabulary.js'
 
 /** The shortest code the API will look at. */
 const MIN_LENGTH = 16
@@ -189,6 +193,9 @@ export function InvitationAcceptForm() {
     // False when the account was already a member: the code is spent, and
     // nothing else changed — no role, and no other session.
     const gained = joined.joined !== false
+    // The events a door role now admits at: the ones the invitation named,
+    // made this membership's door scope in the same step (ADR 0019).
+    const doorEvents = Array.isArray(joined.events) ? joined.events : []
 
     return (
       <div ref={joinedRef} tabIndex={-1} className="mt-6 max-w-xl focus-visible:outline-none">
@@ -204,6 +211,21 @@ export function InvitationAcceptForm() {
               else changed: not your role, and not your other signed-in sessions.
             </p>
           )}
+          {gained && doorEvents.length > 0 ? (
+            <div className="mt-2">
+              <p>You may admit people at:</p>
+              <ul className="mt-1 list-disc pl-5">
+                {doorEvents.map((event) => (
+                  <li key={event.id}>{event.title}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {gained && doorEvents.length === 0 && isEventScoped(joined.role) ? (
+            <p className="mt-2">
+              You admit nobody at the door until an owner or administrator chooses your events.
+            </p>
+          ) : null}
           {needsFactor ? (
             <p className="mt-2">
               This role needs two-step sign-in, and until it is set up the workspace will refuse
@@ -214,9 +236,15 @@ export function InvitationAcceptForm() {
             </p>
           ) : null}
           <p className="mt-2">
-            <Link href="/organizer" className={LINK}>
-              Open the workspace
-            </Link>
+            {gained && doorEvents.length > 0 ? (
+              <Link href="/organizer/check-in" className={LINK}>
+                Open the door
+              </Link>
+            ) : (
+              <Link href="/organizer" className={LINK}>
+                Open the workspace
+              </Link>
+            )}
           </p>
         </Alert>
       </div>

@@ -1371,11 +1371,14 @@ test.describe.serial('full control of posted events', () => {
     expect(unsat.status, unsat.text).toBe(403)
     expect(unsat.code).toBe('PLATFORM_EDIT_NOT_OPEN')
 
-    // The organiser's lifecycle moves are not the team's.
-    const opened = await callApi(admin, 'POST', `/api/v1/events/${event.id}/open-sales`, {})
+    // The organiser's lifecycle moves are the team's too (ADR 0018): a move
+    // this published event is not in the state for is answered as such, and
+    // never refused for the authority. Nothing changes.
+    const paused = await callApi(admin, 'POST', `/api/v1/events/${event.id}/pause-sales`, {})
 
-    expect(opened.status, opened.text).toBe(403)
-    expect(opened.code).toBe('ORGANIZER_ONLY')
+    expect(paused.status, paused.text).toBe(409)
+    expect(paused.code).toBe('CONFLICT')
+    expect((await eventRow(event.id)).status).toBe('PUBLISHED')
 
     // A sitting works in the browser that opened it, and nowhere else.
     await openSitting(admin, 'Checking the matinee listing for the organiser.')

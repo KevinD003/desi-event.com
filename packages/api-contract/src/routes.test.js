@@ -373,6 +373,32 @@ describe('organiser onboarding routes', () => {
     expect(routeById('platform.searchOrganizations').capability).toBe('platform:admin')
   })
 
+  it('puts changing a platform role behind platform:role_manage, with its step-up (ADR 0018)', () => {
+    const route = routeById('platform.setUserRole')
+
+    expect(route.capability).toBe('platform:role_manage')
+    expect(route.stepUp).toBe('SECURITY_ROLE')
+  })
+
+  it('leaves the other platform people tools on platform:admin, which ADMIN holds', () => {
+    for (const id of [
+      'platform.searchUsers',
+      'platform.searchOrganizations',
+      'platform.grantMembership',
+      'venues.merge',
+    ]) {
+      expect(routeById(id).capability, id).toBe('platform:admin')
+    }
+
+    expect(routeById('platform.grantMembership').stepUp).toBe('SECURITY_ROLE')
+  })
+
+  it('names platform:role_manage on no route but platform.setUserRole', () => {
+    expect(
+      apiRoutes.filter((route) => route.capability === 'platform:role_manage').map((r) => r.id),
+    ).toEqual(['platform.setUserRole'])
+  })
+
   it('keeps organizations.create, which takes no body and is documented as refused', () => {
     const route = routeById('organizations.create')
 

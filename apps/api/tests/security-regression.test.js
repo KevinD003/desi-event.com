@@ -199,14 +199,19 @@ describe('NF-11: every step-up window is a named policy the server owns', () => 
     ])
 
     for (const route of platform) {
-      // Super administrators hold the platform surface; organiser invitations
-      // are also held by platform administrators, and by nobody else.
+      // Platform administrators and super administrators hold the platform
+      // surface (`platform:admin`), and organiser invitations
+      // (`organizer:invite`); changing a platform role is the super
+      // administrators' alone (`platform:role_manage`, ADR 0018).
       expect(
-        ['platform:admin', 'organizer:invite'],
+        ['platform:admin', 'platform:role_manage', 'organizer:invite'],
         `${route.id} is held by ${route.capability}`,
       ).toContain(route.capability)
       expect(route.id.startsWith('organizerInvitations.'), route.id).toBe(
         route.capability === 'organizer:invite',
+      )
+      expect(route.id === 'platform.setUserRole', route.id).toBe(
+        route.capability === 'platform:role_manage',
       )
 
       if (route.method === 'GET' || readsOverPost.has(route.id)) {

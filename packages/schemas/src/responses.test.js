@@ -471,7 +471,7 @@ describe('admissionEventsResponseSchema', () => {
     ).toBe(false)
   })
 
-  it('carries platform authority only on SUPER_ADMIN, and SUPER_ADMIN only on platform authority', () => {
+  it('carries platform authority only on ADMIN or SUPER_ADMIN, and SUPER_ADMIN only on platform authority', () => {
     const entry = {
       event: { ...admissionEvent, status: 'ON_SALE' },
       sessions: [],
@@ -491,12 +491,29 @@ describe('admissionEventsResponseSchema', () => {
     expect(parsed.data[0].authority).toBe('PLATFORM_ROLE')
     expect(parsed.meta).toEqual(platformMeta)
 
+    // The platform administrator admits on platform authority too (ADR 0018),
+    // and the organisation role ADMIN still rests on its membership.
+    for (const [authority, role] of [
+      ['PLATFORM_ROLE', 'ADMIN'],
+      ['ORGANIZATION_ROLE', 'ADMIN'],
+    ]) {
+      expect(
+        admissionEventsResponseSchema.safeParse({
+          data: [{ ...entry, authority, role }],
+          meta: platformMeta,
+        }).success,
+        `${authority}/${role}`,
+      ).toBe(true)
+    }
+
     for (const [authority, role] of [
       ['PLATFORM_ROLE', 'OWNER'],
       ['PLATFORM_ROLE', 'SCANNER'],
       ['ORGANIZATION_ROLE', 'SUPER_ADMIN'],
       ['EVENT_SCOPE', 'SUPER_ADMIN'],
       ['PLATFORM_ROLE', 'MODERATOR'],
+      ['PLATFORM_ROLE', 'MANAGER'],
+      ['PLATFORM_ROLE', 'FINANCE_ADMIN'],
     ]) {
       expect(
         admissionEventsResponseSchema.safeParse({

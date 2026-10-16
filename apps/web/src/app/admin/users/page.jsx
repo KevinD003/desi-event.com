@@ -7,11 +7,16 @@
  * decides who may do what — the API checks again, with a recent second factor,
  * on every change.
  *
- * The area admits platform administrators as well as super administrators,
- * because it is where organisers are invited. This page is the super
- * administrators' alone (`platform:admin`), so it asks again and tells a
- * platform administrator who opens it, in words, that it is not theirs —
- * rather than drawing a search whose every answer would be a refusal.
+ * The area admits finance administrators as well, for refunding a booking fee
+ * by hand. This page is the platform administrators' (`platform:admin`: ADMIN
+ * and SUPER_ADMIN, ADR 0018), so it asks again and tells anybody else who
+ * opens it, in words, that it is not theirs — rather than drawing a search
+ * whose every answer would be a refusal.
+ *
+ * Changing a platform role is the super administrators' alone
+ * (`platform:role_manage`). The page decides that here and hands the search a
+ * boolean, so a platform administrator is shown each account's platform role
+ * but no control to change it; the API refuses the change too.
  *
  * @module app/admin/users/page
  */
@@ -23,9 +28,9 @@ import { sessionCan } from '../../../lib/capabilities.js'
 import { readSession } from '../../../lib/session.js'
 import { UserSearch } from './user-search.jsx'
 
-/** What a platform administrator who opens this page is told. */
-export const SUPER_ADMINISTRATORS_ONLY =
-  'Changing platform roles and putting people into organisations directly are held by platform super administrators alone. Your role, platform administrator, does not include them, and nothing on this page can grant them.'
+/** What somebody without platform administration who opens this page is told. */
+export const PLATFORM_ADMINISTRATORS_ONLY =
+  'Finding accounts and putting people into organisations directly are held by platform administrators and super administrators. Your role does not include them, and nothing on this page can grant them.'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,15 +51,17 @@ export default async function PeopleAndRolesPage() {
           Workspace · Platform administration
         </p>
         <h1 className="mt-2 text-h2 font-semibold text-ink">Not for you</h1>
-        <p className="mt-2 max-w-3xl text-ink-muted">{SUPER_ADMINISTRATORS_ONLY}</p>
+        <p className="mt-2 max-w-3xl text-ink-muted">{PLATFORM_ADMINISTRATORS_ONLY}</p>
         <p className="mt-6">
-          <Link href="/admin/organizer-invitations" className={SECONDARY_LINK}>
-            Back to organiser invitations
+          <Link href="/admin" className={SECONDARY_LINK}>
+            Back to platform administration
           </Link>
         </p>
       </div>
     )
   }
+
+  const mayChangePlatformRoles = sessionCan(session, 'platform:role_manage')
 
   return (
     <div>
@@ -63,13 +70,14 @@ export default async function PeopleAndRolesPage() {
       </p>
       <h1 className="mt-2 text-h2 font-semibold text-ink">People and roles</h1>
       <p className="mt-2 max-w-3xl text-ink-muted">
-        Find an account by its email address, name or id. You can change its platform role, or put
-        it into an organisation with a role — including owner, for an organisation whose only owner
-        has left. Every change needs a reason and a recent confirmation of your second factor, and
-        ends every session the account holds.
+        {mayChangePlatformRoles
+          ? 'Find an account by its email address, name or id. You can change its platform role, or put it into an organisation with a role — including owner, for an organisation whose only owner has left.'
+          : 'Find an account by its email address, name or id. You can put it into an organisation with a role — including owner, for an organisation whose only owner has left. Changing a platform role is for super administrators.'}{' '}
+        Every change needs a reason and a recent confirmation of your second factor, and ends every
+        session the account holds.
       </p>
 
-      <UserSearch />
+      <UserSearch mayChangePlatformRoles={mayChangePlatformRoles} />
     </div>
   )
 }

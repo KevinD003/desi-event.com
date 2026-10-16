@@ -2657,6 +2657,30 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "events": {
+                                    "maxItems": 200,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "maxLength": 64,
+                                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                        },
+                                        "title": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "title"
+                                      ],
+                                      "additionalProperties": false
+                                    }
                                   }
                                 },
                                 "required": [
@@ -2666,7 +2690,8 @@
                                   "status",
                                   "expiresAt",
                                   "createdAt",
-                                  "deliveryMode"
+                                  "deliveryMode",
+                                  "events"
                                 ],
                                 "additionalProperties": false
                               }
@@ -2856,6 +2881,30 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "events": {
+                                    "maxItems": 200,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "maxLength": 64,
+                                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                        },
+                                        "title": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "title"
+                                      ],
+                                      "additionalProperties": false
+                                    }
                                   }
                                 },
                                 "required": [
@@ -2864,7 +2913,8 @@
                                   "status",
                                   "expiresAt",
                                   "createdAt",
-                                  "deliveryMode"
+                                  "deliveryMode",
+                                  "events"
                                 ],
                                 "additionalProperties": false
                               }
@@ -3054,6 +3104,30 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "events": {
+                                    "maxItems": 200,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "maxLength": 64,
+                                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                        },
+                                        "title": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "title"
+                                      ],
+                                      "additionalProperties": false
+                                    }
                                   }
                                 },
                                 "required": [
@@ -3062,7 +3136,8 @@
                                   "status",
                                   "expiresAt",
                                   "createdAt",
-                                  "deliveryMode"
+                                  "deliveryMode",
+                                  "events"
                                 ],
                                 "additionalProperties": false
                               }
@@ -3160,7 +3235,7 @@
       "post": {
         "operationId": "teams.invite",
         "summary": "Invite somebody to the team",
-        "description": "Issue a single-use invitation code for an email address, for a role bounded by what the caller holds: a member cannot invite somebody to a role that carries powers they lack, and OWNER cannot be invited at all. Roles that create or publish events (event manager, manager, administrator) are given by the team at The Desi Events, and inviting somebody to one answers 403 `POSTING_ROLE_NEEDS_PLATFORM` with nothing written. An address that already belongs to the organisation answers 409. A second invitation to the same address supersedes the first, and the database holds at most one live invitation per address, so two issued at the same moment produce one invitation and one 409. How the code reaches the invitee is the deployment’s `DELIVERY_MODE`. In `MANUAL`, the default, `data.delivery.invitationCode` carries the code, returned exactly once, in this 201 only, with `cache-control: no-store, private`; it is never logged or audited, and only its SHA-256 digest is stored, so nobody can show it again. The inviter hands it over themselves. In `EMAIL` (`DELIVERY_MODE=EMAIL` with an SMTP server configured) the mail server sends it, `invitationCode` is null, and an address that has already been sent three codes from The Desi Events in the last day answers 429 `RECIPIENT_DAILY_LIMIT`; if the server refuses the message, the invitation is withdrawn and the answer is 503 `DELIVERY_FAILED`, so no code is left live that nobody holds. Waits behind other changes to the organisation or to the address for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing issued and nothing sent).\n\nRequires the `team:invite` capability.",
+        "description": "Issue a single-use invitation code for an email address, for a role bounded by what the caller holds: a member cannot invite somebody to a role that carries powers they lack, and OWNER cannot be invited at all. Roles that create or publish events (event manager, manager, administrator) are given by the team at The Desi Events, and inviting somebody to one answers 403 `POSTING_ROLE_NEEDS_PLATFORM` with nothing written. A door role (staff, scanner) may be invited for chosen events, `eventIds`: stored with the invitation, shown on it as `data.events`, and applied as the member’s door scopes when it is accepted. Each must be one of this organisation’s events (422), events for any other role answer 422, and a caller who does not manage roles here (a manager) may name only events it is scoped to itself (403). The platform-held organisation that holds imported events takes door scanners only, invited by a platform administrator (`platform:admin`). An address that already belongs to the organisation answers 409. A second invitation to the same address supersedes the first, and the database holds at most one live invitation per address, so two issued at the same moment produce one invitation and one 409. How the code reaches the invitee is the deployment’s `DELIVERY_MODE`. In `MANUAL`, the default, `data.delivery.invitationCode` carries the code, returned exactly once, in this 201 only, with `cache-control: no-store, private`; it is never logged or audited, and only its SHA-256 digest is stored, so nobody can show it again. The inviter hands it over themselves. In `EMAIL` (`DELIVERY_MODE=EMAIL` with an SMTP server configured) the mail server sends it, `invitationCode` is null, and an address that has already been sent three codes from The Desi Events in the last day answers 429 `RECIPIENT_DAILY_LIMIT`; if the server refuses the message, the invitation is withdrawn and the answer is 503 `DELIVERY_FAILED`, so no code is left live that nobody holds. Waits behind other changes to the organisation or to the address for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing issued and nothing sent).\n\nRequires the `team:invite` capability.",
         "tags": [
           "teams"
         ],
@@ -3239,6 +3314,30 @@
                             }
                           ]
                         },
+                        "events": {
+                          "maxItems": 200,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
                         "delivery": {
                           "oneOf": [
                             {
@@ -3287,6 +3386,7 @@
                         "expiresAt",
                         "createdAt",
                         "deliveryMode",
+                        "events",
                         "delivery"
                       ],
                       "additionalProperties": false
@@ -3342,6 +3442,16 @@
           },
           "409": {
             "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Well-formed but not actionable, e.g. sold out or outside the sales window.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3440,7 +3550,7 @@
       "post": {
         "operationId": "teams.accept",
         "summary": "Accept an invitation",
-        "description": "Join an organisation with an invitation code, typed rather than followed from a link. The caller must be signed in as the address the invitation names — a code passed on to somebody else does not work for them, which is what stops an invitation becoming a transferable key, and the refusal names no part of that address. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership. Joining is a privilege change (finding NF-10): every other session the caller holds ends, a cookie session is given a new secret, and the session is shortened to the privileged lifetime when the new role is privileged. `data.joined` is false when the account already belonged to the organisation: the code is spent, the existing role is unchanged and no session ends. `data.session` says whether the account now needs a second factor and whether it has one. A direct grant that adds the account at the same moment answers 409 and leaves the code usable. An invitation that offers a role which creates or publishes events (one written before such invitations were withdrawn) answers 403 `POSTING_ROLE_NEEDS_PLATFORM` and is not spent, and an organiser invitation code answers 403 `WRONG_INVITATION_KIND` and is not spent either. Rate limited per account.",
+        "description": "Join an organisation with an invitation code, typed rather than followed from a link. The caller must be signed in as the address the invitation names — a code passed on to somebody else does not work for them, which is what stops an invitation becoming a transferable key, and the refusal names no part of that address. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership. Joining is a privilege change (finding NF-10): every other session the caller holds ends, a cookie session is given a new secret, and the session is shortened to the privileged lifetime when the new role is privileged. `data.joined` is false when the account already belonged to the organisation: the code is spent, the existing role is unchanged and no session ends. `data.events` names the events a door role now admits at: the ones the invitation named, applied as door scopes in the same transaction (empty when nothing was joined). `data.session` says whether the account now needs a second factor and whether it has one. A direct grant that adds the account at the same moment answers 409 and leaves the code usable. An invitation that offers a role which creates or publishes events (one written before such invitations were withdrawn) answers 403 `POSTING_ROLE_NEEDS_PLATFORM` and is not spent, and an organiser invitation code answers 403 `WRONG_INVITATION_KIND` and is not spent either. Rate limited per account.",
         "tags": [
           "teams"
         ],
@@ -3481,6 +3591,30 @@
                         "joined": {
                           "type": "boolean"
                         },
+                        "events": {
+                          "maxItems": 200,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
                         "session": {
                           "type": "object",
                           "properties": {
@@ -3503,6 +3637,7 @@
                         "organizationName",
                         "role",
                         "joined",
+                        "events",
                         "session"
                       ],
                       "additionalProperties": false
@@ -3767,6 +3902,30 @@
                             }
                           ]
                         },
+                        "events": {
+                          "maxItems": 200,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
                         "email": {
                           "type": "string",
                           "maxLength": 254,
@@ -3820,6 +3979,7 @@
                         "expiresAt",
                         "createdAt",
                         "deliveryMode",
+                        "events",
                         "delivery"
                       ],
                       "additionalProperties": false
@@ -5851,7 +6011,7 @@
       "post": {
         "operationId": "platform.searchUsers",
         "summary": "Find accounts",
-        "description": "Search accounts by email, name or exact id, with each one’s platform role, whether it has a second factor, and its memberships. A POST because the query is usually an email address, and a URL is written to access logs and browser history where a body is not. At least three characters, at most fifty results a page, and never cached (`cache-control: no-store, private`). Carries no credential, hash or factor. Super administrators (`platform:admin`) only.\n\nRequires the `platform:admin` capability.",
+        "description": "Search accounts by email, name or exact id, with each one’s platform role, whether it has a second factor, and its memberships. A POST because the query is usually an email address, and a URL is written to access logs and browser history where a body is not. At least three characters, at most fifty results a page, and never cached (`cache-control: no-store, private`). Carries no credential, hash or factor. Platform administrators (`platform:admin`: ADMIN and SUPER_ADMIN) only.\n\nRequires the `platform:admin` capability.",
         "tags": [
           "platform"
         ],
@@ -6109,7 +6269,7 @@
       "post": {
         "operationId": "platform.setUserRole",
         "summary": "Change an account’s platform role",
-        "description": "Any of the seven platform roles — ATTENDEE, ORGANIZER, SUPPORT, MODERATOR, FINANCE_ADMIN, ADMIN (the platform administrator, who invites organisers and reviews) and SUPER_ADMIN — with a written reason recorded on the audit row. Super administrators (`platform:admin`) only, with a second factor confirmed within the SECURITY_ROLE window. Never the caller’s own account (403). The change is made with every super administrator locked and the caller’s own role re-read, so two administrators demoting each other at once cannot both succeed, and a change that would leave no super administrator answers 422. An unchanged role answers 409. Every session the account holds ends in the same transaction, so it signs in again under the new role — and a privileged role must then set up a second factor before it can work.\n\nRequires the `platform:admin` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Any of the seven platform roles — ATTENDEE, ORGANIZER, SUPPORT, MODERATOR, FINANCE_ADMIN, ADMIN (the platform administrator, who holds everything a super administrator does except this route) and SUPER_ADMIN — with a written reason recorded on the audit row. Super administrators (`platform:role_manage`) only: a platform administrator (ADMIN) is refused (403) whatever the account or role, its own included, with a second factor confirmed within the SECURITY_ROLE window. Never the caller’s own account (403). The change is made with every super administrator locked and the caller’s own role re-read, so two administrators demoting each other at once cannot both succeed, and a change that would leave no super administrator answers 422. An unchanged role answers 409. Every session the account holds ends in the same transaction, so it signs in again under the new role — and a privileged role must then set up a second factor before it can work.\n\nRequires the `platform:role_manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "platform"
         ],
@@ -6296,7 +6456,7 @@
       "get": {
         "operationId": "platform.searchOrganizations",
         "summary": "Find organisations",
-        "description": "Search organisations by name or slug, with their verification state, whether they are suspended, and how many members and owners they have — an organisation with no owner is the case the direct grant exists for. A GET, because an organisation’s name is public already. Super administrators (`platform:admin`) only.\n\nRequires the `platform:admin` capability.",
+        "description": "Search organisations by name or slug, with their verification state, whether they are suspended, and how many members and owners they have — an organisation with no owner is the case the direct grant exists for. A GET, because an organisation’s name is public already. Platform administrators (`platform:admin`: ADMIN and SUPER_ADMIN) only.\n\nRequires the `platform:admin` capability.",
         "tags": [
           "platform"
         ],
@@ -6350,6 +6510,9 @@
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 10000000
+                          },
+                          "platformHeld": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -6359,7 +6522,8 @@
                           "verificationStatus",
                           "suspended",
                           "memberCount",
-                          "ownerCount"
+                          "ownerCount",
+                          "platformHeld"
                         ],
                         "additionalProperties": false
                       }
@@ -6493,7 +6657,7 @@
       "post": {
         "operationId": "platform.grantMembership",
         "summary": "Put an account into an organisation",
-        "description": "Adds an existing account to an organisation with a role, or changes the role of somebody already in it — the one path in the API that can grant OWNER directly, for an organisation whose only owner has left. Super administrators (`platform:admin`) only, with a second factor confirmed within the SECURITY_ROLE window and a written reason recorded on the audit row. Never the caller’s own account (403), never a suspended account (422), and never a change that would leave the organisation with no owner (422, decided with the owners locked). No invitation is created. Every session the account holds ends in the same transaction. The same role the account already holds, or a membership created for it by another request at the same moment, answers 409.\n\nRequires the `platform:admin` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Adds an existing account to an organisation with a role, or changes the role of somebody already in it — the one path in the API that can grant OWNER directly, for an organisation whose only owner has left. Platform administrators (`platform:admin`: ADMIN and SUPER_ADMIN) only, with a second factor confirmed within the SECURITY_ROLE window and a written reason recorded on the audit row. Never the caller’s own account (403), never a suspended account (422), and never a change that would leave the organisation with no owner (422, decided with the owners locked). No invitation is created. Every session the account holds ends in the same transaction. The same role the account already holds, or a membership created for it by another request at the same moment, answers 409. It changes an organisation role only, never the account’s platform role.\n\nRequires the `platform:admin` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "platform"
         ],

@@ -193,6 +193,17 @@ lists every organisation's current door events, filterable by organisation and
 by a search of the event title or organisation name, cut at the 100 that start
 soonest with `meta.truncated` saying so.
 
+_Corrected 2026-10-16._ ADR 0018: the platform administrator, `ADMIN`, admits
+on `PLATFORM_ROLE` authority exactly as `SUPER_ADMIN` does, recorded as `ADMIN`
+on the event's record and on the admission's; `assertPlatformAdmissionPolicy`
+requires exactly `ADMIN` and `SUPER_ADMIN` to hold `ticket:check_in`, and both
+to hold `platform:admin`. ADR 0019: a STAFF or SCANNER team invitation names the
+events it will admit at (`eventIds`), and accepting it makes them the new
+member's `ScannerScope` rows in the same transaction. An owner or administrator
+may name any of the organisation's events, a manager only those it is scoped to
+itself. The organisation that holds imported events takes door scanners,
+invited by a platform administrator, and refuses every other role.
+
 STAFF and MANAGER hold `ticket:check_in` only because they inherit SCANNER.
 Before this work that inheritance was the whole check, so a STAFF member could
 admit to every event the organisation ran. A module-load assertion now refuses
@@ -423,7 +434,8 @@ event (scanner)", "Every event of Rangoli (owner)"). An account with none is
 told so and given nothing to press.
 
 _Corrected 2026-09-29._ The navigation now offers **Check-in** to a platform
-`SUPER_ADMIN` too (ADR 0007), and to no other platform role. For a super
+`SUPER_ADMIN` too (ADR 0007), and to no other platform role. (_Corrected
+2026-10-16:_ and to the platform administrator `ADMIN`, ADR 0018.) For a super
 administrator the page adds a filter by organisation and by search text, a
 persistent notice above the event picker that every lookup and admission is
 recorded against their account on the event's own record, and a notice when the

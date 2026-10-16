@@ -22,22 +22,27 @@ replaced it; everything under that line stays as written.
 | [0004](adr/0004-plpgsql-in-migrations.md)                                     | Procedural SQL inside migrations                                               | Accepted, 2026-09-15                                     |
 | [0005](adr/0005-reserved-seat-transfer.md)                                    | Reserved-seat transfer stays blocked                                           | Superseded by 0006, 2026-09-29                           |
 | [0006](adr/0006-reserved-seat-transfer-live-seat-index.md)                    | One live ticket per seat: reserved-seat tickets can be handed on               | Accepted, 2026-09-29                                     |
-| [0007](adr/0007-platform-door-authority.md)                                   | A platform super administrator may admit at any event                          | Accepted, 2026-09-29                                     |
+| [0007](adr/0007-platform-door-authority.md)                                   | A platform super administrator may admit at any event                          | Accepted, 2026-09-29; superseded in part by 0018         |
 | [0008](adr/0008-show-once-codes.md)                                           | Invitation and transfer codes are shown once to whoever issues them            | Accepted, 2026-09-29; `EMAIL` wording superseded by 0011 |
 | [0009](adr/0009-media-in-postgres-allow-list-sanitiser.md)                    | Event pictures: bytes in PostgreSQL, rebuilt from an allow-list                | Accepted, 2026-09-29; superseded in part by 0014         |
-| [0010](adr/0010-invite-only-organisers-platform-administrator-review-gate.md) | Invite-only organisers, the platform administrator and the review gate         | Accepted, 2026-10-06                                     |
+| [0010](adr/0010-invite-only-organisers-platform-administrator-review-gate.md) | Invite-only organisers, the platform administrator and the review gate         | Accepted, 2026-10-06; superseded in part by 0018         |
 | [0011](adr/0011-smtp-delivery-of-show-once-codes.md)                          | SMTP delivery of show-once codes                                               | Accepted, 2026-10-06                                     |
 | [0012](adr/0012-event-website-link.md)                                        | An event's website link, switched by administrators and counted on the way out | Accepted, 2026-10-06                                     |
 | [0013](adr/0013-first-party-visit-counting.md)                                | First-party visit counting, without cookies or stored addresses                | Accepted, 2026-10-06                                     |
 | [0014](adr/0014-full-control-of-posted-events.md)                             | Full control of posted events                                                  | Accepted, 2026-10-06                                     |
-| [0015](adr/0015-importing-listed-events.md)                                   | Importing listed events                                                        | Accepted, 2026-10-06                                     |
+| [0015](adr/0015-importing-listed-events.md)                                   | Importing listed events                                                        | Accepted, 2026-10-06; amended by 0019                    |
 | [0016](adr/0016-per-event-booking-fee-and-referral-codes.md)                  | Per-event booking fee and referral codes                                       | Accepted, 2026-10-09                                     |
 | [0017](adr/0017-paying-at-the-venue-outside-the-ledger.md)                    | Paying at the venue: money at the door outside the ledger                      | Accepted, 2026-10-09                                     |
+| [0018](adr/0018-platform-administrator-holds-all-but-platform-roles.md)       | The platform administrator holds everything but platform roles                 | Accepted, 2026-10-16                                     |
+| [0019](adr/0019-door-access-by-invitation.md)                                 | Door access is given by invitation, for named events                           | Accepted, 2026-10-16                                     |
 
-One record is superseded: 0005, by 0006. Two are superseded in part: 0008's
-`EMAIL` wording by 0011, and 0009's "a published event takes no new picture" by
-0014; each keeps its text and says so on its Status line (0009 also carries a
-marked note beside the superseded consequence). Nothing is deprecated.
+One record is superseded: 0005, by 0006. Four are superseded in part: 0008's
+`EMAIL` wording by 0011, 0009's "a published event takes no new picture" by
+0014, and 0007's "only `SUPER_ADMIN` admits on platform authority" and 0010's
+fourteen-capability allow-list for the platform administrator, both by 0018;
+0015's "the platform-held organisation has no members" is amended by 0019. Each
+keeps its text, and the index says so (0009 also carries a marked note beside
+the superseded consequence). Nothing is deprecated.
 
 ### 0001 — JavaScript everywhere, TypeScript nowhere
 
@@ -207,6 +212,25 @@ organiser or the team at The Desi Events, freeing their places (the one path
 that puts general-admission stock back) and keeping their booking fee for good;
 tickets owing money can be passed on. It records the lock law every path
 follows.
+
+### 0018 — The platform administrator holds everything but platform roles
+
+The owner's decision of 2026-10-16: a platform administrator does everything a
+super administrator does, and only a super administrator makes, changes or
+revokes platform roles. A new capability, `platform:role_manage`, held by
+`SUPER_ADMIN` alone, guards `platform.setUserRole`; the platform administrator
+holds every other capability, `platform:admin` and the door included, held to
+that by a load-time equality. A capability that should stay with super
+administrators is named in `SUPER_ADMIN_ONLY_CAPABILITIES` on purpose.
+
+### 0019 — Door access is given by invitation, for named events
+
+An organiser invites any address as staff or a door scanner for chosen events;
+the events are stored with the invitation and become the member's door scope
+when they accept. Owners and administrators name any of the organisation's
+events, a manager only those it is scoped to itself. The organisation that
+holds imported events now takes door scanners, invited by a platform
+administrator, and still refuses every other role.
 
 ## Decisions that live in code, not in an ADR
 

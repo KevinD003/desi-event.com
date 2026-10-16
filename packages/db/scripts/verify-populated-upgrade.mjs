@@ -201,6 +201,11 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // over imported events' terms and FAQ, their records' notes, their history
   // and change notices, and a stored file, beside an event nobody imported.
   '20261015110000_imported_listing_words',
+  // Door grants by invitation (2026-10-16, ADR 0019): the invitation scope
+  // table and its trigger, and the platform-held organisation's no-members
+  // trigger replaced so it holds door scanners, over memberships and waiting
+  // invitations that already exist.
+  '20261016130000_door_grants_by_invitation',
 ])
 
 /**
@@ -2069,6 +2074,46 @@ async function checkFullControlAndImportBackfills(prisma) {
         memberGuards.includes('"Membership"') &&
         memberGuards.includes('"Invitation"'),
       { note: memberGuards.join(', ') || 'missing' },
+    ) && ok
+
+  // ADR 0019: it lets door scanners in and nobody else, and fires on a role
+  // change as well, so a scanner there cannot be moved to another role.
+  const memberGuardDefinitions = (
+    await prisma.$queryRawUnsafe(
+      'SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger WHERE NOT tgisinternal ' +
+        "AND tgname = 'desi_platform_held_has_no_members' ORDER BY 1",
+    )
+  ).map((row) => row.definition)
+  const [memberGuardBody] = await prisma.$queryRawUnsafe(
+    "SELECT prosrc AS body FROM pg_proc WHERE proname = 'desi_platform_held_has_no_members'",
+  )
+  ok =
+    record(
+      'the platform-held trigger admits SCANNER alone and fires on a role change too',
+      memberGuardDefinitions.length === 2 &&
+        memberGuardDefinitions.every((definition) =>
+          /UPDATE OF "organizationId", role/u.test(definition),
+        ) &&
+        /'SCANNER'/u.test(memberGuardBody?.body ?? ''),
+      { note: memberGuardDefinitions.join(' | ') || 'missing' },
+    ) && ok
+
+  const scopeGuards = (
+    await prisma.$queryRawUnsafe(
+      'SELECT tgrelid::regclass::text AS relation FROM pg_trigger WHERE NOT tgisinternal ' +
+        "AND tgname = 'desi_invitation_scope_same_organization' ORDER BY 1",
+    )
+  ).map((row) => row.relation)
+  const [invitationScopes] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM "InvitationScope"',
+  )
+  ok =
+    record(
+      'invitation scopes start empty, guarded by their organisation-and-role trigger',
+      scopeGuards.length === 1 &&
+        scopeGuards[0] === '"InvitationScope"' &&
+        invitationScopes.n === 0,
+      { note: `${scopeGuards.join(', ') || 'no trigger'}; ${invitationScopes.n} rows` },
     ) && ok
 
   // The rows a later fixture put in on purpose (`legacy-import-*`) aside; the

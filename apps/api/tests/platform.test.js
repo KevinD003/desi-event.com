@@ -2,9 +2,11 @@
  * Platform staff administration, attacked.
  *
  * Every write here can make somebody powerful, so the tests are mostly the
- * ways that goes wrong: somebody other than a super administrator tries, a
- * super administrator tries on themselves, a stale second factor tries, and
- * the change leaves an old session carrying the new authority.
+ * ways that goes wrong: somebody other than a super administrator tries to
+ * change a platform role (a platform administrator included, ADR 0018),
+ * somebody other than a platform administrator tries the rest, an
+ * administrator tries on themselves, a stale second factor tries, and the
+ * change leaves an old session carrying the new authority.
  *
  * @module @desi-event/api/tests/platform
  */
@@ -282,6 +284,33 @@ describe('POST /v1/platform/users/:id/role', () => {
     await app.close()
   })
 
+  it('refuses a platform administrator, who holds every other platform power (ADR 0018)', async () => {
+    const { app, prisma } = await createTestApp()
+    const token = await signIn(app, 'anil@desi-event.example')
+
+    for (const role of ['MODERATOR', 'ADMIN', 'SUPER_ADMIN']) {
+      const response = await setRole(app, token, userOf(prisma, 'priya@example.com').id, {
+        role,
+        reason: 'A platform administrator cannot make anybody anything',
+      })
+
+      expect(response.statusCode, role).toBe(403)
+      expect(response.json().error.code, role).toBe('FORBIDDEN')
+    }
+
+    // Demoting the super administrator is refused the same way.
+    const demotion = await setRole(app, token, userOf(prisma, SUPER).id, {
+      role: 'ATTENDEE',
+      reason: 'Trying to take the top role away',
+    })
+
+    expect(demotion.statusCode).toBe(403)
+    expect(userOf(prisma, 'priya@example.com').role).toBe('ATTENDEE')
+    expect(userOf(prisma, SUPER).role).toBe('SUPER_ADMIN')
+
+    await app.close()
+  })
+
   it('answers 404 for an unknown account, 409 for an unchanged role, 400 without a reason', async () => {
     const { app, prisma } = await createTestApp()
     const token = await signIn(app, SUPER)
@@ -387,7 +416,7 @@ describe('GET /v1/platform/organizations', () => {
     await app.close()
   })
 
-  it('refuses everybody but a super administrator', async () => {
+  it('refuses everybody but a platform administrator', async () => {
     const { app } = await createTestApp()
 
     const response = await app.inject({
@@ -558,7 +587,7 @@ describe('POST /v1/platform/organizations/:id/members', () => {
     await app.close()
   })
 
-  it('refuses a stale second factor and anybody but a super administrator', async () => {
+  it('refuses a stale second factor and anybody but a platform administrator', async () => {
     const { app, ids, prisma } = await createTestApp()
     const priya = userOf(prisma, 'priya@example.com')
     const token = await signIn(app, SUPER)

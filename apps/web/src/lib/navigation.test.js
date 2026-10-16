@@ -191,9 +191,16 @@ describe('workspace offers, by role', () => {
     expect(offered(platform('SUPER_ADMIN'))).not.toContain('/organizer/promo-codes')
   })
 
-  it('offers the team to a member who may see it, and never to a platform role', () => {
+  it('offers the team to a member who may see it, and of the platform roles only to platform:admin (ADR 0019)', () => {
     expect(offered(member('OWNER'))).toContain('/organizer/team')
-    expect(offered(platform('SUPER_ADMIN'))).not.toContain('/organizer/team')
+    // The door team of the platform-held organisation, which nobody is a
+    // member of, is run by the platform administrators.
+    expect(offered(platform('SUPER_ADMIN'))).toContain('/organizer/team')
+    expect(offered(platform('ADMIN'))).toContain('/organizer/team')
+
+    for (const role of ['SUPPORT', 'MODERATOR', 'FINANCE_ADMIN', 'ORGANIZER', 'ATTENDEE']) {
+      expect(offered(platform(role)), role).not.toContain('/organizer/team')
+    }
   })
 
   it('offers a finance member the money, which the old header never offered Operations for', () => {
@@ -291,6 +298,7 @@ describe('workspace offers, by role', () => {
       '/organizer',
       '/organizer/events',
       '/organizer/venues',
+      '/organizer/team',
       '/moderation/events',
       '/retention',
       '/moderation/organizations',
@@ -315,9 +323,11 @@ describe('workspace offers, by role', () => {
     expect(offered(member('OWNER'))).not.toContain('/moderation/organizations')
   })
 
-  it('offers people and roles to a super administrator alone', () => {
+  it('offers people and roles to a platform administrator and a super administrator alone', () => {
     for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
-      expect(offered(platform(role)).includes('/admin/users'), role).toBe(role === 'SUPER_ADMIN')
+      expect(offered(platform(role)).includes('/admin/users'), role).toBe(
+        role === 'SUPER_ADMIN' || role === 'ADMIN',
+      )
     }
 
     for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
@@ -480,11 +490,12 @@ describe('workspace offers, by role', () => {
     )
   })
 
-  it('offers a platform administrator invitations and never people and roles', () => {
+  it('offers a platform administrator invitations, people and roles, and the door (ADR 0018)', () => {
     const items = offered(platform('ADMIN'))
 
     expect(items).toContain('/admin/organizer-invitations')
-    expect(items).not.toContain('/admin/users')
+    expect(items).toContain('/admin/users')
+    expect(items).toContain('/organizer/check-in')
   })
 })
 

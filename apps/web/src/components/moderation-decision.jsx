@@ -92,7 +92,7 @@ const NO_EDITOR_WORDING = Object.freeze({
   reject:
     'Rejecting ends this submission. A later import of its listing leaves it alone until the event is deleted.',
   reason:
-    'Kept on the event’s record. The organisation holding this event has no members, so it is sent to nobody.',
+    'Kept on the event’s record. The organisation holding this event has no members but door scanners, so it is sent to nobody.',
   note: 'Optional. Kept on the event’s record.',
 })
 

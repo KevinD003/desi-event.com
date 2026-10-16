@@ -106,7 +106,9 @@ export const FORBIDDEN = Object.freeze({
  * @type {Readonly<Record<string, string>>}
  */
 export const FORBIDDEN_CLIENT_LITERALS = Object.freeze({
-  'platform:admin': 'the super administrators\u2019 capability.',
+  'platform:admin': 'the platform administrators\u2019 capability (ADMIN and SUPER_ADMIN).',
+  'platform:role_manage':
+    'who may change platform roles, the super administrators\u2019 alone (ADR 0018); the screen is told whether it may.',
   'organizer:invite': 'who may invite an organiser to post events (SPEC2 \u00a70.2).',
   'website_redirect:manage':
     'who may switch an event\u2019s website link on or off (SPEC2 \u00a70.2).',

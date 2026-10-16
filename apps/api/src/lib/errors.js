@@ -298,13 +298,14 @@ export const EVENT_CONTROL_CONFLICT_SENTENCE =
 
 /**
  * What a caller is told when a membership or a team invitation would put
- * somebody into the organisation that holds imported events (SPEC2-XI I-B),
- * which the database refuses (`platform_held_organization_has_no_members`).
+ * somebody into the organisation that holds imported events (SPEC2-XI I-B)
+ * with any role but SCANNER, which the database refuses
+ * (`platform_held_organization_has_no_members`, ADR 0019).
  *
  * @type {string}
  */
 export const PLATFORM_HELD_ORGANIZATION_SENTENCE =
-  "This organisation holds imported events for the team at The Desi Events and has no members. Move the event to the organiser's own organisation instead."
+  "This organisation holds imported events for the team at The Desi Events and has no members but door scanners. Move the event to the organiser's own organisation instead."
 
 // --- Booking fees, referral codes and paying at the venue (SPEC3 §4.5, §5.5) --
 
@@ -663,8 +664,9 @@ export const DATABASE_REFUSALS = Object.freeze([
     }),
   ),
   // The organisation holding imported events has no members and takes no
-  // team invitation (trigger `desi_platform_held_has_no_members`, SPEC2-XI
-  // §4.3): every writer of `Membership` or `Invitation` meets it.
+  // team invitation but door scanners (trigger
+  // `desi_platform_held_has_no_members`, SPEC2-XI §4.3, ADR 0019): every
+  // writer of `Membership` or `Invitation` meets it.
   Object.freeze({
     constraint: 'platform_held_organization_has_no_members',
     statusCode: 409,
