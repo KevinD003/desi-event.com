@@ -337,6 +337,16 @@ export function EventFilters({
   }
 
   const groups = groupRegions(regions)
+  // Named for the place chosen — Ontario is a province, Texas a state — and
+  // said of both when the facets have no name for it.
+  const chosenRegion = filters.region
+    ? (regions ?? []).find((entry) => regionValue(entry) === filters.region)
+    : null
+  const everyCityLabel = !filters.region
+    ? 'Every city'
+    : chosenRegion?.name
+      ? `Every city in ${chosenRegion.name}`
+      : 'Every city in this state or province'
 
   return (
     <form
@@ -383,7 +393,7 @@ export function EventFilters({
               <optgroup key={group.country} label={group.label}>
                 {group.regions.map((entry) => (
                   <option key={regionValue(entry)} value={regionValue(entry)}>
-                    {`${entry.name} (${entry.count})`}
+                    {Number.isInteger(entry.count) ? `${entry.name} (${entry.count})` : entry.name}
                   </option>
                 ))}
               </optgroup>
@@ -406,7 +416,7 @@ export function EventFilters({
             aria-describedby="filter-city-description"
             className="h-13 font-semibold"
             options={[
-              { value: '', label: filters.region ? 'Every city in this state' : 'Every city' },
+              { value: '', label: everyCityLabel },
               ...cities.map((city) => ({ value: city, label: city })),
             ]}
           />

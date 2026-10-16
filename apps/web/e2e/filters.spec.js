@@ -124,7 +124,7 @@ test.describe('listing filters', () => {
     await expect(page).toHaveURL(/region=US-NJ/)
     await expect(page.getByTestId('result-count')).toContainText('in New Jersey')
     await expect(city.locator('option')).toHaveText([
-      'Every city in this state',
+      'Every city in New Jersey',
       'Edison',
       'Jersey City',
     ])

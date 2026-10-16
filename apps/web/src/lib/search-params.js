@@ -10,6 +10,7 @@
  */
 
 import { isCalendarDay } from '@desi-event/schemas/calendar-days'
+import { subdivisionName } from '@desi-event/schemas/subdivisions'
 
 import { EVENT_CATEGORIES } from './catalog.js'
 
@@ -252,6 +253,59 @@ export function reconcileFilters(filters, facets = {}) {
     city: sameText(citiesFor(facets, region), filters.city),
     language: sameText(languages, filters.language),
   }
+}
+
+/**
+ * The facets, with the filters' own state, city and language among their
+ * options.
+ *
+ * For when the facets could not be read and the sample catalogue's stand in,
+ * while the listing itself was read: the listing then honours a shared link's
+ * `?region=CA-ON&city=Brampton`, and the selects must say so rather than
+ * {@link reconcileFilters} dropping a filter the sample happens not to have.
+ * An option added here has no count (`count: null`): nobody counted it.
+ *
+ * @param {object} facets The facets that were read: `regions`, `cities`, `languages`.
+ * @param {EventFilters} filters Parsed filters.
+ * @returns {object} The facets, each chosen value present.
+ */
+export function withChosenOptions(facets, filters) {
+  const has = (entries, value) =>
+    entries.some((entry) => entry.value.toLowerCase() === value.toLowerCase())
+  const regions = Array.isArray(facets?.regions) ? [...facets.regions] : []
+  const cities = Array.isArray(facets?.cities) ? [...facets.cities] : []
+  const languages = Array.isArray(facets?.languages) ? [...facets.languages] : []
+
+  if (filters.region) {
+    let at = regions.findIndex((entry) => regionValue(entry) === filters.region)
+
+    if (at === -1) {
+      const [country, region] = filters.region.split('-')
+
+      regions.push({
+        country,
+        region,
+        name: subdivisionName(country, region),
+        count: null,
+        cities: [],
+      })
+      at = regions.length - 1
+    }
+
+    if (filters.city && !has(regions[at].cities ?? [], filters.city)) {
+      regions[at] = {
+        ...regions[at],
+        cities: [...(regions[at].cities ?? []), { value: filters.city, count: null }],
+      }
+    }
+  }
+
+  if (filters.city && !has(cities, filters.city)) cities.push({ value: filters.city, count: null })
+  if (filters.language && !has(languages, filters.language)) {
+    languages.push({ value: filters.language, count: null })
+  }
+
+  return { ...facets, regions, cities, languages }
 }
 
 /**

@@ -35,10 +35,18 @@ const { default: EventsPage, metadata } = await import('./page.jsx')
  * @param {object[]} [options.events] The page of results.
  * @param {object} [options.pagination] Its counters.
  * @param {boolean} [options.usedFallback] Whether the sample catalogue answered.
+ * @param {boolean} [options.facetsFellBack] Whether the facets came from the sample catalogue; as `usedFallback` unless given.
  * @param {object} [options.facets] Facet lists to add to (or replace) the default ones.
  * @returns {Promise<HTMLElement>} The render container.
  */
-async function draw({ query = {}, events, pagination, usedFallback = false, facets = {} } = {}) {
+async function draw({
+  query = {},
+  events,
+  pagination,
+  usedFallback = false,
+  facetsFellBack = usedFallback,
+  facets = {},
+} = {}) {
   const page = events ?? sampleEventSummaries().slice(0, 12)
 
   loadEventList.mockResolvedValue({
@@ -65,7 +73,7 @@ async function draw({ query = {}, events, pagination, usedFallback = false, face
       ],
       ...facets,
     },
-    usedFallback,
+    usedFallback: facetsFellBack,
   })
 
   const { container } = render(await EventsPage({ searchParams: Promise.resolve(query) }))
@@ -257,7 +265,7 @@ describe('state, then city', () => {
       within(city)
         .getAllByRole('option')
         .map((option) => option.textContent),
-    ).toEqual(['Every city in this state', 'Springfield'])
+    ).toEqual(['Every city in Illinois', 'Springfield'])
     expect(city).toHaveValue('Springfield')
     expect(screen.getByLabelText('State or province')).toHaveValue('US-IL')
     expect(loadEventList).toHaveBeenLastCalledWith(
@@ -284,6 +292,46 @@ describe('state, then city', () => {
 
     expect(screen.getByLabelText('State or province')).toHaveValue('')
     expect(loadEventList).toHaveBeenLastCalledWith(expect.objectContaining({ region: '' }))
+  })
+
+  it('keeps a shared link’s state, city and language when only the facets fell back', async () => {
+    // The listing was read and honours the filters; the facets are the
+    // sample's, which name none of these. The selects say what the listing
+    // shows, without a count nobody made.
+    await draw({
+      facets: { ...PLACES, regions: [], cities: [], languages: [] },
+      facetsFellBack: true,
+      query: { region: 'CA-ON', city: 'Brampton', language: 'Punjabi' },
+      events: sampleEventSummaries().slice(0, 1),
+    })
+
+    expect(loadEventList).toHaveBeenCalledTimes(1)
+    expect(loadEventList).toHaveBeenLastCalledWith(
+      expect.objectContaining({ region: 'CA-ON', city: 'Brampton', language: 'Punjabi' }),
+    )
+    expect(screen.getByLabelText('State or province')).toHaveValue('CA-ON')
+    expect(screen.getByRole('option', { name: 'Ontario' })).toHaveValue('CA-ON')
+    expect(screen.getByLabelText('City')).toHaveValue('Brampton')
+    expect(
+      within(screen.getByLabelText('City'))
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Every city in Ontario', 'Brampton'])
+    expect(screen.getByLabelText('Language')).toHaveValue('Punjabi')
+    expect(screen.getByTestId('result-count')).toHaveTextContent(/in Brampton, ON/u)
+    expect(screen.queryByText('Showing our sample programme')).toBeNull()
+  })
+
+  it('still drops what the catalogue does not have when both fell back', async () => {
+    await draw({
+      facets: { ...PLACES, regions: [], cities: [] },
+      usedFallback: true,
+      query: { region: 'CA-ON', city: 'Brampton' },
+      events: sampleEventSummaries().slice(0, 1),
+    })
+
+    expect(screen.getByLabelText('State or province')).toHaveValue('')
+    expect(screen.getByLabelText('City')).toHaveValue('')
   })
 
   it('lists every city when no state is chosen', async () => {

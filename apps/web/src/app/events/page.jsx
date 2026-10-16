@@ -23,6 +23,7 @@ import {
   parseEventFilters,
   reconcileFilters,
   regionValue,
+  withChosenOptions,
 } from '../../lib/search-params.js'
 import { MirrorDivider } from '../../components/festive-decor.jsx'
 import { ArrowLeftIcon, ArrowRightIcon, InfoIcon, SearchIcon } from '../../components/icons.jsx'
@@ -161,7 +162,14 @@ export default async function EventsPage({ searchParams }) {
   // Both are asked for at once with the filters as the URL gave them; in the
   // rare case that changes them, the listing is asked for again.
   const [facetResult, asParsed] = await Promise.all([loadCatalogueFacets(), loadEventList(parsed)])
-  const facets = facetResult.facets ?? {}
+  // When only the facets fell back to the sample catalogue, they are not the
+  // catalogue the listing was read from, so they decide nothing: the URL's
+  // state, city and language stand, and are added to the selects' options so
+  // the form says what the listing shows.
+  const facetsOnlyFellBack = facetResult.usedFallback === true && asParsed.usedFallback !== true
+  const facets = facetsOnlyFellBack
+    ? withChosenOptions(facetResult.facets ?? {}, parsed)
+    : (facetResult.facets ?? {})
   const filters = reconcileFilters(parsed, facets)
   const changed = ['region', 'city', 'language'].some((name) => filters[name] !== parsed[name])
   const listing = changed ? await loadEventList(filters) : asParsed

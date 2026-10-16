@@ -106,7 +106,35 @@ describe('EventFilters', () => {
     expect(screen.getByLabelText('City')).toHaveAccessibleDescription(
       'Cities in the state or province you chose.',
     )
-    expect(screen.getByRole('option', { name: 'Every city in this state' })).toHaveValue('')
+    expect(screen.getByRole('option', { name: 'Every city in Texas' })).toHaveValue('')
+  })
+
+  it('names the province chosen, not a state, and says both for a place it has no name for', () => {
+    renderFilters({ category: '', region: 'CA-ON', city: '', q: '' })
+    expect(screen.getByRole('option', { name: 'Every city in Ontario' })).toHaveValue('')
+    expect(screen.queryByRole('option', { name: /in this state$/u })).toBeNull()
+
+    cleanup()
+    renderFilters({ category: '', region: 'CA-QC', city: '', q: '' })
+    expect(
+      screen.getByRole('option', { name: 'Every city in this state or province' }),
+    ).toHaveValue('')
+  })
+
+  it('shows a state with no count as its name alone', () => {
+    render(
+      <EventFilters
+        categories={categories}
+        regions={[{ country: 'CA', region: 'ON', name: 'Ontario', count: null, cities: [] }]}
+        cities={cities}
+        languages={languages}
+        filters={{ category: '', region: 'CA-ON', city: '', q: '' }}
+        anyActive
+      />,
+    )
+
+    expect(screen.getByRole('option', { name: 'Ontario' })).toHaveValue('CA-ON')
+    expect(screen.queryByRole('option', { name: /null/u })).toBeNull()
   })
 
   it('clears the city when the state changes, and asks for the new state at once', async () => {

@@ -9,6 +9,7 @@ import {
   paginate,
   parseEventFilters,
   reconcileFilters,
+  withChosenOptions,
 } from './search-params.js'
 
 /** Facets as `GET /v1/events/facets` answers them, with Springfield in two states. */
@@ -389,5 +390,65 @@ describe('paginate', () => {
 
     expect(items).toEqual([])
     expect(pagination).toMatchObject({ page: 1, total: 0, totalPages: 0, hasPreviousPage: false })
+  })
+})
+
+describe('withChosenOptions', () => {
+  const sample = {
+    regions: [
+      {
+        country: 'US',
+        region: 'TX',
+        name: 'Texas',
+        count: 3,
+        cities: [{ value: 'Frisco', count: 3 }],
+      },
+    ],
+    cities: [{ value: 'Frisco', count: 3 }],
+    languages: [{ value: 'Hindi', count: 3 }],
+  }
+  const filters = (overrides) =>
+    parseEventFilters({ region: 'CA-ON', city: 'Brampton', language: 'Punjabi', ...overrides })
+
+  it('adds a chosen state, city and language the facets lack, uncounted, so nothing is dropped', () => {
+    const facets = withChosenOptions(sample, filters())
+
+    expect(facets.regions).toEqual([
+      sample.regions[0],
+      {
+        country: 'CA',
+        region: 'ON',
+        name: 'Ontario',
+        count: null,
+        cities: [{ value: 'Brampton', count: null }],
+      },
+    ])
+    expect(facets.cities).toEqual([...sample.cities, { value: 'Brampton', count: null }])
+    expect(facets.languages).toEqual([...sample.languages, { value: 'Punjabi', count: null }])
+    expect(reconcileFilters(filters(), facets)).toMatchObject({
+      region: 'CA-ON',
+      city: 'Brampton',
+      language: 'Punjabi',
+    })
+  })
+
+  it('adds a city to a state the facets already have, and nothing the facets already have', () => {
+    const facets = withChosenOptions(
+      sample,
+      filters({ region: 'US-TX', city: 'Houston', language: 'hindi' }),
+    )
+
+    expect(facets.regions).toEqual([
+      {
+        ...sample.regions[0],
+        cities: [...sample.regions[0].cities, { value: 'Houston', count: null }],
+      },
+    ])
+    expect(facets.languages).toEqual(sample.languages)
+    expect(
+      withChosenOptions(sample, filters({ region: 'US-TX', city: 'frisco', language: '' })),
+    ).toEqual(sample)
+    // The facets passed in are not changed.
+    expect(sample.regions[0].cities).toEqual([{ value: 'Frisco', count: 3 }])
   })
 })
