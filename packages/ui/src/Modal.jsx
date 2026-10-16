@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from './cn.js'
 import { focusElement, getTabbableElements } from './focus.js'
+import { Icon } from './icons/Icon.jsx'
 
 /** Tailwind width per modal size. */
 const MODAL_SIZES = {
@@ -93,16 +94,21 @@ export function Modal({
   }, [open])
 
   // Freeze the page behind the dialog; the cleanup runs on unmount too, so a
-  // dialog torn down while open cannot leave the page unscrollable.
+  // dialog torn down while open cannot leave the page unscrollable. The
+  // scrollbar's gutter is kept while it is gone, so the page does not shift
+  // sideways by the scrollbar's width as the dialog opens and closes.
   useEffect(() => {
     if (!open) return undefined
 
-    const { body } = document
+    const { body, documentElement } = document
     const previousOverflow = body.style.overflow
+    const previousGutter = documentElement.style.scrollbarGutter
+    documentElement.style.scrollbarGutter = 'stable'
     body.style.overflow = 'hidden'
 
     return () => {
       body.style.overflow = previousOverflow
+      documentElement.style.scrollbarGutter = previousGutter
     }
   }, [open])
 
@@ -176,7 +182,8 @@ export function Modal({
       onMouseDown={handleOverlayMouseDown}
       onKeyDown={handleKeyDown}
       className={cn(
-        'fixed inset-0 z-50 flex items-center justify-center bg-surface-inverse/60 p-4',
+        // The scrim fades in with the dialog, drawn by CSS from the first frame.
+        'fixed inset-0 z-50 flex items-center justify-center bg-scrim/60 p-4 transition-opacity duration-(--duration-slow) ease-out starting:opacity-0',
         overlayClassName,
       )}
     >
@@ -191,6 +198,8 @@ export function Modal({
         data-slot="modal"
         className={cn(
           'flex w-full flex-col gap-4 rounded-card bg-surface-raised p-6 text-ink shadow-dialog focus:outline-none',
+          // It grows from 96% and fades in, centred, never from nothing.
+          'transition-[opacity,scale] duration-(--duration-slow) ease-out starting:scale-[0.96] starting:opacity-0',
           MODAL_SIZES[size] ?? MODAL_SIZES.md,
           className,
         )}
@@ -199,7 +208,7 @@ export function Modal({
         {title || showCloseButton ? (
           <div className="flex items-start justify-between gap-4">
             {title ? (
-              <h2 id={titleId} className="font-display text-xl font-semibold text-ink">
+              <h2 id={titleId} className="font-display text-h3 font-bold text-ink">
                 {title}
               </h2>
             ) : (
@@ -211,7 +220,7 @@ export function Modal({
                 onClick={onClose}
                 className="-mt-1 -mr-2 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors duration-(--duration-fast) ease-standard hover:bg-surface-subtle hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus pointer-coarse:h-11 pointer-coarse:w-11"
               >
-                <span aria-hidden="true">×</span>
+                <Icon name="close" className="h-5 w-5" />
                 <span className="sr-only">{closeLabel}</span>
               </button>
             ) : null}

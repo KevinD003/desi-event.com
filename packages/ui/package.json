@@ -7,6 +7,8 @@
   "main": "./src/index.js",
   "exports": {
     ".": "./src/index.js",
+    "./classes": "./src/classes.js",
+    "./icons": "./src/icons/index.js",
     "./styles.css": "./src/styles.css",
     "./package.json": "./package.json"
   },

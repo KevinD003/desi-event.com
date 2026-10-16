@@ -10,6 +10,7 @@ import { MotionProvider } from '../components/motion.jsx'
 import { RegisterSync } from '../components/register-sync.jsx'
 import { SiteFooter } from '../components/site-footer.jsx'
 import { SiteHeader } from '../components/site-header.jsx'
+import { Toaster } from '../components/ui.jsx'
 import { SHARE_IMAGE } from '../lib/brand.js'
 import { registerFor } from '../lib/register.js'
 import { requestPathname } from '../lib/request-path.js'
@@ -116,6 +117,9 @@ export default async function RootLayout({ children }) {
             {children}
           </main>
           <SiteFooter />
+          {/* Short, non-critical confirmations ("Copied"), announced politely;
+              everything a reader must know stays in the page. */}
+          <Toaster />
         </MotionProvider>
       </body>
     </html>

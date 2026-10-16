@@ -3,9 +3,9 @@ import { cn } from './cn.js'
 /**
  * Tailwind classes per badge variant.
  *
- * `secondary` is the peacock chip that sits beside the pink `brand` one, and
- * `highlight` is the marigold fill for the one thing on a card that should
- * catch the eye without being an action. Every text colour here is pinned on
+ * `secondary` is the purple chip that sits beside the magenta `brand` one,
+ * and `highlight` is the gold fill — foil — for the one thing on a card that
+ * marks something owned or verified, without being an action. Every text colour here is pinned on
  * its own fill in `token-contrast.test.js`.
  */
 const BADGE_VARIANTS = {

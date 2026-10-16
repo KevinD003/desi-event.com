@@ -248,4 +248,53 @@ describe('Modal', () => {
 
     expect(screen.getByRole('dialog')).toHaveAccessibleName('Seat map')
   })
+
+  it('keeps the scrollbar’s gutter while the page is frozen, so nothing shifts sideways', () => {
+    const { rerender } = render(
+      <Modal open onClose={() => {}} title="Reserve tickets">
+        Body
+      </Modal>,
+    )
+
+    expect(document.documentElement.style.scrollbarGutter).toBe('stable')
+
+    rerender(
+      <Modal open={false} onClose={() => {}} title="Reserve tickets">
+        Body
+      </Modal>,
+    )
+
+    expect(document.documentElement.style.scrollbarGutter).toBe('')
+  })
+
+  it('grows from 96% and fades in by CSS, over the scrim, never from nothing', () => {
+    render(
+      <Modal open onClose={() => {}} title="Reserve tickets">
+        Body
+      </Modal>,
+    )
+
+    const dialog = screen.getByRole('dialog', { name: 'Reserve tickets' })
+
+    expect(dialog).toHaveClass(
+      'starting:scale-[0.96]',
+      'starting:opacity-0',
+      'duration-(--duration-slow)',
+      'ease-out',
+    )
+    expect(dialog.parentElement).toHaveClass('bg-scrim/60', 'starting:opacity-0')
+  })
+
+  it('closes with a drawn icon, named for a screen reader, not a typed multiplication sign', () => {
+    render(
+      <Modal open onClose={() => {}} title="Reserve tickets">
+        Body
+      </Modal>,
+    )
+
+    const close = screen.getByRole('button', { name: 'Close dialog' })
+
+    expect(close.querySelector('svg[data-icon="close"]')).toHaveAttribute('aria-hidden', 'true')
+    expect(close).not.toHaveTextContent('×')
+  })
 })
