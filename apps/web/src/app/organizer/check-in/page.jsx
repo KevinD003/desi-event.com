@@ -122,8 +122,15 @@ export default async function CheckInPage({ searchParams }) {
   const venuePaymentsFor =
     events && events.length > 0 ? await venuePaymentEvents(await readSession(), events) : []
 
+  // The door is drawn in its own register, Showtime: a dark purple ground
+  // for a phone at a dim entrance, light ink, gold for the action and the
+  // focus. It fills the space beside the rail, which folds itself here so
+  // the scanner has the room (`components/workspace-nav.jsx`).
   return (
-    <div>
+    <div
+      data-register="door"
+      className="flex min-h-[calc(100dvh-var(--chrome-top))] flex-1 flex-col px-4 py-6 sm:px-6 lg:px-10 lg:py-8"
+    >
       <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
         Workspace · Events and venues
       </p>
