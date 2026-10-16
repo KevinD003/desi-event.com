@@ -5,9 +5,12 @@
  * design tokens below are the single source of truth for both the web app and
  * the shared component library.
  *
- * The look is "Garba Nights": deep night bands framing a warm ivory page, and
- * jewel accents taken from a chaniya choli — rani pink, peacock, marigold —
- * against a plum-black ink.
+ * The look is "Poster House+": the best poster on the community-centre
+ * noticeboard, set with modern restraint. Flat ink plates in the brand kit's
+ * own colours (docs/BRAND.md) — Royal Purple, Magenta, Gold and Celebration
+ * Orange — on a white page, huge compressed display type, and gold used the
+ * way a printer uses foil: rarely, and only where something is owned. The
+ * system as built is written up in docs/DESIGN.md.
  */
 
 @import 'tailwindcss';
@@ -17,11 +20,12 @@
    * The first brand ramp: marigold, indigo-night and henna.
    *
    * No semantic token below resolves to these any more — the Garba Nights
-   * values replaced them — but they stay declared for two reasons. The contrast
-   * test reproduces, from them, the figures the browser sweep once measured
-   * and the focus rings that failed, which is how it proves it can fail. And
-   * because they are declared, Tailwind would generate `bg-marigold-500` if
-   * asked, so the literal-class test goes on forbidding them by name.
+   * values replaced them, and the Poster House values replaced those — but
+   * they stay declared for two reasons. The contrast test reproduces, from
+   * them, the figures the browser sweep once measured and the focus rings
+   * that failed, which is how it proves it can fail. And because they are
+   * declared, Tailwind would generate `bg-marigold-500` if asked, so the
+   * literal-class test goes on forbidding them by name.
    */
   --color-marigold-50: oklch(0.977 0.032 82.5);
   --color-marigold-100: oklch(0.954 0.068 82.1);
@@ -43,6 +47,37 @@
 
   --color-henna-500: oklch(0.612 0.128 152.4);
   --color-henna-700: oklch(0.462 0.101 153.8);
+
+  /*
+   * The brand kit, as ramps: the four colours of docs/BRAND.md converted to
+   * oklch, each with the few steps around it that the semantic layer below
+   * is built from. The kit's own swatch is the named step: Magenta #B0004A is
+   * `brand-magenta-600`, Royal Purple #32105E is `brand-purple-900`, Gold
+   * #D4A529 is `brand-gold-500` and Celebration Orange #F47A1F is
+   * `brand-orange-500`.
+   *
+   * These are what a colour *is*. A component never wears them directly —
+   * `semantic-classes.test.js` forbids `bg-brand-gold-500` by name exactly as
+   * it forbids `bg-marigold-500` — because a colour's name says nothing
+   * about where it is legible. They are here so the semantic values below can
+   * be read against the kit, and so a designer can see the whole palette in
+   * one place.
+   */
+  --color-brand-magenta-300: oklch(0.74 0.13 5);
+  --color-brand-magenta-500: oklch(0.56 0.21 5);
+  --color-brand-magenta-600: oklch(0.485 0.194 7.9);
+  --color-brand-magenta-700: oklch(0.42 0.17 6);
+
+  --color-brand-purple-800: oklch(0.36 0.15 297);
+  --color-brand-purple-900: oklch(0.28 0.127 297.1);
+  --color-brand-purple-950: oklch(0.2 0.085 298);
+
+  --color-brand-gold-300: oklch(0.86 0.11 88);
+  --color-brand-gold-400: oklch(0.8 0.14 86);
+  --color-brand-gold-500: oklch(0.746 0.141 86.1);
+
+  --color-brand-orange-400: oklch(0.76 0.15 55);
+  --color-brand-orange-500: oklch(0.708 0.176 50.6);
 
   /*
    * Type. Fraunces for display — a soft, warm old-style serif whose SOFT axis
@@ -83,26 +118,35 @@
   --tracking-eyebrow: 0.08em;
 
   /*
-   * Shape. Cards and panels round at 20px; buttons and form controls at 12px,
-   * so a control never looks like a card; chips are fully round
+   * Shape, decided once.
+   *
+   * A poster plate is a printed sheet: square-cornered, or at most 4px
+   * (`rounded-plate`) so it does not look die-cut. Buttons and form controls
+   * round at 10px, and a card — used only where a card is the right object,
+   * never as page structure — at 16px, so a control never looks like a card
+   * and a card never looks like a poster. Chips are fully round
    * (`rounded-full`).
    */
-  --radius-card: 1.25rem;
-  --radius-control: 0.75rem;
+  --radius-plate: 0.25rem;
+  --radius-card: 1rem;
+  --radius-control: 0.625rem;
 
   /*
-   * Depth. Two soft layers tinted with the ink rather than black, so a shadow
-   * on the ivory page reads as warm rather than grey: a tight one that seats
-   * the card on the page, and a wide, pulled-in one that lifts it. Hover
-   * deepens the wide layer; it does not add a border or change a colour.
+   * Depth. Flat by default: a card at rest is separated from the page by a
+   * hairline drawn in the ink at low opacity (a keyline, not a cast shadow),
+   * so a white card on the white page still has an edge. Only things that
+   * float cast a shadow — a hovered card, a menu or popover
+   * (`shadow-floating`), a dialog — and each has an offset and a soft blur,
+   * tinted with the purple ink rather than black.
    */
-  --shadow-card:
-    0 1px 2px oklch(0.24 0.07 305 / 0.06), 0 8px 24px -12px oklch(0.24 0.07 305 / 0.18);
+  --shadow-card: 0 0 0 1px oklch(0.24 0.11 300 / 0.08);
   --shadow-card-hover:
-    0 1px 2px oklch(0.24 0.07 305 / 0.06), 0 12px 32px -12px oklch(0.24 0.07 305 / 0.32);
-  --shadow-control: 0 1px 2px oklch(0.24 0.07 305 / 0.06);
+    0 0 0 1px oklch(0.24 0.11 300 / 0.12), 0 10px 24px -14px oklch(0.24 0.11 300 / 0.32);
+  --shadow-control: 0 1px 2px oklch(0.24 0.11 300 / 0.06);
+  --shadow-floating:
+    0 0 0 1px oklch(0.24 0.11 300 / 0.08), 0 12px 32px -12px oklch(0.24 0.11 300 / 0.3);
   --shadow-dialog:
-    0 2px 6px oklch(0.24 0.07 305 / 0.08), 0 24px 48px -16px oklch(0.24 0.07 305 / 0.36);
+    0 2px 6px oklch(0.24 0.11 300 / 0.08), 0 24px 48px -16px oklch(0.24 0.11 300 / 0.36);
 
   /* Page widths: the content column, and the wider bleed a hero may use. */
   --container-content: 75rem;
@@ -116,135 +160,154 @@
    * these, so a surface can be restyled without touching the ramp and the ramp
    * can be extended without hunting for every literal that used it.
    *
-   * ## Two registers, one vocabulary
+   * ## Three registers, one vocabulary
    *
-   * The values here are the **Garba Nights** register: public discovery, event
-   * pages, checkout and sign-in. A warm ivory page, white cards, night bands
-   * for the hero and the footer, and a rani-pink call to action. The **Quiet
-   * Courtyard** register, used by every signed-in area (tickets, account,
-   * organiser, finance, privacy, retention, moderation and operations),
-   * redefines a handful of these names further down this file under
-   * `[data-register='courtyard']`: a cool neutral ground and a plum accent and
-   * primary action, so a screen where money or somebody's data is handled does
-   * not look like a poster.
+   * The values here are the **Poster** register: public discovery, event
+   * pages, checkout and sign-in. A white page, Royal Purple plates for the
+   * hero band and the footer, a Magenta call to action, and Gold as foil. The
+   * **Quiet Courtyard** register, used by every signed-in area (tickets,
+   * account, organiser, finance, privacy, retention, moderation and
+   * operations), redefines a handful of these names further down this file:
+   * a faintly purple off-white ground and a Royal Purple primary action, so
+   * a screen where money or somebody's data is handled is calm rather than a
+   * poster. The **Showtime** register is the door: a dark purple ground for a
+   * phone held at a dim venue entrance, with light ink and gold actions.
    *
    * A component never asks which register it is in. `bg-page`, `bg-action-primary`
-   * and `text-accent-strong` mean the right thing in both, because Tailwind v4
-   * compiles every utility to `var(--color-…)` and the register only changes the
-   * variable. The hues are few on purpose: plum (305) for ink and night, rani
-   * pink (355–358) for the accent and the primary action, peacock (195) for the
-   * secondary accent and "on sale", marigold (70–80) for highlights and
-   * cautions, and vermilion (30) for danger.
+   * and `text-accent-strong` mean the right thing in all three, because
+   * Tailwind v4 compiles every utility to `var(--color-…)` and the register
+   * only changes the variable. The hues are few on purpose: purple (297–300)
+   * for ink, plates and calm; magenta (5) for the action and the brand rule;
+   * gold (86) for foil; orange (50) for "tonight"; green (155) for admitted
+   * and on sale; and red (28) for danger.
    *
    * ## Every value is checked
    *
-   * `tests/token-contrast.test.js` parses this file — both registers — and pins
-   * every foreground/background pairing the application renders at WCAG 2 AA:
-   * 4.5:1 for text, 3:1 for a focus ring or a control's boundary. The values
-   * are literal `oklch()` on purpose, so that test can read them; a token that
-   * pointed at another with `var()` would be a token nobody had measured.
+   * `tests/token-contrast.test.js` parses this file — every register — and
+   * pins every foreground/background pairing the application renders at WCAG
+   * 2 AA: 4.5:1 for text, 3:1 for a focus ring or a control's boundary, each
+   * with 0.1 of headroom. The values are literal `oklch()` on purpose, so that
+   * test can read them; a token that pointed at another with `var()` would be
+   * a token nobody had measured.
    */
 
   /*
    * Grounds and surfaces.
    *
-   * `page` is what the body sits on: warm ivory. `surface` is plain white, for
-   * the header and form controls; `surface-raised` is a card or panel lifted
-   * off the page; `surface-subtle` is a sand-tinted panel inside one.
-   * `surface-inverse` is the night band — the hero, the footer, a feature
-   * strip — a plum so deep it reads as night rather than as purple.
+   * `page` is what the body sits on: white, never cream. `surface` is the
+   * header and form controls; `surface-raised` a card or panel. Both are
+   * white too, so a card is told from the page by its keyline, not by a
+   * tint. `surface-subtle` is the faint purple-grey of a panel or a band
+   * inside the page, and `surface-sunken` one step deeper, for a well that
+   * holds something else — a camera frame, a code block, a quiet strip.
+   * `surface-inverse` is the Royal Purple plate: the hero band, the footer,
+   * a featured strip.
    */
-  --color-page: oklch(0.985 0.014 80);
+  --color-page: oklch(1 0 0);
   --color-surface: oklch(1 0 0);
   --color-surface-raised: oklch(1 0 0);
-  --color-surface-subtle: oklch(0.962 0.028 78);
-  --color-surface-inverse: oklch(0.2 0.075 305);
+  --color-surface-subtle: oklch(0.97 0.01 300);
+  --color-surface-sunken: oklch(0.945 0.014 300);
+  --color-surface-inverse: oklch(0.28 0.127 297.1);
+
+  /*
+   * The scrim behind a dialog: the deepest purple, worn at partial opacity
+   * (`bg-scrim/60`) so the page shows through as context but cannot be read
+   * as something to act on.
+   */
+  --color-scrim: oklch(0.2 0.085 298);
 
   /*
    * Text. Three levels and no more: `ink` for headings and anything that must
    * be read, `ink-muted` for supporting copy, `ink-subtle` for metadata that
-   * may be skipped. All three are the night's plum, darkened or lifted, so text
-   * belongs to the same family as the bands it sits between.
+   * may be skipped. All three are the kit's Royal Purple, deepened or lifted,
+   * so text belongs to the same family as the plates it sits beside.
    *
-   * `ink` is 16.1:1 on the page. `ink-muted` is 7.9:1. `ink-subtle` is the one
-   * with the least room: 5.3:1 on the page and 5.0:1 on the sand panel. Never
-   * put it on a tinted chip ground such as `accent-soft`; it is 4.8:1 there
-   * and no pairing claims it.
-   *
-   * `ink-inverse` is the page's ivory, for text on the night band (17.6:1), and
-   * `ink-inverse-muted` a lavender grey for supporting copy there (11.6:1).
+   * `ink-inverse` is white, for text on the purple plate, and
+   * `ink-inverse-muted` a lavender for supporting copy there. Never grey on
+   * a coloured field.
    */
-  --color-ink: oklch(0.24 0.07 305);
-  --color-ink-muted: oklch(0.43 0.045 305);
-  --color-ink-subtle: oklch(0.52 0.035 305);
-  --color-ink-inverse: oklch(0.985 0.014 80);
-  --color-ink-inverse-muted: oklch(0.85 0.03 300);
+  --color-ink: oklch(0.24 0.11 300);
+  --color-ink-muted: oklch(0.45 0.06 300);
+  --color-ink-subtle: oklch(0.51 0.045 300);
+  --color-ink-inverse: oklch(1 0 0);
+  --color-ink-inverse-muted: oklch(0.85 0.045 300);
 
-  /* Lines. Hairlines, and the heavier rule that separates regions. Warm, to sit on ivory. */
-  --color-line: oklch(0.915 0.02 75);
-  --color-line-strong: oklch(0.85 0.025 70);
+  /* Lines. Hairlines, and the heavier rule that separates regions. Cool, from the ink's hue. */
+  --color-line: oklch(0.915 0.012 300);
+  --color-line-strong: oklch(0.85 0.02 300);
 
   /*
    * Accent. The register's single voice: links, the active navigation entry,
-   * a highlighted panel. `accent` itself is decorative only — rules, dots,
-   * the mirror-work band, illustration — and never text on a light ground,
-   * where it is 3.9:1. Text uses `accent-strong`, 6.7:1 on the page and still
-   * 5.2:1 on the hovered `accent-line`.
+   * the 2px brand rule. `accent` itself is decorative only — the rule, a
+   * marker, illustration — and is the kit's Magenta. Text uses
+   * `accent-strong`, a shade deeper, which still clears AA on the hovered
+   * `accent-line`.
    *
-   * `accent-inverse` is marigold, the one accent that belongs on the night
-   * band: headings, links and rules there, 11.1:1.
+   * `accent-inverse` is gold, the one accent that belongs on the purple
+   * plate: headings, links and rules there. Gold is never text on a light
+   * ground, where it is 2.3:1.
    */
-  --color-accent: oklch(0.62 0.2 355);
-  --color-accent-strong: oklch(0.49 0.19 358);
-  --color-accent-soft: oklch(0.955 0.03 355);
-  --color-accent-line: oklch(0.91 0.06 355);
-  --color-accent-inverse: oklch(0.84 0.15 78);
+  --color-accent: oklch(0.5 0.2 5);
+  --color-accent-strong: oklch(0.47 0.19 6);
+  --color-accent-soft: oklch(0.962 0.022 5);
+  --color-accent-line: oklch(0.915 0.045 5);
+  --color-accent-inverse: oklch(0.8 0.14 86);
 
   /*
    * The secondary accent and the highlight.
    *
-   * `accent-secondary` is peacock: secondary chips and the category label a
-   * poster wears, so the page is not all one pink. It is a text colour (6.2:1
-   * on white, 5.5:1 on its own soft ground). `highlight` is a marigold fill for
-   * a badge that should catch the eye without being an action; it always
-   * carries `highlight-ink` (8.8:1). It is never a focus ground — nothing
-   * focusable wears it — and the ring would be 2.3:1 there.
+   * `accent-secondary` is the kit's purple at text strength: secondary chips
+   * and the category a poster wears, so the page is not all one magenta. It is
+   * a text colour on white and on its own soft ground. `highlight` is a gold
+   * fill — foil — for the few badges that mark something owned or verified;
+   * it always carries `highlight-ink`. It is never a focus ground: nothing
+   * focusable wears it.
    *
-   * Named for their jobs, not their colours: `bg-marigold` is the literal ramp
-   * class the semantic-classes test forbids, and should stay forbidden.
+   * Named for their jobs, not their colours: `bg-brand-gold-400` is the
+   * literal ramp class the semantic-classes test forbids, and should stay
+   * forbidden.
    */
-  --color-accent-secondary: oklch(0.48 0.09 195);
-  --color-accent-secondary-soft: oklch(0.955 0.03 195);
-  --color-highlight: oklch(0.8 0.16 72);
-  --color-highlight-ink: oklch(0.24 0.07 305);
+  --color-accent-secondary: oklch(0.45 0.16 297);
+  --color-accent-secondary-soft: oklch(0.955 0.025 297);
+  --color-highlight: oklch(0.8 0.14 86);
+  --color-highlight-ink: oklch(0.24 0.11 300);
+
+  /*
+   * Celebration: the kit's orange, for "tonight", "live" and "doors open"
+   * plates, and as a mark on the purple plate. Decorative and situational,
+   * never a status: its hue sits between danger and warning, so it never
+   * means either. On a plate it carries `highlight-ink`, the purple ink that
+   * stays dark in every register; it never carries white text.
+   */
+  --color-celebration: oklch(0.708 0.176 50.6);
 
   /*
    * Focus. One ring everywhere, so keyboard position is never ambiguous.
    *
-   * A magenta between the accent and the plum, chosen because it clears 3:1
-   * (WCAG 1.4.11) on every ground a focusable thing can sit on, the night band
-   * included: 4.2:1 on the page, 4.4:1 on white, 4.0:1 on sand, 4.2:1 on night.
-   * The test measures all of them, and the lowest, on the tinted chip grounds,
-   * is still 3.8:1.
+   * A pink between the magenta and the light, chosen because it clears 3:1
+   * (WCAG 1.4.11) with headroom on every ground a focusable thing can sit on,
+   * the purple plate included. The test measures all of them. The Showtime
+   * register, whose grounds are all dark, redraws it in gold.
    */
-  --color-focus: oklch(0.6 0.21 340);
+  --color-focus: oklch(0.62 0.21 350);
 
   /*
    * Actions. A primary action is the one thing a screen most wants done; a
    * secondary action is everything else that is still a button; a danger
    * action destroys or refuses something and is always confirmed first.
    *
-   * The primary is rani pink with white text, 6.7:1 resting and 8.8:1 hovered.
-   * Danger is vermilion — an orange-red, far enough from the pink primary that
-   * the two are not mistaken for each other.
+   * The primary is the kit's Magenta with white text. Danger is a vermilion
+   * red, far enough round the wheel from the magenta that the two are not
+   * mistaken for each other.
    */
-  --color-action-primary: oklch(0.5 0.2 358);
-  --color-action-primary-hover: oklch(0.43 0.18 358);
+  --color-action-primary: oklch(0.5 0.2 5);
+  --color-action-primary-hover: oklch(0.43 0.18 5);
   --color-action-primary-ink: oklch(1 0 0);
   --color-action-secondary: oklch(1 0 0);
-  --color-action-secondary-hover: oklch(0.962 0.028 78);
-  --color-action-secondary-ink: oklch(0.24 0.07 305);
-  --color-action-secondary-line: oklch(0.85 0.025 70);
+  --color-action-secondary-hover: oklch(0.97 0.01 300);
+  --color-action-secondary-ink: oklch(0.24 0.11 300);
+  --color-action-secondary-line: oklch(0.8 0.03 300);
   --color-action-danger: oklch(0.52 0.19 30);
   --color-action-danger-hover: oklch(0.45 0.17 30);
   --color-action-danger-ink: oklch(1 0 0);
@@ -254,10 +317,9 @@
    * colour is never the only carrier, because it cannot be for a colour-blind
    * reader and is not allowed to be under WCAG 1.4.1.
    *
-   * The families follow the brand: success is a peacock-leaning green,
-   * pending a berry (in progress, not yet good or bad), warning a dark
-   * marigold, danger vermilion, and info, refusal, mock and neutral the
-   * night's plum at decreasing strength.
+   * Success is green, pending a berry (in progress, not yet good or bad),
+   * warning a dark amber, danger vermilion, and info, refusal, mock and
+   * neutral the ink's purple at decreasing strength.
    *
    * `mock` is its own status deliberately. A simulated payout state is not a
    * success, not a warning and not informational; conflating it with any of
@@ -267,22 +329,22 @@
    * wrong organisation, step-up needed, a state that does not allow it — and
    * painting it red teaches people that a working guard is a fault.
    */
-  --color-status-success: oklch(0.48 0.1 165);
-  --color-status-success-soft: oklch(0.965 0.03 165);
-  --color-status-pending: oklch(0.47 0.14 335);
-  --color-status-pending-soft: oklch(0.962 0.022 335);
-  --color-status-warning: oklch(0.52 0.12 70);
-  --color-status-warning-soft: oklch(0.97 0.045 85);
-  --color-status-danger: oklch(0.51 0.19 30);
-  --color-status-danger-soft: oklch(0.965 0.022 30);
+  --color-status-success: oklch(0.47 0.11 155);
+  --color-status-success-soft: oklch(0.965 0.03 155);
+  --color-status-pending: oklch(0.47 0.15 340);
+  --color-status-pending-soft: oklch(0.962 0.022 340);
+  --color-status-warning: oklch(0.5 0.12 62);
+  --color-status-warning-soft: oklch(0.97 0.04 80);
+  --color-status-danger: oklch(0.51 0.19 28);
+  --color-status-danger-soft: oklch(0.965 0.022 28);
   --color-status-refusal: oklch(0.44 0.09 300);
   --color-status-refusal-soft: oklch(0.955 0.016 300);
   --color-status-info: oklch(0.45 0.15 290);
   --color-status-info-soft: oklch(0.96 0.02 290);
-  --color-status-mock: oklch(0.43 0.045 305);
-  --color-status-mock-soft: oklch(0.962 0.008 305);
-  --color-status-neutral: oklch(0.5 0.03 305);
-  --color-status-neutral-soft: oklch(0.962 0.008 305);
+  --color-status-mock: oklch(0.45 0.05 300);
+  --color-status-mock-soft: oklch(0.962 0.008 300);
+  --color-status-neutral: oklch(0.5 0.03 300);
+  --color-status-neutral-soft: oklch(0.962 0.008 300);
 
   /*
    * Ticket availability, as the buyer is told it.
@@ -293,63 +355,87 @@
    * closed. There is no "selling fast" token, because there is no data that
    * could honestly drive one.
    *
-   * On sale is peacock, few left the warning's marigold, and closed the plum
-   * grey — calm, because a sold-out event is a fact, not an alarm.
+   * On sale is the success green, few left the warning's amber, and closed
+   * the purple grey — calm, because a sold-out event is a fact, not an alarm.
    */
-  --color-availability-open: oklch(0.48 0.09 195);
-  --color-availability-open-soft: oklch(0.955 0.03 195);
-  --color-availability-limited: oklch(0.52 0.12 70);
-  --color-availability-limited-soft: oklch(0.97 0.045 85);
-  --color-availability-closed: oklch(0.45 0.035 305);
-  --color-availability-closed-soft: oklch(0.955 0.008 305);
+  --color-availability-open: oklch(0.47 0.11 155);
+  --color-availability-open-soft: oklch(0.965 0.03 155);
+  --color-availability-limited: oklch(0.5 0.12 62);
+  --color-availability-limited-soft: oklch(0.97 0.04 80);
+  --color-availability-closed: oklch(0.45 0.035 300);
+  --color-availability-closed-soft: oklch(0.955 0.008 300);
 
   /*
    * Seats. A seat is drawn as a labelled chip, so every fill is paired with a
    * text colour at 4.5:1 and every state is also carried by its accessible name
    * and a non-colour cue: available is outlined, selected is filled with a tick,
    * reserved (held by somebody else) is tinted, unavailable is struck through.
-   * Available is outlined in peacock, the same colour that says "on sale".
+   * Available is outlined in the purple, selected filled in the magenta of
+   * the primary action that will buy it.
    */
   --color-seat-available: oklch(1 0 0);
-  --color-seat-available-ink: oklch(0.24 0.07 305);
-  --color-seat-available-line: oklch(0.48 0.09 195);
-  --color-seat-selected: oklch(0.5 0.2 358);
+  --color-seat-available-ink: oklch(0.24 0.11 300);
+  --color-seat-available-line: oklch(0.45 0.16 297);
+  --color-seat-selected: oklch(0.5 0.2 5);
   --color-seat-selected-ink: oklch(1 0 0);
   --color-seat-reserved: oklch(0.92 0.04 300);
   --color-seat-reserved-ink: oklch(0.42 0.13 300);
-  --color-seat-unavailable: oklch(0.94 0.006 305);
-  --color-seat-unavailable-ink: oklch(0.45 0.035 305);
+  --color-seat-unavailable: oklch(0.94 0.006 300);
+  --color-seat-unavailable-ink: oklch(0.45 0.035 300);
 
   /*
-   * Operational navigation: the rail every signed-in workspace shares. White
-   * against the courtyard's cool ground, one plum-tinted entry for where you
-   * are, and a marigold marker — the one warm thing on an operations screen,
-   * so the eye finds its place.
+   * Operational navigation: the rail every signed-in workspace shares. White,
+   * one purple-tinted entry for where you are, and a magenta marker — the
+   * brand rule turned on its side — so the eye finds its place.
    */
   --color-opsnav: oklch(1 0 0);
-  --color-opsnav-ink: oklch(0.43 0.045 305);
-  --color-opsnav-hover: oklch(0.965 0.008 305);
+  --color-opsnav-ink: oklch(0.45 0.06 300);
+  --color-opsnav-hover: oklch(0.965 0.008 300);
   --color-opsnav-active: oklch(0.955 0.022 300);
-  --color-opsnav-active-ink: oklch(0.24 0.07 305);
-  --color-opsnav-marker: oklch(0.62 0.15 62);
-  --color-opsnav-line: oklch(0.922 0.008 305);
+  --color-opsnav-active-ink: oklch(0.24 0.11 300);
+  --color-opsnav-marker: oklch(0.5 0.2 5);
+  --color-opsnav-line: oklch(0.922 0.008 300);
 
   /*
-   * Chart series: the visits chart's page views (bars) and visitors (a line
-   * with markers). Validated as a pair with the data-visualisation palette
-   * validator against white and both page grounds: inside the lightness band,
-   * above the chroma floor, colour-blind separation ΔE 20 and normal-vision
-   * ΔE 28, and at least 3:1 against what they are drawn on (WCAG 1.4.11).
-   * Marks only: text never wears a series colour. Not redefined by the
-   * courtyard register, so a series is the same colour wherever it is drawn.
+   * The ticket. A pass is printed on `ticket-paper` — a white with the
+   * faintest warmth of card stock, so the ticket reads as an object lying on
+   * the page rather than a panel of it — in `ticket-ink`. The QR code itself
+   * is still drawn black on white inside it: a scanner needs full contrast,
+   * not a theme.
    */
-  --color-chart-views: oklch(0.52 0.13 230);
-  --color-chart-visitors: oklch(0.62 0.16 60);
+  --color-ticket-paper: oklch(0.985 0.012 88);
+  --color-ticket-ink: oklch(0.24 0.11 300);
+
   /*
-   * Motion. Three durations and one easing, and nothing else — a product with
-   * a dozen timings reads as a dozen products. The range is 120-250ms because
-   * below that a transition is not perceived as motion and above it the
-   * interface feels like it is deciding whether to obey.
+   * The door's verdicts: full-width solid bands a steward reads at arm's
+   * length. Admit is green with white text, refuse red with white text, and
+   * "already admitted" — a warning, not a refusal of the person — the kit's
+   * orange with purple ink. Each band also carries an icon and its word, so
+   * the colour is never the only signal.
+   */
+  --color-door-admit: oklch(0.47 0.12 155);
+  --color-door-admit-ink: oklch(1 0 0);
+  --color-door-refuse: oklch(0.5 0.2 27);
+  --color-door-refuse-ink: oklch(1 0 0);
+  --color-door-warn: oklch(0.75 0.16 58);
+  --color-door-warn-ink: oklch(0.24 0.11 300);
+
+  /*
+   * Chart series: the visits chart's page views (bars, the purple) and
+   * visitors (a line with markers, the orange). Validated as a pair: inside
+   * the lightness band, apart from each other for every reader, and at least
+   * 3:1 against what they are drawn on (WCAG 1.4.11). Marks only: text never
+   * wears a series colour. Not redefined by the courtyard register, so a
+   * series is the same colour wherever it is drawn.
+   */
+  --color-chart-views: oklch(0.45 0.16 297);
+  --color-chart-visitors: oklch(0.62 0.17 48);
+
+  /*
+   * Motion. Three durations and one easing for interface feedback — a product
+   * with a dozen timings reads as a dozen products. The range is 120-250ms
+   * because below that a transition is not perceived as motion and above it
+   * the interface feels like it is deciding whether to obey.
    *
    * These are plain custom properties rather than Tailwind `--transition-*`
    * tokens so that a component can hand them to `transition-duration` directly
@@ -387,35 +473,128 @@
  *
  * Every signed-in area wraps its content in an element carrying
  * `data-register="courtyard"`. Inside it, these names mean something quieter:
- * a cool, faintly plum neutral ground instead of the warm ivory, cool lines to
- * match, and a plum accent and primary action (hue 300, the night's own
- * family) instead of rani pink. Everything not redefined here — ink, focus,
- * status, availability, seats, the operations rail — is shared, because a
- * success or a refusal should look the same wherever it happens.
+ * a faintly purple off-white ground instead of the poster's white, cool lines
+ * to match, and a Royal Purple accent and primary action instead of magenta,
+ * so colour on an operations screen means a status or the one action.
+ * Everything not redefined here — ink, focus, status, availability, seats,
+ * the operations rail — is shared, because a success or a refusal should look
+ * the same wherever it happens.
  *
  * The rule paints its own ground and text colour, so an element that opts in
  * cannot end up with courtyard components on an editorial background.
  *
  * `tests/token-contrast.test.js` reads this block as well and measures every
- * pairing again with these values in place; a pairing that passes on the warm
- * page and fails here is caught the same way.
+ * pairing again with these values in place; a pairing that passes on the
+ * poster page and fails here is caught the same way.
  */
 [data-register='courtyard'] {
-  --color-page: oklch(0.984 0.004 300);
-  --color-surface-subtle: oklch(0.962 0.009 300);
+  --color-page: oklch(0.99 0.003 300);
+  --color-surface-subtle: oklch(0.965 0.008 300);
+  --color-surface-sunken: oklch(0.94 0.012 300);
   --color-line: oklch(0.92 0.01 300);
   --color-line-strong: oklch(0.855 0.014 300);
-  --color-accent: oklch(0.55 0.17 300);
-  --color-accent-strong: oklch(0.44 0.16 300);
-  --color-accent-soft: oklch(0.955 0.022 300);
-  --color-accent-line: oklch(0.915 0.042 300);
-  --color-action-primary: oklch(0.38 0.14 300);
-  --color-action-primary-hover: oklch(0.31 0.115 300);
-  --color-action-secondary-hover: oklch(0.962 0.009 300);
-  --color-action-secondary-line: oklch(0.855 0.014 300);
+  --color-accent: oklch(0.5 0.16 297);
+  --color-accent-strong: oklch(0.42 0.16 297);
+  --color-accent-soft: oklch(0.955 0.022 297);
+  --color-accent-line: oklch(0.925 0.035 297);
+  --color-action-primary: oklch(0.3 0.13 297);
+  --color-action-primary-hover: oklch(0.24 0.11 300);
+  --color-action-secondary-hover: oklch(0.965 0.008 300);
+  --color-action-secondary-line: oklch(0.82 0.02 300);
 
   background-color: var(--color-page);
   color: var(--color-ink);
+}
+
+/*
+ * The Showtime register: the door.
+ *
+ * A volunteer at a dim venue entrance at 8pm, phone in one hand, a queue
+ * waiting. The screen they hold should not light up their face, and its
+ * verdict should be legible at arm's length, so the door's own region carries
+ * `data-register="door"`: a dark Royal Purple ground, light lavender ink, gold
+ * for the primary action and the focus ring, and every status redrawn as a
+ * light word on a dark chip. The verdict bands (`door-admit`, `door-refuse`,
+ * `door-warn`) are shared with the other registers, because a verdict is the
+ * same verdict wherever it is shown.
+ *
+ * Composed, not inverted: every name a component in the door can render is
+ * given its own dark value here, and the contrast test measures each pairing
+ * a third time with them in place.
+ */
+[data-register='door'] {
+  --color-page: oklch(0.2 0.085 298);
+  --color-surface: oklch(0.24 0.095 298);
+  --color-surface-raised: oklch(0.255 0.1 298);
+  --color-surface-subtle: oklch(0.29 0.1 298);
+  --color-surface-sunken: oklch(0.16 0.065 298);
+  --color-surface-inverse: oklch(0.13 0.05 298);
+  --color-ink: oklch(0.97 0.012 300);
+  --color-ink-muted: oklch(0.86 0.04 300);
+  --color-ink-subtle: oklch(0.79 0.05 300);
+  --color-ink-inverse: oklch(0.97 0.012 300);
+  --color-ink-inverse-muted: oklch(0.86 0.04 300);
+  --color-line: oklch(0.36 0.08 298);
+  --color-line-strong: oklch(0.46 0.08 298);
+  --color-accent: oklch(0.8 0.14 86);
+  --color-accent-strong: oklch(0.86 0.11 88);
+  --color-accent-soft: oklch(0.31 0.1 298);
+  --color-accent-line: oklch(0.38 0.11 298);
+  --color-accent-inverse: oklch(0.86 0.11 88);
+  --color-accent-secondary: oklch(0.85 0.07 300);
+  --color-accent-secondary-soft: oklch(0.31 0.09 298);
+  --color-focus: oklch(0.86 0.12 88);
+  --color-action-primary: oklch(0.8 0.14 86);
+  --color-action-primary-hover: oklch(0.86 0.11 88);
+  --color-action-primary-ink: oklch(0.24 0.11 300);
+  --color-action-secondary: oklch(0.255 0.1 298);
+  --color-action-secondary-hover: oklch(0.31 0.1 298);
+  --color-action-secondary-ink: oklch(0.97 0.012 300);
+  --color-action-secondary-line: oklch(0.52 0.08 298);
+  --color-action-danger: oklch(0.52 0.19 30);
+  --color-action-danger-hover: oklch(0.45 0.17 30);
+  --color-status-success: oklch(0.83 0.12 155);
+  --color-status-success-soft: oklch(0.29 0.06 155);
+  --color-status-pending: oklch(0.84 0.09 340);
+  --color-status-pending-soft: oklch(0.29 0.07 340);
+  --color-status-warning: oklch(0.86 0.12 75);
+  --color-status-warning-soft: oklch(0.3 0.05 70);
+  --color-status-danger: oklch(0.82 0.1 25);
+  --color-status-danger-soft: oklch(0.3 0.08 25);
+  --color-status-refusal: oklch(0.84 0.06 300);
+  --color-status-refusal-soft: oklch(0.3 0.06 300);
+  --color-status-info: oklch(0.84 0.08 290);
+  --color-status-info-soft: oklch(0.3 0.08 290);
+  --color-status-mock: oklch(0.82 0.03 300);
+  --color-status-mock-soft: oklch(0.28 0.04 300);
+  --color-status-neutral: oklch(0.82 0.02 300);
+  --color-status-neutral-soft: oklch(0.28 0.04 300);
+  --color-availability-open: oklch(0.83 0.12 155);
+  --color-availability-open-soft: oklch(0.29 0.06 155);
+  --color-availability-limited: oklch(0.86 0.12 75);
+  --color-availability-limited-soft: oklch(0.3 0.05 70);
+  --color-availability-closed: oklch(0.82 0.03 300);
+  --color-availability-closed-soft: oklch(0.28 0.04 300);
+  --color-seat-available: oklch(0.255 0.1 298);
+  --color-seat-available-ink: oklch(0.97 0.012 300);
+  --color-seat-available-line: oklch(0.85 0.07 300);
+  --color-seat-selected: oklch(0.8 0.14 86);
+  --color-seat-selected-ink: oklch(0.24 0.11 300);
+  --color-seat-reserved: oklch(0.36 0.09 300);
+  --color-seat-reserved-ink: oklch(0.9 0.04 300);
+  --color-seat-unavailable: oklch(0.22 0.05 298);
+  --color-seat-unavailable-ink: oklch(0.78 0.03 300);
+  --color-opsnav: oklch(0.24 0.095 298);
+  --color-opsnav-ink: oklch(0.86 0.04 300);
+  --color-opsnav-hover: oklch(0.29 0.1 298);
+  --color-opsnav-active: oklch(0.33 0.11 298);
+  --color-opsnav-active-ink: oklch(0.97 0.012 300);
+  --color-opsnav-marker: oklch(0.8 0.14 86);
+  --color-opsnav-line: oklch(0.34 0.08 298);
+
+  background-color: var(--color-page);
+  color: var(--color-ink);
+  color-scheme: dark;
 }
 
 /* Respect users who ask the platform for reduced motion. Framer Motion reads

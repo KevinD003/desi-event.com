@@ -83,6 +83,12 @@ const FAMILIES = [
   'marigold',
   'indigo-night',
   'henna',
+  // The brand kit's ramps. What a colour *is*, not what it is for, so a
+  // component may no more write `bg-brand-gold-400` than `bg-marigold-500`.
+  'brand-magenta',
+  'brand-purple',
+  'brand-gold',
+  'brand-orange',
 ].join('|')
 
 /** Utilities that take a colour. */
@@ -314,7 +320,7 @@ describe('components use the semantic tokens', () => {
     }
 
     const semantic = [...tokenHex.keys()].filter(
-      (name) => !/^(marigold|indigo-night|henna)-/.test(name),
+      (name) => !/^(marigold|indigo-night|henna|brand-[a-z]+)-/.test(name),
     )
     const allowed = new Map(semantic.map((name) => [tokenHex.get(name), name]))
     const checked = Object.entries(ALLOWED).filter(([, rule]) => rule.hex === 'tokens-only')
@@ -342,6 +348,10 @@ describe('components use the semantic tokens', () => {
       'border-indigo-night-100',
       'bg-white/90',
       'text-emerald-900',
+      'bg-brand-magenta-600',
+      'hover:text-brand-gold-400/80',
+      'border-brand-purple-900',
+      'fill-brand-orange-500',
     ]) {
       expect(`className="${literal}"`.match(LITERAL_CLASS), literal).not.toBeNull()
     }

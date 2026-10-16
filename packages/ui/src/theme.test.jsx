@@ -5,7 +5,7 @@
  * Tailwind v4 emits a utility only for a token it knows. `bg-accent-secondry`
  * or `shadow-crad` is not an error anywhere: it is a class that quietly
  * generates nothing, and the control renders unstyled. So besides pinning the
- * Garba Nights contract — 12px controls, 20px cards, the card shadow, one
+ * Poster House contract — 10px controls, 16px cards, the card keyline, one
  * outline focus ring, a 0.98 press that only runs where motion is welcome,
  * 44px targets — this file renders every primitive in every variant and checks
  * each colour, shadow and radius class it emits against the theme's own
@@ -160,8 +160,11 @@ function Everything() {
 describe('every primitive names only tokens the theme declares', () => {
   it('finds the theme’s namespaces, so the check below is not vacuous', () => {
     expect(COLOURS.has('action-primary')).toBe(true)
-    expect(SHADOWS).toEqual(new Set(['card', 'card-hover', 'control', 'dialog']))
-    expect(RADII).toEqual(new Set(['card', 'control']))
+    // Poster House added one depth (`floating`, for menus, popovers and
+    // sheets) and one shape (`plate`, the 4px poster corner); each set is
+    // pinned exactly, so a further token is a decision someone writes down.
+    expect(SHADOWS).toEqual(new Set(['card', 'card-hover', 'control', 'floating', 'dialog']))
+    expect(RADII).toEqual(new Set(['plate', 'card', 'control']))
   })
 
   it('renders no colour, shadow or radius class without a declaration behind it', () => {
@@ -245,7 +248,7 @@ describe('form controls', () => {
     ['Input', <Input key="i" aria-label="Control" />],
     ['Select', <Select key="s" aria-label="Control" options={[{ value: 'a', label: 'A' }]} />],
     ['Textarea', <Textarea key="t" aria-label="Control" />],
-  ])('%s is a 44px, 12px-round control with the outline focus ring', (_name, control) => {
+  ])('%s is a 44px, 10px-round control with the outline focus ring', (_name, control) => {
     render(control)
 
     const element = screen.getByLabelText('Control')

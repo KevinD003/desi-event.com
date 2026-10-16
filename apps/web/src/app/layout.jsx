@@ -67,10 +67,10 @@ export const metadata = {
  * The page token as hex, because this is metadata rather than CSS and cannot
  * read a custom property. `semantic-classes.test.js` checks it still equals the
  * token. It used to be a bright marigold that no token declared, which put a
- * saturated band above a page that is nearly cream.
+ * saturated band above the page; it is now the white page and header.
  */
 export const viewport = {
-  themeColor: '#fff9f0',
+  themeColor: '#ffffff',
   width: 'device-width',
   initialScale: 1,
 }

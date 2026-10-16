@@ -23,7 +23,7 @@
  */
 
 /** The page token, `--color-page`, as hex: a manifest cannot read a custom property. */
-const PAGE = '#fff9f0'
+const PAGE = '#ffffff'
 
 /**
  * The manifest.

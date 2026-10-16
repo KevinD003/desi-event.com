@@ -83,20 +83,30 @@ function tokensIn(body) {
 }
 
 /**
- * The two registers, each as the complete set of values a component sees.
+ * The three registers, each as the complete set of values a component sees.
  *
- * The editorial register is the theme itself. The courtyard register is the
- * theme with the courtyard block's redefinitions laid over it — exactly what
- * the cascade does for an element inside `data-register="courtyard"`.
+ * The editorial (poster) register is the theme itself. The courtyard and
+ * door registers are the theme with their block's redefinitions laid over it
+ * — exactly what the cascade does for an element inside
+ * `data-register="courtyard"` or `data-register="door"`.
  *
  * @type {Record<string, Map<string, {l: number, c: number, h: number}>>}
  */
 const theme = tokensIn(blockBody(stylesheet, '@theme'))
 const courtyardOverrides = tokensIn(blockBody(stylesheet, "[data-register='courtyard']"))
+const doorOverrides = tokensIn(blockBody(stylesheet, "[data-register='door']"))
 const REGISTERS = Object.freeze({
   editorial: theme,
   courtyard: new Map([...theme, ...courtyardOverrides]),
+  door: new Map([...theme, ...doorOverrides]),
 })
+
+/**
+ * The registers a light-ground pairing is drawn in, for the few marks the
+ * door never shows: the visits chart, the dialog scrim and the ticket pass.
+ * Everything else is measured in all three.
+ */
+const LIGHT_REGISTERS = Object.freeze(['editorial', 'courtyard'])
 
 /**
  * Convert oklch to sRGB, each channel in 0..1.
@@ -190,18 +200,22 @@ function contrast(foreground, background) {
  */
 const PAIRINGS = Object.freeze([
   // Text on the grounds.
-  ...['page', 'surface', 'surface-raised', 'surface-subtle', 'accent-soft'].map((background) => ({
-    foreground: 'ink',
-    background,
-    where: 'headings and body text',
-    kind: 'text',
-  })),
-  ...['page', 'surface', 'surface-raised', 'surface-subtle', 'accent-soft'].map((background) => ({
-    foreground: 'ink-muted',
-    background,
-    where: 'supporting copy, field labels over white controls',
-    kind: 'text',
-  })),
+  ...['page', 'surface', 'surface-raised', 'surface-subtle', 'surface-sunken', 'accent-soft'].map(
+    (background) => ({
+      foreground: 'ink',
+      background,
+      where: 'headings and body text',
+      kind: 'text',
+    }),
+  ),
+  ...['page', 'surface', 'surface-raised', 'surface-subtle', 'surface-sunken', 'accent-soft'].map(
+    (background) => ({
+      foreground: 'ink-muted',
+      background,
+      where: 'supporting copy, field labels over white controls, captions in a well',
+      kind: 'text',
+    }),
+  ),
   ...['page', 'surface', 'surface-raised', 'surface-subtle'].map((background) => ({
     foreground: 'ink-subtle',
     background,
@@ -242,7 +256,48 @@ const PAIRINGS = Object.freeze([
     kind: 'text',
   },
 
-  // The secondary accent (peacock) and the marigold highlight.
+  // Celebration orange: a "tonight" plate in purple ink, and a mark on the
+  // purple plate. Never white text, so no pairing claims one.
+  {
+    foreground: 'highlight-ink',
+    background: 'celebration',
+    where: 'the purple ink on a "tonight" or "doors open" plate',
+    kind: 'text',
+  },
+  {
+    foreground: 'celebration',
+    background: 'surface-inverse',
+    where: 'an orange mark or rule on the purple plate',
+    kind: 'graphic',
+  },
+
+  // The ticket: its stub and its words on card stock.
+  ...['ticket-ink', 'ink-muted'].map((foreground) => ({
+    foreground,
+    background: 'ticket-paper',
+    where: `the pass's ${foreground === 'ticket-ink' ? 'event, holder and tier' : 'small print'}`,
+    kind: 'text',
+    registers: LIGHT_REGISTERS,
+  })),
+
+  // The door's verdict bands, read at arm's length.
+  ...['admit', 'refuse', 'warn'].map((verdict) => ({
+    foreground: `door-${verdict}-ink`,
+    background: `door-${verdict}`,
+    where: `the door's ${verdict} band`,
+    kind: 'text',
+  })),
+
+  // A dialog against its backdrop.
+  {
+    foreground: 'surface-raised',
+    background: 'scrim',
+    where: "a dialog panel's edge against the scrim behind it",
+    kind: 'boundary',
+    registers: LIGHT_REGISTERS,
+  },
+
+  // The secondary accent (purple) and the gold highlight.
   ...['page', 'surface-raised', 'accent-secondary-soft'].map((background) => ({
     foreground: 'accent-secondary',
     background,
@@ -258,7 +313,7 @@ const PAIRINGS = Object.freeze([
   {
     foreground: 'highlight-ink',
     background: 'highlight',
-    where: 'a marigold highlight badge',
+    where: 'a gold highlight badge',
     kind: 'text',
   },
 
@@ -409,12 +464,14 @@ const PAIRINGS = Object.freeze([
 
   // The visits chart: page views as bars, visitors as a line with markers,
   // drawn on a raised panel inside the page. Marks only; no text wears them.
+  // The door draws no chart, so a series is measured on the light grounds.
   ...['chart-views', 'chart-visitors'].flatMap((series) =>
     ['surface-raised', 'page'].map((background) => ({
       foreground: series,
       background,
       where: `the visits chart's ${series === 'chart-views' ? 'bars' : 'line and markers'}`,
       kind: 'graphic',
+      registers: LIGHT_REGISTERS,
     })),
   ),
 
@@ -424,13 +481,23 @@ const PAIRINGS = Object.freeze([
     'surface',
     'surface-raised',
     'surface-subtle',
+    'surface-sunken',
     'accent-soft',
+    'accent-line',
     'surface-inverse',
     'opsnav',
+    'opsnav-hover',
     'opsnav-active',
+    'action-secondary',
+    'action-secondary-hover',
+    'status-success-soft',
+    'status-pending-soft',
     'status-danger-soft',
     'status-warning-soft',
+    'status-refusal-soft',
     'status-info-soft',
+    'status-mock-soft',
+    'status-neutral-soft',
     'accent-secondary-soft',
   ].map((background) => ({
     foreground: 'focus',
@@ -438,6 +505,13 @@ const PAIRINGS = Object.freeze([
     where: 'the focus ring',
     kind: 'focus',
   })),
+  {
+    foreground: 'focus',
+    background: 'ticket-paper',
+    where: 'the focus ring on the pass, around its Show and Hide buttons',
+    kind: 'focus',
+    registers: LIGHT_REGISTERS,
+  },
 ])
 
 /** WCAG 2 AA thresholds, by kind of pairing. */
@@ -460,10 +534,94 @@ const MEASURED = PAIRINGS.flatMap((pairing) =>
 )
 
 describe('the semantic token layer', () => {
-  it('finds both registers, and the courtyard redefines only names the theme declares', () => {
+  it('finds every register, and each redefines only names the theme declares', () => {
     expect(theme.size).toBeGreaterThan(60)
     expect(courtyardOverrides.size).toBeGreaterThan(0)
     expect([...courtyardOverrides.keys()].filter((name) => !theme.has(name))).toEqual([])
+    // The door is a composed dark register, not a handful of tweaks: it has to
+    // redraw every ground and every ink a component there can render.
+    expect(doorOverrides.size).toBeGreaterThan(40)
+    expect([...doorOverrides.keys()].filter((name) => !theme.has(name))).toEqual([])
+  })
+
+  it('anchors the brand ramps on the kit colours, and names them as ramps', () => {
+    // docs/BRAND.md's four colours, converted to oklch. The semantic layer is
+    // built around these; if a ramp step drifts off the kit the brand quietly
+    // stops being the brand.
+    const kit = {
+      'brand-magenta-600': { l: 0.485, c: 0.194, h: 7.9 },
+      'brand-purple-900': { l: 0.28, c: 0.127, h: 297.1 },
+      'brand-gold-500': { l: 0.746, c: 0.141, h: 86.1 },
+      'brand-orange-500': { l: 0.708, c: 0.176, h: 50.6 },
+    }
+
+    for (const [name, value] of Object.entries(kit)) expect(theme.get(name), name).toEqual(value)
+
+    // No register repaints the kit itself.
+    for (const overrides of [courtyardOverrides, doorOverrides]) {
+      expect([...overrides.keys()].filter((name) => name.startsWith('brand-'))).toEqual([])
+    }
+  })
+
+  it('makes the poster plate the kit purple, and the primary action the kit magenta', () => {
+    // Within a hair of the kit: the plate is the kit purple exactly, and the
+    // action is the kit magenta nudged lighter only as far as white text
+    // keeps its headroom.
+    const near = (a, b) =>
+      Math.abs(a.l - b.l) <= 0.02 && Math.abs(a.c - b.c) <= 0.01 && Math.abs(a.h - b.h) <= 5
+
+    expect(theme.get('surface-inverse')).toEqual(theme.get('brand-purple-900'))
+    expect(near(theme.get('action-primary'), theme.get('brand-magenta-600'))).toBe(true)
+    expect(theme.get('celebration')).toEqual(theme.get('brand-orange-500'))
+    // Gold, the foil: one ramp step lighter than the kit swatch, which is the
+    // step that carries purple ink and stands out on the purple plate.
+    expect(theme.get('highlight')).toEqual(theme.get('brand-gold-400'))
+    expect(theme.get('accent-inverse')).toEqual(theme.get('brand-gold-400'))
+  })
+
+  it('declares the roles the redesign added, and the door leaves the verdicts alone', () => {
+    const added = [
+      'surface-sunken',
+      'scrim',
+      'ticket-paper',
+      'ticket-ink',
+      'door-admit',
+      'door-admit-ink',
+      'door-refuse',
+      'door-refuse-ink',
+      'door-warn',
+      'door-warn-ink',
+      'celebration',
+    ]
+
+    expect(added.filter((name) => !theme.has(name))).toEqual([])
+    // Every one is claimed by at least one measured pairing.
+    const paired = new Set(
+      PAIRINGS.flatMap(({ foreground, background }) => [foreground, background]),
+    )
+    expect(added.filter((name) => !paired.has(name))).toEqual([])
+    // A verdict is the same verdict in every register.
+    expect(
+      [...doorOverrides.keys(), ...courtyardOverrides.keys()].filter((name) =>
+        /^(door-|ticket-|celebration$|highlight)/.test(name),
+      ),
+    ).toEqual([])
+  })
+
+  it('makes the door register dark: every ground below the ink it carries', () => {
+    const door = REGISTERS.door
+
+    for (const ground of [
+      'page',
+      'surface',
+      'surface-raised',
+      'surface-subtle',
+      'surface-sunken',
+    ]) {
+      expect(door.get(ground).l, ground).toBeLessThan(0.35)
+    }
+
+    expect(door.get('ink').l).toBeGreaterThan(0.9)
   })
 
   it('declares every token each pairing names', () => {
@@ -505,11 +663,11 @@ describe('the semantic token layer', () => {
     expect(required.filter((name) => !theme.has(name))).toEqual([])
   })
 
-  it('declares the Garba Nights additions, named for their jobs', () => {
-    // The secondary accent (peacock) and the marigold highlight fill, with the
-    // ink that goes on it. Not `peacock` or `marigold`: the literal-class test
-    // forbids `bg-marigold`, and a colour's name tells a component nothing
-    // about where it may be used.
+  it('declares the secondary accent and the highlight, named for their jobs', () => {
+    // The secondary accent (the kit purple at text strength) and the gold
+    // highlight fill, with the ink that goes on it. Not `purple` or `gold`:
+    // the literal-class test forbids `bg-brand-gold-400`, and a colour's name
+    // tells a component nothing about where it may be used.
     const added = ['accent-secondary', 'accent-secondary-soft', 'highlight', 'highlight-ink']
 
     expect(added.filter((name) => !theme.has(name))).toEqual([])
@@ -592,13 +750,27 @@ describe('the semantic token layer', () => {
     const ratio = contrast(theme.get('focus'), theme.get('surface-inverse'))
 
     expect(ratio).toBeGreaterThanOrEqual(MINIMUM.focus)
+    // And the door's gold ring on the door's own grounds.
+    for (const ground of ['page', 'surface-raised', 'surface-inverse']) {
+      expect(contrast(REGISTERS.door.get('focus'), REGISTERS.door.get(ground))).toBeGreaterThan(
+        MINIMUM.focus + MARGIN,
+      )
+    }
   })
 
   it('would have failed the focus rings this layer replaced', () => {
     // marigold-500 was the ring on most controls, and marigold-600 the global
     // outline. Both are below 3:1 on the grounds they were drawn on; this
     // proves the check above can fail, rather than only that it passes.
+    // The page was the warm ivory then, written here as it shipped, as the
+    // sweep figure above is: the white page of today is not the ground that
+    // ring failed on.
+    const ivoryPage = { l: 0.985, c: 0.014, h: 80 }
+
     expect(contrast(theme.get('marigold-500'), theme.get('surface'))).toBeLessThan(MINIMUM.focus)
-    expect(contrast(theme.get('marigold-600'), theme.get('page'))).toBeLessThan(MINIMUM.focus)
+    expect(contrast(theme.get('marigold-600'), ivoryPage)).toBeLessThan(MINIMUM.focus)
+    // And the kit's gold, which is why gold is foil and never the ring on a
+    // light ground: it fails there, and passes only on the door's dark one.
+    expect(contrast(theme.get('brand-gold-500'), theme.get('page'))).toBeLessThan(MINIMUM.focus)
   })
 })

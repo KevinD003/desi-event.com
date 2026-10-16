@@ -45,8 +45,8 @@ export default function GlobalError({ error, reset }) {
           justifyContent: 'center',
           // The page and ink tokens, as hex: this renders without the stylesheet.
           // `semantic-classes.test.js` checks they still equal the tokens.
-          backgroundColor: '#fff9f0',
-          color: '#271539',
+          backgroundColor: '#ffffff',
+          color: '#29094a',
           fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
         }}
       >
@@ -67,11 +67,11 @@ export default function GlobalError({ error, reset }) {
               padding: '0 1.5rem',
               fontSize: '1rem',
               fontWeight: 700,
-              // The primary action and its ink, 6.7:1.
+              // The primary action (the kit magenta) and its ink.
               color: '#ffffff',
-              backgroundColor: '#b30863',
+              backgroundColor: '#b60254',
               border: 'none',
-              borderRadius: '0.75rem',
+              borderRadius: '0.625rem',
               cursor: 'pointer',
             }}
           >
