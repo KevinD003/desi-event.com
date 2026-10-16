@@ -145,7 +145,7 @@ export default async function EditEventPage({ params }) {
         <li>
           <Link
             href="/organizer/events"
-            className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
+            className="inline-flex min-h-11 items-center rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             Your events
           </Link>

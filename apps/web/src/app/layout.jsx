@@ -9,6 +9,7 @@ import './globals.css'
 import { MotionProvider } from '../components/motion.jsx'
 import { RegisterSync } from '../components/register-sync.jsx'
 import { Toaster } from '../components/ui.jsx'
+import { ViewTransitionGuard } from '../components/view-transition-guard.jsx'
 import { SHARE_IMAGE } from '../lib/brand.js'
 import { registerFor } from '../lib/register.js'
 import { requestPathname } from '../lib/request-path.js'
@@ -112,6 +113,7 @@ export default async function RootLayout({ children }) {
         data-register={register === 'courtyard' ? 'courtyard' : undefined}
       >
         <RegisterSync />
+        <ViewTransitionGuard />
         <MotionProvider>
           <a className="skip-link" href="#main-content">
             Skip to main content

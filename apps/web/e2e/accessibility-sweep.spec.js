@@ -1456,7 +1456,11 @@ const PHASE_4_SURFACES = Object.freeze([
     heading: () => 'Your orders',
     title: () => 'Orders',
     async arrived(page) {
-      await expect(page.getByText('Payments on this site are simulated.')).toBeVisible()
+      // The orders page's own notice. The footer plate's line opens with the
+      // same sentence, so the page's is the one in main, word for word.
+      await expect(
+        page.getByRole('main').getByText('Payments on this site are simulated.', { exact: true }),
+      ).toBeVisible()
 
       const card = page.getByRole('listitem').filter({ hasText: commerce.orderReference })
 
@@ -3097,6 +3101,86 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     )
 
     await context.close()
+  })
+
+  test('a soft navigation crossfades the workspace content, holds the shell still, and runs no transition under reduced motion', async () => {
+    // `components/page-transition.jsx` wraps each shell's content in a view
+    // transition; the theme stops every `::view-transition-*` animation for a
+    // reader who asked for reduced motion. The door case counts running
+    // animations, so a crossfade left running there would fail it; this
+    // proves the rule, and proves the count can see a transition at all.
+    /**
+     * Count, frame by frame for a while, the most view-transition animations
+     * running at once.
+     *
+     * @param {object} page The page.
+     * @returns {Promise<void>} Resolves once counting has started.
+     */
+    const startCounting = (page) =>
+      page.evaluate(() => {
+        window.__viewTransitions = 0
+        const until = performance.now() + 4000
+        const tick = () => {
+          const running = document
+            .getAnimations()
+            .filter(
+              (animation) =>
+                String(animation.effect?.pseudoElement ?? '').startsWith('::view-transition') &&
+                animation.playState === 'running',
+            ).length
+
+          window.__viewTransitions = Math.max(window.__viewTransitions, running)
+          if (performance.now() < until) requestAnimationFrame(tick)
+        }
+
+        requestAnimationFrame(tick)
+      })
+
+    for (const reducedMotion of ['reduce', 'no-preference']) {
+      // The window already signed in: another sign-in here would spend the
+      // credential limiter's budget the cases below need.
+      const page = organiser
+
+      await page.emulateMedia({ reducedMotion })
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.goto('/organizer')
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Organiser workspace', exact: true }),
+      ).toBeVisible()
+
+      const loads = []
+      const counted = () => loads.push(page.url())
+
+      page.on('load', counted)
+      await startCounting(page)
+      await page
+        .getByRole('navigation', { name: 'Workspace', exact: true })
+        .getByRole('link', { name: 'Events', exact: true })
+        .click()
+      await expect(page).toHaveURL((url) => url.pathname === '/organizer/events')
+      await expect(
+        page.getByRole('heading', { level: 1, name: 'Your events', exact: true }),
+      ).toBeVisible()
+      await page.waitForTimeout(600)
+
+      const most = await page.evaluate(() => window.__viewTransitions)
+
+      if (reducedMotion === 'reduce') {
+        expect(most, 'view-transition animations under reduced motion').toBe(0)
+      } else {
+        expect(most, 'the crossfade a soft navigation draws').toBeGreaterThan(0)
+      }
+
+      // A soft navigation, and still one shell: the bar, the page, the footer.
+      page.off('load', counted)
+      expect(loads).toEqual([])
+      await expect(page.getByRole('banner')).toHaveCount(1)
+      await expect(page.getByRole('main')).toHaveCount(1)
+      await expect(page.getByRole('contentinfo')).toHaveCount(1)
+      await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
+    }
+
+    await organiser.emulateMedia({ reducedMotion: null })
   })
 
   test('the editor can be reached and operated by keyboard alone', async () => {

@@ -82,7 +82,8 @@ variables and every utility follows.
 
 The root layout sets `data-register` on `<body>` from the request path, and
 `components/register-sync.jsx` keeps it in step across soft navigations. The
-door register is applied by the door screen to its own region.
+door register is applied by the door screen (`/organizer/check-in`) to its own
+region, which fills the space beside the folded rail.
 
 ### Measured, not eyeballed
 
@@ -276,7 +277,60 @@ cricket bat). `CategoryIcon` maps them, and a test holds the map equal to
 
 ---
 
-## 8. Per-surface modes
+## 8. Shells
+
+The root layout draws only the document, the skip link, the toaster and two
+listeners (the register and the view-transition guard). Each area's layout
+draws its own shell, and every page has exactly one `banner`, one `main`
+(`#main-content`, the skip link's target) and one `contentinfo`.
+
+| Shell                                                                                   | Where                                                                                                                                                     | What it draws                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public (`components/public-shell.jsx`)                                                  | home (`app/(home)`), events, categories, venues, organisers, contact, limitations, sign-in, register, the 404 and 400 pages; and around the account shell | The site header: a 64px white row (logo, the four discovery links from 1024px, a search trigger that opens a GET form to `/events?q=`, the account control) over the single 2px brand rule; below 1024px a Menu sheet that stays inside the banner. The page. The footer plate: Royal Purple, the D, the tagline set as words, three short lists, what the site does not do, contact, cities, and the simulated-payment line. |
+| Account (`AccountShell` in `components/shells.jsx`)                                     | `/account/*`, `/tickets/*`, inside the public shell                                                                                                       | The account's six pages as one list: a rail on a desk, a row of segments across the top on a phone. No disclosure to open.                                                                                                                                                                                                                                                                                                    |
+| Workspace (`WorkspaceShell` in `components/shells.jsx`, `components/workspace-nav.jsx`) | organiser, analytics, finance, operations, moderation, privacy, retention, admin                                                                          | A 56px purple bar (the D home, an area switcher, a page finder, the account), a left rail from `lg` (an icon per entry; folds to icons, remembered in this browser, folded by itself at the door; a sheet from the bar below `lg`), the page, a slim footer. No public header or footer. Tabs only for an area's sections the rail does not list (finance, operations, privacy).                                              |
+
+**Authority is said, not remembered.** A platform administrator's bar carries
+a "Platform administrator" badge, a super administrator's a gold "Super
+administrator" marker (`highlight` on the purple), and every workspace page
+opens with a line saying what that reach means (`lib/authority.js`).
+
+**One navigation system.** The rail is the way around the workspace. An area
+whose sections are all rail entries draws no tabs (admin, moderation,
+analytics), and overview pages do not repeat the rail as link cards: `/admin`
+lists what is waiting for the team with the API's own counts, and
+`/organizer` says what the account looks after.
+
+**Page headers** (`PageHeader`) keep the title and its actions in view under
+the workspace bar from `lg`. `--chrome-top` (66px public, 56px workspace) is
+the offset every sticky thing below the chrome uses.
+
+**Refusals** (`AreaRefusal`) are drawn in the public shell: a session an area
+does not admit has no workspace to be shown.
+
+**Error pages.** The 404 (`not-found-view.jsx`) is a poster: the line set at
+display size beside a purple plate with a ticket that admits nobody. The route
+error page draws its own bare header and footer (`bare-chrome.jsx`), because
+it replaces the area's shell. An address whose escapes do not decode is
+answered by the proxy with `/bad-address` as a real `400`.
+
+**Page transitions.** Each shell wraps its content in a React
+`ViewTransition` keyed on the path (`components/page-transition.jsx`), so a
+navigation to another page crossfades it (180ms on the site, 150ms in the
+workspace, on `--ease-out`) and a refresh or a changed query does not. The header, bar, rail and
+footer are named (`site-header`, `app-rail`, `site-footer`) with their
+animation off and their old picture hidden, so the shell never moves; the
+overlay lets taps through. A transition the browser skips is not an error
+(`view-transition-guard.jsx`). Reduced motion stops them all.
+
+**Decoration budget.** One brand rule under the header and one plate moment
+per page. The toran, garba rings, scalloped hems, mirror band, mirror
+dividers and diamonds are gone; `festive-decor.jsx` holds only `BrandRule`,
+and its test fails if the band or the twinkling bulbs come back.
+
+---
+
+## 9. Per-surface modes
 
 | Surface                                                                                       | Mode                                       | Register                  | What carries the brand                                                                                                          |
 | --------------------------------------------------------------------------------------------- | ------------------------------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -289,7 +343,7 @@ cricket bat). `CategoryIcon` maps them, and a test holds the map equal to
 
 ---
 
-## 9. Do and don't
+## 10. Do and don't
 
 **Do**
 
@@ -317,7 +371,7 @@ cricket bat). `CategoryIcon` maps them, and a test holds the map equal to
 
 ---
 
-## 10. The guards
+## 11. The guards
 
 | Test                                                                  | Holds                                                                                                                  |
 | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |

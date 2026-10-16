@@ -331,36 +331,40 @@ export function WorkspaceRail({ groups, label = 'Workspace' }) {
           open
             ? 'fixed top-(--chrome-top) bottom-0 left-0 z-40 flex w-[min(20rem,85vw)] shadow-floating transition-[opacity,translate] duration-(--duration-sheet) ease-drawer starting:-translate-x-4 starting:opacity-0'
             : 'hidden'
-        } flex-col overflow-y-auto overscroll-contain bg-opsnav [view-transition-name:app-rail] focus-visible:outline-none lg:sticky lg:top-(--chrome-top) lg:z-auto lg:flex lg:h-[calc(100dvh-var(--chrome-top))] lg:shrink-0 lg:border-r lg:border-opsnav-line lg:shadow-none ${
+        } flex-col overflow-hidden bg-opsnav [view-transition-name:app-rail] focus-visible:outline-none lg:sticky lg:top-(--chrome-top) lg:z-auto lg:flex lg:h-[calc(100dvh-var(--chrome-top))] lg:shrink-0 lg:border-r lg:border-opsnav-line lg:shadow-none ${
           collapsed ? 'lg:w-18' : 'lg:w-64'
         }`}
       >
-        <nav aria-label={label} className="flex flex-1 flex-col gap-6 px-3 pt-5">
-          {groups.map((group) => (
-            <div key={group.id}>
-              {/* A label, not a heading: the rail sits before the page's own
+        <nav aria-label={label} className="flex min-h-0 flex-1 flex-col">
+          {/* The entries scroll on their own, above the fold control, so a
+              long rail never slides an entry under it. */}
+          <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-3 py-5">
+            {groups.map((group) => (
+              <div key={group.id}>
+                {/* A label, not a heading: the rail sits before the page's own
                   h1, and headings here would put navigation at the top of a
                   screen reader's list of the page's sections. */}
-              <p
-                id={`${labelId}-${group.id}`}
-                className={`px-3 pb-2 text-caption font-semibold text-ink-subtle ${
-                  collapsed ? 'lg:sr-only' : ''
-                }`}
-              >
-                {group.label}
-              </p>
-              <ul aria-labelledby={`${labelId}-${group.id}`} className="flex flex-col gap-0.5">
-                {group.items.map((item) => (
-                  <li key={item.href}>
-                    <RailLink item={item} current={item.href === current} collapsed={collapsed} />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+                <p
+                  id={`${labelId}-${group.id}`}
+                  className={`px-3 pb-2 text-caption font-semibold text-ink-subtle ${
+                    collapsed ? 'lg:sr-only' : ''
+                  }`}
+                >
+                  {group.label}
+                </p>
+                <ul aria-labelledby={`${labelId}-${group.id}`} className="flex flex-col gap-0.5">
+                  {group.items.map((item) => (
+                    <li key={item.href}>
+                      <RailLink item={item} current={item.href === current} collapsed={collapsed} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
           {/* Folding the rail is part of moving around, so it lives in the
               navigation, at its foot, on a desk only. */}
-          <div className="sticky bottom-0 mt-auto hidden border-t border-opsnav-line bg-opsnav py-3 lg:block">
+          <div className="hidden shrink-0 border-t border-opsnav-line px-3 py-3 lg:block">
             <button
               type="button"
               onClick={toggleCollapsed}
