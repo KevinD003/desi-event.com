@@ -25,6 +25,25 @@ const EVENT_COUNT = 60
 /** Marks every row this suite creates, so cleanup cannot touch anything else. */
 const TAG = 'facettest'
 
+/**
+ * Three cities with the same number of events, named so that the tie between
+ * them is broken differently by byte order and by a locale.
+ *
+ * The facet SQL breaks a tie on count by value in byte order (`COLLATE "C"`),
+ * so `X` (0x58) comes before `_` (0x5F), which comes before `a` (0x61). ICU,
+ * and so `String.prototype.localeCompare`, puts punctuation before letters and
+ * compares letters before case, which reverses all three. The suite owns these
+ * rows, so the case is exercised on every run rather than only when another
+ * suite's fixtures happen to be in the database at the moment the facets are
+ * read.
+ *
+ * Listed in the order the API must return them.
+ */
+const TIE_CITIES = Object.freeze([`${TAG}Xtie`, `${TAG}_tie`, `${TAG}atie`])
+
+/** Events per tie city: equal, so only the value can order them. */
+const TIE_EVENTS_PER_CITY = 2
+
 let prisma = null
 let reachable = false
 let organizationId = null
@@ -87,6 +106,24 @@ beforeAll(async () => {
     }),
   ])
 
+  const tieVenues = await Promise.all(
+    TIE_CITIES.map((city, index) =>
+      prisma.venue.upsert({
+        where: { id: `${TAG}venuetie${index}000000000000000` },
+        update: {},
+        create: {
+          id: `${TAG}venuetie${index}000000000000000`,
+          name: `Tie Hall ${index}`,
+          addressLine1: `${index + 3} Tie Road`,
+          city,
+          region: 'MH',
+          postalCode: '400001',
+          country: 'IN',
+        },
+      }),
+    ),
+  )
+
   const base = new Date('2030-01-01T00:00:00.000Z').getTime()
 
   for (let index = 0; index < EVENT_COUNT; index += 1) {
@@ -112,6 +149,31 @@ beforeAll(async () => {
         publishedAt: new Date(base),
       },
     })
+  }
+
+  for (const [venueIndex, venue] of tieVenues.entries()) {
+    for (let index = 0; index < TIE_EVENTS_PER_CITY; index += 1) {
+      const day = EVENT_COUNT + venueIndex * TIE_EVENTS_PER_CITY + index
+
+      await prisma.event.upsert({
+        where: { slug: `${TAG}-event-tie-${venueIndex}-${index}` },
+        update: {},
+        create: {
+          organizationId,
+          venueId: venue.id,
+          title: `Facet Tie Event ${venueIndex}-${index}`,
+          slug: `${TAG}-event-tie-${venueIndex}-${index}`,
+          summary: 'Fixture',
+          description: 'Fixture event for the facet tie-break.',
+          category: 'COMEDY',
+          status: 'PUBLISHED',
+          startsAt: new Date(base + day * 86_400_000),
+          endsAt: new Date(base + day * 86_400_000 + 7_200_000),
+          languages: ['Hindi'],
+          publishedAt: new Date(base),
+        },
+      })
+    }
   }
 }, 120_000)
 
@@ -179,10 +241,27 @@ describe('facets cover the complete eligible set', () => {
 
     const facets = await loadEventFacets(prisma)
 
+    // The SQL's `value COLLATE "C"` compares UTF-8 bytes, so this does too.
+    // `localeCompare` would not: it orders `_` before letters, which made this
+    // assertion fail whenever another suite's `Snake_town` and `SnakeXtown`
+    // happened to share a count.
+    const byBytes = (a, b) => Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'))
+
     for (const list of [facets.categories, facets.cities, facets.languages, facets.formats]) {
-      const sorted = [...list].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+      const sorted = [...list].sort((a, b) => b.count - a.count || byBytes(a.value, b.value))
       expect(list).toEqual(sorted)
     }
+  })
+
+  it('breaks a tie on count by value in byte order, whatever the database collation', async () => {
+    if (!reachable) return
+
+    const facets = await loadEventFacets(prisma)
+    const ties = facets.cities.filter((entry) => TIE_CITIES.includes(entry.value))
+
+    // Byte order, not ICU's `_tie`, `atie`, `Xtie`, and not left to the
+    // database's default collation, which differs between environments.
+    expect(ties).toEqual(TIE_CITIES.map((value) => ({ value, count: TIE_EVENTS_PER_CITY })))
   })
 
   it('excludes draft events from the public facet universe', async () => {
