@@ -528,3 +528,86 @@ export function groupPassSummaries(tickets) {
         Date.parse(left.event?.startsAt ?? '') - Date.parse(right.event?.startsAt ?? ''),
     )
 }
+
+/**
+ * The calendar day an instant falls on in a zone, as `YYYY-MM-DD`.
+ *
+ * @param {number} at Milliseconds since the epoch.
+ * @param {string} timeZone IANA zone.
+ * @returns {string} The day.
+ */
+function dayIn(at, timeZone) {
+  // `en-CA` writes dates as YYYY-MM-DD, which compare as strings.
+  return new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone,
+  }).format(new Date(at))
+}
+
+/**
+ * Whether today, at the venue, is the day this ticket is for.
+ *
+ * The night's own start when the ticket is for one night of several, else the
+ * event's; the venue's calendar, not the reader's, because "today" is the day
+ * written on the door. Only a ticket that still admits has an event day: a
+ * refunded ticket for tonight is not tonight's ticket.
+ *
+ * @param {object} ticket A ticket with `admits`, its `event` and maybe its `session`.
+ * @param {Date} [now] The instant to judge against.
+ * @returns {boolean} True on the day.
+ */
+export function isEventDay(ticket, now = new Date()) {
+  if (!ticket?.admits) return false
+
+  const startsAt = Date.parse(ticket.session?.startsAt ?? ticket.event?.startsAt ?? '')
+
+  if (Number.isNaN(startsAt)) return false
+
+  const zone = ticket.session?.timezone || ticket.event?.timezone || 'UTC'
+
+  try {
+    return dayIn(startsAt, zone) === dayIn(now.getTime(), zone)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The date as a ticket's stub prints it: the month, the day of the month in
+ * large figures, and the weekday with the time, in the venue's zone.
+ *
+ * @param {string|null|undefined} startsAt An ISO-8601 instant.
+ * @param {string} [timeZone] IANA zone; UTC when absent or unknown.
+ * @returns {{month: string, day: string, weekday: string, time: string, iso: string}|null} The parts, or null.
+ */
+export function stubDate(startsAt, timeZone = 'UTC') {
+  const at = Date.parse(startsAt ?? '')
+
+  if (Number.isNaN(at)) return null
+
+  /**
+   * One part of the date, in the zone (UTC when the zone is unknown).
+   *
+   * @param {Intl.DateTimeFormatOptions} options What to format.
+   * @returns {string} The part.
+   */
+  const part = (options) => {
+    try {
+      return new Intl.DateTimeFormat('en-US', { ...options, timeZone: timeZone || 'UTC' }).format(
+        new Date(at),
+      )
+    } catch {
+      return new Intl.DateTimeFormat('en-US', { ...options, timeZone: 'UTC' }).format(new Date(at))
+    }
+  }
+
+  return {
+    month: part({ month: 'short' }),
+    day: part({ day: 'numeric' }),
+    weekday: part({ weekday: 'short' }),
+    time: part({ hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }),
+    iso: new Date(at).toISOString(),
+  }
+}

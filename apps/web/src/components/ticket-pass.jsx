@@ -24,8 +24,18 @@
  *   analytics event, no log line.
  * - It goes away when the holder hides it, when they leave the page, and when
  *   the page is hidden or put in the back-forward cache.
- * - It does not move. No animation, no pulsing, nothing that a reduced-motion
- *   setting would have to turn off.
+ * - The code does not move. No animation, no pulsing, nothing over it. The
+ *   panel it sits on is uncovered once, from the tear line, as it appears
+ *   (`ticket-reveal`, a clip-path in `commerce.css`, only without a
+ *   reduced-motion setting); the code itself is never scaled, faded or
+ *   shifted, so a scanner can read it the moment it is there.
+ *
+ * ## A pass the API will not issue
+ *
+ * A 409 carries the API's own sentence (the door's, from the same function):
+ * the order is not paid, the event was cancelled, the ticket has no pass. That
+ * sentence is shown, and handed to the page's `TicketStanding`, so the page
+ * stops saying the ticket admits while its pass says it does not.
  *
  * ## A ticket booked to pay at the door
  *
@@ -39,9 +49,13 @@
  * @module components/ticket-pass
  */
 
+import './commerce.css'
+
+import { Icon } from '@desi-event/ui/icons'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { StatusChip } from '../app/account/orders/status-chip.jsx'
+import { useTicketStanding } from './ticket-standing.jsx'
 import { Alert, Button } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { qrMatrix, qrPath } from '../lib/qr.js'
@@ -84,6 +98,26 @@ const REFUSALS = Object.freeze({
   429: 'Too many requests for this pass. Wait a minute and try again.',
 })
 
+/** The longest API sentence a refusal shows; anything longer is not a sentence for a holder. */
+const MAX_SENTENCE = 200
+
+/**
+ * What a 409 from the pass endpoint says: the API's own sentence when it sent
+ * one (it is the door's, written for the holder), else the general one.
+ *
+ * @param {object|null} body The response body.
+ * @returns {string} The sentence.
+ */
+export function conflictSentence(body) {
+  const message = body?.error?.code === 'CONFLICT' ? body.error.message : null
+
+  if (typeof message === 'string' && message.trim() && message.length <= MAX_SENTENCE) {
+    return message.trim()
+  }
+
+  return REFUSALS[409]
+}
+
 /**
  * @typedef {object} TicketPassProps
  * @property {string} ticketId The ticket.
@@ -100,6 +134,11 @@ export function TicketPass({ ticketId }) {
   const [drawing, setDrawing] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  // Set when the API refused the pass for good (a 409): the button that asks
+  // again is taken away, because asking again gets the same answer.
+  const [refused, setRefused] = useState(false)
+  const standing = useTicketStanding()
+  const refuse = standing?.refuse
   const showButton = useRef(null)
   const hideButton = useRef(null)
   // Set when the holder has just asked to see the pass, so focus moves to the
@@ -162,6 +201,16 @@ export function TicketPass({ ticketId }) {
       })
 
       if (!response.ok) {
+        if (response.status === 409) {
+          const sentence = conflictSentence(await response.json().catch(() => null))
+
+          setError(sentence)
+          setRefused(true)
+          refuse?.(sentence)
+
+          return
+        }
+
         setError(REFUSALS[response.status] ?? 'The pass could not be loaded. Try again.')
 
         return
@@ -184,15 +233,15 @@ export function TicketPass({ ticketId }) {
   return (
     <div className="mt-4">
       {drawing ? (
-        <div className="rounded-card border border-line bg-surface-raised p-5 shadow-card sm:p-6">
+        <div className="ticket-reveal">
           {/* The figure is the code and its caption, and nothing else: a
               `figcaption` has to be the figure's first or last child, so the
               control that takes the pass away sits after it, not inside. */}
-          <figure className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
+          <figure className="flex flex-col gap-4">
             {/* A white frame round the code, wider than the code's own quiet
                 zone, so a scanner finds the edge even against a dark case or
                 a screen protector's glare. White in both registers. */}
-            <div className="mx-auto w-full max-w-[18rem] shrink-0 rounded-control border border-line bg-surface-raised p-3 sm:mx-0 sm:w-60">
+            <div className="mx-auto w-full max-w-[18rem] rounded-control border border-line bg-surface-raised p-3">
               <svg
                 role="img"
                 aria-labelledby={titleId}
@@ -205,8 +254,8 @@ export function TicketPass({ ticketId }) {
                 <path d={drawing.path} fill="#000000" />
               </svg>
             </div>
-            <figcaption className="min-w-0 flex-1 space-y-3 text-sm text-ink-muted">
-              <p className="text-base text-ink">
+            <figcaption className="min-w-0 space-y-2 text-caption text-ink-muted">
+              <p className="text-label text-ticket-ink">
                 <strong className="font-semibold">Show this at the door.</strong> Turn your screen
                 brightness up if the scanner struggles.
               </p>
@@ -222,25 +271,35 @@ export function TicketPass({ ticketId }) {
             ref={hideButton}
             type="button"
             variant="secondary"
-            className="mt-5"
+            fullWidth
+            className="mt-4"
             onClick={() => hide()}
           >
             Hide pass
           </Button>
         </div>
-      ) : (
-        <div className="rounded-card border border-dashed border-line-strong bg-surface-subtle p-5 sm:p-6">
-          <Button ref={showButton} type="button" loading={busy} onClick={show}>
+      ) : refused ? null : (
+        <div className="flex flex-col gap-3">
+          {/* Where the code will be: an empty, dashed square the size of the
+              pass, so the stub reads as a stub before it is asked for.
+              Decoration only. */}
+          <div
+            aria-hidden="true"
+            className="mx-auto hidden aspect-square w-full max-w-[13rem] items-center justify-center rounded-control border-2 border-dashed border-line-strong text-ink-muted md:flex"
+          >
+            <Icon name="qr" className="size-10" />
+          </div>
+          <Button ref={showButton} type="button" fullWidth loading={busy} onClick={show}>
             Show my entry pass
           </Button>
-          <p className="mt-3 text-sm text-ink-muted">
+          <p className="text-caption text-ink-muted">
             Shown only on this device, only while this page is open. It is not stored anywhere.
           </p>
         </div>
       )}
 
       {error ? (
-        <Alert variant="info" className="mt-3">
+        <Alert variant="info" className={refused ? '' : 'mt-3'}>
           {error}
         </Alert>
       ) : null}

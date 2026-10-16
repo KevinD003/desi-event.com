@@ -1,10 +1,11 @@
 /**
- * The wallet, as cards.
+ * The wallet, as tickets.
  *
  * What these pin is what the redesign added and must not get wrong:
  *
- *   - **The poster is scenery.** Every card draws its event's poster, and none
- *     of them is announced: the card's heading already names the event.
+ *   - **A ticket is drawn as a ticket.** A face (the night, where, the tier,
+ *     the references) and a stub (the date, the way to the pass); nothing is
+ *     announced twice, and the gold keyline is drawn only on the day.
  *   - **The way to the pass is offered only where the server said the ticket
  *     admits**, and it goes to the ticket's own page — the pass itself is
  *     never on this list.
@@ -25,7 +26,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../../lib/organizer-api.js', () => ({ getMyTickets: vi.fn() }))
 
 const { getMyTickets } = await import('../../lib/organizer-api.js')
-const { describePoster } = await import('../../lib/poster-art.js')
 const { default: MyTicketsPage } = await import('./page.jsx')
 
 /**
@@ -87,27 +87,58 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('MyTicketsPage', () => {
-  it('draws each ticket’s poster without announcing it', async () => {
+  it('draws each ticket as a ticket: a face and a stub, and no picture to announce', async () => {
     const { container } = await renderWallet([walletTicket()])
 
-    expect(container.querySelectorAll('[data-slot="poster-thumb"] svg')).toHaveLength(1)
+    const ticket = container.querySelector('li [data-slot="ticket"]')
+
+    expect(ticket).not.toBeNull()
+    expect(ticket.querySelector('.ticket-face h3 a')).toHaveTextContent(
+      'Navratri Night One: Garba Under the Lights',
+    )
+    expect(ticket.querySelector('.ticket-stub')).not.toBeNull()
+    // The poster was the same few scenes on every card; the ticket carries
+    // the night's words instead, and nothing for a screen reader to skip.
+    expect(container.querySelectorAll('[data-slot="poster-thumb"]')).toHaveLength(0)
     expect(screen.queryByRole('img')).toBeNull()
   })
 
-  it('draws the same scene as the event’s own page, from the category the API sends', async () => {
-    const workshop = walletTicket()
-    workshop.event = { ...workshop.event, category: 'WORKSHOP' }
+  it('prints the night’s date on the stub in the venue’s zone, once for a screen reader', async () => {
+    // 23:30 UTC on 10 Oct is 7:30 PM on the 10th in New York, not the 11th.
+    const { container } = await renderWallet([walletTicket()])
 
-    const { container } = await renderWallet([walletTicket(), workshop])
-    const scenes = [...container.querySelectorAll('[data-slot="poster-thumb"] svg')].map((svg) =>
-      svg.getAttribute('aria-label'),
+    const stub = container.querySelector('.ticket-stub')
+    const date = stub.querySelector('p[aria-hidden="true"]')
+
+    expect(date).toHaveTextContent(/^10Oct/u)
+    expect(date).toHaveTextContent('7:30 PM EDT')
+    // The face says it in words, inside a time element a machine can read.
+    expect(container.querySelector('.ticket-face dd time')).toHaveAttribute(
+      'dateTime',
+      '2030-10-10T23:30:00.000Z',
     )
+  })
 
-    expect(describePoster('WORKSHOP')).not.toBe(describePoster('GARBA_DANDIYA'))
-    expect(scenes).toEqual([
-      `${describePoster('GARBA_DANDIYA')} for Navratri Night One: Garba Under the Lights`,
-      `${describePoster('WORKSHOP')} for Navratri Night One: Garba Under the Lights`,
-    ])
+  it('says "Today" and draws the keyline only on the day the ticket is for, at the venue', async () => {
+    vi.useFakeTimers({ now: new Date('2030-10-10T16:00:00.000Z'), toFake: ['Date'] })
+
+    try {
+      const { container } = await renderWallet([walletTicket()])
+
+      expect(screen.getByText('Today')).toBeInTheDocument()
+      expect(
+        container.querySelector('[data-event-day] [data-slot="ticket-keyline"]'),
+      ).not.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+
+    cleanup()
+
+    const { container } = await renderWallet([walletTicket()])
+
+    expect(screen.queryByText('Today')).toBeNull()
+    expect(container.querySelector('[data-slot="ticket-keyline"]')).toBeNull()
   })
 
   it('offers the entry pass only for a ticket the server says admits, on its own page', async () => {

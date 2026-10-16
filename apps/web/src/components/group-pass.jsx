@@ -23,6 +23,8 @@
  * @module components/group-pass
  */
 
+import './commerce.css'
+
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { Alert, Button } from './ui.jsx'
@@ -238,9 +240,9 @@ export function GroupPass({ reference, admits }) {
       </p>
 
       {shown ? (
-        <div className="rounded-card border border-line bg-surface-raised p-5 shadow-card sm:p-6">
-          <figure className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
-            <div className="mx-auto w-full max-w-[18rem] shrink-0 rounded-control border border-line bg-surface-raised p-3 sm:mx-0 sm:w-60">
+        <div className="ticket-reveal">
+          <figure className="flex flex-col gap-4">
+            <div className="mx-auto w-full max-w-[18rem] rounded-control border border-line bg-surface-raised p-3">
               <svg
                 role="img"
                 aria-labelledby={titleId}
@@ -255,8 +257,8 @@ export function GroupPass({ reference, admits }) {
                 <path d={shown.path} fill="#000000" />
               </svg>
             </div>
-            <figcaption className="min-w-0 flex-1 space-y-3 text-sm text-ink-muted">
-              <p className="text-base text-ink">
+            <figcaption className="min-w-0 space-y-3 text-caption text-ink-muted">
+              <p className="text-label text-ticket-ink">
                 <strong className="font-semibold">Admits {count}.</strong> Show this at the door
                 when your group arrives; the steward chooses who is there.
               </p>
@@ -317,7 +319,7 @@ export function GroupPass({ reference, admits }) {
             </div>
           ) : null}
 
-          <div className="mt-5 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <Button ref={hideButton} type="button" variant="secondary" onClick={() => hide()}>
               Hide group pass
             </Button>
@@ -334,11 +336,11 @@ export function GroupPass({ reference, admits }) {
           </div>
         </div>
       ) : (
-        <div className="rounded-card border border-dashed border-line-strong bg-surface-subtle p-5 sm:p-6">
-          <Button ref={showButton} type="button" loading={busy} onClick={show}>
+        <div className="flex flex-col gap-3">
+          <Button ref={showButton} type="button" fullWidth loading={busy} onClick={show}>
             Show group pass
           </Button>
-          <p className="mt-3 text-sm text-ink-muted">
+          <p className="text-caption text-ink-muted">
             Shown only on this device, only while this page is open. It is not stored anywhere.
           </p>
         </div>

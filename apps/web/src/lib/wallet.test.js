@@ -21,6 +21,8 @@ import {
   TICKET_STATUS_WORDS,
   eventIsOver,
   groupTickets,
+  isEventDay,
+  stubDate,
   owesAtDoor,
   seatText,
   sectionFor,
@@ -599,5 +601,57 @@ describe('a ticket booked to pay at the venue (SPEC3 §12.7, SPEC3-XI §12.7)', 
         currency: 'USD',
       }),
     ])
+  })
+})
+
+describe('isEventDay', () => {
+  // 7:30 PM on 3 Oct in Los Angeles is 02:30 UTC on the 4th.
+  const ticket = {
+    admits: true,
+    event: { startsAt: '2026-10-04T02:30:00.000Z', timezone: 'America/Los_Angeles' },
+  }
+
+  it('is the venue’s calendar day, not the reader’s or UTC’s', () => {
+    expect(isEventDay(ticket, new Date('2026-10-03T16:00:00.000Z'))).toBe(true)
+    // Still the 3rd in Los Angeles at 23:00 UTC; already the 4th in UTC.
+    expect(isEventDay(ticket, new Date('2026-10-03T23:00:00.000Z'))).toBe(true)
+    expect(isEventDay(ticket, new Date('2026-10-04T08:00:00.000Z'))).toBe(false)
+    expect(isEventDay(ticket, new Date('2026-10-02T20:00:00.000Z'))).toBe(false)
+  })
+
+  it('follows the ticket’s own night when it is for one night of several', () => {
+    const night2 = {
+      ...ticket,
+      session: { startsAt: '2026-10-05T02:30:00.000Z', timezone: 'America/Los_Angeles' },
+    }
+
+    expect(isEventDay(night2, new Date('2026-10-03T20:00:00.000Z'))).toBe(false)
+    expect(isEventDay(night2, new Date('2026-10-04T20:00:00.000Z'))).toBe(true)
+  })
+
+  it('is never the day of a ticket that does not admit, or one with no date', () => {
+    const at = new Date('2026-10-03T20:00:00.000Z')
+
+    expect(isEventDay({ ...ticket, admits: false }, at)).toBe(false)
+    expect(isEventDay({ admits: true, event: { startsAt: null } }, at)).toBe(false)
+    expect(isEventDay(null, at)).toBe(false)
+  })
+})
+
+describe('stubDate', () => {
+  it('prints the month, the day and the weekday with the time, in the venue’s zone', () => {
+    expect(stubDate('2026-10-04T02:30:00.000Z', 'America/Los_Angeles')).toEqual({
+      month: 'Oct',
+      day: '3',
+      weekday: 'Sat',
+      time: '7:30 PM PDT',
+      iso: '2026-10-04T02:30:00.000Z',
+    })
+  })
+
+  it('falls back to UTC, said so, for a zone it does not know, and to nothing for no date', () => {
+    expect(stubDate('2026-10-04T02:30:00.000Z', 'Mars/Olympus_Mons').time).toBe('2:30 AM UTC')
+    expect(stubDate('not a date')).toBeNull()
+    expect(stubDate(undefined)).toBeNull()
   })
 })

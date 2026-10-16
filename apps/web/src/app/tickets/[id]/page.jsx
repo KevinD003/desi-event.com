@@ -42,13 +42,20 @@ import { HIDDEN_EMAIL } from '@desi-event/schemas'
 import Link from 'next/link'
 
 import { EventChangesList } from '../../../components/event-changes-list.jsx'
+import { TicketObject } from '../../../components/ticket-object.jsx'
 import { TicketPass, VenuePaymentNote } from '../../../components/ticket-pass.jsx'
+import {
+  TicketStanding,
+  TicketStandingChip,
+  TicketStandingProvider,
+} from '../../../components/ticket-standing.jsx'
 import { TicketTransferActions } from '../../../components/ticket-transfer-actions.jsx'
-import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../components/page-state.jsx'
+import { Breadcrumbs, Empty, Forbidden } from '../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
-import { PANEL, PosterThumb, Section, TEXT_LINK } from '../../../components/workspace-kit.jsx'
+import { Section, TEXT_LINK } from '../../../components/workspace-kit.jsx'
 import { deletedForHolder } from '../../../lib/event-control.js'
-import { formatEventWhen, formatTimeZoneLabel } from '../../../lib/format.js'
+import { formatEventWhen, formatInstantIn, formatTimeZoneLabel } from '../../../lib/format.js'
+import { isEventDay } from '../../../lib/wallet.js'
 import { getTicket } from '../../../lib/organizer-api.js'
 import { describeApiRefusal } from '../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../lib/session.js'
@@ -150,9 +157,17 @@ export default async function TicketDetailPage({ params }) {
   // Scoped, with the organisation the payload named. Asked without one this
   // would be a platform question, which is how NF-05 gets in.
   const mayRevoke = sessionCan(session, 'ticket:revoke', organizationId) && status.admits
+  const zone = event.timezone ?? 'UTC'
+  // The day the ticket is for, at the venue: the face says "Today" and a gold
+  // keyline is drawn round it once.
+  const today = isEventDay(
+    { admits: status.admits, event, session: detail.session ?? null },
+    new Date(),
+  )
+  const night = detail.session ?? null
 
   return (
-    <div>
+    <TicketStandingProvider>
       <Breadcrumbs
         trail={[
           { href: '/tickets', label: 'My tickets' },
@@ -160,29 +175,88 @@ export default async function TicketDetailPage({ params }) {
         ]}
       />
 
-      {/* The event's poster beside its title, so the ticket page and the
-          wallet card it was opened from look like the same night. Decoration:
-          the heading names the event. */}
-      <div className={`mt-4 flex flex-col overflow-hidden sm:flex-row ${PANEL}`}>
-        <PosterThumb event={event} className="h-32 sm:h-auto sm:w-56" />
-        <div className="min-w-0 flex-1 p-5 sm:p-6">
-          <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
-            Ticket
-          </p>
-          <h1 className="mt-2 text-h2 font-semibold text-ink">{event.title}</h1>
-          <p className="mt-2 text-ink-muted">
-            {/* The event's own clock, zone named, as every other account page
-                writes it; this used to print the raw UTC timestamp beside the
-                zone's name, which reads as a local time and is not one. */}
-            <time dateTime={event.startsAt}>{formatEventWhen(event)}</time> ·{' '}
-            {formatTimeZoneLabel(event)}
-          </p>
-          <AsOf asOf={new Date().toISOString()} />
-        </div>
-      </div>
+      {/* The ticket itself: what it is on the face, the pass on the stub. */}
+      <TicketObject
+        className="mt-4"
+        eventDay={today}
+        muted={!status.admits}
+        stubClassName="md:w-80"
+        face={
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              {today ? (
+                <span className="inline-flex min-h-6 items-center rounded-plate bg-celebration px-2 text-micro font-bold text-highlight-ink uppercase">
+                  Today
+                </span>
+              ) : null}
+              <TicketStandingChip admits={status.admits} />
+            </div>
+            <h1 className="mt-3 font-display text-h1 font-bold text-balance text-ticket-ink">
+              {event.title}
+            </h1>
+            <p className="mt-3 text-label text-ticket-ink">
+              {/* The event's own clock, zone named, as every other account
+                  page writes it. */}
+              <time dateTime={event.startsAt}>{formatEventWhen(event)}</time> ·{' '}
+              {formatTimeZoneLabel(event)}
+            </p>
+
+            <dl className="mt-6 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+              <div className="min-w-0">
+                <dt className="text-caption font-medium text-ink-muted">Reference</dt>
+                <dd className="mt-0.5 font-mono text-label font-semibold">{ticket.code}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-caption font-medium text-ink-muted">Name on it</dt>
+                <dd className="mt-0.5 text-label font-semibold break-words">
+                  {ticket.attendeeName ?? 'Not given'}
+                </dd>
+              </div>
+              {night ? (
+                <div className="min-w-0">
+                  <dt className="text-caption font-medium text-ink-muted">Night</dt>
+                  <dd className="mt-0.5 text-label font-semibold">{sessionDisplayLabel(night)}</dd>
+                </div>
+              ) : null}
+              {ticket.checkedInAt ? (
+                <div className="min-w-0">
+                  <dt className="text-caption font-medium text-ink-muted">Admitted</dt>
+                  <dd className="mt-0.5 text-label font-semibold">
+                    <time dateTime={ticket.checkedInAt}>
+                      {formatInstantIn(ticket.checkedInAt, zone)}
+                    </time>
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </>
+        }
+        stub={
+          holder && status.admits ? (
+            // `entry-pass` is where the wallet's "Show my entry pass" link lands.
+            <section aria-labelledby="entry-pass" className="flex flex-col pt-2 md:pt-0 md:pl-2">
+              <h2 id="entry-pass" className="font-display text-h3 font-bold text-ticket-ink">
+                Your entry pass
+              </h2>
+              <TicketPass ticketId={ticket.id} />
+            </section>
+          ) : (
+            <div className="flex flex-col gap-2 pt-2 md:pt-0 md:pl-2">
+              <p className="font-display text-h3 font-bold text-ticket-ink">
+                {holder ? 'No pass' : 'Pass'}
+              </p>
+              <p className="text-caption text-ink-muted">
+                {holder
+                  ? 'This ticket does not admit anybody now, so there is no pass to show.'
+                  : 'Only the person holding a ticket can see its pass.'}
+              </p>
+            </div>
+          )
+        }
+      />
 
       {event.status === 'DELETED' ? (
-        <p className="mt-4 max-w-prose rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-ink">
+        <p className="mt-6 max-w-prose rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-ink">
           {deletedForHolder(
             (detail.eventChanges ?? []).find((notice) => notice.kind === 'DELETED') ?? null,
           )}{' '}
@@ -194,23 +268,14 @@ export default async function TicketDetailPage({ params }) {
         <div className="mt-8">
           <EventChangesList
             notices={detail.eventChanges}
-            timeZone={event.timezone ?? 'UTC'}
+            timeZone={zone}
             sessions={detail.session ? [detail.session] : []}
           />
         </div>
       ) : null}
 
       <Section id="status-heading" title="Where it stands">
-        <p
-          className={`mt-4 rounded-card border p-4 text-sm ${
-            status.admits
-              ? 'border-status-success/25 bg-status-success-soft text-status-success'
-              : 'border-line-strong bg-surface-subtle text-ink'
-          }`}
-        >
-          {/* The word, not only the colour. */}
-          <strong>{status.admits ? 'Admits' : 'Does not admit'}.</strong> {status.label}
-        </p>
+        <TicketStanding admits={status.admits} label={status.label} />
 
         {/* A ticket booked to pay at the door says, to its holder, what it
             owes there, that it was cancelled because it was not paid for, or
@@ -222,34 +287,9 @@ export default async function TicketDetailPage({ params }) {
         {holder ? (
           <VenuePaymentNote
             ticket={{ status: ticket.status, venuePayment: ticket.venuePayment ?? null }}
-            timeZone={event.timezone ?? 'UTC'}
+            timeZone={zone}
           />
         ) : null}
-
-        <dl className={`mt-4 grid grid-cols-1 gap-x-6 gap-y-3 p-5 text-sm sm:grid-cols-3 ${PANEL}`}>
-          <div className="min-w-0">
-            <dt className="text-xs font-medium text-ink-subtle">Reference</dt>
-            <dd className="mt-0.5 font-mono text-ink">{ticket.code}</dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-xs font-medium text-ink-subtle">Name on it</dt>
-            <dd className="mt-0.5 break-words text-ink">{ticket.attendeeName ?? 'Not given'}</dd>
-          </div>
-          {detail.session ? (
-            <div className="min-w-0">
-              <dt className="text-xs font-medium text-ink-subtle">Night</dt>
-              <dd className="mt-0.5 text-ink">{sessionDisplayLabel(detail.session)}</dd>
-            </div>
-          ) : null}
-          {ticket.checkedInAt ? (
-            <div className="min-w-0">
-              <dt className="text-xs font-medium text-ink-subtle">Admitted</dt>
-              <dd className="mt-0.5 text-ink">
-                <time dateTime={ticket.checkedInAt}>{ticket.checkedInAt}</time>
-              </dd>
-            </div>
-          ) : null}
-        </dl>
       </Section>
 
       {joinUrl && joinHost ? (
@@ -271,13 +311,6 @@ export default async function TicketDetailPage({ params }) {
         </Section>
       ) : null}
 
-      {holder && status.admits ? (
-        // `entry-pass` is where the wallet's "Show my entry pass" link lands.
-        <Section id="entry-pass" title="Your entry pass">
-          <TicketPass ticketId={ticket.id} />
-        </Section>
-      ) : null}
-
       <Section id="history-heading" title="Where it has been">
         {transfers.length === 0 ? (
           <Empty
@@ -285,9 +318,9 @@ export default async function TicketDetailPage({ params }) {
             description="This ticket has stayed with whoever bought it."
           />
         ) : (
-          <ol className="mt-4 space-y-3">
+          <ol className="mt-4 divide-y divide-line border-y border-line">
             {transfers.map((transfer) => (
-              <li key={transfer.id} className={`p-4 ${PANEL}`}>
+              <li key={transfer.id} className="py-4">
                 <p className="font-semibold text-ink">
                   {TRANSFER_STATUS[transfer.status] ?? transfer.status}
                 </p>
@@ -295,11 +328,18 @@ export default async function TicketDetailPage({ params }) {
                   {transfer.toEmailMasked === HIDDEN_EMAIL
                     ? 'Offered on '
                     : `Offered to ${transfer.toEmailMasked} on `}
-                  <time dateTime={transfer.createdAt}>{transfer.createdAt}</time>.
+                  <time dateTime={transfer.createdAt}>
+                    {formatInstantIn(transfer.createdAt, zone)}
+                  </time>
+                  .
                   {transfer.status === 'PENDING' ? (
                     <>
                       {' '}
-                      Expires <time dateTime={transfer.expiresAt}>{transfer.expiresAt}</time>.
+                      Expires{' '}
+                      <time dateTime={transfer.expiresAt}>
+                        {formatInstantIn(transfer.expiresAt, zone)}
+                      </time>
+                      .
                     </>
                   ) : null}
                 </p>
@@ -344,6 +384,6 @@ export default async function TicketDetailPage({ params }) {
           Back to my tickets
         </Link>
       </p>
-    </div>
+    </TicketStandingProvider>
   )
 }

@@ -1,0 +1,128 @@
+/*
+ * The ticket as an object (ticket-object.jsx) and the checkout route line
+ * (checkout-route.jsx): the commerce surfaces' own drawing.
+ *
+ * The ticket.
+ *
+ * A ticket is two pieces of card stock joined at a tear line: the face (the
+ * event, the holder, the tier) and the stub (the pass, or the date). Each
+ * piece cuts its own half of the two notches at the tear, with a mask, so
+ * the page shows through them whatever colour the page is. Below `md` the
+ * stub sits under the face and the tear runs across; from `md` it sits
+ * beside it and the tear runs down.
+ *
+ * Only the face and the stub are masked. The QR code inside the stub is never
+ * masked, clipped or animated: a scanner needs it whole and still.
+ */
+
+.ticket-face,
+.ticket-stub {
+  --ticket-notch: 0.875rem;
+  --ticket-cut: calc(var(--ticket-notch) + 0.5px);
+  /* The notch's own edge: a 1px ring just outside the cut, in the ticket's line. */
+  --ticket-edge:
+    transparent var(--ticket-notch), var(--color-line-strong) var(--ticket-cut),
+    var(--color-line-strong) calc(var(--ticket-notch) + 1.25px),
+    transparent calc(var(--ticket-notch) + 1.75px);
+}
+
+/* Phone: the face's notches at its bottom corners, the stub's at its top. */
+.ticket-face {
+  mask-image:
+    radial-gradient(circle at 0 100%, transparent var(--ticket-notch), black var(--ticket-cut)),
+    radial-gradient(circle at 100% 100%, transparent var(--ticket-notch), black var(--ticket-cut));
+  mask-composite: intersect;
+  background-image:
+    radial-gradient(circle at 0 100%, var(--ticket-edge)),
+    radial-gradient(circle at 100% 100%, var(--ticket-edge));
+}
+
+.ticket-stub {
+  mask-image:
+    radial-gradient(circle at 0 0, transparent var(--ticket-notch), black var(--ticket-cut)),
+    radial-gradient(circle at 100% 0, transparent var(--ticket-notch), black var(--ticket-cut));
+  mask-composite: intersect;
+  background-image:
+    radial-gradient(circle at 0 0, var(--ticket-edge)),
+    radial-gradient(circle at 100% 0, var(--ticket-edge));
+}
+
+/* From `md` (48rem): the stub beside the face, the tear running down. */
+@media (width >= 48rem) {
+  .ticket-object[data-layout='row'] .ticket-face {
+    mask-image:
+      radial-gradient(circle at 100% 0, transparent var(--ticket-notch), black var(--ticket-cut)),
+      radial-gradient(circle at 100% 100%, transparent var(--ticket-notch), black var(--ticket-cut));
+    background-image:
+      radial-gradient(circle at 100% 0, var(--ticket-edge)),
+      radial-gradient(circle at 100% 100%, var(--ticket-edge));
+  }
+
+  .ticket-object[data-layout='row'] .ticket-stub {
+    mask-image:
+      radial-gradient(circle at 0 0, transparent var(--ticket-notch), black var(--ticket-cut)),
+      radial-gradient(circle at 0 100%, transparent var(--ticket-notch), black var(--ticket-cut));
+    background-image:
+      radial-gradient(circle at 0 0, var(--ticket-edge)),
+      radial-gradient(circle at 0 100%, var(--ticket-edge));
+  }
+}
+
+/* Forced colours draw the borders and nothing else; the notches stay cut. */
+@media (forced-colors: active) {
+  .ticket-face,
+  .ticket-stub {
+    background-image: none;
+  }
+}
+
+/*
+ * The event-day keyline: a gold line drawn once around the face, inside its
+ * edge, the day the ticket is for. Decoration (the face also says "Today" in
+ * words). Drawn by animating the dash offset of a rect whose length is
+ * normalised to 100; at rest, and under reduced motion, the line is simply
+ * there.
+ */
+.ticket-keyline rect {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ticket-keyline rect {
+    animation: ticket-keyline 1400ms var(--ease-in-out) 200ms both;
+  }
+
+  /*
+   * The pass appearing on the stub: the panel is uncovered from the tear
+   * line outward, once, as the holder asks for it. Nothing moves: the clip
+   * opens over a panel that is already in place, so the code is never
+   * scaled, faded or shifted.
+   */
+  .ticket-reveal {
+    animation: ticket-reveal 280ms var(--ease-out) both;
+  }
+
+  /* The checkout's route line, drawn from one stop to the next. */
+  .route-line-fill {
+    transition: transform var(--duration-sheet) var(--ease-in-out);
+  }
+}
+
+@keyframes ticket-keyline {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes ticket-reveal {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
