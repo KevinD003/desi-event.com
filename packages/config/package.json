@@ -8,6 +8,7 @@
     "./eslint": "./src/eslint.js",
     "./vitest-node": "./src/vitest-node.js",
     "./vitest-react": "./src/vitest-react.js",
+    "./source-name-scan": "./src/source-name-scan.js",
     "./tailwind": "./src/tailwind.css",
     "./package.json": "./package.json"
   },

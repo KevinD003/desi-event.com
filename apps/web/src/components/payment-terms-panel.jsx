@@ -14,8 +14,8 @@
  *
  * The page decides who may change anything and hands this booleans and a
  * reason it may not (`readOnly`): an administrator who belongs to the event's
- * organisation, a deleted event, an event sold on its listing's own site. The
- * API decides every write again.
+ * organisation, or a deleted event. An imported event's booking fee is set
+ * here like any other's. The API decides every write again.
  *
  * @module components/payment-terms-panel
  */
@@ -39,7 +39,6 @@ import {
   DELETED_TERMS_SENTENCE,
   FEE_FORM_LIMITS,
   MEMBER_TERMS_SENTENCE,
-  SOLD_ON_SOURCE_TERMS_SENTENCE,
   UNPOSTED_TERMS_SENTENCE,
   VENUE_LIMIT_BOUNDS,
   amountBoundsSentence,
@@ -197,7 +196,7 @@ function Refusal({ refusalRef, title, refusal, onReload = null }) {
  * @typedef {object} PaymentTermsPanelProps
  * @property {string} eventId The event.
  * @property {object} terms `paymentTerms.get`'s `data`.
- * @property {'member'|'deleted'|'source'|null} [readOnly] Why nothing can be changed here, or null.
+ * @property {'member'|'deleted'|null} [readOnly] Why nothing can be changed here, or null.
  * @property {boolean} [canCancelUnpaid] Whether the session may cancel unpaid pay-at-the-venue tickets.
  * @property {{priceCents: number, currency: string}|null} [example] The event's cheapest paid public ticket.
  * @property {string} [timeZone] The event's zone, for dates.
@@ -559,9 +558,6 @@ export function PaymentTermsPanel({
 
       {readOnly === 'deleted' ? <p className="text-sm text-ink">{DELETED_TERMS_SENTENCE}</p> : null}
       {readOnly === 'member' ? <p className="text-sm text-ink">{MEMBER_TERMS_SENTENCE}</p> : null}
-      {readOnly === 'source' ? (
-        <p className="text-sm text-ink">{SOLD_ON_SOURCE_TERMS_SENTENCE}</p>
-      ) : null}
       {editable && !terms.posted ? (
         <p className="text-sm text-ink">{UNPOSTED_TERMS_SENTENCE}</p>
       ) : null}

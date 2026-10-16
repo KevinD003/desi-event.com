@@ -302,15 +302,22 @@ describe('what the team at The Desi Events reads about undoing a deletion', () =
     ])
   })
 
-  it('says an imported event only comes off the site, and comes back with its organiser and Sulekha link', () => {
+  it('says an imported event, sold here like any other, comes back with its organiser, and promises no ticket link', () => {
     expect(
       deletionReversibleSentences({ importedFrom: { presentedBy: 'Toronto Garba Collective' } })[2],
     ).toBe(
-      'This event was copied from Sulekha, and its tickets are sold there, not here, so deleting it only takes it off the site. Restoring it brings it back with Toronto Garba Collective named as its organiser, and its “Buy tickets on Sulekha” link as it was.',
+      'This event was imported from its organiser’s listing. Restoring it brings it back with Toronto Garba Collective named as its organiser.',
     )
-    expect(deletionReversibleSentences({ importedFrom: { presentedBy: null } })[2]).toMatch(
-      /Restoring it brings it back with its “Buy tickets on Sulekha” link as it was\.$/u,
+    expect(deletionReversibleSentences({ importedFrom: { presentedBy: null } })[2]).toBe(
+      'This event was imported from its organiser’s listing, which names no organiser. Restoring it brings it back held by the team at The Desi Events, as it is now.',
     )
+    // Its tickets are sold here now: deleting it is not "only taking it off the
+    // site", and there is no link to another site to bring back.
+    for (const presentedBy of ['Toronto Garba Collective', null]) {
+      expect(deletionReversibleSentences({ importedFrom: { presentedBy } }).join(' ')).not.toMatch(
+        /another site|only takes it off|Buy tickets|link/u,
+      )
+    }
   })
 
   it('says, on a deleted published import, that Restore puts it back live at its own address', () => {
@@ -325,8 +332,16 @@ describe('what the team at The Desi Events reads about undoing a deletion', () =
       'Nothing about this event was erased: you can put it back on the site at any time with “Restore…”, giving a reason.',
       'It comes back as Published.',
       'It comes back at the same web address, /events/toronto-garba-night.',
-      'It is still presented by Toronto Garba Collective, and its “Buy tickets on Sulekha” link comes back as it was.',
+      'It is still presented by Toronto Garba Collective.',
     ])
+    expect(
+      restoreSentences({
+        id: 'e1',
+        slug: 'toronto-garba-night',
+        deletion: { statusBefore: 'PUBLISHED' },
+        importedFrom: { presentedBy: null },
+      }).join(' '),
+    ).not.toMatch(/Buy tickets|link comes back/u)
   })
 
   it('never promises the site for an event that comes back as a draft, nor an address that was freed', () => {
@@ -341,7 +356,7 @@ describe('what the team at The Desi Events reads about undoing a deletion', () =
       'Nothing about this event was erased: you can restore it at any time with “Restore…”, giving a reason.',
       'It comes back as a draft: it was waiting for review when it was deleted, so it has to be sent again.',
     ])
-    expect(sentences.join(' ')).not.toMatch(/on the site|web address|Sulekha/u)
+    expect(sentences.join(' ')).not.toMatch(/on the site|web address|Buy tickets|sulekha/iu)
   })
 
   it('says an on-sale event comes back paused, at its own address', () => {

@@ -2,9 +2,8 @@ import { arriving, expect, test, world } from './support/detail-fixtures.mjs'
 import { signIn } from './support/detail-world.mjs'
 import {
   CATEGORY_NOTE,
-  IMPORT_PICTURE_DIR,
+  IMPORT_ALLOWANCE,
   IMPORT_TIME_ZONE,
-  addLatePicture,
   auditRows,
   buildImportDataset,
   changeNoticesFor,
@@ -14,8 +13,8 @@ import {
   expireStepUp,
   importNames,
   importedEvents,
+  ordersOf,
   platformHeldExists,
-  preparePictures,
   seedImport,
   withMovedStart,
 } from './support/seed-import.mjs'
@@ -23,61 +22,76 @@ import { PASSWORD, currentCode, forgetCodeUse } from './support/seed-refusals.mj
 import { confirmStepUp, stepUpPrompt, waitOutCredentialBudget } from './support/step-up.mjs'
 
 /**
- * Importing the events listed on Sulekha (SPEC2-XI area I, §9 row 12), in a
- * real browser against the real API: a platform administrator uploads a
- * listing file, reads the plan, imports it, approves and publishes what it
- * wrote, imports the file again, moves one event to an organiser's own
- * organisation, and copies a picture that came late.
+ * Importing events from organisers' listings (SPEC2-XI area I, §9 row 12; ADR
+ * 0015, addendum 2026-10-15 (2)), in a real browser against the real API: a
+ * platform administrator uploads a listing file, reads the plan, imports it,
+ * approves and publishes what it wrote with its tickets on sale here, a buyer
+ * buys a ticket through the checkout (payment simulated), the file is
+ * imported again, one event is moved to an organiser's own organisation, and
+ * the sold one is taken off the site with its order refunded.
+ *
+ * Nothing in any of it links to, redirects to or contacts the site the
+ * listings were read from: the file carries no address, the importer copies
+ * no picture, and no page names the site or any host of it.
  *
  * ## The story
  *
  *   - **I1** The administrator uploads the file. A file that is not JSON is
- *     refused in the browser, before anything is sent; one naming a ticket
- *     page off Sulekha is refused by the API, problem by problem. The plan
- *     lists each listing with its notes; importing it asks for a second
- *     factor. The run page then shows every event waiting for review and the
- *     one picture that could not be copied, with why.
- *   - **I2** Nothing imported is public before review. Approving two events
- *     publishes both under one second factor: each page says who presents it,
- *     the prices as Sulekha listed them and "Buy tickets on Sulekha", its
- *     website route answers a 302 to the Sulekha page, there is no buy button,
- *     and each card reads "On Sulekha from …".
+ *     refused in the browser, before anything is sent; one that still carries
+ *     a web address (a ticket link) is refused by the API, problem by
+ *     problem. The plan lists each listing with its notes and what its prices
+ *     become; importing it asks for a second factor. The run page then shows
+ *     every event waiting for review, and no picture anywhere: each listed
+ *     price is a ticket type on an allowance of 100, a price sold out on the
+ *     listing is made but not put on sale, and no event has a website link.
+ *   - **I2** Nothing imported is public before review. Approving two
+ *     publishes both under one second factor, with their tickets on sale:
+ *     each page says who presents it, shows its ticket types, "Choose
+ *     tickets" and "Reserve on WhatsApp" with the exact chat address, never a
+ *     count of tickets left; there is no "Buy tickets", no website link, and
+ *     its website route answers 404; each card reads "From …", and no page
+ *     names the source site or any host of it.
+ *   - **I2a** A buyer buys one ticket to the garba night through the
+ *     checkout, paid by the simulated provider; the order is paid, the ticket
+ *     issued, and the page still shows no count of tickets left.
  *   - **I3** The same file again plans the published events as kept or
- *     unchanged; "Update from Sulekha" on the one whose time moved copies the
- *     new time onto its public page, with a change notice.
- *   - **I3a** The administrator takes a published import off the site from
- *     its danger zone, which says first that a restore puts it back at any
- *     time: its page and its Sulekha link answer 404. From "Taken off the
- *     site (deleted)", narrowed to "Copied from Sulekha", "Restore…" puts it
- *     back live at the same address, presented by its organiser, its "Buy
- *     tickets on Sulekha" link sending buyers to the listing again. It is
- *     taken off and put back once more, through the API, and comes back the
- *     same way.
- *   - **I4** The administrator moves a published import to Import Gamma (the
- *     dialog says the organisation is not asked first). Its Sulekha link is
- *     off afterwards and its page no longer offers "Buy tickets on Sulekha";
- *     Import Gamma's owner finds it in their events and edits it.
+ *     unchanged; "Update from the listing" on the one whose time moved copies
+ *     the new time onto its public page, with a change notice, and leaves its
+ *     ticket types, the sold one included, as they were.
+ *   - **I3a** The administrator takes the Bollywood evening, which nobody has
+ *     bought a ticket to, off the site from its danger zone, which says first
+ *     that a restore puts it back at any time: its page answers 404. From
+ *     "Taken off the site (deleted)", narrowed to "Imported from listings",
+ *     "Restore…" puts it back at the same address with its sales paused,
+ *     presented by its organiser, with "Reserve on WhatsApp" and still no
+ *     link anywhere else. It is taken off and put back once more, through the
+ *     API, and comes back the same way.
+ *   - **I4** The administrator moves it to Import Gamma (the dialog says the
+ *     organisation is not asked first). Its page is no longer an imported
+ *     listing; Import Gamma's owner finds it in their events and edits it.
  *   - **I4a** The approve route, named an ordinary organisation's event
  *     waiting for review, refuses that item `NOT_IN_RUN` and leaves it as it
  *     was.
- *   - **I5** A moderator is not offered imports and the API refuses them;
- *     once the late picture is there, "Retry pictures" copies it.
+ *   - **I5** A moderator is not offered imports and the API refuses them; no
+ *     run page offers "Retry pictures", and the route that did is gone.
+ *   - **I6** The administrator takes the sold garba night off the site with
+ *     its order cancelled and refunded (simulated); the buyer's order says it
+ *     was refunded in full.
  *
  * ## Who is who
  *
  * Every account is fresh (`support/seed-import.mjs`): the platform
- * administrator, the moderator and Import Gamma's owner are signed in here,
- * each in a window of its own, and no privilege of theirs changes. The
- * listing file is built when the run starts, dated 10, 11 and 12 days ahead,
- * and uploaded from memory; the pictures are read from a temporary copy of
- * `e2e/fixtures/import-images/`, which the API in this config reads instead
- * of the network.
+ * administrator, the moderator, Import Gamma's owner and the buyer are signed
+ * in here, each in a window of its own, and no privilege of theirs changes.
+ * The listing file is built when the run starts, dated 10, 11 and 12 days
+ * ahead, and uploaded from memory.
  *
  * ## Isolation
  *
  * The imported events are, while they last, the soonest public events of the
  * detail world, so `afterAll` removes every one of them before the next spec
- * counts a list.
+ * counts a list. The garba night's order is held by the ledger, so that event
+ * stays, taken off the site by I6.
  *
  * No show-once code is drawn on any page here, so screenshots, traces and
  * video keep the config's defaults. Step-ups are one-time codes from the
@@ -98,11 +112,14 @@ let seeded
 /** The listing file, built once for the whole file. @type {object} */
 let dataset
 
-/** Whether "Sulekha Events" was there before this file imported anything. */
+/** Whether "The Desi Events" (the platform-held organisation) was there before this file imported anything. */
 let heldBefore = true
 
 /** The import runs, as the journeys make them. @type {{first?: string, second?: string}} */
 const runs = {}
+
+/** The order the buyer placed in I2a, refunded in I6. @type {{reference: string, totalCents: number, tierId: string}|null} */
+let soldOrder = null
 
 /** One hour, in milliseconds. */
 const HOUR_MS = 3_600_000
@@ -185,7 +202,7 @@ function runPath(runId) {
  * is asked for and kept for the rest of the file.
  *
  * @param {object} browser The browser under test.
- * @param {'admin'|'moderator'|'owner'} who Which account.
+ * @param {'admin'|'moderator'|'owner'|'buyer'} who Which account.
  * @returns {Promise<object>} An arriving, signed-in page.
  */
 async function windowFor(browser, who) {
@@ -440,7 +457,71 @@ async function structuredEvent(page) {
   return found
 }
 
-test.describe.serial('importing the Sulekha events', () => {
+/**
+ * The address "Reserve on WhatsApp" opens for an event: the company's own
+ * chat, with the event's title, day (in the venue's zone) and place.
+ *
+ * @param {string} title The event's title.
+ * @param {Date|string} startsAt Its start.
+ * @param {string} venueName Its venue.
+ * @param {string} city Its city.
+ * @returns {string} The `https://wa.me/…?text=…` address.
+ */
+function whatsAppHref(title, startsAt, venueName, city) {
+  const day = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: IMPORT_TIME_ZONE,
+  }).format(new Date(startsAt))
+  const message = `Hi! I'd like to reserve tickets for "${title}" on ${day} at ${venueName}, ${city}.`
+
+  return `https://wa.me/19726949043?text=${encodeURIComponent(message)}`
+}
+
+/**
+ * Every address a page's main content links to that leaves The Desi Events.
+ * The site's own header and footer, with the company's contact channels, are
+ * outside it.
+ *
+ * @param {object} page A page.
+ * @returns {Promise<string[]>} The absolute `href`s, in page order.
+ */
+async function outsideLinks(page) {
+  const hrefs = await page
+    .locator('main a[href]')
+    .evaluateAll((links) => links.map((link) => link.getAttribute('href')))
+
+  return hrefs.filter((href) => /^[a-z][a-z0-9+.-]*:/iu.test(href) && !href.startsWith('mailto:'))
+}
+
+/**
+ * Choose one ticket of a tier with the checkout's stepper.
+ *
+ * A press that lands before the basket has hydrated reaches a server-rendered
+ * button with no handler and changes nothing, so it is repeated only while
+ * the quantity still reads zero, and the wait is for it to read one.
+ *
+ * @param {object} page The checkout page.
+ * @param {string} tier The tier's name.
+ * @returns {Promise<void>} Resolves once one ticket is chosen.
+ */
+async function chooseOne(page, tier) {
+  const quantity = page.getByLabel(`Quantity of ${tier}`)
+  const add = page.getByRole('button', { name: `Add one ${tier}` })
+
+  await expect(quantity).toHaveValue('0')
+  await expect(async () => {
+    if ((await quantity.inputValue()) === '0') await add.click()
+
+    await expect(quantity).toHaveValue('1', { timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+}
+
+/** The source site's name or any host of it, wherever it might appear. */
+const SOURCE = /sulekha/iu
+
+test.describe.serial('importing events from organisers’ listings, sold here', () => {
   test.beforeAll(async ({ browser }) => {
     test.setTimeout(240_000)
 
@@ -453,7 +534,6 @@ test.describe.serial('importing the Sulekha events', () => {
     seeded = await seedImport(tag)
     dataset = buildImportDataset(tag)
 
-    await preparePictures(IMPORT_PICTURE_DIR)
     await windowFor(browser, 'admin')
   })
 
@@ -463,11 +543,17 @@ test.describe.serial('importing the Sulekha events', () => {
     await cleanupImport(ids().tag, { removePlatformHeld: !heldBefore })
   })
 
-  test('I1: the administrator uploads a Sulekha file, reads its plan and notes, and imports it with a second factor', async ({
+  test('I1: the administrator uploads a listing file, reads its plan and notes, and imports it with a second factor', async ({
     browser,
   }) => {
     const admin = await windowFor(browser, 'admin')
     const { garba, bollywood, concert } = names().listings
+
+    // The file the run uploads carries no address of any kind.
+    expect(JSON.stringify(dataset)).not.toMatch(/https?:|sourceUrl|ticketUrl|"images"/u)
+    // The only spelling of the source left is its enum value, an identifier.
+    expect(JSON.stringify({ ...dataset, source: null })).not.toMatch(SOURCE)
+    expect(dataset.source).toBe('SULEKHA')
 
     await admin.goto('/admin/imports')
     await expect(admin.getByRole('heading', { level: 1, name: 'Imports' })).toBeVisible()
@@ -499,9 +585,9 @@ test.describe.serial('importing the Sulekha events', () => {
     expect(broken, 'a file that is not JSON was sent').toBeNull()
     expect(sent).toEqual([])
 
-    // A ticket page off Sulekha is refused by the API's own host check, which
-    // runs on every upload, and each problem is listed.
-    const offList = {
+    // A file that still carries a web address (a ticket link, as files did
+    // before 2026-10-15) is refused by the API, and each problem is listed.
+    const withAddress = {
       ...dataset,
       events: dataset.events.map((event) =>
         event.sourceId === garba.sourceId
@@ -509,16 +595,13 @@ test.describe.serial('importing the Sulekha events', () => {
           : event,
       ),
     }
-    const refused = await uploadListing(admin, datasetUpload(offList, 'off-sulekha.json'))
+    const refused = await uploadListing(admin, datasetUpload(withAddress, 'with-address.json'))
 
     expect(refused?.status()).toBe(422)
     expect((await refused.json()).error.code).toBe('IMPORT_INVALID')
     await expect(form.getByText('The file was not planned', { exact: true })).toBeVisible()
     await expect(
-      form.getByText(
-        `events[0] (listing ${garba.sourceId}) ticketUrl: Use the listing's own https:// page on events.sulekha.com.`,
-        { exact: true },
-      ),
+      form.getByText(new RegExp(`^events\\[0\\] \\(listing ${garba.sourceId}\\) ticketUrl: `, 'u')),
     ).toBeVisible()
     await expect(admin).toHaveURL(/\/admin\/imports$/u)
 
@@ -534,7 +617,8 @@ test.describe.serial('importing the Sulekha events', () => {
     await expect(admin.getByText('Planned, not applied').first()).toBeVisible()
     await expect(admin.getByText(/^Nothing has been imported\. Check the plan/u)).toBeVisible()
 
-    // Every listing, what applying does to it, and the curator's notes.
+    // Every listing, what applying does to it, what its prices become, and
+    // the curator's notes. There is no "Pictures" column: nothing is copied.
     for (const { title } of [garba, bollywood, concert]) {
       const row = planRow(admin, title)
 
@@ -542,14 +626,20 @@ test.describe.serial('importing the Sulekha events', () => {
       await expect(row).toContainText('Created as a draft and sent for review.')
     }
 
+    await expect(planTable(admin).getByRole('columnheader', { name: 'Pictures' })).toHaveCount(0)
+
     const garbaRow = planRow(admin, garba.title)
 
     await expect(
       garbaRow.getByRole('listitem').filter({ hasText: '7:00 PM is imported' }),
     ).toHaveText(listing('garba').importNotes[0])
-    await expect(garbaRow).toContainText(`Sulekha ${garba.sourceId} · Houston · No end time listed`)
-    await expect(garbaRow).toContainText('2 listed, copied once applied')
+    await expect(garbaRow).toContainText(`Listing ${garba.sourceId} · Houston · No end time listed`)
+    await expect(garbaRow).toContainText(
+      '4 ticket types, 1 not on sale (sold out on the listing), in USD',
+    )
+    await expect(planRow(admin, bollywood.title)).toContainText('1 ticket type, in USD')
     await expect(planRow(admin, bollywood.title)).not.toContainText('No end time listed')
+    await expect(planRow(admin, concert.title)).toContainText('No price listed, so no ticket type')
     await expect(
       planRow(admin, concert.title).getByRole('listitem').filter({ hasText: 'CLASSICAL' }),
     ).toHaveText(CATEGORY_NOTE)
@@ -568,11 +658,18 @@ test.describe.serial('importing the Sulekha events', () => {
       { asked: true },
     )
     await expect(
-      admin.getByText('The plan was applied. Pictures: 4 copied, 1 not copied, 0 waiting.'),
+      admin.getByText(
+        'The plan was applied. Its events wait for review: approve and publish them here.',
+      ),
     ).toBeVisible()
 
-    // The page, read again: every event waits for review, with its pictures.
+    // The page, read again: every event waits for review, and the run says
+    // no picture was copied and offers nothing to copy one.
     await expect(admin.getByText(/^Status:\s*Applied$/u).first()).toBeVisible()
+    await expect(
+      admin.getByText(/Imports copy no pictures: each imported event shows a generated poster/u),
+    ).toBeVisible()
+    await expect(admin.getByRole('button', { name: /retry pictures/iu })).toHaveCount(0)
 
     for (const { title } of [garba, bollywood, concert]) {
       const row = planRow(admin, title)
@@ -581,17 +678,18 @@ test.describe.serial('importing the Sulekha events', () => {
       await expect(row.getByRole('link', { name: `Review “${title}”` })).toBeVisible()
     }
 
-    await expect(garbaRow).toContainText('Cover: Copied, waiting for approval')
-    await expect(garbaRow).toContainText('Picture 2: Copied, waiting for approval')
+    // The run page links nowhere off the site, and names the source site
+    // nowhere an administrator reads it, apart from the name of the file the
+    // administrator uploaded.
+    expect(await outsideLinks(admin)).toEqual([])
+    expect((await admin.locator('main').innerText()).replaceAll(names().fileName, '')).not.toMatch(
+      SOURCE,
+    )
+    await expect(admin.getByRole('link', { name: /source listing/iu })).toHaveCount(0)
 
-    const concertRow = planRow(admin, concert.title)
-
-    await expect(concertRow).toContainText('Cover: Copied, waiting for approval')
-    await expect(concertRow).toContainText('Picture 2: Not copied')
-    await expect(concertRow).toContainText('Sulekha answered with status 404.')
-
-    // In the database: three drafts sent for review under "Sulekha Events",
-    // which has no members, and no ticket type made from the prices.
+    // In the database: three drafts sent for review under "The Desi Events",
+    // which has no members; a ticket type for every listed price, each on an
+    // allowance, the sold-out one closed; no website link and no picture.
     const events = await importedEvents(ids().tag)
 
     expect(Object.keys(events).sort()).toEqual(
@@ -601,13 +699,26 @@ test.describe.serial('importing the Sulekha events', () => {
     for (const item of Object.values(events)) {
       expect(item.event.status).toBe('REVIEW_PENDING')
       expect(item.event.organization).toEqual({
-        name: 'Sulekha Events',
+        name: 'The Desi Events',
         platformHeldSource: 'SULEKHA',
       })
-      expect(item.event._count.ticketTypes).toBe(0)
       expect(item.importedById).toBe(seeded.adminId)
       expect(item.lastRunId).toBe(runs.first)
+      expect(item.event.websiteUrl).toBeNull()
       expect(item.event.websiteRedirectEnabled).toBe(false)
+      expect(item.event.websiteDecidedUrl).toBeNull()
+      expect(item.event._count.media).toBe(0)
+
+      for (const tier of item.event.ticketTypes) {
+        expect(tier, tier.name).toMatchObject({
+          currency: 'USD',
+          quantityTotal: IMPORT_ALLOWANCE,
+          quantitySold: 0,
+          quantityIsAllowance: true,
+          minPerOrder: 1,
+          reserved: false,
+        })
+      }
 
       const [audit] = await auditRows(item.event.id, 'event.imported')
 
@@ -617,9 +728,22 @@ test.describe.serial('importing the Sulekha events', () => {
         importRunId: runs.first,
         via: 'web',
       })
+      expect(JSON.stringify(audit.metadata)).not.toMatch(/https?:/u)
     }
 
-    expect(events[garba.sourceId].event.websiteUrl).toBe(listing('garba').ticketUrl)
+    expect(
+      events[garba.sourceId].event.ticketTypes.map((tier) => [tier.name, tier.priceCents]),
+    ).toEqual([
+      ['General admission', 2_500],
+      ['VIP', 4_000],
+      ['Child (under 12)', 0],
+      ['Early bird', 2_000],
+    ])
+    expect(
+      events[garba.sourceId].event.ticketTypes.find((tier) => tier.name === 'Early bird').status,
+    ).toBe('CLOSED')
+    expect(events[bollywood.sourceId].event.ticketTypes).toHaveLength(1)
+    expect(events[concert.sourceId].event.ticketTypes).toEqual([])
     // A listing with no end stores the planning estimate, flagged as such.
     expect(events[garba.sourceId].event.sessions).toEqual([
       expect.objectContaining({ endTimeListed: false }),
@@ -627,15 +751,9 @@ test.describe.serial('importing the Sulekha events', () => {
     expect(events[bollywood.sourceId].event.sessions).toEqual([
       expect.objectContaining({ endTimeListed: true }),
     ])
-    expect(
-      events[concert.sourceId].images.map((image) => [image.status, image.failureCode]),
-    ).toEqual([
-      ['STORED', null],
-      ['FAILED', 'HTTP_404'],
-    ])
   })
 
-  test('I2: nothing imported is public before review; approving two publishes them with their Sulekha ticket link', async ({
+  test('I2: nothing imported is public before review; approving two publishes them with their tickets on sale here', async ({
     browser,
     visitor,
   }) => {
@@ -643,19 +761,11 @@ test.describe.serial('importing the Sulekha events', () => {
     const { garba, bollywood, concert } = names().listings
     const before = await importedEvents(ids().tag)
 
-    // Before review, each page answers as an address that was never an event,
-    // and its website route has nothing to send anybody to.
+    // Before review, each page answers as an address that was never an event.
     for (const { sourceId } of [garba, bollywood, concert]) {
       await visitor.goto(`/events/${before[sourceId].event.slug}`)
       await expect(visitor.getByTestId('not-found-view')).toBeVisible()
     }
-
-    const unapproved = await visitor.request.get(
-      `/events/${before[garba.sourceId].event.slug}/website`,
-      { maxRedirects: 0 },
-    )
-
-    expect(unapproved.status()).toBe(404)
 
     // Two of the three, approved and published together under one second
     // factor; the third is left waiting.
@@ -692,29 +802,33 @@ test.describe.serial('importing the Sulekha events', () => {
     const report = admin.getByRole('status').filter({ hasText: 'Approve and publish' })
 
     await expect(report).toContainText(
-      `${garba.title}: approved and published, with its Sulekha ticket link on.`,
+      new RegExp(`${garba.title}: approved and published, with \\d ticket types on sale\\.`, 'u'),
     )
     await expect(report).toContainText(
-      `${bollywood.title}: approved and published, with its Sulekha ticket link on.`,
+      `${bollywood.title}: approved and published, with 1 ticket type on sale.`,
     )
-    await expect(planRow(admin, garba.title)).toContainText('Published')
+    await expect(report).not.toContainText(/Buy tickets|link/u)
+    await expect(planRow(admin, garba.title)).toContainText('On sale')
     await expect(planRow(admin, concert.title)).toContainText('Waiting for review')
 
-    // In the database: published, approved by the administrator who imported
-    // them under the platform's own exemption, pictures approved with them,
-    // and the Sulekha link on to exactly the listing's page.
+    // In the database: on sale, approved by the administrator who imported
+    // them under the platform's own exemption; every tier but the sold-out one
+    // on sale from the approval until the event starts; no website link.
     const after = await importedEvents(ids().tag)
 
     for (const key of ['garba', 'bollywood']) {
       const item = after[names().listings[key].sourceId]
 
-      expect(item.event.status).toBe('PUBLISHED')
+      expect(item.event.status).toBe('ON_SALE')
       expect(item.approvedById).toBe(seeded.adminId)
-      expect(item.event.websiteRedirectEnabled).toBe(true)
-      expect(item.event.websiteDecidedUrl).toBe(listing(key).ticketUrl)
-      expect(item.images.map((image) => image.mediaAsset?.moderationStatus)).toEqual(
-        item.images.map(() => 'APPROVED'),
-      )
+      expect(item.event.websiteUrl).toBeNull()
+      expect(item.event.websiteRedirectEnabled).toBe(false)
+
+      const general = item.event.ticketTypes.find((tier) => tier.name === 'General admission')
+
+      expect(general.status).toBe('ON_SALE')
+      expect(general.salesEndAt.toISOString()).toBe(item.event.startsAt.toISOString())
+      expect(general.salesStartAt.getTime()).toBeLessThanOrEqual(Date.now())
 
       const [approved] = await auditRows(item.event.id, 'event.approved')
 
@@ -727,10 +841,14 @@ test.describe.serial('importing the Sulekha events', () => {
       })
     }
 
+    expect(
+      after[garba.sourceId].event.ticketTypes.find((tier) => tier.name === 'Early bird').status,
+    ).toBe('CLOSED')
     expect(after[concert.sourceId].event.status).toBe('REVIEW_PENDING')
 
-    // The public pages: who presents it, Sulekha's prices, and Sulekha's
-    // ticket link through the redirect at The Desi Events; never a buy button here.
+    // The public page: who presents it, its ticket types and "Choose
+    // tickets", the prices' provenance, and "Reserve on WhatsApp" with the
+    // exact chat address; never "Buy tickets", a website link or a count.
     const garbaEvent = after[garba.sourceId].event
 
     await visitor.goto(`/events/${garbaEvent.slug}`)
@@ -738,77 +856,188 @@ test.describe.serial('importing the Sulekha events', () => {
     await expect(visitor.getByText(`Presented by ${garba.presentedBy}`)).toBeVisible()
 
     const tickets = visitor.locator('#tickets')
+    const tiers = tickets.getByRole('list', { name: 'Ticket types' })
 
-    await expect(tickets).toContainText(
-      'Tickets for this event are sold on Sulekha, not on The Desi Events.',
+    for (const name of ['General admission', 'VIP', 'Child (under 12)', 'Early bird']) {
+      await expect(tiers.getByText(name, { exact: true })).toBeVisible()
+    }
+
+    await expect(tickets.getByRole('link', { name: /choose tickets/iu })).toHaveAttribute(
+      'href',
+      `/events/${garbaEvent.slug}/checkout`,
     )
     await expect(tickets).toContainText(
-      `As listed on Sulekha on ${listedOn(listing('garba').scrapedAt)}: General admission $25.00, VIP $40.00, Child (under 12) Free.`,
+      `Prices are as the organiser listed them on ${listedOn(listing('garba').scrapedAt)}.`,
+    )
+    await expect(tickets).toContainText('Payments on this site are simulated.')
+
+    const reserve = tickets.getByRole('link', {
+      name: 'Reserve on WhatsApp, opens WhatsApp in a new tab',
+      exact: true,
+    })
+    const garbaWhatsApp = whatsAppHref(
+      garba.title,
+      garbaEvent.startsAt,
+      listing('garba').venue.name,
+      'Houston',
     )
 
-    const buy = tickets.getByRole('link', { name: 'Buy tickets on Sulekha', exact: true })
+    await expect(reserve).toHaveText('Reserve on WhatsApp')
+    await expect(reserve).toHaveAttribute('href', garbaWhatsApp)
+    await expect(reserve).toHaveAttribute('target', '_blank')
+    await expect(reserve).toHaveAttribute('rel', 'noopener noreferrer')
 
-    await expect(buy).toHaveAttribute('href', `/events/${garbaEvent.slug}/website`)
-    await expect(tickets).toContainText(
-      'Opens events.sulekha.com, which The Desi Events does not run. The Desi Events counts the visit without recording your address, browser or account.',
+    await expect(visitor.getByRole('link', { name: 'Buy tickets', exact: true })).toHaveCount(0)
+    await expect(visitor.getByRole('link', { name: 'Visit the organiser’s website' })).toHaveCount(
+      0,
     )
-    await expect(visitor.getByRole('link', { name: /choose tickets/iu })).toHaveCount(0)
-    await expect(visitor.getByRole('button', { name: /choose tickets/iu })).toHaveCount(0)
-    await expect(visitor.getByText(/not on sale|has not put any tickets/iu)).toHaveCount(0)
-    // Pictures are copies held by The Desi Events: no page names Sulekha's picture host.
-    expect(await visitor.content()).not.toContain('usimg.sulekha.io')
+    await expect(tickets.getByText(/\bleft\b/u)).toHaveCount(0)
+    await expect(visitor.getByText(/another site|has not put any tickets/iu)).toHaveCount(0)
+    // The only link off the site is the company's own WhatsApp chat, and
+    // nothing on the page, its markup included, names the source site.
+    expect(await outsideLinks(visitor)).toEqual([garbaWhatsApp])
+    expect(await visitor.content()).not.toMatch(SOURCE)
 
     const structured = await structuredEvent(visitor)
 
     expect(structured.organizer?.name).toBe(garba.presentedBy)
-    expect(structured.offers).toBeUndefined()
-    // Sulekha lists no end, so none is given.
+    expect(structured.offers?.map((offer) => offer.name)).toEqual(
+      expect.arrayContaining(['General admission', 'VIP']),
+    )
+    expect(JSON.stringify(structured)).not.toMatch(SOURCE)
+    // The listing gives no end, so none is given.
     expect(structured.endDate).toBeUndefined()
+
+    // Nothing redirects anywhere: the website route has no address to send to.
+    const website = await visitor.request.get(`/events/${garbaEvent.slug}/website`, {
+      maxRedirects: 0,
+    })
+
+    expect(website.status()).toBe(404)
 
     const bollywoodEvent = after[bollywood.sourceId].event
 
     await visitor.goto(`/events/${bollywoodEvent.slug}`)
     await expect(visitor.getByText(`Presented by ${bollywood.presentedBy}`)).toBeVisible()
-    await expect(visitor.locator('#tickets')).toContainText(
-      `As listed on Sulekha on ${listedOn(listing('bollywood').scrapedAt)}: General admission $30.00.`,
+    await expect(
+      visitor.locator('#tickets').getByRole('link', { name: /choose tickets/iu }),
+    ).toBeVisible()
+    await expect(
+      visitor.locator('#tickets').getByRole('link', { name: /^Reserve on WhatsApp/u }),
+    ).toHaveAttribute(
+      'href',
+      whatsAppHref(
+        bollywood.title,
+        bollywoodEvent.startsAt,
+        listing('bollywood').venue.name,
+        'Houston',
+      ),
     )
+
+    // The cards: "From" a price read from the ticket types, as any card's is,
+    // and who presents it.
+    await visitor.goto(`/events?q=${encodeURIComponent(bollywood.title)}`)
+
+    const card = visitor
+      .getByRole('listitem')
+      .filter({ has: visitor.getByRole('link', { name: bollywood.title, exact: true }) })
+
+    await expect(card).toContainText(/From\s*\$\d+\.\d{2}/u)
+    await expect(card).toContainText(bollywood.presentedBy)
+    await expect(card).toContainText('On sale')
+    await expect(card).not.toContainText(SOURCE)
+
+    await visitor.goto(`/events?q=${encodeURIComponent(garba.title)}`)
     await expect(
       visitor
-        .locator('#tickets')
-        .getByRole('link', { name: 'Buy tickets on Sulekha', exact: true }),
-    ).toBeVisible()
-
-    // The redirect, asked without following it: a 302 to the Sulekha page.
-    // A request with no fetch metadata is never counted as a visit.
-    const redirect = await visitor.request.get(`/events/${garbaEvent.slug}/website`, {
-      maxRedirects: 0,
-    })
-
-    expect(redirect.status()).toBe(302)
-    expect(redirect.headers().location).toBe(listing('garba').ticketUrl)
-    expect(redirect.headers()['cache-control']).toContain('no-store')
-
-    // The cards: "On Sulekha from" the lowest price above zero, so a free
-    // child's ticket never makes it "from $0.00", and who presents it.
-    for (const [key, price] of [
-      ['garba', '$25.00'],
-      ['bollywood', '$30.00'],
-    ]) {
-      const { title, presentedBy } = names().listings[key]
-
-      await visitor.goto(`/events?q=${encodeURIComponent(title)}`)
-
-      const card = visitor
         .getByRole('listitem')
-        .filter({ has: visitor.getByRole('link', { name: title, exact: true }) })
-
-      await expect(card).toContainText(`On Sulekha from ${price}`)
-      await expect(card).toContainText(presentedBy)
-      await expect(card).not.toContainText('$0.00')
-    }
+        .filter({ has: visitor.getByRole('link', { name: garba.title, exact: true }) }),
+    ).not.toContainText(/No price listed|sulekha/iu)
   })
 
-  test('I3: the same file again keeps what was published; “Update from Sulekha” copies a moved time with a notice', async ({
+  test('I2a: a buyer buys a ticket to an imported event through the checkout, paid by the simulated provider', async ({
+    browser,
+  }) => {
+    test.setTimeout(150_000)
+
+    const buyer = await windowFor(browser, 'buyer')
+    const { garba } = names().listings
+    const event = (await importedEvents(ids().tag))[garba.sourceId].event
+    const general = event.ticketTypes.find((tier) => tier.name === 'General admission')
+
+    await buyer.goto(`/events/${event.slug}`)
+    await buyer
+      .locator('#tickets')
+      .getByRole('link', { name: /choose tickets/iu })
+      .click()
+    await expect(buyer).toHaveURL(new RegExp(`/events/${event.slug}/checkout$`, 'u'))
+
+    await chooseOne(buyer, 'General admission')
+
+    const held = buyer.waitForResponse(postTo('/api/v1/holds'))
+
+    await buyer.getByRole('button', { name: 'Reserve tickets' }).click()
+    expect((await held).ok()).toBe(true)
+
+    const pay = buyer.getByRole('button', { name: /^Pay .+ \(simulated\)$/u })
+
+    await expect(pay).toBeEnabled()
+
+    const answered = buyer.waitForResponse(postTo('/api/v1/orders'))
+
+    await pay.click()
+
+    const response = await answered
+
+    expect(response.ok(), `the order answered ${response.status()}`).toBe(true)
+
+    const { data: order } = await response.json()
+
+    expect(order.status).toBe('PAID')
+    expect(order.tickets).toHaveLength(1)
+
+    const booked = buyer
+      .getByRole('status')
+      .filter({ has: buyer.getByRole('heading', { name: 'Booked' }) })
+
+    await expect(booked).toContainText(`Order ${order.reference} · 1 ticket`)
+    await expect(booked).toContainText(
+      'The payment was simulated: no card was asked for and no money moved.',
+    )
+
+    // In the database: one paid order for one ticket of the tier, with the
+    // booking fee charged as for any event, and one ticket sold off the allowance.
+    const [placed] = await ordersOf(event.id)
+
+    expect(placed).toMatchObject({
+      reference: order.reference,
+      status: 'PAID',
+      buyerEmail: names().buyerEmail,
+    })
+    expect(placed.items).toEqual([
+      expect.objectContaining({ ticketTypeId: general.id, unitPriceCents: 2_500, quantity: 1 }),
+    ])
+    expect(placed.feesCents).toBeGreaterThan(0)
+    expect(placed.items[0].tickets).toHaveLength(1)
+
+    const sold = (await importedEvents(ids().tag))[garba.sourceId].event.ticketTypes.find(
+      (tier) => tier.id === general.id,
+    )
+
+    expect(sold).toMatchObject({ quantitySold: 1, quantityTotal: IMPORT_ALLOWANCE })
+
+    // The buyer's order page names the event; the event page still shows no
+    // count of tickets left from the allowance.
+    await buyer.goto(`/account/orders/${order.reference}`)
+    await expect(buyer.locator('main')).toContainText(garba.title)
+
+    await buyer.goto(`/events/${event.slug}`)
+    await expect(buyer.locator('#tickets').getByText(/\bleft\b/u)).toHaveCount(0)
+
+    soldOrder = { reference: order.reference, totalCents: order.totalCents, tierId: general.id }
+  })
+
+  test('I3: the same file again keeps what was published; “Update from the listing” copies a moved time with a notice, and keeps the tiers that sold', async ({
     browser,
     visitor,
   }) => {
@@ -816,6 +1045,7 @@ test.describe.serial('importing the Sulekha events', () => {
     const { garba, bollywood, concert } = names().listings
     const moved = withMovedStart(dataset, garba.sourceId, HOUR_MS)
     const newStart = moved.events.find((event) => event.sourceId === garba.sourceId).startsAt
+    const tiersBefore = (await importedEvents(ids().tag))[garba.sourceId].event.ticketTypes
     const planned = await uploadListing(admin, datasetUpload(moved, names().updateFileName))
 
     expect(planned?.status()).toBe(201)
@@ -828,7 +1058,7 @@ test.describe.serial('importing the Sulekha events', () => {
 
     await expect(garbaRow).toContainText('Published, kept')
     await expect(garbaRow).toContainText(
-      'Already published, and its listing has changed. Tick “Update from Sulekha” to copy the changes onto its public page; otherwise it is left as it is.',
+      'Already published, and its listing has changed. Tick “Update from the listing” to copy the changes onto its public page; otherwise it is left as it is.',
     )
 
     for (const { title } of [bollywood, concert]) {
@@ -842,7 +1072,7 @@ test.describe.serial('importing the Sulekha events', () => {
       admin.getByRole('button', { name: 'Import these 2 events', exact: true }),
     ).toBeVisible()
 
-    const tick = admin.getByRole('checkbox', { name: `Update “${garba.title}” from Sulekha` })
+    const tick = admin.getByRole('checkbox', { name: `Update “${garba.title}” from the listing` })
 
     await hydrated(tick)
     await tick.check()
@@ -855,30 +1085,41 @@ test.describe.serial('importing the Sulekha events', () => {
       postTo(`/api/v1/platform/imports/${runs.second}/apply`),
     )
     await expect(
-      admin.getByText('The plan was applied. Pictures: 4 copied, 1 not copied, 0 waiting.'),
+      admin.getByText(
+        'The plan was applied. Its events wait for review: approve and publish them here.',
+      ),
     ).toBeVisible()
 
     // In the database: the new time, with one change notice from the team at
-    // The Desi Events, and the import's own audit row.
+    // The Desi Events, and the import's own audit row. The ticket types are
+    // the same rows: the one a buyer bought keeps its sale and its allowance.
     const after = await importedEvents(ids().tag)
     const garbaItem = after[garba.sourceId]
 
-    expect(garbaItem.event.status).toBe('PUBLISHED')
+    expect(garbaItem.event.status).toBe('ON_SALE')
     expect(garbaItem.event.startsAt.toISOString()).toBe(newStart)
     expect(garbaItem.event.sessions[0].startsAt.toISOString()).toBe(newStart)
-    expect(garbaItem.event.websiteRedirectEnabled).toBe(true)
+    expect(garbaItem.event.websiteRedirectEnabled).toBe(false)
+    expect(garbaItem.event.websiteUrl).toBeNull()
     expect(garbaItem.lastRunId).toBe(runs.second)
     expect(after[bollywood.sourceId].lastRunId).toBe(runs.second)
     expect(after[concert.sourceId].lastRunId).toBe(runs.second)
+    expect(garbaItem.event.ticketTypes.map((tier) => tier.id)).toEqual(
+      tiersBefore.map((tier) => tier.id),
+    )
+    expect(garbaItem.event.ticketTypes.find((tier) => tier.id === soldOrder.tierId)).toMatchObject({
+      quantitySold: 1,
+      quantityTotal: IMPORT_ALLOWANCE,
+      priceCents: 2_500,
+      status: 'ON_SALE',
+    })
 
     const notices = await changeNoticesFor(garbaItem.event.id)
 
     expect(notices).toHaveLength(1)
-    expect(notices[0]).toMatchObject({
-      kind: 'MATERIAL_CHANGE',
-      byPlatform: true,
-      reason: `Updated from its Sulekha listing by the team at The Desi Events, run ${runs.second}.`,
-    })
+    expect(notices[0]).toMatchObject({ kind: 'MATERIAL_CHANGE', byPlatform: true })
+    expect(notices[0].reason).toContain(runs.second)
+    expect(notices[0].reason).not.toMatch(SOURCE)
     expect(notices[0].changed).toContain('the start time')
 
     const [updated] = await auditRows(garbaItem.event.id, 'event.imported')
@@ -889,10 +1130,16 @@ test.describe.serial('importing the Sulekha events', () => {
       via: 'web',
     })
 
-    // The public page shows the new time.
+    // The public page shows the new time, and the WhatsApp message its day.
     await visitor.goto(`/events/${garbaItem.event.slug}`)
     await expect(visitor.getByRole('heading', { level: 1, name: garba.title })).toBeVisible()
     await expect(visitor.locator('main')).toContainText(plain(timeInChicago(newStart)))
+    await expect(
+      visitor.locator('#tickets').getByRole('link', { name: /^Reserve on WhatsApp/u }),
+    ).toHaveAttribute(
+      'href',
+      whatsAppHref(garba.title, newStart, listing('garba').venue.name, 'Houston'),
+    )
 
     // The runs list says what each run did.
     await admin.goto('/admin/imports')
@@ -909,24 +1156,20 @@ test.describe.serial('importing the Sulekha events', () => {
     await expect(second).toContainText('Unchanged: 2')
   })
 
-  test('I3a: an administrator takes a published import off the site and puts it back live, again and again', async ({
+  test('I3a: an administrator takes an unsold published import off the site and puts it back, again and again', async ({
     browser,
     visitor,
   }) => {
     test.setTimeout(240_000)
 
     const admin = await windowFor(browser, 'admin')
-    const { garba } = names().listings
-    const event = (await importedEvents(ids().tag))[garba.sourceId].event
-    const ticketUrl = listing('garba').ticketUrl
+    const { bollywood } = names().listings
+    const event = (await importedEvents(ids().tag))[bollywood.sourceId].event
 
-    // Live, with its Sulekha link, before anything is done.
-    expect(event.status).toBe('PUBLISHED')
-    expect(
-      (await visitor.request.get(`/events/${event.slug}/website`, { maxRedirects: 0 })).status(),
-    ).toBe(302)
+    expect(event.status).toBe('ON_SALE')
 
-    // The danger zone says, before the dialog, that deleting can be undone.
+    // The danger zone says, before the dialog, that deleting can be undone,
+    // and that a restore keeps the organiser the listing names.
     await admin.goto(`/admin/events/${event.id}`)
 
     const zone = admin.locator('#delete-event')
@@ -936,8 +1179,9 @@ test.describe.serial('importing the Sulekha events', () => {
       'Deleting erases nothing: the event is kept, and you can put it back on the site at any time with “Restore…”, here or under “Taken off the site (deleted)” in All events, giving a reason.',
     )
     await expect(zone).toContainText(
-      `This event was copied from Sulekha, and its tickets are sold there, not here, so deleting it only takes it off the site. Restoring it brings it back with ${garba.presentedBy} named as its organiser, and its “Buy tickets on Sulekha” link as it was.`,
+      `This event was imported from its organiser’s listing. Restoring it brings it back with ${bollywood.presentedBy} named as its organiser.`,
     )
+    await expect(zone).not.toContainText(/another site|Buy tickets/u)
 
     const opener = zone.getByRole('button', { name: 'Delete this event…', exact: true })
 
@@ -960,12 +1204,9 @@ test.describe.serial('importing the Sulekha events', () => {
     )
     await expect(dialog.getByText('Deleted', { exact: true })).toBeVisible()
 
-    // Off the site: its page and its Sulekha link answer as nothing there.
+    // Off the site: its page answers as nothing there.
     await visitor.goto(`/events/${event.slug}`)
     await expect(visitor.getByTestId('not-found-view')).toBeVisible()
-    expect(
-      (await visitor.request.get(`/events/${event.slug}/website`, { maxRedirects: 0 })).status(),
-    ).toBe(404)
 
     // The list says where it went, and that it can be put back.
     await dialog.getByRole('link', { name: 'Back to all events', exact: true }).click()
@@ -977,10 +1218,10 @@ test.describe.serial('importing the Sulekha events', () => {
       ),
     ).toBeVisible()
 
-    // Found among the events taken off the site that were copied from Sulekha.
+    // Found among the events taken off the site that were imported.
     await admin.getByRole('link', { name: 'Taken off the site (deleted)', exact: true }).click()
     await expect(admin).toHaveURL(/\/admin\/events\?deleted=only$/u)
-    await admin.getByRole('link', { name: 'Copied from Sulekha', exact: true }).click()
+    await admin.getByRole('link', { name: 'Imported from listings', exact: true }).click()
     await expect(admin).toHaveURL(/\/admin\/events\?deleted=only&imported=only$/u)
     await expect(
       admin.getByText(/^These events were taken off the site\. Nothing about them was erased/u),
@@ -988,12 +1229,17 @@ test.describe.serial('importing the Sulekha events', () => {
 
     const listed = admin.getByRole('row').filter({ hasText: event.title })
 
-    await expect(listed).toContainText('Restores as published')
+    // On sale when it came off, so it comes back with its sales paused.
+    await expect(listed).toContainText('Restores as sales paused')
     await listed.getByRole('link', { name: /^Restore…/u }).click()
     await expect(admin).toHaveURL(new RegExp(`/admin/events/${event.id}#restore-event$`, 'u'))
     await expect(admin.getByTestId('restore-sentences')).toContainText(
       `It comes back at the same web address, /events/${event.slug}.`,
     )
+    await expect(admin.getByTestId('restore-sentences')).toContainText(
+      `It is still presented by ${bollywood.presentedBy}.`,
+    )
+    await expect(admin.getByTestId('restore-sentences')).not.toContainText(/Buy tickets/u)
 
     const restoreOpener = admin.getByRole('button', { name: 'Restore…', exact: true })
 
@@ -1012,42 +1258,46 @@ test.describe.serial('importing the Sulekha events', () => {
     )
     await expect(admin).toHaveURL(new RegExp(`/admin/events/${event.id}\\?restored=1$`, 'u'))
     await expect(admin.getByRole('status').filter({ hasText: 'Event restored' })).toHaveText(
-      'Event restored: Published.',
+      'Event restored: Sales paused.',
     )
 
     /**
-     * The public page and the link are as they were before it came off.
+     * The public page is back, presented by its organiser, with "Reserve on
+     * WhatsApp" and no link anywhere else.
      *
      * @returns {Promise<void>} Resolves once checked.
      */
-    async function liveAgain() {
+    async function backAgain() {
       await visitor.goto(`/events/${event.slug}`)
-      await expect(visitor.getByRole('heading', { level: 1, name: garba.title })).toBeVisible()
-      await expect(visitor.getByText(`Presented by ${garba.presentedBy}`)).toBeVisible()
+      await expect(visitor.getByRole('heading', { level: 1, name: bollywood.title })).toBeVisible()
+      await expect(visitor.getByText(`Presented by ${bollywood.presentedBy}`)).toBeVisible()
+
+      const href = whatsAppHref(
+        bollywood.title,
+        event.startsAt,
+        listing('bollywood').venue.name,
+        'Houston',
+      )
+
       await expect(
-        visitor
-          .locator('#tickets')
-          .getByRole('link', { name: 'Buy tickets on Sulekha', exact: true }),
-      ).toHaveAttribute('href', `/events/${event.slug}/website`)
+        visitor.locator('#tickets').getByRole('link', { name: /^Reserve on WhatsApp/u }),
+      ).toHaveAttribute('href', href)
+      expect(await outsideLinks(visitor)).toEqual([href])
+      expect(
+        (await visitor.request.get(`/events/${event.slug}/website`, { maxRedirects: 0 })).status(),
+      ).toBe(404)
 
-      const redirect = await visitor.request.get(`/events/${event.slug}/website`, {
-        maxRedirects: 0,
-      })
-
-      expect(redirect.status()).toBe(302)
-      expect(redirect.headers().location).toBe(ticketUrl)
-
-      const standing = (await importedEvents(ids().tag))[garba.sourceId].event
+      const standing = (await importedEvents(ids().tag))[bollywood.sourceId].event
 
       expect(standing).toMatchObject({
-        status: 'PUBLISHED',
+        status: 'SALES_PAUSED',
         slug: event.slug,
-        websiteRedirectEnabled: true,
-        websiteDecidedUrl: ticketUrl,
+        websiteRedirectEnabled: false,
+        websiteUrl: null,
       })
     }
 
-    await liveAgain()
+    await backAgain()
 
     // And once more, through the API the screens use: off, then back.
     const before = await eventStanding(event.id)
@@ -1071,17 +1321,14 @@ test.describe.serial('importing the Sulekha events', () => {
     )
 
     expect(back.status, back.text).toBe(200)
-    expect(back.data).toMatchObject({ status: 'PUBLISHED', slug: event.slug })
-    await liveAgain()
+    expect(back.data).toMatchObject({ status: 'SALES_PAUSED', slug: event.slug })
+    await backAgain()
 
-    const deletions = await auditRows(event.id, 'event.deleted')
-    const restores = await auditRows(event.id, 'event.restored')
-
-    expect(deletions).toHaveLength(2)
-    expect(restores).toHaveLength(2)
+    expect(await auditRows(event.id, 'event.deleted')).toHaveLength(2)
+    expect(await auditRows(event.id, 'event.restored')).toHaveLength(2)
   })
 
-  test('I4: moving an imported event to an organiser’s organisation turns its Sulekha link off, and its owner runs it', async ({
+  test('I4: moving an imported event to an organiser’s organisation makes it theirs, and its owner runs it', async ({
     browser,
     visitor,
   }) => {
@@ -1093,9 +1340,12 @@ test.describe.serial('importing the Sulekha events', () => {
 
     await admin.goto(`/admin/events/${event.id}`)
 
-    const section = admin.getByRole('region', { name: 'Copied from Sulekha', exact: true })
+    const section = admin.getByRole('region', { name: 'Imported from a listing', exact: true })
 
     await expect(section).toContainText(`presented by ${bollywood.presentedBy}`)
+    await expect(section).toContainText(
+      'Its tickets are sold here, with simulated payment, and can be reserved on WhatsApp.',
+    )
 
     const opener = section.getByRole('button', { name: 'Move to an organisation…', exact: true })
 
@@ -1103,7 +1353,7 @@ test.describe.serial('importing the Sulekha events', () => {
     await opener.click()
 
     // The dialog says, before anything else, that the organisation is not
-    // asked first.
+    // asked first, and what moving keeps.
     await expect(
       admin.getByRole('heading', { name: `Move “${event.title}” to an organisation` }),
     ).toBeFocused()
@@ -1113,6 +1363,9 @@ test.describe.serial('importing the Sulekha events', () => {
         { exact: true },
       ),
     ).toBeVisible()
+    await expect(section).toContainText(
+      'The event keeps its status, pictures, web address and ticket types',
+    )
 
     const dialog = section.getByRole('form', { name: 'Move this event', exact: true })
 
@@ -1131,17 +1384,20 @@ test.describe.serial('importing the Sulekha events', () => {
 
     // What happened stays on the page once it is read again: the section that
     // held the dialog is gone, because the event is no longer held for import.
-    await expect(admin.getByRole('heading', { name: 'Copied from Sulekha' })).toHaveCount(0)
+    await expect(admin.getByRole('heading', { name: 'Imported from a listing' })).toHaveCount(0)
     await expect(
       admin.getByRole('status').filter({ hasText: `Moved to ${gammaName}.` }),
-    ).toBeVisible()
+    ).toContainText(
+      'Its organisation now runs it, and it is no longer shown as an imported listing.',
+    )
 
-    // In the database: Import Gamma's now, its Sulekha link off with the
-    // move's reason, and the move audited.
+    // In the database: Import Gamma's now, its ticket types with it, and the
+    // move audited.
     const item = (await importedEvents(ids().tag))[bollywood.sourceId]
 
     expect(item.event.organizationId).toBe(seeded.gammaOrganizationId)
-    expect(item.event.status).toBe('PUBLISHED')
+    expect(item.event.status).toBe('SALES_PAUSED')
+    expect(item.event.ticketTypes.map((tier) => tier.name)).toEqual(['General admission'])
     expect(item.event.websiteRedirectEnabled).toBe(false)
     expect(item.reassignedAt).not.toBeNull()
     expect(item.reassignedToOrganizationId).toBe(seeded.gammaOrganizationId)
@@ -1149,26 +1405,16 @@ test.describe.serial('importing the Sulekha events', () => {
     const [audit] = await auditRows(event.id, 'event.import_reassigned')
 
     expect(audit.actorId).toBe(seeded.adminId)
-    expect(audit.metadata).toMatchObject({
-      toOrganizationId: seeded.gammaOrganizationId,
-      reason,
-      websiteLinkTurnedOff: true,
-    })
+    expect(audit.metadata).toMatchObject({ toOrganizationId: seeded.gammaOrganizationId, reason })
 
-    // Its page: no longer a Sulekha listing, and no Sulekha ticket link.
+    // Its page: no longer an imported listing, so no WhatsApp reservation and
+    // no "as the organiser listed them" note.
     await visitor.goto(`/events/${event.slug}`)
     await expect(visitor.getByRole('heading', { level: 1, name: event.title })).toBeVisible()
     await expect(visitor.getByText(`Presented by ${gammaName}`)).toBeVisible()
-    await expect(visitor.getByRole('link', { name: 'Buy tickets on Sulekha' })).toHaveCount(0)
-    // The ticket box no longer reads as a Sulekha listing: no "sold on Sulekha"
-    // panel and no listed prices. (The terms the import wrote stay as they
-    // were, for the new owner to change: SPEC2-XI I-F moves nothing else.)
-    await expect(
-      visitor.getByText('Tickets for this event are sold on Sulekha, not on The Desi Events.', {
-        exact: true,
-      }),
-    ).toHaveCount(0)
-    await expect(visitor.getByText(/^As listed on Sulekha on /u)).toHaveCount(0)
+    await expect(visitor.getByRole('link', { name: /^Reserve on WhatsApp/u })).toHaveCount(0)
+    await expect(visitor.getByText(/^Prices are as the organiser listed them/u)).toHaveCount(0)
+    await expect(visitor.getByRole('link', { name: 'Buy tickets', exact: true })).toHaveCount(0)
 
     const gone = await visitor.request.get(`/events/${event.slug}/website`, { maxRedirects: 0 })
 
@@ -1231,12 +1477,11 @@ test.describe.serial('importing the Sulekha events', () => {
     expect(await auditRows(seeded.waitingEventId, 'event.published')).toEqual([])
   })
 
-  test('I5: a moderator is offered no imports and the API refuses them; “Retry pictures” copies the late picture', async ({
+  test('I5: a moderator is offered no imports and the API refuses them; nothing offers to copy pictures', async ({
     browser,
   }) => {
     const moderator = await windowFor(browser, 'moderator')
     const admin = await windowFor(browser, 'admin')
-    const { concert } = names().listings
 
     // No Imports tab, link or page for a moderator, and the API refuses both
     // the list and an upload.
@@ -1256,35 +1501,79 @@ test.describe.serial('importing the Sulekha events', () => {
     expect(list.status, list.text).toBe(403)
     expect(preview.status, preview.text).toBe(403)
 
-    // The late picture is on Sulekha now. "Retry pictures" copies it, waiting
-    // for approval with the rest of its event.
-    await addLatePicture(IMPORT_PICTURE_DIR)
-    await admin.goto(runPath(runs.second))
+    // Neither run page offers "Retry pictures", and the route it pressed is
+    // gone: an import contacts no other site, so there is nothing to copy.
+    for (const runId of [runs.first, runs.second]) {
+      await admin.goto(runPath(runId))
+      await expect(planTable(admin)).toBeVisible()
+      await expect(admin.getByRole('button', { name: /retry pictures/iu })).toHaveCount(0)
+      await expect(planTable(admin).getByRole('columnheader', { name: 'Pictures' })).toHaveCount(0)
+    }
 
-    const concertRow = planRow(admin, concert.title)
+    const retry = await callThroughStepUp(
+      admin,
+      'POST',
+      `/api/v1/platform/imports/${runs.second}/images/retry`,
+      {},
+    )
 
-    await expect(concertRow).toContainText('Picture 2: Not copied')
+    expect(retry.status, retry.text).toBe(404)
+  })
 
-    const retry = admin.getByRole('button', { name: 'Retry pictures', exact: true })
+  test('I6: the sold imported event is taken off the site with its order refunded, simulated', async ({
+    browser,
+    visitor,
+  }) => {
+    test.setTimeout(150_000)
 
-    await hydrated(retry)
+    const admin = await windowFor(browser, 'admin')
+    const buyer = await windowFor(browser, 'buyer')
+    const { garba } = names().listings
+    const event = (await importedEvents(ids().tag))[garba.sourceId].event
+
+    await admin.goto(`/admin/events/${event.id}`)
+
+    const zone = admin.locator('#delete-event')
+    const opener = zone.getByRole('button', { name: 'Delete this event…', exact: true })
+
+    await hydrated(opener)
+    await opener.click()
+
+    const dialog = admin.getByRole('region', { name: `Delete “${event.title}”` })
+
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Reading what deleting would do…')).toHaveCount(0)
+    await expect(dialog).toContainText(
+      'Payments on this site are simulated, so these refunds move no real money.',
+    )
+    await dialog
+      .getByLabel(/^Why is this event being deleted\?/u)
+      .fill('The organiser called the night off; every buyer is refunded.')
+    await dialog.getByLabel(/^Type the event’s web address/u).fill(event.slug)
     await pressThroughStepUp(
       admin,
-      () => retry.click(),
-      postTo(`/api/v1/platform/imports/${runs.second}/images/retry`),
+      () => dialog.getByRole('button', { name: 'Cancel, refund and delete', exact: true }).click(),
+      postTo(`/api/v1/events/${event.id}/delete`),
     )
-    await expect(
-      admin.getByText('Pictures were tried again. Pictures: 5 copied, 0 not copied, 0 waiting.'),
-    ).toBeVisible()
-    await expect(concertRow).toContainText('Picture 2: Copied, waiting for approval')
-    await expect(admin.getByRole('button', { name: 'Retry pictures', exact: true })).toHaveCount(0)
+    await expect(dialog.getByText('Deleted', { exact: true })).toBeVisible()
 
-    const item = (await importedEvents(ids().tag))[concert.sourceId]
+    // In the database: deleted after being cancelled, and the order refunded
+    // in full, booking fee included.
+    const standing = await eventStanding(event.id)
 
-    expect(item.images.map((image) => [image.status, image.mediaAsset?.moderationStatus])).toEqual([
-      ['STORED', 'PENDING'],
-      ['STORED', 'PENDING'],
-    ])
-    expect(item.event.status).toBe('REVIEW_PENDING')
+    expect(standing.status).toBe('DELETED')
+
+    const [refunded] = await ordersOf(event.id)
+
+    expect(refunded).toMatchObject({ reference: soldOrder.reference, status: 'REFUNDED' })
+    expect(refunded.refundedCents).toBe(soldOrder.totalCents)
+
+    // Off the site, and the buyer's order says it was refunded.
+    await visitor.goto(`/events/${event.slug}`)
+    await expect(visitor.getByTestId('not-found-view')).toBeVisible()
+
+    await buyer.goto(`/account/orders/${soldOrder.reference}`)
+    await expect(buyer.locator('main')).toContainText('This order was refunded in full.')
+    await expect(buyer.locator('main')).not.toContainText(SOURCE)
   })
 })

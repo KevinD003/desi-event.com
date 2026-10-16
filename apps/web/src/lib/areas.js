@@ -190,7 +190,7 @@ export const AREAS = Object.freeze({
     // capability) to that and to changing who can do what. Editing and
     // deleting any organisation's posted events (`event:platform_edit`) belongs
     // to the team at The Desi Events too, held by the same two roles, and so is importing
-    // events listed on Sulekha (`event:import`). Each page inside asks its own
+    // events from source listings (`event:import`). Each page inside asks its own
     // question again. `href` stays the invitations: the area's index page
     // sends a session to the first tab it is offered, so one holding only the
     // editing capability lands on All events. The booking fee and paying at

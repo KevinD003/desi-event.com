@@ -9,9 +9,9 @@
  * an hour late. When the nights are not all in one zone — a tour, say — no one
  * zone is true of all of them, so each night's times carry their own.
  *
- * A night copied from a listing that gave no end time (`endTimeListed: false`)
- * shows its start alone, and the nights of an event whose tickets are sold on
- * another site (`soldOn`) say so rather than "On sale".
+ * A night imported from a listing that gave no end time
+ * (`endTimeListed: false`) shows its start alone. Otherwise an imported
+ * event's nights read like any other's: its tickets are sold here.
  *
  * A Server Component: nothing here has state.
  *
@@ -30,9 +30,6 @@ import {
 } from '../lib/sessions.js'
 import { TEXT_LINK } from './link-classes.js'
 import { Badge } from './ui.jsx'
-
-/** The nights whose own state is said even when their tickets are sold elsewhere. */
-const ENDED_NIGHTS = new Set(['CANCELLED', 'COMPLETED'])
 
 /**
  * One fact of a night: a term and a time.
@@ -84,7 +81,6 @@ function withZone(reading, value, timezone, zoned) {
  * @property {object[]} [ticketTypes] The event's tiers, to tell a sold-out seated night from one not selling now.
  * @property {Date} [now] The moment in question.
  * @property {{eventId: string, organizationId?: string}|null} [traffic] The event, when a click on "Choose seats" is counted; null counts nothing.
- * @property {string|null} [soldOn] The site an imported event's tickets are sold on ("Sulekha"), or null.
  */
 
 /**
@@ -100,7 +96,6 @@ export function SessionList({
   ticketTypes = [],
   now = new Date(),
   traffic = null,
-  soldOn = null,
 }) {
   const zone = sessions[0]
     ? formatTimeZoneLabel({ startsAt: sessions[0].startsAt, timezone: sessions[0].timezone })
@@ -124,10 +119,7 @@ export function SessionList({
       )}
       <ol aria-label="Nights" className="mt-4 space-y-4">
         {sessions.map((session) => {
-          const badge =
-            soldOn && !ENDED_NIGHTS.has(session.status)
-              ? { text: `Tickets on ${soldOn}`, variant: 'neutral' }
-              : sessionStatusBadge(session, now, ticketTypes)
+          const badge = sessionStatusBadge(session, now, ticketTypes)
           const seats = buyable && sessionSellsSeats(session, now)
 
           return (

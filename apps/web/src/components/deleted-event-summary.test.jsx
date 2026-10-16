@@ -129,9 +129,9 @@ describe('DeletedEventSummary', () => {
     expect(said).toHaveTextContent(
       'It comes back at the same web address, /events/toronto-garba-night.',
     )
-    expect(said).toHaveTextContent(
-      'It is still presented by Toronto Garba Collective, and its “Buy tickets on Sulekha” link comes back as it was.',
-    )
+    expect(said).toHaveTextContent('It is still presented by Toronto Garba Collective.')
+    // Its tickets are sold here: there is no link to another site to bring back.
+    expect(said).not.toHaveTextContent(/Buy tickets|link comes back/u)
     expect(screen.getByRole('button', { name: 'Restore…' })).toBeVisible()
   })
 

@@ -29,6 +29,8 @@
  * @module app/events/slug/website/route
  */
 
+import { isRetiredSourceHost } from '@desi-event/schemas/website'
+
 import { getApiBaseUrl } from '../../../../lib/api-client.js'
 import { trafficForwardHeaders } from '../../../../lib/traffic-forwarding.js'
 import {
@@ -198,6 +200,12 @@ export async function GET(request, { params }) {
   if (typeof url !== 'string' || websiteUrlProblem(url) !== null) {
     return pageResponse(PAGES.unavailable, slug)
   }
+
+  // Nor is one on the site the imported listings came from (ADR 0015,
+  // addendum 2026-10-15 (2)). The API refuses to store such an address; this
+  // server, which never ships to the browser, checks again with the server's
+  // own rule, and answers as for a link that is turned off.
+  if (isRetiredSourceHost(new URL(url).hostname)) return pageResponse(PAGES.notAvailable, slug)
 
   return new Response(null, {
     status: 302,

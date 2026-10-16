@@ -359,7 +359,10 @@ describe('when they may be set', () => {
     await app.close()
   })
 
-  it('refuses an event sold on its listing’s own site with SOLD_ON_SOURCE', async () => {
+  it('sets the booking fee of an import the team holds like any event’s, and never turns paying at its door on', async () => {
+    // Imported events are sold on The Desi Events (2026-10-15): the booking
+    // fee and its rules apply to them as to any event, so SOLD_ON_SOURCE is
+    // gone. Nobody takes money at their door, so paying there stays off.
     const built = await makeWorld()
     const imported = platformHeldImportFixture(built.ids, { status: 'PUBLISHED' })
 
@@ -368,24 +371,30 @@ describe('when they may be set', () => {
     const { app } = await createTestApp({ seed: built.seed, ids: built.ids })
     const headers = await as(app, 'anil@desi-event.example')
 
-    for (const response of [
-      await setFee(app, imported.event.id, headers, {
-        source: 'EVENT',
-        percentageBps: 300,
-        flatCentsPerTicket: 0,
-        expectedSequence: 0,
-      }),
-      await setVenue(app, imported.event.id, headers, {
-        enabled: true,
-        limit: 50,
-        seen: { enabled: false, limit: null },
-      }),
-    ]) {
-      expect(response.statusCode).toBe(409)
-      expect(response.json().error.code).toBe('SOLD_ON_SOURCE')
-    }
+    const fee = await setFee(app, imported.event.id, headers, {
+      source: 'EVENT',
+      percentageBps: 300,
+      flatCentsPerTicket: 0,
+      expectedSequence: 0,
+    })
 
-    expect((await terms(app, imported.event.id, headers)).json().data.soldOnSource).toBe(true)
+    expect(fee.statusCode, fee.body).toBe(200)
+
+    const venue = await setVenue(app, imported.event.id, headers, {
+      enabled: true,
+      limit: 50,
+      seen: { enabled: false, limit: null },
+    })
+
+    expect(venue.statusCode).toBe(409)
+    expect(venue.json().error.code).toBe('VENUE_PAYMENT_UNAVAILABLE')
+
+    const read = (await terms(app, imported.event.id, headers)).json().data
+
+    // The fee is the event's own, in the currency its tiers are priced in.
+    expect(read.fee).toMatchObject({ source: 'EVENT', percentageBps: 300, currency: 'USD' })
+    expect(read.venuePayment.enabled).toBe(false)
+    expect(read).not.toHaveProperty('soldOnSource')
 
     await app.close()
   })

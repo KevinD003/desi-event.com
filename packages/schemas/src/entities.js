@@ -209,24 +209,25 @@ export const eventSchema = z.object({
 })
 
 /**
- * Where an imported event is listed, and what that listing said, for an event
- * still held by the platform-held organisation of the team at The Desi Events
- * (SPEC2-XI §5.I-E). Null for every other event, and for an imported event
- * once it has been moved to an organiser's own organisation.
+ * What an imported event's listing said, for an event still held by the
+ * platform-held organisation of the team at The Desi Events (SPEC2-XI §5.I-E).
+ * Null for every other event, and for an imported event once it has been moved
+ * to an organiser's own organisation.
  *
- * Only what the source listed: the organiser who presents it, the day it was
- * read, and each price's name and amount. Never a source note (availability,
- * "sold out", sales dates), never a picture address on the source's site, and
- * never a quantity: tickets for these events are sold on the source's page.
+ * Only what the listing gave: the organiser who presents it, the day it was
+ * read, and each price's name and amount as the organiser listed them on that
+ * day. Never a source note (availability, "sold out", sales dates), never an
+ * address on the site it was listed on (the owner, 2026-10-15: no link, no
+ * redirect, no contact), and never a quantity. Its tickets are sold on The
+ * Desi Events, through the event's own ticket types, and the page offers to
+ * reserve them on WhatsApp as well.
  */
 export const importedFromSchema = z.object({
-  /** The site the listing is on, in words: "Sulekha". */
-  sourceName: z.string().min(1).max(100),
   /** The organiser the listing names, shown as "Presented by". */
   presentedBy: z.string().max(200).nullable(),
   /** The UTC day the listing was read, `YYYY-MM-DD`. */
   listedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
-  /** The prices as the listing gave them, in its order. No ticket type is made from them. */
+  /** The prices as the organiser listed them on `listedOn`, in the listing's order. */
   prices: z
     .array(
       z.object({
@@ -238,11 +239,6 @@ export const importedFromSchema = z.object({
     .max(20),
   /** Whether the listing gave any price at all. */
   priceListed: z.boolean(),
-  /**
-   * Whether the website link is on and goes to the listing's own site, so the
-   * page may label it "Buy tickets on Sulekha".
-   */
-  ticketsOnSource: z.boolean(),
 })
 
 /**
@@ -297,10 +293,8 @@ export const eventSummarySchema = z.object({
    */
   salesOpen: z.boolean().optional(),
   /**
-   * For an event imported from another site and still held by the team at
-   * The Desi Events: where it is listed and the prices it listed, so a card says
-   * "On Sulekha from …" instead of a price on The Desi Events. Null for every
-   * other event.
+   * For an imported event still held by the team at The Desi Events: who
+   * presents it and the prices its listing gave. Null for every other event.
    */
   importedFrom: importedFromSchema.nullable().default(null),
 })
@@ -327,6 +321,12 @@ export const ticketTypeSchema = z.object({
    * called every seated tier sold out.
    */
   reserved: z.boolean().optional(),
+  /**
+   * True when `quantityTotal` is an allowance the import set (100 a tier),
+   * not a count the organiser gave: no page may show how many are left from
+   * it, nor call it low. Absent or false for every other tier.
+   */
+  quantityIsAllowance: z.boolean().optional(),
   /**
    * `PUBLIC` or `HIDDEN`. A stranger never sees a hidden tier — the public
    * payloads drop it — so on a public page this only ever reads `PUBLIC`; the

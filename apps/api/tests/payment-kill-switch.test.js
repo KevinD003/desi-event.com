@@ -10,7 +10,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import tls from 'node:tls'
@@ -208,8 +208,18 @@ describe('the network', () => {
 
 describe('the repository', () => {
   /** Every file git is tracking, which is the set that ships. */
-  const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' })
+  // What would ship from this tree: every file git knows of or would add (not
+  // ignored), that is still on disk. A file deleted in the tree ships nothing.
+  const tracked = execFileSync(
+    'git',
+    ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    },
+  )
     .split('\0')
+    .filter((file) => file !== '' && existsSync(path.join(repoRoot, file)))
     .filter((file) => /\.(js|mjs|cjs|jsx|json)$/.test(file))
     .filter((file) => !file.includes('/tests/') && !file.endsWith('.test.js'))
 

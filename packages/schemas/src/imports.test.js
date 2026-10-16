@@ -1,29 +1,29 @@
 import { describe, expect, it } from 'vitest'
 
+import * as imports from './imports.js'
 import {
   IMPORT_DATASET_FORMAT,
   IMPORT_LIMITS,
   IMPORT_PLAN_ACTIONS,
+  IMPORT_TIER_DEFAULTS,
+  RETIRED_DATASET_FIELDS,
+  RETIRED_LISTING_FIELDS,
   eventImportApplyRequestSchema,
   eventImportApproveRequestSchema,
   eventImportPreviewRequestSchema,
   eventImportReassignRequestSchema,
-  eventImportRetryRequestSchema,
   eventImportRunParamSchema,
   importDatasetSchema,
   importEventSchema,
   importSourceIdSchema,
   importTargetQuerySchema,
+  priceNoteSaysSoldOut,
 } from './imports.js'
 
-const SOURCE_URL =
-  'https://events.sulekha.com/falguni-pathak-live-in-dallas-dandiya-dhoom-2026_event-in_frisco-tx_400132'
-
-/** One listing shaped as the curated file holds it. */
+/** One listing shaped as the curated file holds it: no web address anywhere. */
 function listing(overrides = {}) {
   return {
     sourceId: '400132',
-    sourceUrl: SOURCE_URL,
     scrapedAt: '2026-09-29T21:25:00Z',
     title: 'Falguni Pathak Live in Dallas – Dandiya Dhoom 2026',
     category: 'GARBA_DANDIYA',
@@ -53,19 +53,6 @@ function listing(overrides = {}) {
     dressCode: null,
     parking: null,
     faq: [{ q: 'Where is it?', a: 'Frisco Flyers, 6300 Flyers Way, Frisco, TX' }],
-    images: [
-      {
-        url: 'https://usimg.sulekha.io/cdn/events/images/header2/falguni.webp?ver=0.333792',
-        role: 'cover',
-        alt: 'Falguni Pathak Live in Dallas banner',
-      },
-      {
-        url: 'https://usimg.sulekha.io/cdn/events/images/2026-05-22-03-43-46-853_55.webp',
-        role: 'gallery',
-        alt: 'Falguni Pathak Live in Dallas poster',
-      },
-    ],
-    ticketUrl: SOURCE_URL,
     importNotes: [],
     ...overrides,
   }
@@ -76,12 +63,9 @@ function dataset(events = [listing()], overrides = {}) {
   return {
     format: IMPORT_DATASET_FORMAT,
     source: 'SULEKHA',
-    sourceName: 'Sulekha',
-    sourceSite: 'https://events.sulekha.com/',
     collectedFrom: '2026-09-29T21:25:00Z',
     collectedTo: '2026-09-30T00:51:08Z',
     curatedOn: '2026-09-30',
-    imageHosts: ['usimg.sulekha.io'],
     events,
     ...overrides,
   }
@@ -148,22 +132,52 @@ describe('importDatasetSchema', () => {
     expect(importDatasetSchema.safeParse(dataset([listing({ organizer: {} })])).success).toBe(false)
   })
 
-  it('refuses http addresses for pictures, the listing and its tickets', () => {
+  it('refuses a file that still carries a web address or the source site’s name, whatever the address', () => {
+    // The listing link, the ticket link and the pictures of a file made before
+    // 2026-10-15, and its header's site, picture hosts and name.
+    expect([...RETIRED_LISTING_FIELDS]).toEqual(['sourceUrl', 'ticketUrl', 'images'])
+    expect([...RETIRED_DATASET_FIELDS]).toEqual(['sourceName', 'sourceSite', 'imageHosts'])
+
     for (const broken of [
-      listing({
-        images: [{ url: 'http://usimg.sulekha.io/a.webp', role: 'cover', alt: 'A poster' }],
-      }),
-      listing({ sourceUrl: 'http://events.sulekha.com/x_1' }),
-      listing({ ticketUrl: 'ftp://events.sulekha.com/x_1' }),
+      listing({ sourceUrl: 'https://listings.example/x_1' }),
+      listing({ ticketUrl: 'https://tickets.example/x_1' }),
+      listing({ images: [] }),
+      listing({ images: [{ url: 'https://pictures.example/a.webp', role: 'cover', alt: 'A' }] }),
     ]) {
-      expect(importDatasetSchema.safeParse(dataset([broken])).success).toBe(false)
+      const refused = importDatasetSchema.safeParse(dataset([broken]))
+
+      expect(refused.success).toBe(false)
+      expect(refused.error.issues[0].code).toBe('unrecognized_keys')
+    }
+
+    for (const field of RETIRED_DATASET_FIELDS) {
+      expect(importDatasetSchema.safeParse(dataset(undefined, { [field]: 'x' })).success).toBe(
+        false,
+      )
+    }
+
+    // Nothing in the schema module is a picture or address shape any more.
+    expect(Object.keys(imports).filter((name) => /image|url|retry/iu.test(name))).toEqual([])
+  })
+
+  it('makes each listed price a ticket type with an allowance, closed when the listing sold out of it', () => {
+    expect(IMPORT_TIER_DEFAULTS).toEqual({ quantityTotal: 100, minPerOrder: 1, maxPerOrder: 10 })
+    expect(Object.isFrozen(IMPORT_TIER_DEFAULTS)).toBe(true)
+
+    for (const note of [
+      'Sold Out',
+      'sold out',
+      'SOLD-OUT',
+      'Sold out; ticket sales close on Oct 9',
+    ]) {
+      expect(priceNoteSaysSoldOut(note), note).toBe(true)
+    }
+    for (const note of [null, undefined, '', 'Available', 'Selling fast', 'Almost full', 42]) {
+      expect(priceNoteSaysSoldOut(note), String(note)).toBe(false)
     }
   })
 
-  it('holds a listing to one cover and to the bounds the database holds', () => {
-    const cover = { url: 'https://usimg.sulekha.io/a.webp', role: 'cover', alt: 'A poster' }
-
-    expect(importEventSchema.safeParse(listing({ images: [cover, cover] })).success).toBe(false)
+  it('holds a listing to the bounds the database holds', () => {
     expect(
       importEventSchema.safeParse(
         listing({
@@ -180,11 +194,14 @@ describe('importDatasetSchema', () => {
       importEventSchema.safeParse(listing({ importNotes: Array(21).fill('A note.') })).success,
     ).toBe(false)
     expect(
-      importEventSchema.safeParse(listing({ images: [{ ...cover, alt: '   ' }] })).success,
+      importEventSchema.safeParse(
+        listing({ prices: [{ name: '  ', priceCents: 1000, currency: 'USD', note: null }] }),
+      ).success,
     ).toBe(false)
     expect(
-      importEventSchema.safeParse(listing({ images: [{ ...cover, alt: 'a'.repeat(301) }] }))
-        .success,
+      importEventSchema.safeParse(
+        listing({ prices: [{ name: 'Regular', priceCents: 1000, currency: 'usd', note: null }] }),
+      ).success,
     ).toBe(false)
   })
 
@@ -279,21 +296,11 @@ describe('the request bodies', () => {
   })
 })
 
-describe('the retry body, the run parameter and the target search', () => {
+describe('the run parameter and the target search', () => {
   const RUN = 'ckimportrun0000000000000a'
-  const EVENT = 'ckimportevent00000000000a'
 
-  it('retries every picture, or only those of the events named once each', () => {
-    expect(eventImportRetryRequestSchema.parse({})).toEqual({})
-    expect(eventImportRetryRequestSchema.parse({ eventIds: [EVENT] })).toEqual({
-      eventIds: [EVENT],
-    })
-    expect(eventImportRetryRequestSchema.safeParse({ eventIds: [] }).success).toBe(false)
-    expect(eventImportRetryRequestSchema.safeParse({ eventIds: [EVENT, EVENT] }).success).toBe(
-      false,
-    )
-    expect(eventImportRetryRequestSchema.safeParse({ eventIds: ['../x'] }).success).toBe(false)
-    expect(eventImportRetryRequestSchema.safeParse({ all: true }).success).toBe(false)
+  it('has no body for retrying pictures: no picture is copied any more', () => {
+    expect(imports.eventImportRetryRequestSchema).toBeUndefined()
   })
 
   it('takes a run id that is an id', () => {

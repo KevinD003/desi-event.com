@@ -111,7 +111,7 @@ describe('a night’s label', () => {
 
 describe('an end time the listing did not give', () => {
   const ESTIMATE =
-    "Not listed by Sulekha (estimate for scheduling). The event page shows only the start until the night's real end time is set here."
+    "Not given by the listing (estimate for scheduling). The event page shows only the start until the night's real end time is set here."
 
   /**
    * The edit form for the night.

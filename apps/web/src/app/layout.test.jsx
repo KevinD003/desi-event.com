@@ -39,7 +39,9 @@ describe('root layout metadata', () => {
       expect(words).toMatch(/across the USA and Canada/u)
     }
 
-    expect(metadata.description).toMatch(/Tickets sold here are priced in US dollars/u)
+    expect(metadata.description).toMatch(
+      /Tickets sold here are priced in US dollars, or Canadian dollars at a venue in Canada/u,
+    )
     expect(metadata.description).not.toMatch(/every price shown in US dollars/u)
   })
 

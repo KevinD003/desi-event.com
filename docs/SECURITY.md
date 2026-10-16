@@ -855,7 +855,7 @@ revision reviewed. A reviewer who belongs to the organisation is refused
 
 ---
 
-## Full control of posted events and the Sulekha import — 2026-10-06
+## Full control of posted events and the listing import — 2026-10-06
 
 Recorded from SPEC2-XI §10. The decisions are ADRs 0014 and 0015.
 
@@ -903,41 +903,45 @@ Recorded from SPEC2-XI §10. The decisions are ADRs 0014 and 0015.
 ### Pictures
 
 An unreviewed image is never public, and the uploader never approves their own
-(403 `SELF_REVIEW`). The one exception is imported pictures, approved together
-with their event by the administrator who reviewed the run.
+(403 `SELF_REVIEW`). Until 2026-10-15 imported pictures were the one
+exception; nothing is copied from a listing any more, so there is none.
 
-### Import SSRF
+### Imports make no outbound request (2026-10-15)
 
-- One code-level host allow-list (`usimg.sulekha.io`); https on 443 only.
-- Every resolved address must be public (IPv6: global unicast only, minus the
-  tunnelling and documentation ranges), and the connection is pinned to the
-  validated address; the pinned lookup answers Node 22's `all: true` form too.
-- Its own `https.Agent`, never the global one, so no proxy setting reroutes it;
-  certificate checks stay on. The importing machine needs direct HTTPS egress
-  to the one host.
-- Every redirect hop is validated and pinned afresh; at most two; none leaves
-  the list; a 10 second timeout; a 10 MiB cap; identity encoding only; a type
-  check, then the upload sanitiser.
-- Only `lib/import-images.js` may make outbound requests from `apps/api/src`
-  (a source scan).
-- The fixtures source (`IMPORT_IMAGE_SOURCE=fixtures`) is refused in production,
-  and its file name cannot leave its directory.
-- `sourceUrl` and `ticketUrl` in an uploaded file must be on
-  `events.sulekha.com`, checked at run time.
+Until 2026-10-15 the importer copied pictures from the source's picture host
+(`lib/import-images.js`, with its own host allow-list, address pinning and
+redirect checks). The owner asked for "no contact at all", so that fetcher,
+its route ("Retry pictures"), its table and its settings (`IMPORT_IMAGE_*`) are
+removed, and the API has no outbound caller left to defend:
+
+- No module under `apps/api/src` imports a network client or calls `fetch`
+  (a source scan, `apps/api/tests/security-regression.test.js`, "the API has no
+  way out").
+- An import, from planning both committed files to approving and opening
+  sales, makes no request, socket or name lookup
+  (`apps/api/tests/import-no-outbound.test.js` watches `fetch`, `http`,
+  `https`, `net`, `tls` and `dns`, with a control).
+- An uploaded file may carry no web address and no name of the source site:
+  the fields that held them (`sourceUrl`, `ticketUrl`, `images`, and the
+  header's `sourceName`, `sourceSite`, `imageHosts`) are refused with a
+  problem that names neither.
 
 ### Review independence for imports
 
-- The exemption covers only imported events and pictures of an organisation
-  with `platformHeldSource`. That organisation can have no members (a trigger)
-  and no team invitations.
+- The exemption covers only imported events of an organisation with
+  `platformHeldSource`. That organisation can have no members (a trigger) and
+  no team invitations.
 - Approval still needs `moderation:review`, an EVENT_PUBLISH step-up and the
-  revision the administrator saw; every stored picture bumps the revision, so a
-  picture the administrator did not see cannot ride along.
+  revision the administrator saw.
 - The approve route accepts only imported events of that run in a platform-held
   organisation, so it can never publish an organiser's own event.
-- A platform-held event cannot get ticket types or open sales
-  (`SOLD_ON_SOURCE`), so no money is taken for an organisation with no payout
-  account.
+- Since 2026-10-15 a platform-held event's tickets are sold on The Desi Events
+  (in this build, with simulated payments). Approving opens sales of the
+  ticket types the import made; the platform administrators open and pause
+  sales only in an audited editing session (ADR 0014), which a super
+  administrator does not need; paying at the venue is refused
+  (`VENUE_PAYMENT_UNAVAILABLE`), and only a super administrator admits at the
+  door (ADR 0007).
 - Who imported and who approved are both stored and audited. Reassignment ends
   the exemption.
 
@@ -945,9 +949,10 @@ with their event by the administrator who reviewed the run.
 
 - Stored credential-free: the dataset validator refuses email and phone
   patterns.
-- Public pages never carry Sulekha picture addresses.
-- The outbound Sulekha link goes only through the website switch and its
-  tracked redirect.
+- No address on the source site is stored, served or followed: the datasets
+  carry none, migration `20261015100000_imported_events_sold_here` cleared the
+  ones stored before, and the website rule refuses that site for every event
+  (`isRetiredSourceHost`, the same pattern the migration uses).
 
 ### Free text
 

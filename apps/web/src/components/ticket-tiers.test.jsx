@@ -19,6 +19,25 @@ describe('availabilityLabel', () => {
     })
   })
 
+  it('never shows a count from an allowance the import set, however low', () => {
+    // The listing gave no quantity: 100 is the team's allowance, not the
+    // organiser's count, so "Only 9 left" would be invented.
+    expect(
+      availabilityLabel({ availableQuantity: 9, isSoldOut: false, quantityIsAllowance: true }),
+    ).toEqual({ text: 'On sale', variant: 'success' })
+    expect(
+      availabilityLabel({ availableQuantity: 0, isSoldOut: true, quantityIsAllowance: true }).text,
+    ).toBe('Sold out')
+  })
+
+  it('never shows a count when told not to, for an imported event an older API did not mark', () => {
+    expect(
+      availabilityLabel({ availableQuantity: 9, isSoldOut: false }, new Date(), null, {
+        counts: false,
+      }),
+    ).toEqual({ text: 'On sale', variant: 'success' })
+  })
+
   it('stays neutral when there is plenty left', () => {
     expect(availabilityLabel({ availableQuantity: 900, isSoldOut: false })).toEqual({
       text: 'On sale',
@@ -416,5 +435,44 @@ describe('seated tiers and nights', () => {
     expect(
       within(screen.getByRole('list', { name: /Every night/ })).getByText('Season pass'),
     ).toBeInTheDocument()
+  })
+})
+
+describe('TicketTiers for an imported event', () => {
+  const allowance = {
+    id: 'tt_allowance',
+    name: 'Adult',
+    priceCents: 2500,
+    currency: 'USD',
+    status: 'ON_SALE',
+    availableQuantity: 4,
+    isSoldOut: false,
+    quantityIsAllowance: true,
+    salesStartAt: null,
+    salesEndAt: null,
+  }
+
+  it('says “On sale”, not “Only 4 left”, for a tier on an allowance', () => {
+    render(<TicketTiers ticketTypes={[allowance]} />)
+
+    expect(screen.getByText('On sale')).toBeInTheDocument()
+    expect(screen.queryByText(/left/u)).toBeNull()
+  })
+
+  it('says no count for any tier when the page says the event is imported', () => {
+    render(
+      <TicketTiers
+        ticketTypes={[{ ...allowance, quantityIsAllowance: undefined }]}
+        countsShown={false}
+      />,
+    )
+
+    expect(screen.queryByText(/left/u)).toBeNull()
+  })
+
+  it('still shows the organiser’s own low count once the quantity is theirs', () => {
+    render(<TicketTiers ticketTypes={[{ ...allowance, quantityIsAllowance: false }]} />)
+
+    expect(screen.getByText('Only 4 left')).toBeInTheDocument()
   })
 })

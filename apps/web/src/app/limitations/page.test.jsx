@@ -242,7 +242,6 @@ describe('LimitationsPage', () => {
       'Ticket types can be added, edited, re-priced (people who already bought keep what they paid), closed, hidden, or removed if unused.',
       'Nights can be added, moved, given another seating map while nothing at them is sold, removed if unused, or cancelled with their tickets refunded.',
       'The venue cannot be changed while a night uses a seating map.',
-      '(Pictures copied by an import are the exception: the administrator who reviews the import approves them with the event.)',
       'A finished or cancelled event keeps its words and pictures editable.',
       'The organisation’s venue records can be edited at any time, and every event there shows the new details without review.',
       'An event’s website address can be changed at any time; a new address is not linked until an administrator approves it.',
@@ -252,6 +251,8 @@ describe('LimitationsPage', () => {
     }
     // The first plan's list said pictures could not be added; that is gone.
     expect(live).not.toMatch(/cannot be added|New pictures cannot/i)
+    // Imports copy no pictures any more, so there is no exception for them.
+    expect(live).not.toMatch(/Pictures copied by an import/u)
   })
 
   it('says how cancelling one night treats a ticket for every night', () => {
@@ -289,24 +290,36 @@ describe('LimitationsPage', () => {
     expect(kept).toMatch(/can stay there for up to a day/)
   })
 
-  it('says imported events are copies from a date, sold on Sulekha, and not kept up to date', () => {
+  it('says imported events are copies from a date, sold here with simulated payment, and not kept up to date, without naming their site', () => {
     render(<LimitationsPage />)
 
     const imported = entryFor('Keeping imported events up to date').textContent
 
-    expect(imported).toMatch(/copied from their listings on Sulekha\.com and are shown under/)
-    expect(imported).toMatch(/They are not updated automatically/)
-    expect(imported).toMatch(/Tickets for them are sold on Sulekha, not here/)
     expect(imported).toMatch(
-      /as Sulekha listed them on the day the listing was read, which each event’s page names\./,
+      /imported from organisers’ public ticket listings and are shown under “The Desi Events”/,
     )
-    expect(imported).toMatch(/Where Sulekha gave no end time, only the start is shown\./)
-    expect(imported).toMatch(/shows a generated poster/)
+    expect(imported).toMatch(/They are not updated automatically/)
+    expect(imported).toMatch(/a ticket type that has sold tickets is not overwritten by it\./)
     expect(imported).toMatch(
-      /The events copied are in the United States and Canada; a Canadian event’s prices are in Canadian dollars, written CA\$, and its times are the venue’s own\./,
+      /Their tickets are sold here, with simulated payment like every other event’s, and can also be reserved through the WhatsApp chat of The Desi Events\./,
+    )
+    expect(imported).toMatch(
+      /at the price the organiser listed on the day the listing was read, which each event’s page names\./,
+    )
+    expect(imported).toMatch(
+      /starts with an allowance of 100 tickets that the team at The Desi Events can change, and no count of tickets left is shown for it\./,
+    )
+    expect(imported).toMatch(/Where the listing gave no end time, only the start is shown\./)
+    expect(imported).toMatch(/No pictures are copied from a listing/)
+    expect(imported).toMatch(/shows a generated poster/)
+    // Nothing is sold elsewhere any more, and no ticket page is linked.
+    expect(imported).not.toMatch(/another site|ticket page|not here/u)
+    expect(imported).toMatch(
+      /The events imported are in the United States and Canada; a Canadian event’s prices are in Canadian dollars, written CA\$, and its times are the venue’s own\./,
     )
     // No collection date or region it no longer holds to.
     expect(imported).not.toMatch(/Only events in Texas/)
+    expect(imported).not.toMatch(/sulekha/iu)
   })
 
   it('says the website link is switched by administrators and the site behind it is not checked', () => {
@@ -393,7 +406,7 @@ describe('LimitationsPage', () => {
       /Every event, organiser and price on this site is fictional/,
     )
     expect(container.textContent).toMatch(
-      /Events, organisers and prices on this site are fictional, except events copied from Sulekha\.com listings/,
+      /Events, organisers and prices on this site are fictional, except events imported from organisers’ public ticket listings, which name the organiser who presents them and are sold here at the prices the organiser listed\./,
     )
     expect(
       screen

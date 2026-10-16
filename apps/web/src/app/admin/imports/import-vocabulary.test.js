@@ -8,6 +8,7 @@ import {
   failureReason,
   planReading,
   runPath,
+  ticketTypesLine,
   writtenCount,
 } from './import-vocabulary.js'
 
@@ -32,9 +33,9 @@ describe('the words of the import pages', () => {
     )
   })
 
-  it('offers "Update from Sulekha" in words for a published event whose listing changed', () => {
+  it('offers "Update from the listing" in words for a published event whose listing changed', () => {
     expect(planReading({ action: 'POSTED_KEPT', updatable: true }).detail).toMatch(
-      /Tick “Update from Sulekha”/u,
+      /Tick “Update from the listing”/u,
     )
     expect(planReading({ action: 'UNCHANGED', resubmit: true }).detail).toMatch(
       /sent for review again/u,
@@ -56,11 +57,11 @@ describe('the words of the import pages', () => {
   })
 
   it('says why a picture was not copied', () => {
-    expect(failureReason('TIMEOUT')).toBe('Sulekha’s picture host took too long to answer.')
+    expect(failureReason('TIMEOUT')).toBe('The picture host took too long to answer.')
     expect(failureReason('TRY_AGAIN')).toBe(
       'Another change to the event was being saved at the same moment. Copy it again.',
     )
-    expect(failureReason('HTTP_404')).toBe('Sulekha answered with status 404.')
+    expect(failureReason('HTTP_404')).toBe('The picture host answered with status 404.')
     expect(failureReason('SANITISER_REFUSED:IMAGE_TOO_SMALL')).toBe(
       'The picture checks refused it (IMAGE_TOO_SMALL).',
     )
@@ -69,9 +70,40 @@ describe('the words of the import pages', () => {
   })
 
   it('reports each approval in a sentence', () => {
+    expect(
+      approveSentence(
+        { outcome: 'PUBLISHED', status: 'ON_SALE', ticketTypesOnSale: 3 },
+        'Raga Night',
+      ),
+    ).toBe('Raga Night: approved and published, with 3 ticket types on sale.')
+    expect(
+      approveSentence(
+        { outcome: 'PUBLISHED', status: 'ON_SALE', ticketTypesOnSale: 1 },
+        'Raga Night',
+      ),
+    ).toBe('Raga Night: approved and published, with 1 ticket type on sale.')
+    // Published with nothing to put on sale (its listing gave no price): no sale is claimed.
+    expect(
+      approveSentence(
+        { outcome: 'PUBLISHED', status: 'PUBLISHED', ticketTypesOnSale: 0 },
+        'Raga Night',
+      ),
+    ).toBe('Raga Night: approved and published. It has no ticket type to put on sale.')
     expect(approveSentence({ outcome: 'PUBLISHED' }, 'Raga Night')).toBe(
-      'Raga Night: approved and published, with its Sulekha ticket link on.',
+      'Raga Night: approved and published.',
     )
+    expect(
+      approveSentence(
+        { outcome: 'SALES_OPENED', status: 'ON_SALE', ticketTypesOnSale: 2 },
+        'Raga Night',
+      ),
+    ).toBe('Raga Night: its tickets were put on sale (2 ticket types).')
+    // No sentence speaks of a "Buy tickets" link any more.
+    for (const outcome of ['PUBLISHED', 'SALES_OPENED']) {
+      expect(approveSentence({ outcome, ticketTypesOnSale: 1 }, 'Raga Night')).not.toMatch(
+        /Buy tickets|link/u,
+      )
+    }
     expect(
       approveSentence({ outcome: 'PICTURES_APPROVED', picturesApproved: 1 }, 'Raga Night'),
     ).toBe('Raga Night: 1 picture approved.')
@@ -81,6 +113,17 @@ describe('the words of the import pages', () => {
         'Raga Night',
       ),
     ).toBe('Raga Night: not published. Somebody changed this event since you loaded it.')
+  })
+
+  it('says what a row’s prices become: ticket types, and which are not on sale', () => {
+    expect(ticketTypesLine({ priceCount: 3, soldOutCount: 1 })).toBe(
+      '3 ticket types, 1 not on sale (sold out on the listing)',
+    )
+    expect(ticketTypesLine({ priceCount: 1, soldOutCount: 0 })).toBe('1 ticket type')
+    expect(ticketTypesLine({ priceCount: 0, soldOutCount: 0 })).toBe(
+      'No price listed, so no ticket type',
+    )
+    expect(ticketTypesLine({})).toBeNull()
   })
 
   it('encodes a run’s id into its path', () => {

@@ -1,14 +1,14 @@
 /**
  * Importing listed events, by the team at The Desi Events (SPEC2-XI area I): the runs,
- * their plans, applying and approving them, copying pictures again, and moving
- * an imported event to an organiser's own organisation.
+ * their plans, applying and approving them (which puts their ticket types on
+ * sale), and moving an imported event to an organiser's own organisation.
+ * Nothing here fetches anything: an import makes no outbound request.
  *
  * Every route is held by `event:import` (ADMIN and SUPER_ADMIN); approving also
  * needs `moderation:review`, checked here because the contract names one
- * capability. Applying and retrying pictures need a second factor within the
- * MODERATION window, approving and moving one within the EVENT_PUBLISH window.
- * Previews, applies and retries share one budget per administrator. Nothing
- * here is cached.
+ * capability. Applying needs a second factor within the MODERATION window,
+ * approving and moving one within the EVENT_PUBLISH window. Previews and
+ * applies share one budget per administrator. Nothing here is cached.
  *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc
  * namepath.
@@ -28,7 +28,6 @@ import {
   loadRun,
   previewImport,
   reassignImportedEvent,
-  retryRunImages,
   toRunView,
 } from '../lib/event-import.js'
 import { EVENT_MEDIA_INCLUDE } from '../lib/event-media.js'
@@ -58,34 +57,26 @@ const DETAIL_INCLUDE = Object.freeze({
  * @param {object} deps Injected dependencies.
  * @param {object} deps.prisma The Prisma client.
  * @param {object} deps.env The parsed API environment.
- * @param {object} [deps.mediaStorage] Where picture bytes live; PostgreSQL by default.
- * @param {Function} [deps.fetchImportImage] How one picture is copied; the SSRF-safe fetcher by default.
  * @param {{max?: number, timeWindow?: string|number}} [deps.eventImportLimit] Overrides for the import budget.
  * @returns {void} Nothing.
  */
-export function registerEventImportRoutes(
-  app,
-  { prisma, env, mediaStorage, fetchImportImage, eventImportLimit },
-) {
+export function registerEventImportRoutes(app, { prisma, env, eventImportLimit }) {
   const budget = eventImportRateLimit(eventImportLimit ?? {})
   // The event's own booking fee when the team at The Desi Events set one, else the
   // site default: the terms checkout charges (SPEC3 §7.2).
   const pricing = env
     ? { feeConfigFor: (currency, event) => eventFeeConfig(env, event, currency) }
     : {}
-  const storage = mediaStorage
 
   /**
-   * The run as the page reads it, with how many pictures still wait.
+   * The run as the page reads it.
    *
    * @param {string} runId The run.
    * @param {Date} now The moment.
    * @returns {Promise<object>} The response body.
    */
   async function runBody(runId, now) {
-    const view = await toRunView(prisma, await loadRun(prisma, runId), now)
-
-    return { data: view, meta: { picturesWaiting: view.pictures.waiting } }
+    return { data: await toRunView(prisma, await loadRun(prisma, runId), now) }
   }
 
   defineRoute(app, 'eventImports.list', {
@@ -138,14 +129,12 @@ export function registerEventImportRoutes(
       reply.header('cache-control', 'no-store')
 
       const run = await loadRun(prisma, request.params.runId)
-      const { results, pictures } = await applyImport(prisma, storage, {
+      const { results } = await applyImport(prisma, {
         run,
         actor: request.actor,
         planDigest: request.body.planDigest,
         updateFromSource: request.body.updateFromSource,
         via: 'web',
-        env,
-        fetchImage: fetchImportImage,
         log: request.log,
       })
 
@@ -154,35 +143,9 @@ export function registerEventImportRoutes(
           runId: run.id,
           written: results.filter((result) => result.outcome === 'WRITTEN').length,
           refused: results.filter((result) => result.outcome === 'REFUSED').length,
-          picturesStored: pictures.stored,
-          picturesFailed: pictures.failed,
           actorId: request.actor.id,
         },
         'import applied',
-      )
-
-      return runBody(run.id, new Date())
-    },
-  })
-
-  defineRoute(app, 'eventImports.retryImages', {
-    preHandler: [budget],
-    handler: async (request, reply) => {
-      reply.header('cache-control', 'no-store')
-
-      const run = await loadRun(prisma, request.params.runId)
-      const pictures = await retryRunImages(prisma, storage, {
-        run,
-        actor: request.actor,
-        eventIds: request.body?.eventIds ?? null,
-        env,
-        fetchImage: fetchImportImage,
-        log: request.log,
-      })
-
-      request.log.info(
-        { runId: run.id, ...pictures, actorId: request.actor.id },
-        'import pictures retried',
       )
 
       return runBody(run.id, new Date())
@@ -217,6 +180,7 @@ export function registerEventImportRoutes(
         {
           runId: run.id,
           published: results.filter((result) => result.outcome === 'PUBLISHED').length,
+          salesOpened: results.filter((result) => result.outcome === 'SALES_OPENED').length,
           refused: results.filter((result) => result.outcome === 'REFUSED').length,
           actorId: request.actor.id,
         },

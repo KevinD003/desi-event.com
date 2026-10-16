@@ -25,7 +25,7 @@ export const CONFLICT_OF_INTEREST_NOTICE =
  * review page does not offer it and says why.
  */
 export const IMPORTED_EVENT_NO_EDITOR_NOTICE =
-  'Nobody runs this event on The Desi Events, so nobody could make changes you ask for. Approve it and correct it once it is published, reject it, or delete it.'
+  'The organisation holding this event has no members, so nobody could make the changes you ask for. Approve it and correct it once it is published, reject it, or delete it.'
 
 /**
  * Whether this session belongs to an organisation, through its own membership.

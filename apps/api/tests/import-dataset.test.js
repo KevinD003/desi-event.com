@@ -2,12 +2,15 @@
  * Reading an import file and planning it (`lib/import-dataset.js`,
  * SPEC2-XI §5.I-C).
  *
- * The committed Sulekha file has its own validator (`packages/db/tests/
+ * The committed files have their own validator (`packages/db/tests/
  * import-dataset.test.js`). These tests hold the run-time rules, because the
- * file an administrator uploads is not that one: a ticket or listing link off
- * events.sulekha.com, a picture host off the list, a wrong format or source
- * are each refused with a sentence that says where; and the plan gives every
- * `EventStatus` exactly one action.
+ * file an administrator uploads is not that one: since 2026-10-15 a file that
+ * still carries a listing link, a ticket link, pictures, a source site,
+ * picture hosts or a source name is refused, each field named; a wrong format
+ * or source is refused in its own words; a listing priced in another currency
+ * than its venue's country sells in is INVALID; each listed price becomes a
+ * ticket type (`listingTiers`); and the plan gives every `EventStatus`
+ * exactly one action.
  */
 
 import { readFileSync } from 'node:fs'
@@ -19,26 +22,29 @@ import { IMPORT_PLAN_ACTIONS } from '@desi-event/schemas/imports'
 import { PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { normaliseError, toErrorBody } from '../src/lib/errors.js'
+import * as importDataset from '../src/lib/import-dataset.js'
 import {
   IMPORT_PROBLEM_LIMIT,
-  IMPORT_SOURCE_HOSTS,
+  LISTING_DIGEST_VERSION,
   PLAN_ACTION_BY_STATUS,
   canonicalDigest,
   canonicalJson,
   importInvalid,
+  listingCurrency,
   listingDigest,
+  listingPriceProblem,
+  listingTiers,
   parseImportDataset,
   planActionForStatus,
   planImport,
   planRow,
-  sourceUrlProblem,
 } from '../src/lib/import-dataset.js'
 import { addRows, makeWorld, platformHeldImportFixture } from './helpers/fixtures.js'
 import { createPrismaStub } from './helpers/prisma-stub.js'
 
 const COMMITTED = JSON.parse(
   readFileSync(
-    new URL('../../../packages/db/data/imports/sulekha-texas-2026.json', import.meta.url),
+    new URL('../../../packages/db/data/imports/texas-2026.json', import.meta.url),
     'utf8',
   ),
 )
@@ -77,7 +83,7 @@ function parsedCommitted() {
 }
 
 describe('parseImportDataset', () => {
-  it('reads the committed Sulekha file with no problem', () => {
+  it('reads the committed Texas file with no problem', () => {
     const { dataset, problems } = parseImportDataset(COMMITTED)
 
     expect(problems).toEqual([])
@@ -116,77 +122,70 @@ describe('parseImportDataset', () => {
     expect(dataset).toBeNull()
     expect(problems).toEqual([
       'format: This build reads "desi-event-import/1" files only, and this file does not say it is one.',
-      'source: Only listings from Sulekha ("SULEKHA") can be imported.',
+      'source: This file names a source this build does not import from.',
     ])
   })
 
   it.each([
-    ['another site', 'https://desicomedyfest.com/houston'],
-    ['plain http', 'http://events.sulekha.com/a_event-in_houston-tx_402012'],
-    ['a look-alike host', 'https://events.sulekha.com.example.net/a_402012'],
-    ['a sibling host', 'https://www.sulekha.com/a_402012'],
-    ['a sign-in', 'https://events.sulekha.com@example.net/a_402012'],
-    ['a port', 'https://events.sulekha.com:8443/a_402012'],
-    ['no address', 'not a link'],
-  ])('refuses a ticket link to %s', (_label, ticketUrl) => {
+    ['sourceUrl', 'https://events.sulekha.com/a_event-in_houston-tx_402012'],
+    ['ticketUrl', 'https://desicomedyfest.com/houston'],
+    ['images', [{ url: 'https://usimg.sulekha.io/a.webp', role: 'cover', alt: 'A' }]],
+    ['images', []],
+  ])('refuses a listing that still carries %s, whatever it holds (2026-10-15)', (field, value) => {
     const { dataset, problems } = parseImportDataset(
       datasetWith((copy) => {
-        copy.events[3].ticketUrl = ticketUrl
+        copy.events[3][field] = value
       }),
     )
     const id = COMMITTED.events[3].sourceId
 
     expect(dataset).toBeNull()
-    expect(problems).toContain(
-      `events[3] (listing ${id}) ticketUrl: Use the listing's own https:// page on events.sulekha.com.`,
-    )
-  })
-
-  it('refuses a listing link off events.sulekha.com', () => {
-    const { problems } = parseImportDataset(
-      datasetWith((copy) => {
-        copy.events[0].sourceUrl = 'https://example.org/listing_400132'
-      }),
-    )
-
     expect(problems).toEqual([
-      "events[0] (listing 400132) sourceUrl: Use the listing's own https:// page on events.sulekha.com.",
+      `events[3] (listing ${id}) ${field}: Import files carry no web address and no name of the site the listing came from. Remove this field.`,
     ])
   })
 
   it.each([
-    ['another CDN', 'https://d3aew4oo17ml6.cloudfront.net/cdn/events/images/a.webp'],
-    ['plain http', 'http://usimg.sulekha.io/cdn/events/images/a.webp'],
-    ['a port', 'https://usimg.sulekha.io:8443/cdn/events/images/a.webp'],
-    ['a sign-in', 'https://user:secret@usimg.sulekha.io/cdn/events/images/a.webp'],
-    ['a trailing dot', 'https://usimg.sulekha.io./cdn/events/images/a.webp'],
-    ['an address', 'https://127.0.0.1/cdn/events/images/a.webp'],
-  ])('refuses a picture on %s', (_label, url) => {
+    ['sourceName', 'Sulekha'],
+    ['sourceSite', 'https://events.sulekha.com/'],
+    ['imageHosts', ['usimg.sulekha.io']],
+  ])('refuses a file whose header still carries %s', (field, value) => {
     const { dataset, problems } = parseImportDataset(
       datasetWith((copy) => {
-        copy.events[0].images[1].url = url
+        copy[field] = value
       }),
     )
 
     expect(dataset).toBeNull()
-    expect(problems).toContain(
-      'events[0] (listing 400132) images[1].url: Pictures are copied only from https:// addresses on usimg.sulekha.io.',
-    )
-  })
-
-  it('refuses a file that declares another picture host', () => {
-    const { problems } = parseImportDataset(
-      datasetWith((copy) => {
-        copy.imageHosts = ['usimg.sulekha.io', 'd3aew4oo17ml6.cloudfront.net']
-      }),
-    )
-
     expect(problems).toEqual([
-      'imageHosts[1]: Pictures are copied only from https:// addresses on usimg.sulekha.io.',
+      `${field}: Import files carry no web address and no name of the site the listing came from. Remove this field.`,
     ])
   })
 
-  it('places a shape problem by listing, and still runs the host checks', () => {
+  it('refuses a file made before 2026-10-15 field by field, naming no site in any problem', () => {
+    const { problems } = parseImportDataset(
+      datasetWith((copy) => {
+        copy.sourceName = 'Sulekha'
+        copy.sourceSite = 'https://events.sulekha.com/'
+        copy.imageHosts = ['usimg.sulekha.io']
+        copy.events = copy.events.slice(0, 1).map((event) => ({
+          ...event,
+          sourceUrl: `https://events.sulekha.com/x_${event.sourceId}`,
+          ticketUrl: `https://events.sulekha.com/x_${event.sourceId}`,
+          images: [],
+        }))
+      }),
+    )
+
+    expect(problems).toHaveLength(6)
+    expect(problems.filter((problem) => /sulekha|https?:/iu.test(problem))).toEqual([])
+    // And a key that was never part of a file is still the schema's own refusal.
+    expect(
+      parseImportDataset(datasetWith((copy) => (copy.events[0].organizer = {}))).problems[0],
+    ).toMatch(/^events\[0\] \(listing 400132\): Unrecognized key/u)
+  })
+
+  it('places a shape problem by listing', () => {
     const { problems } = parseImportDataset(
       datasetWith((copy) => {
         copy.events[2].category = 'GARBA'
@@ -196,10 +195,10 @@ describe('parseImportDataset', () => {
     const id = COMMITTED.events[2].sourceId
 
     expect(problems).toHaveLength(2)
-    expect(problems[0]).toMatch(new RegExp(`^events\\[2\\] \\(listing ${id}\\) category: `, 'u'))
-    expect(problems[1]).toBe(
-      `events[2] (listing ${id}) ticketUrl: Use the listing's own https:// page on events.sulekha.com.`,
+    expect(problems[0]).toBe(
+      `events[2] (listing ${id}) ticketUrl: Import files carry no web address and no name of the site the listing came from. Remove this field.`,
     )
+    expect(problems[1]).toMatch(new RegExp(`^events\\[2\\] \\(listing ${id}\\) category: `, 'u'))
   })
 
   it('lists at most fifty problems, the last saying how many more there are', () => {
@@ -275,14 +274,136 @@ describe('parseImportDataset', () => {
   })
 })
 
-describe('sourceUrlProblem', () => {
-  it('allows only https pages on the one listing host', () => {
-    expect(IMPORT_SOURCE_HOSTS).toEqual(['events.sulekha.com'])
-    expect(sourceUrlProblem(COMMITTED.events[0].sourceUrl)).toBeNull()
-    expect(sourceUrlProblem('https://EVENTS.SULEKHA.COM/x_1')).toBeNull()
-    expect(sourceUrlProblem('https://events.sulekha.com:443/x_1')).toBeNull()
-    expect(sourceUrlProblem('https:events.sulekha.com/x_1')).not.toBeNull()
-    expect(sourceUrlProblem(undefined)).not.toBeNull()
+describe('no address rule is left to check (2026-10-15)', () => {
+  it('names no host and checks no address, because a file holds none', () => {
+    expect(importDataset).not.toHaveProperty('IMPORT_SOURCE_HOSTS')
+    expect(importDataset).not.toHaveProperty('sourceUrlProblem')
+  })
+})
+
+describe('listingTiers and the currency an event sells in', () => {
+  const base = parsedCommitted().events[5]
+
+  /**
+   * The listing with other prices, at a venue in the country given.
+   *
+   * @param {object[]} prices The prices.
+   * @param {string} [country] The venue's country.
+   * @returns {object} The listing.
+   */
+  function priced(prices, country = 'US') {
+    return { ...base, venue: { ...base.venue, country }, prices }
+  }
+
+  it('sells in USD in the United States and CAD in Canada, and elsewhere in the prices’ one currency', () => {
+    expect(listingCurrency(priced([], 'US'))).toBe('USD')
+    expect(listingCurrency(priced([], 'CA'))).toBe('CAD')
+    expect(
+      listingCurrency(priced([{ name: 'A', priceCents: 100, currency: 'GBP', note: null }], 'GB')),
+    ).toBe('GBP')
+    expect(listingCurrency(priced([], 'GB'))).toBeNull()
+  })
+
+  it('makes one tier per price, named as the page shows it, keyed by that name, closed when sold out', () => {
+    expect(
+      listingTiers(
+        priced([
+          {
+            name: 'Early Bird (Ends on 10/9)',
+            priceCents: 2000,
+            currency: 'USD',
+            note: 'Sold Out',
+          },
+          { name: 'Regular', priceCents: 3500, currency: 'USD', note: null },
+          { name: 'Kids', priceCents: 0, currency: 'USD', note: 'Under 5' },
+        ]),
+      ),
+    ).toEqual([
+      {
+        key: 'Early Bird',
+        name: 'Early Bird',
+        priceCents: 2000,
+        currency: 'USD',
+        soldOut: true,
+        sortOrder: 0,
+      },
+      {
+        key: 'Regular',
+        name: 'Regular',
+        priceCents: 3500,
+        currency: 'USD',
+        soldOut: false,
+        sortOrder: 1,
+      },
+      { key: 'Kids', name: 'Kids', priceCents: 0, currency: 'USD', soldOut: false, sortOrder: 2 },
+    ])
+  })
+
+  it('makes a repeated price one tier, and tells same-named prices apart by their amounts', () => {
+    const tiers = listingTiers(
+      priced(
+        [
+          { name: 'Zone 1', priceCents: 7500, currency: 'CAD', note: null },
+          { name: 'Zone 1', priceCents: 7500, currency: 'CAD', note: 'Sold Out' },
+          { name: 'General Admission', priceCents: 3500, currency: 'CAD', note: null },
+          { name: 'General Admission', priceCents: 4500, currency: 'CAD', note: 'Sold Out' },
+        ],
+        'CA',
+      ),
+    )
+
+    expect(tiers.map((tier) => [tier.key, tier.priceCents, tier.soldOut, tier.sortOrder])).toEqual([
+      // Sold out only when every copy was.
+      ['Zone 1', 7500, false, 0],
+      ['General Admission (CA$35.00)', 3500, false, 1],
+      ['General Admission (CA$45.00)', 4500, true, 2],
+    ])
+    expect(new Set(tiers.map((tier) => tier.key)).size).toBe(tiers.length)
+  })
+
+  it('gives every committed listing unique tier names within the editor’s bounds', () => {
+    for (const file of ['texas-2026.json', 'north-america-2026.json']) {
+      const { dataset } = parseImportDataset(
+        JSON.parse(
+          readFileSync(
+            new URL(`../../../packages/db/data/imports/${file}`, import.meta.url),
+            'utf8',
+          ),
+        ),
+      )
+
+      for (const listing of dataset.events) {
+        const tiers = listingTiers(listing)
+
+        expect(new Set(tiers.map((tier) => tier.key)).size, listing.sourceId).toBe(tiers.length)
+        for (const tier of tiers) {
+          expect(tier.name.length, listing.sourceId).toBeLessThanOrEqual(120)
+          expect(tier.currency).toBe(listing.venue.country === 'CA' ? 'CAD' : 'USD')
+        }
+        expect(listingPriceProblem(listing), listing.sourceId).toBeNull()
+      }
+    }
+  })
+
+  it('says why a listing priced in another currency cannot be sold', () => {
+    expect(
+      listingPriceProblem(
+        priced([{ name: 'Regular', priceCents: 3500, currency: 'USD', note: null }], 'CA'),
+      ),
+    ).toBe(
+      'Its price "Regular" is in USD, but tickets at a venue in CA are sold in CAD. Correct the currency in the file.',
+    )
+    expect(
+      listingPriceProblem(
+        priced(
+          [
+            { name: 'A', priceCents: 100, currency: 'GBP', note: null },
+            { name: 'B', priceCents: 100, currency: 'EUR', note: null },
+          ],
+          'GB',
+        ),
+      ),
+    ).toMatch(/more than one currency \(GBP and EUR\)/u)
   })
 })
 
@@ -378,10 +499,34 @@ describe('planRow', () => {
       contentDigest: digest,
       problem: null,
       importNotes: listing.importNotes,
-      imageCount: listing.images.length,
-      priceCount: listing.prices.length,
+      priceCount: listingTiers(listing).length,
+      soldOutCount: listingTiers(listing).filter((tier) => tier.soldOut).length,
+      currency: 'USD',
       endTimeListed: listing.endsAt !== null,
     })
+  })
+
+  it('counts the ticket types applying makes, a repeated price once, so a plan never promises more', () => {
+    const general = { name: 'General', priceCents: 2500, currency: 'USD', note: null }
+    const repeated = {
+      ...listing,
+      prices: [
+        general,
+        { ...general },
+        { ...general, name: 'VIP', priceCents: 6000, note: 'Sold Out' },
+      ],
+    }
+    const row = planRow({ listing: repeated, existing: null, previousDigest: null, now: CURATED })
+
+    expect(repeated.prices).toHaveLength(3)
+    expect([row.priceCount, row.soldOutCount]).toEqual([2, 1])
+    expect(listingTiers(repeated).map((tier) => tier.name)).toEqual(['General', 'VIP'])
+  })
+
+  it('takes a listing’s digest with the version of what applying writes, so older copies read as changed', () => {
+    expect(LISTING_DIGEST_VERSION).toBe('tiers-1')
+    expect(digest).toBe(canonicalDigest({ version: 'tiers-1', listing }))
+    expect(digest).not.toBe(canonicalDigest(listing))
   })
 
   it('skips a listing whose start has come, new or not', () => {
@@ -454,15 +599,20 @@ describe('planRow', () => {
     ).toBe('SKIPPED_REASSIGNED')
   })
 
-  it('calls a listing whose ticket link fails the website rules INVALID, with the reason', () => {
-    const tokened = { ...listing, ticketUrl: `${listing.ticketUrl}?token=abc` }
-    const row = planRow({ listing: tokened, existing: null, previousDigest: null, now: CURATED })
+  it('calls a listing priced in another currency than its venue’s country INVALID, with the reason', () => {
+    const euros = {
+      ...listing,
+      prices: listing.prices.length
+        ? listing.prices.map((price) => ({ ...price, currency: 'EUR' }))
+        : [{ name: 'Regular', priceCents: 1000, currency: 'EUR', note: null }],
+    }
+    const row = planRow({ listing: euros, existing: null, previousDigest: null, now: CURATED })
 
     expect(row.action).toBe('INVALID')
-    expect(row.problem).toMatch(/^Its ticket link cannot be used: Take “token” out of the address/u)
+    expect(row.problem).toMatch(/is in EUR, but tickets at a venue in US are sold in USD/u)
     expect(
       planRow({
-        listing: tokened,
+        listing: euros,
         existing: existing('DRAFT'),
         previousDigest: null,
         now: CURATED,

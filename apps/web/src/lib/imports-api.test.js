@@ -41,10 +41,11 @@ describe('the import reads', () => {
     expect(result).toEqual({ runs: [{ id: 'r1' }], pagination: { total: 1 } })
   })
 
-  it('reads one run by its encoded id, with how many pictures wait', async () => {
+  it('reads one run by its encoded id, and says nothing of pictures waiting: none are copied', async () => {
+    // An older API's count of pictures waiting is not passed on.
     fetch.mockResolvedValueOnce(answer({ data: { id: 'r1' }, meta: { picturesWaiting: 4 } }))
 
-    expect(await getImportRun('r1/../x')).toEqual({ run: { id: 'r1' }, picturesWaiting: 4 })
+    expect(await getImportRun('r1/../x')).toEqual({ run: { id: 'r1' } })
     expect(new URL(fetch.mock.calls[0][0]).pathname).toBe('/v1/platform/imports/r1%2F..%2Fx')
   })
 

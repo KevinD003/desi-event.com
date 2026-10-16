@@ -322,7 +322,8 @@ function Hero({ cities, listed, lead, counted = false }) {
           <FadeIn delay={0.34}>
             <p className="mt-6 max-w-lg text-body text-ink-inverse-muted">
               Garba, dandiya and raas nights from Edison to Santa Clara. Tickets sold here are
-              priced in US dollars, and the booking fee is shown before you reach checkout.
+              priced in US dollars, or Canadian dollars at a venue in Canada, and the booking fee is
+              shown before you reach checkout.
             </p>
           </FadeIn>
           <FadeIn delay={0.4} className="mt-8">
@@ -560,8 +561,8 @@ export default async function HomePage() {
             title="How tickets work here"
             aside={
               <p className="max-w-md text-body text-ink-muted">
-                Tickets sold here are priced in US dollars. US sales tax is not calculated in this
-                demo, so checkout shows it as $0.00.
+                Tickets sold here are priced in US dollars, or Canadian dollars at a venue in
+                Canada. US sales tax is not calculated in this demo, so checkout shows it as $0.00.
               </p>
             }
           />

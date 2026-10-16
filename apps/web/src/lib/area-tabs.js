@@ -155,7 +155,7 @@ export function adminTabs(session) {
     ...(sessionCan(session, 'platform_fee:refund')
       ? [{ href: '/admin/fee-refunds', label: 'Booking fee refunds' }]
       : []),
-    // Importing events listed on Sulekha (platform administrators and super
+    // Importing events from source listings (platform administrators and super
     // administrators; a moderator is not offered it).
     ...(sessionCan(session, 'event:import') ? [{ href: '/admin/imports', label: 'Imports' }] : []),
     ...(sessionCan(session, 'platform:admin')

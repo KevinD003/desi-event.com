@@ -17,10 +17,11 @@
  * cheapest tier — and is said to be before fees when it is not. Nothing is said
  * about how fast anything is selling: the summary carries no such fact.
  *
- * An event copied from its Sulekha listing (`importedFrom`) is sold there, not
- * here: its price slot says where, with the lowest listed price above zero
- * ("On Sulekha from $25.00", "Free, on Sulekha" or "On Sulekha"); it names the
- * organiser who presents it; and it never says "Not on sale now".
+ * An event imported from an organiser's own listing (`importedFrom`) is sold
+ * here like any other: its price slot and its availability come from its
+ * ticket types, as every card's do. The only difference is whose name it
+ * shows: the organiser the listing names, rather than the organisation of the
+ * team at The Desi Events that holds it.
  *
  * Two things the design shows are not on a card, because a listing summary
  * does not carry them: the venue's state after the city, and the organiser's
@@ -52,7 +53,6 @@ import Link from 'next/link'
 import { categoryLabel } from '../lib/catalog.js'
 import { eventAvailability, startingPrice } from '../lib/event-availability.js'
 import { formatEventStart, toDateTimeAttribute } from '../lib/format.js'
-import { importedCardPrice } from '../lib/imports.js'
 import { formatPrice } from '../lib/pricing.js'
 import { trafficAttributes } from '../lib/traffic-client.js'
 import { PersonIcon, PinIcon } from './icons.jsx'
@@ -139,9 +139,7 @@ export function EventCard({
 }) {
   const imported = event.importedFrom ?? null
   const price = startingPrice(event, formatPrice)
-  // Read from the status alone for an imported event: its tickets are sold on
-  // its listing's site, so "Not on sale now" would be untrue.
-  const availability = eventAvailability(imported ? { status: event.status } : event)
+  const availability = eventAvailability(event)
   const free = price.amount === 'Free'
   const organiser = imported?.presentedBy || event.organizationName
 
@@ -206,23 +204,15 @@ export function EventCard({
 
             <div className="mt-auto pt-4">
               <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-t border-line pt-4">
-                {imported ? (
-                  <p className="min-w-0 text-base leading-6 font-bold text-ink tabular-nums">
-                    {importedCardPrice(imported)}
-                  </p>
-                ) : (
-                  <p className="min-w-0 text-sm text-ink-subtle">
-                    {!free && (price.qualifier || price.allIn) ? <span>From </span> : null}
-                    <span className="text-xl leading-6 font-bold text-ink tabular-nums">
-                      {price.amount}
-                    </span>
-                    {price.qualifier ? (
-                      <span className="mt-0.5 block text-xs text-ink-subtle">
-                        {price.qualifier}
-                      </span>
-                    ) : null}
-                  </p>
-                )}
+                <p className="min-w-0 text-sm text-ink-subtle">
+                  {!free && (price.qualifier || price.allIn) ? <span>From </span> : null}
+                  <span className="text-xl leading-6 font-bold text-ink tabular-nums">
+                    {price.amount}
+                  </span>
+                  {price.qualifier ? (
+                    <span className="mt-0.5 block text-xs text-ink-subtle">{price.qualifier}</span>
+                  ) : null}
+                </p>
                 {availability ? <AvailabilityChip availability={availability} /> : null}
               </div>
             </div>

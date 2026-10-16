@@ -13,8 +13,9 @@
  * - **Never frozen.** Every status but DELETED may be changed, before the event
  *   is posted, while it sells, after it ends, after it is cancelled (owner's
  *   R4). A deleted event keeps its settings as they were, so a restore brings
- *   them back (`NOT_EDITABLE`). An event sold on its listing's own site has no
- *   booking fee here (`SOLD_ON_SOURCE`).
+ *   them back (`NOT_EDITABLE`). An imported event the team at The Desi Events
+ *   holds has a booking fee like any other (since 2026-10-15); paying at its
+ *   door is never switched on (`VENUE_PAYMENT_UNAVAILABLE`).
  * - **Independent.** An administrator who holds any membership in the event's
  *   organisation is refused (`CONFLICT_OF_INTEREST`, DF6).
  * - **New orders only.** Checkout reads the terms in its pricing transaction
@@ -151,23 +152,20 @@ function isMember(actor, organizationId) {
 
 /**
  * The refusals both setters give before they compare anything: no such event,
- * a deleted one, one sold on its listing's own site, or a member of its
- * organisation deciding.
+ * a deleted one, or a member of its organisation deciding. An imported event
+ * the team at The Desi Events holds is sold here like any other (2026-10-15),
+ * so its booking fee is set like any other's.
  *
  * @param {object|null} event The event as read under its row lock.
  * @param {object} actor The administrator.
  * @returns {void}
- * @throws {Error} 404, 409 `NOT_EDITABLE`, 409 `SOLD_ON_SOURCE` or 403 `CONFLICT_OF_INTEREST`.
+ * @throws {Error} 404, 409 `NOT_EDITABLE` or 403 `CONFLICT_OF_INTEREST`.
  */
 function refuseUnsettable(event, actor) {
   if (!event) throw notFound('No such event.')
 
   if (event.status === DELETED) {
     throw httpError(409, 'NOT_EDITABLE', PAYMENT_TERMS_SENTENCES.deletedEvent)
-  }
-
-  if (event.organization?.platformHeldSource) {
-    throw httpError(409, 'SOLD_ON_SOURCE', PAYMENT_TERMS_SENTENCES.soldOnSource)
   }
 
   if (isMember(actor, event.organizationId)) {
@@ -326,7 +324,7 @@ async function setEventFeeInTransaction(tx, params) {
  * @param {number} params.expectedSequence The newest decision's sequence the administrator read.
  * @param {object} params.actor The administrator: `id`, `role`, `memberships`.
  * @returns {Promise<{eventId: string, sequence: number}>} The event and the new decision's sequence.
- * @throws {Error} 404; 409 `NOT_EDITABLE`, `SOLD_ON_SOURCE`, `PAYMENT_TERMS_CHANGED`, `PLATFORM_FEE_UNCHANGED`; 403 `CONFLICT_OF_INTEREST`; 503 when it waited too long.
+ * @throws {Error} 404; 409 `NOT_EDITABLE`, `PAYMENT_TERMS_CHANGED`, `PLATFORM_FEE_UNCHANGED`; 403 `CONFLICT_OF_INTEREST`; 503 when it waited too long.
  */
 export function setEventFee(db, params) {
   return isTransactionClient(db)
@@ -363,6 +361,12 @@ async function setVenuePaymentInTransaction(tx, params) {
 
   if (enabled && event.isOnline === true && !current.enabled) {
     throw paymentTermsRefusal('VENUE_PAYMENT_ONLINE_EVENT')
+  }
+
+  // Nobody takes money at the door of an event the team at The Desi Events
+  // holds for an organiser (checkout refuses it too: `venuePaymentAvailable`).
+  if (enabled && event.organization?.platformHeldSource) {
+    throw paymentTermsRefusal('VENUE_PAYMENT_UNAVAILABLE')
   }
 
   if (enabled && (limit === null || limit === undefined)) {
@@ -433,7 +437,7 @@ async function setVenuePaymentInTransaction(tx, params) {
  * @param {object} params.actor The administrator: `id`, `role`, `memberships`.
  * @param {Date} [params.now] The moment.
  * @returns {Promise<{eventId: string}>} The event.
- * @throws {Error} 404; 409 `NOT_EDITABLE`, `SOLD_ON_SOURCE`, `PAYMENT_TERMS_CHANGED`, `VENUE_PAYMENT_UNCHANGED`; 422 `VENUE_PAYMENT_ONLINE_EVENT`, `VENUE_LIMIT_REQUIRED`; 403 `CONFLICT_OF_INTEREST`; 503 when it waited too long.
+ * @throws {Error} 404; 409 `NOT_EDITABLE`, `PAYMENT_TERMS_CHANGED`, `VENUE_PAYMENT_UNCHANGED`, `VENUE_PAYMENT_UNAVAILABLE`; 422 `VENUE_PAYMENT_ONLINE_EVENT`, `VENUE_LIMIT_REQUIRED`; 403 `CONFLICT_OF_INTEREST`; 503 when it waited too long.
  */
 export function setVenuePayment(db, params) {
   return isTransactionClient(db)
@@ -653,7 +657,6 @@ export async function paymentTermsAdminView(db, eventId, { env, before = null })
     eventId: event.id,
     eventStatus: event.status,
     isOnline: event.isOnline === true,
-    soldOnSource: Boolean(event.organization?.platformHeldSource),
     posted:
       event.status === DELETED
         ? Boolean(event.statusBeforeDeletion) && event.statusBeforeDeletion !== DRAFT

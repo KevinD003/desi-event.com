@@ -186,6 +186,21 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // SPEC3-XI, the unpaid-cancellation table, columns and triggers, and the
   // sold-count CHECK validated over existing tiers.
   '20261009110000_pay_at_the_venue',
+  // The platform-held organisation renamed "The Desi Events" (2026-10-15):
+  // data only, over an organisation that still has the first build's name, web
+  // address and description, with another organisation already at the new
+  // address.
+  '20261015090000_platform_held_organisation_name',
+  // Imported events sold here, linked to nothing of the source (2026-10-15):
+  // two tier columns and their index over existing tiers, every imported
+  // event's link to the source cleared, the import record's address and the
+  // pictures' table dropped over rows that hold them, the stored datasets and
+  // the imported venues' provenance rewritten.
+  '20261015100000_imported_events_sold_here',
+  // What imports wrote in words naming that site (2026-10-15): data only,
+  // over imported events' terms and FAQ, their records' notes, their history
+  // and change notices, and a stored file, beside an event nobody imported.
+  '20261015110000_imported_listing_words',
 ])
 
 /**
@@ -341,6 +356,364 @@ const BEFORE_MIGRATION_FIXTURES = Object.freeze({
 
     return { Order: LEGACY_FEE_ORDERS.length }
   },
+  // As a database made before 2026-10-15 holds an import: events cloned from
+  // the filler's, one imported with its link to the source on, one imported
+  // with the source's address waiting, one imported whose decided link is the
+  // organiser's own while its address is the source's, and one nobody
+  // imported that names the source; their import records with the listing's
+  // address and a copied picture's row; an imported venue; and a run that
+  // stored the old file.
+  '20261015100000_imported_events_sold_here': async (prisma) => {
+    const columns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'Event' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+    const literal = (text) => (text === null ? 'NULL' : `'${text.replaceAll("'", "''")}'`)
+
+    for (const legacy of LEGACY_IMPORTED_EVENTS) {
+      const values = columns.map((column) => {
+        if (column === 'id' || column === 'slug') return literal(legacy.id)
+        if (column in legacy.website) {
+          const value = legacy.website[column]
+
+          if (typeof value === 'boolean') return String(value)
+
+          return value === null ? 'NULL' : literal(value)
+        }
+        if (column === 'websiteRedirectChangedById') {
+          return legacy.website.websiteRedirectEnabled || legacy.website.websiteDecidedUrl
+            ? "'upgrade-fixture-User'"
+            : 'NULL'
+        }
+
+        return `"${column}"`
+      })
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Event" (${columns.map((column) => `"${column}"`).join(', ')}) ` +
+          `SELECT ${values.join(', ')} FROM "Event" WHERE "id" = 'upgrade-fixture-Event'`,
+      )
+    }
+
+    let items = 0
+
+    for (const [index, legacy] of LEGACY_IMPORTED_EVENTS.entries()) {
+      if (!legacy.imported) continue
+
+      items += 1
+      await prisma.$executeRawUnsafe(
+        'INSERT INTO "EventImportItem" ("id", "source", "sourceId", "sourceUrl", "eventId", ' +
+          '"scrapedAt", "prices", "importNotes") VALUES (' +
+          `${literal(`${legacy.id}-item`)}, 'SULEKHA', '${9100000000 + index}', ` +
+          `${literal(LEGACY_SOURCE_LINK(index))}, ${literal(legacy.id)}, '2026-09-29T21:25:00Z', ` +
+          "'[]'::jsonb, ARRAY[]::text[])",
+      )
+    }
+
+    await prisma.$executeRawUnsafe(
+      'INSERT INTO "EventImportImage" ("id", "itemId", "url", "role", "alt", "position", "status") ' +
+        `VALUES ('legacy-import-picture', '${LEGACY_IMPORTED_EVENTS[0].id}-item', ` +
+        "'https://usimg.sulekha.io/cdn/events/images/legacy.webp', 'COVER', 'A poster', 0, 'WAITING')",
+    )
+
+    const venueColumns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'Venue' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+    const venueValues = venueColumns.map((column) => {
+      if (column === 'id') return `'${LEGACY_IMPORTED_VENUE}'`
+      if (column === 'slug') return 'NULL'
+      if (column === 'provenance') return "'import:sulekha'"
+
+      return `"${column}"`
+    })
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "Venue" (${venueColumns.map((column) => `"${column}"`).join(', ')}) ` +
+        `SELECT ${venueValues.join(', ')} FROM "Venue" WHERE "id" = 'upgrade-fixture-Venue'`,
+    )
+    await prisma.$executeRawUnsafe(
+      'INSERT INTO "EventImportRun" ("id", "source", "status", "fileName", "datasetSha256", ' +
+        '"dataset", "plan", "planDigest", "eventCount", "createdAt", "expiresAt") VALUES (' +
+        `'${LEGACY_IMPORT_RUN}', 'SULEKHA', 'PREVIEWED', 'sulekha-texas-2026.json', '${'e'.repeat(64)}', ` +
+        `${literal(JSON.stringify(LEGACY_IMPORT_DATASET))}::jsonb, '[]'::jsonb, '${'f'.repeat(64)}', 1, ` +
+        "'2026-10-15T00:00:00Z', '2026-10-16T00:00:00Z')",
+    )
+
+    const [{ n }] = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM "Event" WHERE "id" LIKE 'legacy-import-%'`,
+    )
+    if (n !== LEGACY_IMPORTED_EVENTS.length) {
+      throw new Error(`expected ${LEGACY_IMPORTED_EVENTS.length} cloned events, found ${n}`)
+    }
+
+    return {
+      Event: LEGACY_IMPORTED_EVENTS.length,
+      EventImportItem: items,
+      EventImportImage: 1,
+      EventImportRun: 1,
+      Venue: 1,
+    }
+  },
+  // The words an import wrote before 2026-10-15, on the rows the 2026-10-15
+  // fixture above put in: an imported event's terms and FAQ (the import's own
+  // and one an administrator added), its record's notes, its history and its
+  // change notice, and the stored file's FAQ and notes; and the same terms on
+  // the event nobody imported.
+  '20261015110000_imported_listing_words': async (prisma) => {
+    const literal = (text) => `'${text.replaceAll("'", "''")}'`
+    const json = (value) => `${literal(JSON.stringify(value))}::jsonb`
+    const imported = LEGACY_IMPORTED_EVENTS[0].id
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Event" SET "policies" = ${json(LEGACY_IMPORT_WORDS.policies)}, ` +
+        `"faq" = ${json(LEGACY_IMPORT_WORDS.faq)} WHERE "id" = ${literal(imported)}`,
+    )
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Event" SET "policies" = ${json(LEGACY_IMPORT_WORDS.policies)} ` +
+        `WHERE "id" = 'legacy-import-not-imported'`,
+    )
+    await prisma.$executeRawUnsafe(
+      'UPDATE "EventImportItem" SET "importNotes" = ARRAY[' +
+        `${LEGACY_IMPORT_WORDS.notes.map(literal).join(', ')}]::text[] ` +
+        `WHERE "eventId" = ${literal(imported)}`,
+    )
+
+    for (const [index, reason] of LEGACY_IMPORT_WORDS.history.entries()) {
+      await prisma.$executeRawUnsafe(
+        'INSERT INTO "EventModerationAction" ("id", "eventId", "fromStatus", "toStatus", "reason") ' +
+          `VALUES ('legacy-import-history-${index}', ${literal(imported)}, 'DRAFT', ` +
+          `'REVIEW_PENDING', ${literal(reason)})`,
+      )
+    }
+
+    await prisma.$executeRawUnsafe(
+      'INSERT INTO "EventChangeNotice" ("id", "eventId", "kind", "reason", "byPlatform") ' +
+        `VALUES ('legacy-import-notice', ${literal(imported)}, 'MATERIAL_CHANGE', ` +
+        `${literal(LEGACY_IMPORT_WORDS.notice)}, true)`,
+    )
+    await prisma.$executeRawUnsafe(
+      `UPDATE "EventImportRun" SET "dataset" = jsonb_set("dataset", '{events,0}', ` +
+        `("dataset" #> '{events,0}') || ${json({
+          faq: LEGACY_IMPORT_WORDS.fileFaq,
+          importNotes: [LEGACY_IMPORT_WORDS.notes[0]],
+        })}) WHERE "id" = '${LEGACY_IMPORT_RUN}'`,
+    )
+
+    return {
+      EventModerationAction: LEGACY_IMPORT_WORDS.history.length,
+      EventChangeNotice: 1,
+    }
+  },
+  // The platform-held organisation as the first build made it, and an ordinary
+  // organisation that already has the address it is renamed to, both cloned
+  // from the filler's organisation.
+  '20261015090000_platform_held_organisation_name': async (prisma) => {
+    const columns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'Organization' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+    const literal = (text) => (text === null ? 'NULL' : `'${text.replaceAll("'", "''")}'`)
+
+    for (const legacy of LEGACY_ORGANISATIONS) {
+      const values = columns.map((column) => {
+        if (column === 'id') return literal(legacy.id)
+        if (column === 'slug') return literal(legacy.slug)
+        if (column === 'name') return literal(legacy.name)
+        if (column === 'description') return literal(legacy.description)
+        if (column === 'platformHeldSource') {
+          return legacy.platformHeldSource ? `'${legacy.platformHeldSource}'` : 'NULL'
+        }
+
+        return `"${column}"`
+      })
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Organization" (${columns.map((column) => `"${column}"`).join(', ')}) ` +
+          `SELECT ${values.join(', ')} FROM "Organization" WHERE "id" = 'upgrade-fixture-Organization'`,
+      )
+    }
+
+    const [{ n }] = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM "Organization" WHERE "id" LIKE 'legacy-organisation-%'`,
+    )
+    if (n !== LEGACY_ORGANISATIONS.length) {
+      throw new Error(`expected ${LEGACY_ORGANISATIONS.length} cloned organisations, found ${n}`)
+    }
+
+    return { Organization: LEGACY_ORGANISATIONS.length }
+  },
+})
+
+/**
+ * The organisations {@link BEFORE_MIGRATION_FIXTURES} puts in before the
+ * platform-held organisation is renamed. The first is the platform-held one as
+ * the first build made it (these are the values the migration compares; no
+ * page shows them now). The second is an ordinary organisation that already
+ * has the new address, so the migration must make the renamed one's unique.
+ */
+const LEGACY_ORGANISATIONS = Object.freeze([
+  Object.freeze({
+    id: 'legacy-organisation-platform-held',
+    slug: 'sulekha-events',
+    name: 'Sulekha Events',
+    description:
+      'Events listed on Sulekha.com and shown on The Desi Events by its team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+    platformHeldSource: 'SULEKHA',
+  }),
+  Object.freeze({
+    id: 'legacy-organisation-address-taken',
+    slug: 'the-desi-events',
+    name: 'Desi Events of Ohio',
+    description: null,
+    platformHeldSource: null,
+  }),
+])
+
+/**
+ * A listing's own page on the source's site, as files before 2026-10-15 named
+ * it: test data for the migration that clears such links.
+ *
+ * @param {number} index Which listing.
+ * @returns {string} The address.
+ */
+const LEGACY_SOURCE_LINK = (index) =>
+  `https://events.sulekha.com/garba-night_event-in_irving-tx_${9100000000 + index}`
+
+/** The organiser's own page, which the migration must leave alone. */
+const LEGACY_ORGANISER_SITE = 'https://dfw-garba.example/tickets'
+
+/**
+ * The events {@link BEFORE_MIGRATION_FIXTURES} puts in before
+ * `20261015100000_imported_events_sold_here`, with their website columns, and
+ * whether each was imported.
+ */
+const LEGACY_IMPORTED_EVENTS = Object.freeze([
+  Object.freeze({
+    id: 'legacy-import-on',
+    imported: true,
+    website: {
+      websiteUrl: LEGACY_SOURCE_LINK(0),
+      websiteRedirectEnabled: true,
+      websiteDecidedUrl: LEGACY_SOURCE_LINK(0),
+      websiteDecisionPending: false,
+      websiteSubmittedAt: null,
+      websiteRedirectChangedAt: '2026-10-01T12:00:00Z',
+      websiteRedirectReason: 'Tickets for this event are sold on its listing.',
+    },
+  }),
+  Object.freeze({
+    id: 'legacy-import-waiting',
+    imported: true,
+    website: {
+      websiteUrl: LEGACY_SOURCE_LINK(1),
+      websiteRedirectEnabled: false,
+      websiteDecidedUrl: null,
+      websiteDecisionPending: true,
+      websiteSubmittedAt: '2026-10-01T12:00:00Z',
+      websiteRedirectChangedAt: null,
+      websiteRedirectReason: null,
+    },
+  }),
+  Object.freeze({
+    id: 'legacy-import-mixed',
+    imported: true,
+    website: {
+      websiteUrl: LEGACY_SOURCE_LINK(2),
+      websiteRedirectEnabled: true,
+      websiteDecidedUrl: LEGACY_ORGANISER_SITE,
+      websiteDecisionPending: true,
+      websiteSubmittedAt: '2026-10-01T12:00:00Z',
+      websiteRedirectChangedAt: '2026-10-01T12:00:00Z',
+      websiteRedirectReason: 'The organiser’s own page.',
+    },
+  }),
+  Object.freeze({
+    id: 'legacy-import-not-imported',
+    imported: false,
+    website: {
+      websiteUrl: LEGACY_SOURCE_LINK(3),
+      websiteRedirectEnabled: false,
+      websiteDecidedUrl: null,
+      websiteDecisionPending: true,
+      websiteSubmittedAt: '2026-10-01T12:00:00Z',
+      websiteRedirectChangedAt: null,
+      websiteRedirectReason: null,
+    },
+  }),
+])
+
+/** The imported venue and the run the same fixture puts in. */
+const LEGACY_IMPORTED_VENUE = 'legacy-import-venue'
+const LEGACY_IMPORT_RUN = 'legacy-import-run'
+
+/** The file that run stored, as files were before 2026-10-15. */
+const LEGACY_IMPORT_DATASET = Object.freeze({
+  format: 'desi-event-import/1',
+  source: 'SULEKHA',
+  sourceName: 'Sulekha',
+  sourceSite: 'https://events.sulekha.com/',
+  imageHosts: ['usimg.sulekha.io'],
+  events: [
+    {
+      sourceId: '9100000000',
+      sourceUrl: LEGACY_SOURCE_LINK(0),
+      ticketUrl: LEGACY_SOURCE_LINK(0),
+      images: [{ url: 'https://usimg.sulekha.io/cdn/events/images/legacy.webp' }],
+      title: 'Kept as it was',
+    },
+  ],
+})
+
+/**
+ * The words an import wrote before 2026-10-15, as
+ * {@link BEFORE_MIGRATION_FIXTURES} puts them in before
+ * `20261015110000_imported_listing_words`, and what that migration must make
+ * of them ({@link checkImportedListingWords}).
+ */
+const LEGACY_IMPORT_WORDS = Object.freeze({
+  policies: {
+    entry: 'Entry is run by the organiser. Check the Sulekha listing for their rules. Age: 21+.',
+    refund:
+      "Tickets for this event are sold on Sulekha, not on The Desi Events. Refunds follow Sulekha's and the organiser's terms.",
+    conduct: "The organiser's and the venue's rules apply.",
+  },
+  faq: [
+    {
+      question: "What is Sulekha's Refund Policy?",
+      answer: 'Sulekha refunds only the face value.',
+    },
+    { question: 'What is the refund policy?', answer: 'All sales are final.' },
+    { question: 'Where is it happening?', answer: 'At the hall.' },
+    { question: 'Is there parking?', answer: 'Yes, on site, written by the team.' },
+  ],
+  fileFaq: [
+    { q: "What is Sulekha's Refund Policy?", a: 'Sulekha refunds only the face value.' },
+    { q: 'What is the refund policy?', a: 'All sales are final.' },
+    { q: 'Where is it happening?', a: 'At the hall.' },
+  ],
+  notes: [
+    'Sulekha shows these prices in Canadian dollars (CA$); they are imported as CAD.',
+    'This listing is also in sulekha-texas-2026.json (collected 29-30 September 2026).',
+  ],
+  history: [
+    'Imported from Sulekha, run legacy-import-run.',
+    'Updated from its Sulekha listing, run legacy-import-run.',
+  ],
+  notice: 'Updated from its Sulekha listing by the team at The Desi Events, run legacy-import-run.',
+})
+
+/** What the rename migration makes of the platform-held organisation. */
+const RENAMED_PLATFORM_HELD = Object.freeze({
+  name: 'The Desi Events',
+  description:
+    "Events imported from organisers' public ticket listings and shown on The Desi Events by its team. Each event page names the organiser who presents it. Tickets for these events are sold on The Desi Events, and can also be reserved on WhatsApp.",
 })
 
 /**
@@ -1534,8 +1907,13 @@ async function checkSpec2Backfills(prisma) {
       },
     ) && ok
 
+  // The events the 2026-10-15 fixture clones, long after the website-link
+  // migration, carry an administrator's decision of their own on purpose;
+  // `checkImportedEventsSoldHere` holds what becomes of them. Every row that
+  // migration upgraded is still held to it.
   const [switchedOn] = await prisma.$queryRawUnsafe(
-    'SELECT count(*)::int AS n FROM "Event" WHERE "websiteRedirectEnabled"',
+    'SELECT count(*)::int AS n FROM "Event" WHERE "websiteRedirectEnabled" ' +
+      `AND "id" NOT LIKE 'legacy-import-%'`,
   )
   ok =
     record("no event's website link is on after the upgrade", switchedOn.n === 0, {
@@ -1663,8 +2041,10 @@ async function checkFullControlAndImportBackfills(prisma) {
       },
     ) && ok
 
+  // The one the rename migration's fixture put in is checked on its own.
   const [held] = await prisma.$queryRawUnsafe(
-    'SELECT count(*)::int AS n FROM "Organization" WHERE "platformHeldSource" IS NOT NULL',
+    'SELECT count(*)::int AS n FROM "Organization" WHERE "platformHeldSource" IS NOT NULL ' +
+      `AND "id" <> '${LEGACY_ORGANISATIONS[0].id}'`,
   )
   const [unlisted] = await prisma.$queryRawUnsafe(
     'SELECT count(*)::int AS n FROM "EventSession" WHERE NOT "endTimeListed"',
@@ -1691,24 +2071,21 @@ async function checkFullControlAndImportBackfills(prisma) {
       { note: memberGuards.join(', ') || 'missing' },
     ) && ok
 
+  // The rows a later fixture put in on purpose (`legacy-import-*`) aside; the
+  // pictures' table was dropped since (20261015100000).
   const [imports] = await prisma.$queryRawUnsafe(
-    'SELECT (SELECT count(*) FROM "EventImportRun")::int AS runs, ' +
-      '(SELECT count(*) FROM "EventImportItem")::int AS items, ' +
-      '(SELECT count(*) FROM "EventImportImage")::int AS images, ' +
+    'SELECT (SELECT count(*) FROM "EventImportRun" WHERE "id" NOT LIKE \'legacy-import-%\')::int AS runs, ' +
+      '(SELECT count(*) FROM "EventImportItem" WHERE "id" NOT LIKE \'legacy-import-%\')::int AS items, ' +
       '(SELECT count(*) FROM "EventPlatformEdit")::int AS sittings, ' +
-      '(SELECT count(*) FROM "EventChangeNotice")::int AS notices',
+      '(SELECT count(*) FROM "EventChangeNotice" WHERE "id" NOT LIKE \'legacy-import-%\')::int AS notices',
   )
   ok =
     record(
       'the import tables, sittings and change notices start empty',
-      imports.runs === 0 &&
-        imports.items === 0 &&
-        imports.images === 0 &&
-        imports.sittings === 0 &&
-        imports.notices === 0,
+      imports.runs === 0 && imports.items === 0 && imports.sittings === 0 && imports.notices === 0,
       {
         note:
-          `${imports.runs} runs, ${imports.items} items, ${imports.images} images, ` +
+          `${imports.runs} runs, ${imports.items} items, ` +
           `${imports.sittings} sittings, ${imports.notices} notices`,
       },
     ) && ok
@@ -1930,6 +2307,244 @@ async function checkPaymentTermsAndVenueBackfills(prisma) {
   ok = (await checkUnpaidCancellationAndReferralReturns(prisma)) && ok
 
   return ok
+}
+
+/**
+ * Check what the rename migration made of the organisations its fixture put
+ * in: the platform-held one has the new name and description and, because the
+ * new address was taken, that address made unique from its id; the ordinary
+ * organisation that had the address is as it was.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkPlatformHeldRename(prisma) {
+  const rows = await prisma.$queryRawUnsafe(
+    'SELECT "id", "name", "slug", "description", "platformHeldSource"::text AS source, ' +
+      'substr(md5("id"), 1, 6) AS suffix FROM "Organization" ' +
+      `WHERE "id" LIKE 'legacy-organisation-%' ORDER BY "id"`,
+  )
+  const held = rows.find((row) => row.id === LEGACY_ORGANISATIONS[0].id)
+  const taken = rows.find((row) => row.id === LEGACY_ORGANISATIONS[1].id)
+  const renamed =
+    held?.name === RENAMED_PLATFORM_HELD.name &&
+    held?.description === RENAMED_PLATFORM_HELD.description &&
+    held?.slug === `the-desi-events-${held?.suffix}` &&
+    held?.source === 'SULEKHA'
+  const untouched =
+    taken?.name === LEGACY_ORGANISATIONS[1].name &&
+    taken?.slug === LEGACY_ORGANISATIONS[1].slug &&
+    taken?.description === null &&
+    taken?.source === null
+
+  return record(
+    'the platform-held organisation is renamed The Desi Events, its taken address made unique',
+    renamed && untouched,
+    {
+      note: rows
+        .map((row) => `${row.id}: ${row.slug}${row.source ? ' (platform-held)' : ''}`)
+        .join('; '),
+    },
+  )
+}
+
+/**
+ * Check what `20261015100000_imported_events_sold_here` made of a database
+ * that holds an import from before it: every imported event's link to the
+ * source cleared (the decided one with its switch, the current one with its
+ * waiting flag worked out again), an organiser's own decided link and an event
+ * nobody imported left as they were; the import record without its address,
+ * the pictures' table gone; the stored file without its addresses; the
+ * imported venue's provenance naming no site; and the new tier columns at
+ * their defaults on every existing tier.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkImportedEventsSoldHere(prisma) {
+  let ok = true
+  const rows = await prisma.$queryRawUnsafe(
+    'SELECT "id", "websiteUrl", "websiteRedirectEnabled", "websiteDecidedUrl", ' +
+      '"websiteDecisionPending", "websiteSubmittedAt", "websiteRedirectChangedAt", ' +
+      '"websiteRedirectReason", "revision" FROM "Event" ' +
+      `WHERE "id" LIKE 'legacy-import-%' ORDER BY "id"`,
+  )
+  const byId = Object.fromEntries(rows.map((row) => [row.id, row]))
+  const cleared = (row) =>
+    row?.websiteUrl === null &&
+    row.websiteRedirectEnabled === false &&
+    row.websiteDecidedUrl === null &&
+    row.websiteDecisionPending === false &&
+    row.websiteSubmittedAt === null &&
+    row.websiteRedirectChangedAt === null &&
+    row.websiteRedirectReason === null
+  const mixed = byId['legacy-import-mixed']
+  const untouched = byId['legacy-import-not-imported']
+
+  ok =
+    record(
+      'every imported event’s link to the source is cleared, and nothing else of anybody’s',
+      cleared(byId['legacy-import-on']) &&
+        cleared(byId['legacy-import-waiting']) &&
+        mixed?.websiteUrl === null &&
+        mixed.websiteRedirectEnabled === true &&
+        mixed.websiteDecidedUrl === LEGACY_ORGANISER_SITE &&
+        mixed.websiteDecisionPending === true &&
+        untouched?.websiteUrl === LEGACY_SOURCE_LINK(3) &&
+        untouched.websiteDecisionPending === true,
+      {
+        note: rows
+          .map(
+            (row) =>
+              `${row.id}: ${row.websiteRedirectEnabled ? 'on' : 'off'}, ` +
+              `${row.websiteUrl ? 'address kept' : 'no address'}`,
+          )
+          .join('; '),
+      },
+    ) && ok
+
+  const [left] = await prisma.$queryRawUnsafe(
+    'SELECT to_regclass(\'"EventImportImage"\') IS NULL AS dropped, ' +
+      "NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'EventImportItem' " +
+      "AND column_name = 'sourceUrl') AS address, " +
+      `(SELECT count(*)::int FROM "EventImportItem" WHERE "id" LIKE 'legacy-import-%') AS items, ` +
+      `(SELECT "provenance" FROM "Venue" WHERE "id" = '${LEGACY_IMPORTED_VENUE}') AS provenance, ` +
+      `(SELECT "dataset" FROM "EventImportRun" WHERE "id" = '${LEGACY_IMPORT_RUN}') AS dataset, ` +
+      `(SELECT "datasetSha256" FROM "EventImportRun" WHERE "id" = '${LEGACY_IMPORT_RUN}') AS sha, ` +
+      '(SELECT count(*)::int FROM "TicketType" WHERE "importKey" IS NOT NULL OR "quantityIsAllowance") AS marked',
+  )
+  // The FAQ and notes the 20261015110000 fixture adds to the same file are
+  // that migration's to check (`checkImportedListingWords`).
+  const stored = left?.dataset ?? null
+  const dataset = stored
+    ? {
+        ...stored,
+        events: (stored.events ?? []).map(({ faq: _faq, importNotes: _notes, ...rest }) => rest),
+      }
+    : null
+
+  ok =
+    record(
+      'the import keeps no address on the source: records, pictures, the stored file and the venue',
+      left?.dropped === true &&
+        left.address === true &&
+        left.items === 3 &&
+        left.provenance === 'import:listing' &&
+        JSON.stringify(dataset) ===
+          JSON.stringify({
+            events: [{ title: 'Kept as it was', sourceId: '9100000000' }],
+            format: 'desi-event-import/1',
+            source: 'SULEKHA',
+          }) &&
+        left.sha === 'e'.repeat(64),
+      {
+        note:
+          `pictures' table ${left?.dropped ? 'dropped' : 'still there'}; ` +
+          `import address column ${left?.address ? 'dropped' : 'still there'}; ` +
+          `${left?.items} records kept; venue ${left?.provenance}; stored file ${JSON.stringify(dataset)}`,
+      },
+    ) && ok
+
+  return (
+    record('every existing tier starts with no import key and no allowance', left?.marked === 0, {
+      note: `${left?.marked} marked`,
+    }) && ok
+  )
+}
+
+/**
+ * Check what `20261015110000_imported_listing_words` made of the words an
+ * import wrote before it: the imported event's terms in this build's words
+ * with its age limit, its FAQ without the entries naming the site and the
+ * import's refund answer (the team's own kept), its record's notes, history
+ * and change notice reworded, the stored file's FAQ and notes the same; the
+ * event nobody imported left as it was; and no imported row, record, history,
+ * notice or stored file naming the site but for the source's enum and file
+ * names.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkImportedListingWords(prisma) {
+  let ok = true
+  // jsonb keeps its own key order, so values are compared with keys sorted.
+  const canonical = (value) =>
+    JSON.stringify(value, (_, item) =>
+      item && typeof item === 'object' && !Array.isArray(item)
+        ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
+        : item,
+    )
+  const same = (left, right) => canonical(left) === canonical(right)
+  const imported = LEGACY_IMPORTED_EVENTS[0].id
+  const [row] = await prisma.$queryRawUnsafe(
+    'SELECT e."policies", e."faq", i."importNotes", ' +
+      `(SELECT "policies" FROM "Event" WHERE "id" = 'legacy-import-not-imported') AS theirs, ` +
+      `(SELECT array_agg("reason" ORDER BY "id") FROM "EventModerationAction" WHERE "id" LIKE 'legacy-import-history-%') AS history, ` +
+      `(SELECT "reason" FROM "EventChangeNotice" WHERE "id" = 'legacy-import-notice') AS notice, ` +
+      `(SELECT "dataset" FROM "EventImportRun" WHERE "id" = '${LEGACY_IMPORT_RUN}') AS dataset ` +
+      `FROM "Event" AS e JOIN "EventImportItem" AS i ON i."eventId" = e."id" WHERE e."id" = '${imported}'`,
+  )
+
+  ok =
+    record(
+      'an imported event’s terms and FAQ are in this build’s words, the team’s own entry kept',
+      same(row?.policies, {
+        entry:
+          'Entry is run by the organiser who presents this event. Bring the ticket you bought on The Desi Events. Age: 21+.',
+        refund:
+          'Tickets for this event are sold on The Desi Events. If the event is cancelled, every ticket bought here is refunded. For anything else, contact The Desi Events before the event.',
+        conduct: LEGACY_IMPORT_WORDS.policies.conduct,
+      }) &&
+        same(row.faq, [LEGACY_IMPORT_WORDS.faq[2], LEGACY_IMPORT_WORDS.faq[3]]) &&
+        same(row.theirs, LEGACY_IMPORT_WORDS.policies),
+      { note: `faq ${JSON.stringify(row?.faq)}` },
+    ) && ok
+
+  ok =
+    record(
+      'its notes, history, change notice and stored file name no other site',
+      same(row?.importNotes, [
+        'The source listing shows these prices in Canadian dollars (CA$); they are imported as CAD.',
+        'This listing is also in the Texas file (collected 29-30 September 2026).',
+      ]) &&
+        same(row.history, [
+          'Imported from its listing, run legacy-import-run.',
+          'Updated from its source listing, run legacy-import-run.',
+        ]) &&
+        row.notice ===
+          'Updated from its source listing by the team at The Desi Events, run legacy-import-run.' &&
+        same(row.dataset?.events?.[0]?.faq, [LEGACY_IMPORT_WORDS.fileFaq[2]]) &&
+        same(row.dataset?.events?.[0]?.importNotes, [
+          'The source listing shows these prices in Canadian dollars (CA$); they are imported as CAD.',
+        ]),
+      {
+        note: `notes ${JSON.stringify(row?.importNotes)}; history ${JSON.stringify(row?.history)}`,
+      },
+    ) && ok
+
+  const [left] = await prisma.$queryRawUnsafe(
+    'SELECT ' +
+      '(SELECT count(*)::int FROM "Event" AS e WHERE EXISTS (SELECT 1 FROM "EventImportItem" AS i WHERE i."eventId" = e."id") ' +
+      "AND (COALESCE(e.\"policies\"::text, '') || COALESCE(e.\"faq\"::text, '') || COALESCE(e.\"websiteRedirectReason\", '')) ~* 'sulekha') AS events, " +
+      '(SELECT count(*)::int FROM "EventImportItem" WHERE array_to_string("importNotes", \' \') ~* \'sulekha\') AS items, ' +
+      '(SELECT count(*)::int FROM "EventModerationAction" AS m WHERE m."reason" ~* \'sulekha\' ' +
+      'AND EXISTS (SELECT 1 FROM "EventImportItem" AS i WHERE i."eventId" = m."eventId")) AS history, ' +
+      '(SELECT count(*)::int FROM "EventChangeNotice" AS c WHERE c."reason" ~* \'sulekha\' ' +
+      'AND EXISTS (SELECT 1 FROM "EventImportItem" AS i WHERE i."eventId" = c."eventId")) AS notices, ' +
+      '(SELECT count(*)::int FROM "EventImportRun" WHERE ("dataset" - \'source\')::text ~* \'sulekha\') AS files',
+  )
+
+  return (
+    record(
+      'no imported event, record, history, notice or stored file names the site (enum and file names aside)',
+      left.events === 0 &&
+        left.items === 0 &&
+        left.history === 0 &&
+        left.notices === 0 &&
+        left.files === 0,
+      { note: JSON.stringify(left) },
+    ) && ok
+  )
 }
 
 /**
@@ -2422,6 +3037,9 @@ async function main() {
     ok = (await checkSpec2Backfills(prisma)) && ok
     ok = (await checkFullControlAndImportBackfills(prisma)) && ok
     ok = (await checkPaymentTermsAndVenueBackfills(prisma)) && ok
+    ok = (await checkPlatformHeldRename(prisma)) && ok
+    ok = (await checkImportedEventsSoldHere(prisma)) && ok
+    ok = (await checkImportedListingWords(prisma)) && ok
 
     const [adminAfter] = await prisma.$queryRawUnsafe(
       `SELECT "role"::text AS role FROM "User" WHERE id = 'upgrade-fixture-User'`,

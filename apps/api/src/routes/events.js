@@ -12,8 +12,10 @@ import { INDEXABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schem
 import { organizationsWhere } from '../lib/actor.js'
 import { maySeeDrafts } from '../lib/event-insiders.js'
 import {
+  PLATFORM_HELD_SALES_MOVES,
   availableTransitions,
   capabilityFor,
+  isPlatformHeld,
   loadForTransition,
   transitionEvent,
 } from '../lib/event-lifecycle.js'
@@ -26,7 +28,15 @@ import {
   endTimeListedAfter,
   sessionProblems,
 } from '../lib/event-authoring.js'
-import { authorityAuditMetadata, byPlatform, lifecycleAuthority } from '../lib/event-authority.js'
+import {
+  assertSittingStillOpen,
+  authorityAuditMetadata,
+  byPlatform,
+  lifecycleAuthority,
+  memberHolds,
+  platformHolds,
+  resolveEventAuthority,
+} from '../lib/event-authority.js'
 import { EVENT_MEDIA_INCLUDE } from '../lib/event-media.js'
 import { cancellationTransactionOptions, cancellationWork } from '../lib/event-cancellation.js'
 import {
@@ -1107,11 +1117,39 @@ export function registerEventRoutes(app, { prisma, env }) {
       )
     }
 
+    // The team's sales moves on an event the platform-held organisation holds,
+    // which has no organiser here: under an open editing sitting, re-checked
+    // inside the move's transaction (`PLATFORM_HELD_SALES_MOVES`). A member or
+    // a SUPER_ADMIN takes the ordinary path.
+    const capability = capabilityFor(to)
+    const sitting =
+      PLATFORM_HELD_SALES_MOVES.has(to) &&
+      isPlatformHeld(event) &&
+      !memberHolds(request.actor, capability, event.organizationId) &&
+      !platformHolds(request.actor, CAPABILITIES.PLATFORM_ADMIN) &&
+      platformHolds(request.actor, CAPABILITIES.EVENT_PLATFORM_EDIT)
+        ? await resolveEventAuthority(prisma, {
+            event,
+            actor: request.actor,
+            session: request.session,
+            orgCapability: capability,
+          })
+        : null
+    const onCommit = sitting
+      ? async (tx, moved, context) => {
+          await assertSittingStillOpen(tx, sitting, { sessionId: request.session?.id ?? null })
+
+          return options.onCommit ? options.onCommit(tx, moved, context) : null
+        }
+      : options.onCommit
+
     const updated = await transitionEvent(prisma, {
       event,
       to,
       actor: request.actor,
       ...options,
+      onCommit,
+      sitting,
     })
 
     request.log.info(

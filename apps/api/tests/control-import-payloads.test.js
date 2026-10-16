@@ -8,23 +8,24 @@ import {
   makeWorld,
   platformHeldImportFixture,
 } from './helpers/fixtures.js'
-import { solidPng } from './helpers/images.js'
 import { seedPicture } from './helpers/media-world.js'
 import { expectNoSecret } from './helpers/payloads.js'
 import { cuid } from './helpers/prisma-stub.js'
 
 /**
- * What full control of posted events and the Sulekha import let out, read from
- * the outside (SPEC2-XI §0, §5.I-E, §5.X, §7; Stage B6).
+ * What full control of posted events and the import let out, read from the
+ * outside (SPEC2-XI §0, §5.I-E, §5.X, §7; Stage B6).
  *
  * The suites beside each route prove what that route returns. These walk every
  * read a stranger can make after the new paths have run — an imported event
- * published, another deleted, an organiser's event deleted, a sitting open —
- * and hold each answer to what a stranger may know: no picture address on
- * Sulekha's host, no deletion record, no sitting, no curator's note. Then they
- * drive every full-control and import route with credentials and show-once
- * codes in play and look for each one in what was answered, audited and
- * queued.
+ * published and on sale here, another deleted, an organiser's event deleted, a
+ * sitting open — and hold each answer to what a stranger may know: nothing
+ * that names or points at the site the listings came from (since 2026-10-15
+ * no import record or file holds an address there, and an imported event that
+ * still carries a link there from before is never linked), no deletion
+ * record, no sitting, no curator's note. Then they drive every full-control
+ * and import route with credentials and show-once codes in play and look for
+ * each one in what was answered, audited and queued.
  *
  * @file @desi-event/api/tests/control-import-payloads
  */
@@ -40,7 +41,8 @@ const SITTING_REASON = 'Correcting the spelling the organiser asked us to fix.'
 const DELETION_REASON = 'The venue withdrew the booking; private to the organiser and the team.'
 
 /** Why an imported listing was deleted. */
-const IMPORTED_DELETION_REASON = 'Sulekha withdrew this listing; the reason stays with the team.'
+const IMPORTED_DELETION_REASON =
+  'The organiser withdrew this listing; the reason stays with the team.'
 
 /** Why the organiser deleted the draft, through the route. */
 const DRAFT_DELETION_REASON = 'We will not run this one after all, so it goes.'
@@ -121,26 +123,39 @@ async function steppedUp(app, email) {
   return headers
 }
 
+/** A link an imported event was given before 2026-10-15, on the source's own site. */
+const LEGACY_SOURCE_LINK =
+  'https://events.sulekha.com/navratri-dandiya-night_event-in_irving-tx_402059'
+
 /**
- * The world the walk reads: an imported event published with its copied
- * cover, a second imported listing deleted, an organisation's own event
- * deleted, and the rest of the shared world.
+ * The world the walk reads: an imported event on sale here, with a cover
+ * stored before 2026-10-15 and the link to the source it was given then still
+ * switched on (a row the migration has not reached), a second imported listing
+ * deleted, an organisation's own event deleted, and the rest of the shared
+ * world.
  *
  * @returns {Promise<object>} The harness, with the rows the walk names.
  */
 async function walkWorld() {
   const world = await makeWorld()
   const { ids } = world
-  const imported = platformHeldImportFixture(ids, { status: 'PUBLISHED' })
+  const imported = platformHeldImportFixture(ids, { status: 'ON_SALE' })
   const approvedAt = new Date('2026-09-30T13:00:00.000Z')
 
+  for (const tier of imported.tiers) {
+    Object.assign(tier, {
+      status: 'ON_SALE',
+      salesStartAt: approvedAt,
+      salesEndAt: imported.event.startsAt,
+    })
+  }
   Object.assign(imported.event, {
     publishedAt: approvedAt,
     approvedAt,
+    salesOpenedAt: approvedAt,
     websiteRedirectEnabled: true,
-    websiteDecidedUrl: imported.item.sourceUrl,
-    websiteRedirectReason:
-      'Tickets for this event are sold on its Sulekha page, which this link opens.',
+    websiteDecidedUrl: LEGACY_SOURCE_LINK,
+    websiteRedirectReason: 'Tickets for this event were sold on its listing’s own page.',
     websiteRedirectChangedAt: approvedAt,
     websiteRedirectChangedById: ids.platformAdministrator.id,
     websiteDecisionPending: false,
@@ -153,8 +168,9 @@ async function walkWorld() {
   })
 
   // A second listing of the same organisation, published, then deleted.
-  // Deleting leaves the website switch as it was, so its Sulekha link is
-  // still on: only the status keeps the lookup from answering.
+  // Deleting leaves the website switch as it was, so its old link to the
+  // source is still on: the status and the address rule keep the lookup from
+  // answering.
   const goneSourceUrl = 'https://events.sulekha.com/garba-night_event-in_plano-tx_402061'
   const goneEvent = {
     ...imported.event,
@@ -176,14 +192,7 @@ async function walkWorld() {
     ...imported.item,
     id: cuid(),
     sourceId: '402061',
-    sourceUrl: goneSourceUrl,
     eventId: goneEvent.id,
-  }
-  const goneImage = {
-    ...imported.image,
-    id: cuid(),
-    itemId: goneItem.id,
-    url: 'https://usimg.sulekha.io/cdn/events/images/garba-night-plano.webp',
   }
   // The organisation's own event, deleted with its approved website link on.
   const deleted = deletedEventFixture(ids, {
@@ -203,20 +212,14 @@ async function walkWorld() {
     event: [goneEvent],
     eventSession: [{ ...imported.session, id: cuid(), eventId: goneEvent.id }],
     eventImportItem: [goneItem],
-    eventImportImage: [goneImage],
   })
   addRows(world.seed, deleted.rows)
 
   const harness = await createTestApp({ seed: world.seed, ids })
   const { app, prisma } = harness
 
-  // The imported cover, copied and approved; its import row points at it.
+  // A cover stored before 2026-10-15, now an ordinary approved picture.
   const cover = seedPicture(prisma, { event: imported.event })
-
-  Object.assign(
-    prisma._store.eventImportImage.find((row) => row.id === imported.image.id),
-    { status: 'STORED', mediaAssetId: cover.id, lastTriedAt: approvedAt, attempts: 1 },
-  )
 
   // The Desi Events team opens the organiser's posted event.
   const opened = await app.inject({
@@ -244,20 +247,19 @@ async function walkWorld() {
 
   expect(removed.statusCode, removed.body).toBe(200)
 
-  return { ...harness, imported, goneEvent, goneItem, goneImage, deleted, cover }
+  return { ...harness, imported, goneEvent, goneItem, goneSourceUrl, deleted, cover }
 }
 
 describe('what a stranger is shown after imports, deletions and sittings (SPEC2-XI §5.I-E, §5.X, §7)', () => {
-  it('names no Sulekha picture or listing address, no deletion, no sitting and no curator’s note on any public read', async () => {
+  it('names and links nothing of the source site, no deletion, no sitting and no curator’s note on any public read', async () => {
     const harness = await walkWorld()
-    const { app, prisma, imported, goneItem, goneImage } = harness
+    const { app, prisma, imported, goneSourceUrl } = harness
     const attendee = bearer(await signIn(app, BUYER))
     const never = [
       'usimg.sulekha.io',
-      imported.item.sourceUrl,
-      goneItem.sourceUrl,
-      imported.image.url,
-      goneImage.url,
+      'events.sulekha.com',
+      LEGACY_SOURCE_LINK,
+      goneSourceUrl,
       SITTING_REASON,
       DELETION_REASON,
       IMPORTED_DELETION_REASON,
@@ -303,6 +305,8 @@ describe('what a stranger is shown after imports, deletions and sittings (SPEC2-
         for (const needle of never) {
           expect(text.includes(needle), `${at} carries "${needle}"`).toBe(false)
         }
+        // Not the site's name either, in any case (the owner, 2026-10-15).
+        expect(text.match(/sulekha/iu)?.[0] ?? null, at).toBeNull()
 
         if (/json/u.test(String(response.headers['content-type']))) {
           const leaked = [...keysOf(response.json())].filter((key) => PRIVATE_KEYS.has(key))
@@ -333,10 +337,10 @@ describe('what a stranger is shown after imports, deletions and sittings (SPEC2-
       }
     }
 
-    // The website lookup behind `/events/<slug>/website`, for every event: a
-    // deleted event answers nothing, even with its link left on, and the one
-    // place a Sulekha address is given is the published import's own listing,
-    // by the tracked redirect (SPEC2-XI §5.I-E).
+    // The website lookup behind `/events/<slug>/website`, for every event: no
+    // event, on sale or deleted, is ever sent to the source's site, even with
+    // its old link left switched on (the address rule refuses that site, so
+    // the redirect has nowhere to go); a deleted event answers nothing.
     for (const event of prisma._store.event) {
       const response = await app.inject({
         method: 'POST',
@@ -347,11 +351,8 @@ describe('what a stranger is shown after imports, deletions and sittings (SPEC2-
 
       expect(response.statusCode, at).toBeLessThan(500)
 
-      if (event.id === imported.event.id) {
-        expect(response.statusCode, at).toBe(200)
-        expect(response.json(), at).toEqual({ data: { url: imported.item.sourceUrl } })
-        continue
-      }
+      if (event.id === imported.event.id) expect(response.statusCode, at).toBe(404)
+      expect(response.body.match(/sulekha/iu)?.[0] ?? null, at).toBeNull()
 
       for (const needle of never) {
         expect(response.body.includes(needle), `${at} carries "${needle}"`).toBe(false)
@@ -365,7 +366,18 @@ describe('what a stranger is shown after imports, deletions and sittings (SPEC2-
     ).json().data
 
     expect(page.importedFrom).toMatchObject({ presentedBy: 'DFW Garba Collective' })
+    expect(page.importedFrom).not.toHaveProperty('sourceName')
+    expect(page.importedFrom).not.toHaveProperty('ticketsOnSource')
     expect(page.coverImage).not.toBeNull()
+    // Its tickets are sold here: its ticket types, on an allowance no page
+    // may count down from; and no website link.
+    expect(page.websiteLink).toBeNull()
+    expect(
+      page.ticketTypes.map((tier) => [tier.name, tier.status, tier.quantityIsAllowance]),
+    ).toEqual([
+      ['Early Bird', 'ON_SALE', true],
+      ['Child', 'ON_SALE', true],
+    ])
 
     const listed = (await app.inject({ method: 'GET', url: '/v1/events?perPage=100' }))
       .json()
@@ -403,7 +415,7 @@ describe('what a stranger is shown after imports, deletions and sittings (SPEC2-
 })
 
 /**
- * A minimal import file of one listing on the allowed hosts, twelve days out.
+ * A minimal import file of one listing, with no address in it, twelve days out.
  *
  * @param {string} sourceId The listing's id.
  * @returns {object} The dataset.
@@ -416,16 +428,12 @@ function oneListing(sourceId) {
   return {
     format: 'desi-event-import/1',
     source: 'SULEKHA',
-    sourceName: 'Sulekha',
-    sourceSite: 'https://events.sulekha.com/',
     collectedFrom: '2026-09-29T21:25:00Z',
     collectedTo: '2026-09-30T00:51:08Z',
     curatedOn: '2026-09-30',
-    imageHosts: ['usimg.sulekha.io'],
     events: [
       {
         sourceId,
-        sourceUrl: `https://events.sulekha.com/garba-night_event-in_irving-tx_${sourceId}`,
         scrapedAt: '2026-09-29T21:25:00Z',
         title: `Garba Night ${sourceId}`,
         category: 'GARBA_DANDIYA',
@@ -452,14 +460,6 @@ function oneListing(sourceId) {
         dressCode: null,
         parking: null,
         faq: [],
-        images: [
-          {
-            url: `https://usimg.sulekha.io/cdn/events/images/cover-${sourceId}.png`,
-            role: 'cover',
-            alt: `Garba Night ${sourceId} poster`,
-          },
-        ],
-        ticketUrl: `https://events.sulekha.com/garba-night_event-in_irving-tx_${sourceId}`,
         importNotes: [],
       },
     ],
@@ -468,13 +468,7 @@ function oneListing(sourceId) {
 
 describe('no credential or show-once code in what full control and imports answer, audit or queue (SPEC2-XI §0)', () => {
   it('drives every full-control and import route with secrets in play, and finds none of them anywhere it wrote', async () => {
-    const { app, prisma, ids } = await createTestApp({
-      fetchImportImage: async () => ({
-        ok: true,
-        bytes: solidPng(1200, 700),
-        contentType: 'image/png',
-      }),
-    })
+    const { app, prisma, ids } = await createTestApp()
 
     // A buyer with tickets, an entry pass, a group pass and a ticket on offer,
     // and a stranger holding a seat: every show-once value an event carries.
@@ -685,13 +679,6 @@ describe('no credential or show-once code in what full control and imports answe
       url: `/v1/platform/imports/${run.id}/apply`,
       headers: anil,
       payload: { planDigest: run.planDigest, updateFromSource: [] },
-    })
-
-    await send('eventImports.retryImages', {
-      method: 'POST',
-      url: `/v1/platform/imports/${run.id}/images/retry`,
-      headers: anil,
-      payload: {},
     })
 
     const item = prisma._store.eventImportItem.find((row) => row.sourceId === '901001')

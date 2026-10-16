@@ -38,13 +38,11 @@ export async function getImportRuns({ page = 1 } = {}) {
  * One run: its plan row by row, and what each row's event is now.
  *
  * @param {string} runId The run.
- * @returns {Promise<{run: object, picturesWaiting: number}>} The run, and how many pictures still wait.
+ * @returns {Promise<{run: object}>} The run. Imports copy no pictures (2026-10-15), so nothing
+ *   is said about pictures waiting.
  */
 export async function getImportRun(runId) {
   const body = await callApi(`/v1/platform/imports/${encodeURIComponent(runId)}`)
 
-  return {
-    run: body.data,
-    picturesWaiting: Number.isInteger(body.meta?.picturesWaiting) ? body.meta.picturesWaiting : 0,
-  }
+  return { run: body.data }
 }

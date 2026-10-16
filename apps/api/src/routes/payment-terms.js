@@ -6,9 +6,10 @@
  * The session, `payment_terms:manage` and the PAYMENT_TERMS step-up come from
  * the contract (`defineRoute`); the two writes share one `payment-terms`
  * budget of sixty an hour per administrator, run after those guards so a
- * refused caller spends nothing. The rules — any status but DELETED, never for
- * an event sold on its listing's own site, never by a member of the event's
- * organisation, compare-and-set, audit, history — are `lib/payment-terms.js`'s.
+ * refused caller spends nothing. The rules — any status but DELETED, no
+ * paying at the door of an event held by the platform-held organisation, never
+ * by a member of the event's organisation, compare-and-set, audit, history —
+ * are `lib/payment-terms.js`'s.
  * Every answer is `no-store`.
  *
  * @module @desi-event/api/routes/payment-terms

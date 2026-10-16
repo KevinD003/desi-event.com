@@ -493,6 +493,13 @@ const FORBIDDEN = [
       ['venue-booking advisory lock key', 'venue-booking:'],
     ],
   },
+  {
+    // ADR 0015, addendum 2026-10-15 (2): an import contacts no other site, so
+    // it copies no picture and nothing offers to copy one again. A client
+    // still calling the route it pressed would be the feature come back.
+    group: 'removed import features',
+    markers: [['import picture retry path', '/images/retry']],
+  },
 ]
 
 /**
@@ -582,10 +589,10 @@ const REQUIRED = [
   ['night cancellation path', '/cancellation'],
   ['platform event path (sittings, restore)', '/v1/platform/events/'],
   ['sitting close path', '/edit/close'],
-  // The import screens: upload and plan, apply, approve and retry, and the
-  // reassign dialog's target search and move.
+  // The import screens: upload and plan, apply and approve, and the reassign
+  // dialog's target search and move. ("Retry pictures" is gone: see the
+  // removed import features above.)
   ['import run path', '/v1/platform/imports'],
-  ['import picture retry path', '/images/retry'],
   ['import target search path', '/v1/platform/import-targets'],
   ['imported event move path', '/reassign'],
   // Booking fees, referral codes and paying at the venue: the commands the

@@ -24,6 +24,18 @@
  * organiser's contact address ends up inside a `<script>` tag after having been
  * kept out of the visible page.
  *
+ * ## An imported event
+ *
+ * An event imported from an organiser's own listing (`importedFrom`) is sold
+ * here like any other: its ticket types, "Choose tickets" and the simulated
+ * checkout. Its page names the organiser the listing names, says its prices
+ * are as the organiser listed them on the day the listing was read, never
+ * shows a remaining count (its stock is an allowance, not the organiser's
+ * figure), and adds "Reserve on WhatsApp" beside the checkout while it can
+ * still be reserved (not once it is cancelled, postponed or over). It shows no
+ * website link and no redirect at all: nothing on it leads to the site its
+ * listing was read from (ADR 0015, addendum 2026-10-15 (2)).
+ *
  * ## Counting visits
  *
  * A public event's page sends one page view, and "Choose tickets" and each
@@ -59,7 +71,7 @@ import {
   formatVenueAddress,
   toDateTimeAttribute,
 } from '../../../lib/format.js'
-import { endTimeListed } from '../../../lib/imports.js'
+import { endTimeListed, reservableOnWhatsApp } from '../../../lib/imports.js'
 import { initialOf } from '../../../lib/initial.js'
 import { formatPrice, priceSelection, taxLabelForPlace } from '../../../lib/pricing.js'
 import { buildEventsHref } from '../../../lib/search-params.js'
@@ -279,8 +291,8 @@ export default async function EventDetailPage({ params }) {
 
   const ticketTypes = event.ticketTypes ?? []
   const sessions = event.sessions ?? []
-  // An event copied from its Sulekha listing (SPEC2-XI I-E): its tickets are
-  // sold there, its organiser is the one the listing names, and an end the
+  // An event imported from an organiser's listing (SPEC2-XI I-E): sold here
+  // like any other, its organiser is the one the listing names, and an end the
   // listing did not give is never shown (the API keeps an estimate).
   const imported = event.importedFrom ?? null
   const endListed = endTimeListed(event)
@@ -593,7 +605,6 @@ export default async function EventDetailPage({ params }) {
                     buyable={BUYABLE_STATUSES.has(event.status)}
                     ticketTypes={ticketTypes}
                     traffic={traffic}
-                    soldOn={imported?.sourceName ?? null}
                   />
                 </div>
               ) : (
@@ -757,7 +768,8 @@ export default async function EventDetailPage({ params }) {
                     <>
                       <p className="font-display text-h3 font-bold text-ink">{presenter}</p>
                       <p className="mt-3 text-ink-muted">
-                        {`Copied from this event’s listing on ${imported.sourceName} by the team at The Desi Events, and shown under `}
+                        Listed by the team at The Desi Events from the organiser’s own listing, and
+                        sold here under{' '}
                         {event.organization.slug ? (
                           <Link
                             href={`/organizers/${event.organization.slug}`}
@@ -807,8 +819,9 @@ export default async function EventDetailPage({ params }) {
 
             {/* Only while an administrator at The Desi Events has the link on and the
                 page is public; the API sends no host otherwise. It goes through
-                this site's redirect, never straight to the address. */}
-            {imported?.ticketsOnSource ? null : (
+                this site's redirect, never straight to the address. Never for
+                an imported event: nothing on its page leads to another site. */}
+            {imported ? null : (
               <EventWebsiteLink
                 slug={event.slug}
                 link={event.websiteLink ?? null}
@@ -886,7 +899,7 @@ export default async function EventDetailPage({ params }) {
                   <h2 id="tickets-heading" className="text-h2 font-semibold text-ink">
                     Tickets
                   </h2>
-                  {buyable && !imported ? (
+                  {buyable ? (
                     <AvailabilityChip availability={{ tone: 'open', label: 'On sale' }} />
                   ) : null}
                 </div>
@@ -895,16 +908,11 @@ export default async function EventDetailPage({ params }) {
                   {zoneLabel ? ` ${zoneLabel}` : ''}
                 </p>
 
-                {imported ? (
-                  <ImportedEventPanel
-                    importedFrom={imported}
-                    slug={event.slug}
-                    websiteLink={event.websiteLink ?? null}
-                    uncounted={uncounted}
-                  />
-                ) : ticketTypes.length === 0 ? (
+                {ticketTypes.length === 0 ? (
                   <p className="mt-5 text-ink-muted">
-                    The organiser has not put any tickets for this event on sale.
+                    {imported
+                      ? 'No tickets for this event are on sale here yet.'
+                      : 'The organiser has not put any tickets for this event on sale.'}
                   </p>
                 ) : (
                   <>
@@ -917,6 +925,7 @@ export default async function EventDetailPage({ params }) {
                         sessions={sessions}
                         eventSlug={BUYABLE_STATUSES.has(event.status) ? event.slug : null}
                         traffic={traffic}
+                        countsShown={!imported}
                       />
                     </div>
 
@@ -999,17 +1008,25 @@ export default async function EventDetailPage({ params }) {
                   </>
                 )}
 
-                {imported ? null : (
-                  <p className="mt-5 flex items-start gap-3 rounded-control bg-surface-subtle px-4 py-3 text-sm text-ink-muted">
-                    <ShieldIcon className="mt-0.5 h-4.5 w-4.5 text-accent-strong" />
-                    <span>
-                      <strong className="font-bold text-ink">
-                        Payments on this site are simulated.
-                      </strong>{' '}
-                      You will not be asked for a card.
-                    </span>
-                  </p>
-                )}
+                {/* Beside the checkout, for an imported event only: its
+                    prices' provenance and "Reserve on WhatsApp". */}
+                {imported ? (
+                  <ImportedEventPanel
+                    event={event}
+                    importedFrom={imported}
+                    reservable={reservableOnWhatsApp(event)}
+                  />
+                ) : null}
+
+                <p className="mt-5 flex items-start gap-3 rounded-control bg-surface-subtle px-4 py-3 text-sm text-ink-muted">
+                  <ShieldIcon className="mt-0.5 h-4.5 w-4.5 text-accent-strong" />
+                  <span>
+                    <strong className="font-bold text-ink">
+                      Payments on this site are simulated.
+                    </strong>{' '}
+                    You will not be asked for a card.
+                  </span>
+                </p>
               </div>
             </FadeIn>
           </aside>

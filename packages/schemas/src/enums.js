@@ -145,12 +145,6 @@ export const EVENT_IMPORT_SOURCES = Object.freeze(['SULEKHA'])
 /** An import run: planned, applied once, or expired. */
 export const EVENT_IMPORT_RUN_STATUSES = Object.freeze(['PREVIEWED', 'APPLIED', 'EXPIRED'])
 
-/** Whether an imported event's picture has been copied yet. */
-export const EVENT_IMPORT_IMAGE_STATUSES = Object.freeze(['WAITING', 'STORED', 'FAILED'])
-
-/** What the source listed a picture as. */
-export const EVENT_IMPORT_IMAGE_ROLES = Object.freeze(['COVER', 'GALLERY'])
-
 export const TICKET_TYPE_STATUSES = Object.freeze([
   'DRAFT',
   'ON_SALE',
@@ -603,12 +597,6 @@ export const eventImportSourceSchema = z.enum([...EVENT_IMPORT_SOURCES])
 
 /** `EVENT_IMPORT_RUN_STATUSES` as a Zod enum. */
 export const eventImportRunStatusSchema = z.enum([...EVENT_IMPORT_RUN_STATUSES])
-
-/** `EVENT_IMPORT_IMAGE_STATUSES` as a Zod enum. */
-export const eventImportImageStatusSchema = z.enum([...EVENT_IMPORT_IMAGE_STATUSES])
-
-/** `EVENT_IMPORT_IMAGE_ROLES` as a Zod enum. */
-export const eventImportImageRoleSchema = z.enum([...EVENT_IMPORT_IMAGE_ROLES])
 
 /** `TICKET_TYPE_STATUSES` as a Zod enum. */
 export const ticketTypeStatusSchema = z.enum([...TICKET_TYPE_STATUSES])

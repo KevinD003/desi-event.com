@@ -313,15 +313,16 @@ restored event's pictures can be removed in whatever status it comes back in.
 routes. A purge of long-deleted events' pictures would need its own window and
 its own limitation entry, and is not built.
 
-## Imported pictures — 2026-10-06
+## Imported pictures — 2026-10-06, removed 2026-10-15
 
-Pictures of imported events (ADR 0015) are copied by `lib/import-images.js`
-from `usimg.sulekha.io` only, through the same sanitiser as an upload, and
-stored `PENDING` with an `EventImportImage` row naming where they came from.
-Public pages never carry the Sulekha address. The administrator who reviews the
-import run approves them together with their event, after seeing them; a
-picture stored after that page was loaded changes the event's revision, so the
-approval fails rather than publishing a picture nobody looked at.
+From 2026-10-06 pictures of imported events (ADR 0015) were copied from the
+listing's picture host, through the same sanitiser as an upload, and approved
+with their event. On 2026-10-15 the owner asked for "no contact at all" with
+that site, so nothing is copied any more: the fetcher, "Retry pictures", the
+`EventImportImage` table and the `IMPORT_IMAGE_*` settings are gone. An
+imported event shows a generated poster until someone adds a picture, as any
+event without one does. Pictures copied before then stay where they are,
+ordinary pictures of their events (`MediaAsset`), moderated as any other.
 
 ## Not done
 

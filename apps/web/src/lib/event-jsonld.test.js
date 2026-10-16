@@ -387,12 +387,12 @@ describe('the line-up and the offers in structured data', () => {
   })
 })
 
-describe('the structured data of an event copied from its Sulekha listing', () => {
+describe('the structured data of an event imported from an organiser’s listing', () => {
   const imported = {
     ...event,
     status: 'PUBLISHED',
     ticketTypes: [],
-    organization: { name: 'Sulekha Events', slug: 'sulekha-events' },
+    organization: { name: 'The Desi Events', slug: 'the-desi-events' },
     sessions: [
       {
         id: 'ses_1',
@@ -420,13 +420,67 @@ describe('the structured data of an event copied from its Sulekha listing', () =
     })
   })
 
-  it('offers nothing, since its tickets are sold on Sulekha', () => {
+  it('never names the site the listing is on', () => {
+    expect(JSON.stringify(eventJsonLd(imported, { siteUrl: 'https://example.test' }))).not.toMatch(
+      /sulekha/iu,
+    )
+  })
+
+  it('offers its ticket types at this site’s own address, since its tickets are sold here', () => {
+    const data = eventJsonLd(
+      {
+        ...imported,
+        status: 'ON_SALE',
+        ticketTypes: [{ id: 'tt_1', name: 'General', priceCents: 2500, currency: 'USD' }],
+      },
+      { siteUrl: 'https://example.test' },
+    )
+
+    expect(data.offers).toEqual([
+      expect.objectContaining({
+        '@type': 'Offer',
+        name: 'General',
+        price: '25.00',
+        priceCurrency: 'USD',
+        url: `https://example.test/events/${event.slug}`,
+      }),
+    ])
+    expect(JSON.stringify(data)).not.toMatch(/sulekha/iu)
+  })
+
+  it('says each ticket type’s own availability: a closed one is never in stock', () => {
     const data = eventJsonLd({
       ...imported,
-      ticketTypes: [{ id: 'tt_1', name: 'General', priceCents: 2500, currency: 'USD' }],
+      status: 'ON_SALE',
+      ticketTypes: [
+        { id: 'tt_1', name: 'General', priceCents: 2500, currency: 'USD', status: 'ON_SALE' },
+        // The listing marked it sold out: created, but closed.
+        { id: 'tt_2', name: 'Early', priceCents: 2000, currency: 'USD', status: 'CLOSED' },
+        { id: 'tt_3', name: 'Late', priceCents: 3000, currency: 'USD', status: 'PAUSED' },
+        {
+          id: 'tt_4',
+          name: 'Front row',
+          priceCents: 9000,
+          currency: 'USD',
+          status: 'ON_SALE',
+          availableQuantity: 0,
+          isSoldOut: true,
+        },
+        { id: 'tt_5', name: 'Gone', priceCents: 9000, currency: 'USD', status: 'SOLD_OUT' },
+      ],
     })
 
-    expect(data.offers).toBeUndefined()
+    expect(data.offers.map((offer) => [offer.name, offer.availability])).toEqual([
+      ['General', 'https://schema.org/InStock'],
+      ['Early', 'https://schema.org/OutOfStock'],
+      ['Late', 'https://schema.org/PreOrder'],
+      ['Front row', 'https://schema.org/SoldOut'],
+      ['Gone', 'https://schema.org/SoldOut'],
+    ])
+  })
+
+  it('still offers nothing when it has no ticket types', () => {
+    expect(eventJsonLd(imported).offers).toBeUndefined()
   })
 
   it('claims no end when the listing gave none, and keeps one it gave', () => {
@@ -454,7 +508,7 @@ describe('the structured data of an event copied from its Sulekha listing', () =
   })
 })
 
-describe('the structured data of an event copied from a Sulekha listing in Canada', () => {
+describe('the structured data of an event copied from a listing in Canada', () => {
   const toronto = {
     ...event,
     status: 'PUBLISHED',
@@ -468,7 +522,7 @@ describe('the structured data of an event copied from a Sulekha listing in Canad
       postalCode: 'M5J 2G8',
       country: 'CA',
     },
-    organization: { name: 'Sulekha Events', slug: 'sulekha-events' },
+    organization: { name: 'The Desi Events', slug: 'the-desi-events' },
     importedFrom: {
       sourceName: 'Sulekha',
       presentedBy: 'Toronto Garba Collective',
@@ -494,10 +548,21 @@ describe('the structured data of an event copied from a Sulekha listing in Canad
     })
   })
 
-  it('offers no price in any currency, since its tickets are sold on Sulekha', () => {
+  it('offers no price before it has ticket types, and then only in Canadian dollars, never USD', () => {
     const data = eventJsonLd(toronto)
 
     expect(data.offers).toBeUndefined()
     expect(JSON.stringify(data)).not.toMatch(/USD/u)
+
+    const selling = eventJsonLd({
+      ...toronto,
+      status: 'ON_SALE',
+      ticketTypes: [{ id: 'tt_1', name: 'Adult', priceCents: 3000, currency: 'CAD' }],
+    })
+
+    expect(selling.offers.map((offer) => [offer.price, offer.priceCurrency])).toEqual([
+      ['30.00', 'CAD'],
+    ])
+    expect(JSON.stringify(selling)).not.toMatch(/USD/u)
   })
 })

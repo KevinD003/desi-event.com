@@ -38,7 +38,9 @@ describe('manifest', () => {
 
   it('describes a catalogue in the USA and Canada, with US dollars claimed only for tickets sold here', () => {
     expect(value.description).toMatch(/across the USA and Canada/u)
-    expect(value.description).toMatch(/Tickets sold here are priced in US dollars/u)
+    expect(value.description).toMatch(
+      /Tickets sold here are priced in US dollars, or Canadian dollars at a venue in Canada/u,
+    )
     expect(value.description).not.toMatch(/every price shown in US dollars/u)
   })
 

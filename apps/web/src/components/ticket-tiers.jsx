@@ -6,6 +6,12 @@
  * already has active holds subtracted by the time it reaches this component,
  * which is why it can be lower than `quantityTotal − quantitySold`.
  *
+ * A tier whose quantity is an allowance the import set (`quantityIsAllowance`:
+ * the listing gives no quantities), and every tier of an event still held for
+ * an import (`countsShown={false}`, for an API that does not mark them), never
+ * shows a count: one read from an allowance would be invented. Such a tier
+ * says "On sale" or "Sold out", never "Only N left".
+ *
  * Each tier shows its face value and, where the fee terms and the venue are
  * known, what one ticket comes to with them — priced by the same function and
  * the same terms checkout charges with, so the figure here is the figure there.
@@ -50,9 +56,10 @@ const STOPPED = Object.freeze({
  * @param {object} tier A reserved ticket type.
  * @param {object|null} session Its night, from `event.sessions`.
  * @param {Date} now The moment in question.
+ * @param {boolean} counts Whether a low count may be shown.
  * @returns {{text: string, variant: string}} Badge text and its colour token.
  */
-function seatedAvailability(tier, session, now) {
+function seatedAvailability(tier, session, now, counts) {
   if (!session?.hasSeatMap) return { text: 'Seated — not sold on this site', variant: 'neutral' }
   if (tier.status === 'SOLD_OUT') return { text: 'Sold out', variant: 'danger' }
   if (STOPPED[tier.status]) return STOPPED[tier.status]
@@ -63,7 +70,7 @@ function seatedAvailability(tier, session, now) {
   if (tierSalesWindow(tier, now) !== 'open' || !sessionSellsSeats(session, now)) {
     return { text: 'Not on sale now', variant: 'neutral' }
   }
-  if (free !== null && free <= LOW_STOCK_THRESHOLD) {
+  if (counts && free !== null && free <= LOW_STOCK_THRESHOLD) {
     return { text: `Only ${free} ${free === 1 ? 'seat' : 'seats'} left`, variant: 'warning' }
   }
 
@@ -80,18 +87,22 @@ function seatedAvailability(tier, session, now) {
  * @param {object} tier A ticket type with `availableQuantity` and `isSoldOut`, and optionally `status` and a sales window.
  * @param {Date} [now] The moment in question. Defaults to now.
  * @param {object|null} [session] The tier's night, for a seated tier's seats.
+ * @param {{counts?: boolean}} [options] `counts: false` never shows a remaining count (an imported event); a tier marked `quantityIsAllowance` never does either.
  * @returns {{text: string, variant: string}} Badge text and its colour token.
  */
-export function availabilityLabel(tier, now = new Date(), session = null) {
+export function availabilityLabel(tier, now = new Date(), session = null, options = {}) {
+  // An allowance is not the organiser's count: nothing is said of what is left.
+  const counts = options.counts !== false && tier?.quantityIsAllowance !== true
+
   // Before the quantity check: a seated tier's quantity is zero by design, and
   // reading it called every seated tier sold out. Its stock is its night's
   // seats, read from the night.
-  if (tier.reserved) return seatedAvailability(tier, session, now)
+  if (tier.reserved) return seatedAvailability(tier, session, now, counts)
   if (tier.status === 'SOLD_OUT') return { text: 'Sold out', variant: 'danger' }
   if (STOPPED[tier.status]) return STOPPED[tier.status]
   if (tier.isSoldOut || tier.availableQuantity <= 0) return { text: 'Sold out', variant: 'danger' }
   if (tierSalesWindow(tier, now) !== 'open') return { text: 'Not on sale now', variant: 'neutral' }
-  if (tier.availableQuantity <= LOW_STOCK_THRESHOLD) {
+  if (counts && tier.availableQuantity <= LOW_STOCK_THRESHOLD) {
     return { text: `Only ${tier.availableQuantity} left`, variant: 'warning' }
   }
 
@@ -177,6 +188,7 @@ export function tierAllIn(tier, place, feeTerms) {
  * @property {object[]} [sessions] The event's nights; with more than one, tiers are grouped under them.
  * @property {string|null} [eventSlug] The event's slug, to link a seated tier to its seat map.
  * @property {{eventId: string, organizationId?: string}|null} [traffic] The event, when a click on "Choose seats" is counted; null counts nothing.
+ * @property {boolean} [countsShown] Whether a low remaining count may be shown; false for an imported event's allowance.
  */
 
 /**
@@ -194,6 +206,7 @@ export function TicketTiers({
   sessions = [],
   eventSlug = null,
   traffic = null,
+  countsShown = true,
 }) {
   const groups = groupTiersBySession(ticketTypes, sessions)
 
@@ -208,6 +221,7 @@ export function TicketTiers({
         sessions={sessions}
         eventSlug={eventSlug}
         traffic={traffic}
+        countsShown={countsShown}
       />
     )
   }
@@ -227,6 +241,7 @@ export function TicketTiers({
               sessions={sessions}
               eventSlug={eventSlug}
               traffic={traffic}
+              countsShown={countsShown}
             />
           </div>
         </div>
@@ -247,14 +262,27 @@ export function TicketTiers({
  * @param {object[]} props.sessions The event's nights.
  * @param {string|null} props.eventSlug The event's slug.
  * @param {{eventId: string, organizationId?: string}|null} props.traffic The event, when seat clicks are counted.
+ * @param {boolean} props.countsShown Whether a low remaining count may be shown.
  * @returns {JSX.Element} The list.
  */
-function TierList({ tiers, label, place, feeTerms, timezone, sessions, eventSlug, traffic }) {
+function TierList({
+  tiers,
+  label,
+  place,
+  feeTerms,
+  timezone,
+  sessions,
+  eventSlug,
+  traffic,
+  countsShown,
+}) {
   return (
     <ul aria-label={label} className="divide-y divide-line">
       {tiers.map((tier) => {
         const session = sessionForTier(tier, sessions)
-        const availability = availabilityLabel(tier, new Date(), session)
+        const availability = availabilityLabel(tier, new Date(), session, {
+          counts: countsShown,
+        })
         const allIn = availability.text === 'Sold out' ? null : tierAllIn(tier, place, feeTerms)
         const salesWindow = salesWindowText(tier, timezone)
         const seatLink =

@@ -481,7 +481,9 @@ describe('reviewIndependence', () => {
       ).code,
     ).toBe('SELF_REVIEW')
 
-    // A picture the import copied, and one the importer uploaded by hand.
+    // A picture the importer uploaded, on a platform-held event: no import
+    // copies a picture any more (2026-10-15), so no picture is exempt, even one
+    // that had been copied before.
     const picture = {
       actor: { id: 'importer' },
       organizationId: 'org-held',
@@ -489,17 +491,15 @@ describe('reviewIndependence', () => {
       mediaAssetId: 'media-1',
     }
 
-    expect(
-      (
-        await reviewIndependence(
-          client(null, { platformHeldSource: 'SULEKHA', copied: { id: 'image-1' } }),
-          picture,
-        )
-      ).exemption,
-    ).toBe('PLATFORM_HELD_IMPORT')
-    expect(
-      (await reviewIndependence(client(null, { platformHeldSource: 'SULEKHA' }), picture)).code,
-    ).toBe('SELF_REVIEW')
+    for (const held of [
+      { platformHeldSource: 'SULEKHA', copied: { id: 'image-1' } },
+      { platformHeldSource: 'SULEKHA' },
+    ]) {
+      const answer = await reviewIndependence(client(null, held), picture)
+
+      expect(answer.code).toBe('SELF_REVIEW')
+      expect(answer.exemption).toBeNull()
+    }
 
     // A member is refused before any exemption is considered.
     expect(

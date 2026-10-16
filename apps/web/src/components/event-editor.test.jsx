@@ -370,7 +370,7 @@ describe('the steps', () => {
 
   it('label an imported event’s end, which its listing did not give, as an estimate', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    const estimate = /^Not listed by Sulekha \(estimate for scheduling\)\./u
+    const estimate = /^Not given by the listing \(estimate for scheduling\)\./u
     const { unmount } = render(
       <EventEditor
         event={event}

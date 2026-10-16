@@ -830,9 +830,10 @@ day.
 
 ## Imported events — 2026-10-06
 
-The Sulekha dataset (ADR 0015) was collected and committed credential-free:
-its validator refuses email addresses and phone numbers anywhere in it, and no
-phone number or email address was kept from the listings. It names organisers
+The imported listing datasets (ADR 0015) were collected and committed
+credential-free: their validator refuses email addresses and phone numbers
+anywhere in them, and no phone number or email address was kept from the
+listings. Since 2026-10-15 they carry no web address either. They name organisers
 as their listings did ("Presented by"), which is public business information,
 not an account. Nobody belongs to the organisation that holds imported events.
 

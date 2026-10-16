@@ -20,9 +20,11 @@
  *     uploading in an editing sitting and approving it themselves).
  *
  * One exemption (SPEC2-XI O5): an event imported into the platform-held
- * organisation that holds listed events (`Organization.platformHeldSource`),
- * and a picture copied by such an import, may be approved by the
- * administrator who imported it. For an event, only the importer of record
+ * organisation that holds listed events (`Organization.platformHeldSource`)
+ * may be approved by the administrator who imported it. (Pictures an import
+ * copied were exempt too until 2026-10-15, when the importer stopped copying
+ * anything from the source: every picture decision now needs a reviewer other
+ * than its uploader.) For an event, only the importer of record
  * (`EventImportItem.importedById`, which every import submission names)
  * deciding their own latest submission is exempt: an account that only
  * withdrew the import and sent it back by hand is its submitter, not its
@@ -70,23 +72,21 @@ export const PLATFORM_HELD_IMPORT = 'PLATFORM_HELD_IMPORT'
 
 /**
  * Whether what is being decided is the platform's own import: an event with an
- * import record, or a picture an import copied, in an organisation that holds
- * imported events.
+ * import record in an organisation that holds imported events.
  *
  * @param {object} prisma The Prisma client, or a transaction client.
  * @param {object} options Inputs.
  * @param {string} options.organizationId The organisation whose work is being decided.
  * @param {string|null} options.eventId The event, for an event decision.
- * @param {string|null} options.mediaAssetId The picture, for a picture decision.
  * @param {string|null} [options.submittedById] For an event decision: who sent it
  *   for review last. The exemption covers only the importer of record's own submission.
  * @returns {Promise<boolean>} True when the exemption applies.
  */
 export async function isPlatformHeldImport(
   prisma,
-  { organizationId, eventId, mediaAssetId, submittedById = null },
+  { organizationId, eventId, submittedById = null },
 ) {
-  if (!eventId && !mediaAssetId) return false
+  if (!eventId) return false
 
   const organization = await prisma.organization.findUnique({
     where: { id: organizationId },
@@ -94,15 +94,6 @@ export async function isPlatformHeldImport(
   })
 
   if (!organization?.platformHeldSource) return false
-
-  if (mediaAssetId) {
-    const copied = await prisma.eventImportImage.findFirst({
-      where: { mediaAssetId, item: { reassignedAt: null } },
-      select: { id: true },
-    })
-
-    return Boolean(copied)
-  }
 
   const item = await prisma.eventImportItem.findUnique({
     where: { eventId },
@@ -126,12 +117,11 @@ export async function isPlatformHeldImport(
  * @param {string} options.organizationId The organisation whose work is being decided.
  * @param {string|null} [options.eventId] The event, for the submitter check.
  * @param {string|null} [options.uploadedById] For a picture decision: who uploaded it.
- * @param {string|null} [options.mediaAssetId] For a picture decision: the picture, for the import exemption.
  * @returns {Promise<{independent: boolean, code: string|null, reason: string|null, exemption: string|null}>} The answer; `exemption` names the rule that let a self-review through.
  */
 export async function reviewIndependence(
   prisma,
-  { actor, organizationId, eventId = null, uploadedById = null, mediaAssetId = null },
+  { actor, organizationId, eventId = null, uploadedById = null },
 ) {
   const member = (actor?.memberships ?? []).some(
     (membership) => membership.organizationId === organizationId,
@@ -146,13 +136,9 @@ export async function reviewIndependence(
   // The importer approving their own import is exempt (SPEC2-XI O5); looked
   // up only when a self-review would otherwise be refused.
   const exempt = (submittedById = null) =>
-    isPlatformHeldImport(prisma, { organizationId, eventId, mediaAssetId, submittedById })
+    isPlatformHeldImport(prisma, { organizationId, eventId, submittedById })
 
   if (uploadedById && actor?.id && uploadedById === actor.id) {
-    if (mediaAssetId && (await exempt())) {
-      return { independent: true, code: null, reason: null, exemption: PLATFORM_HELD_IMPORT }
-    }
-
     const { code, message } = REVIEW_INDEPENDENCE.SELF_UPLOAD
 
     return { independent: false, code, reason: message, exemption: null }
@@ -188,20 +174,18 @@ export async function reviewIndependence(
  * @param {string} options.organizationId The organisation whose work is being decided.
  * @param {string|null} [options.eventId] The event, for the submitter check.
  * @param {string|null} [options.uploadedById] For a picture decision: who uploaded it.
- * @param {string|null} [options.mediaAssetId] For a picture decision: the picture.
  * @returns {Promise<{exemption: null|'PLATFORM_HELD_IMPORT'}>} The exemption that let a self-review through, or null when the reviewer is independent.
  * @throws {Error} 403 `CONFLICT_OF_INTEREST` or `SELF_REVIEW`.
  */
 export async function assertIndependentReviewer(
   prisma,
-  { actor, organizationId, eventId = null, uploadedById = null, mediaAssetId = null },
+  { actor, organizationId, eventId = null, uploadedById = null },
 ) {
   const { independent, code, reason, exemption } = await reviewIndependence(prisma, {
     actor,
     organizationId,
     eventId,
     uploadedById,
-    mediaAssetId,
   })
 
   if (!independent) throw forbidden(reason, code)

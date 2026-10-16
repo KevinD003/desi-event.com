@@ -339,8 +339,9 @@ const BACK_ON_THE_SITE = new Set([
 /**
  * What the team at The Desi Events reads where they delete a posted event:
  * that deleting erases nothing and can be undone at any time, and what a
- * restore brings back (ADR 0014 §6). For an event copied from Sulekha, which
- * nobody can buy a ticket to here, deleting only takes it off the site.
+ * restore brings back (ADR 0014 §6). An imported event is sold here like any
+ * other, so deleting it follows the same rules; the extra sentence says only
+ * that a restore keeps the organiser its listing names.
  *
  * @param {object} event The event: `importedFrom` when it is held for an import.
  * @returns {string[]} The sentences, in reading order.
@@ -355,8 +356,8 @@ export function deletionReversibleSentences(event) {
   if (imported) {
     sentences.push(
       imported.presentedBy
-        ? `This event was copied from Sulekha, and its tickets are sold there, not here, so deleting it only takes it off the site. Restoring it brings it back with ${imported.presentedBy} named as its organiser, and its “Buy tickets on Sulekha” link as it was.`
-        : 'This event was copied from Sulekha, and its tickets are sold there, not here, so deleting it only takes it off the site. Restoring it brings it back with its “Buy tickets on Sulekha” link as it was.',
+        ? `This event was imported from its organiser’s listing. Restoring it brings it back with ${imported.presentedBy} named as its organiser.`
+        : 'This event was imported from its organiser’s listing, which names no organiser. Restoring it brings it back held by the team at The Desi Events, as it is now.',
     )
   }
 
@@ -386,12 +387,8 @@ export function restoreSentences(event) {
     sentences.push(`It comes back at the same web address, /events/${event.slug}.`)
   }
 
-  if (backOnTheSite && imported) {
-    sentences.push(
-      imported.presentedBy
-        ? `It is still presented by ${imported.presentedBy}, and its “Buy tickets on Sulekha” link comes back as it was.`
-        : 'Its “Buy tickets on Sulekha” link comes back as it was.',
-    )
+  if (backOnTheSite && imported?.presentedBy) {
+    sentences.push(`It is still presented by ${imported.presentedBy}.`)
   }
 
   return sentences
@@ -719,10 +716,6 @@ export const MEMBER_TERMS_SENTENCE =
 /** What the panel says on a deleted event (SPEC3 §7.3). */
 export const DELETED_TERMS_SENTENCE =
   'This event was deleted. Its booking fee and payment settings are kept as they were and come back if it is restored.'
-
-/** What the panel says on an event sold on its listing's own site. */
-export const SOLD_ON_SOURCE_TERMS_SENTENCE =
-  'Tickets for this event are sold on Sulekha, so it has no booking fee here.'
 
 /** The bounds of an event's own booking fee: 30.00% and 100.00 per ticket. */
 export const FEE_FORM_LIMITS = Object.freeze({ maxPercentageBps: 3000, maxFlatCents: 10000 })

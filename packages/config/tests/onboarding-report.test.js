@@ -12,8 +12,9 @@
  *    button says "Issue a new code".
  * 3. Its list of what needs the owner's own accounts or machines names each
  *    one this build cannot provide: a mail server, somewhere to host the site,
- *    a Stripe account for real payments, and a machine that can reach the
- *    Sulekha picture host directly.
+ *    a Stripe account for real payments. Since 2026-10-15 importing listed
+ *    events needs no machine of its own (nothing is fetched), so the list must
+ *    no longer send the owner to set one up.
  *
  * What this does not check: whether a sentence is true. A reader comparing the
  * report with the code catches that; this catches the drift a reader cannot
@@ -136,7 +137,10 @@ describe('the onboarding and analytics report', () => {
     const needs = section(report, 'What needs your accounts or your machines')
 
     expect(needs).toMatch(/SMTP/u)
-    expect(needs).toMatch(/usimg\.sulekha\.io/u)
+    // The importer makes no outbound request (2026-10-15), so no machine that
+    // reaches the source's picture host is needed any more, and none is named.
+    expect(needs).not.toMatch(/usimg|sulekha|Retry pictures/iu)
+    expect(needs).toMatch(/no\s+outbound\s+request/u)
     expect(needs).toMatch(/\bhost(?:ing)?\b/iu)
     expect(needs).toMatch(/\bStripe\b/u)
   })

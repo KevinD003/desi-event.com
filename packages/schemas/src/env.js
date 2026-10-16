@@ -232,25 +232,6 @@ const trafficEnvFields = {
     .describe('Visit beacons one visitor may send a minute.'),
 }
 
-/**
- * Copying an imported listing's pictures (SPEC2-XI §4.5).
- *
- * `network` (the default) fetches each picture from its one allowed host;
- * `fixtures` reads it, by the address's file name, from `IMPORT_IMAGE_FIXTURE_DIR`
- * with no network at all, for tests and the browser suites. `fixtures` is
- * refused in production, and needs the directory.
- */
-const importEnvFields = {
-  IMPORT_IMAGE_SOURCE: z
-    .preprocess(blankAsAbsent, z.enum(['network', 'fixtures']).default('network'))
-    .describe(
-      'Where imported pictures are copied from: "network" (their one allowed host), or "fixtures" (a directory, never in production).',
-    ),
-  IMPORT_IMAGE_FIXTURE_DIR: z
-    .preprocess(blankAsAbsent, z.string().min(1).max(1024).optional())
-    .describe('The directory pictures are read from when IMPORT_IMAGE_SOURCE is "fixtures".'),
-}
-
 /** `process.env` for the Fastify API. */
 export const apiEnvSchema = z.preprocess(
   /**
@@ -349,27 +330,8 @@ export const apiEnvSchema = z.preprocess(
         ),
       ...smtpEnvFields,
       ...trafficEnvFields,
-      ...importEnvFields,
     })
     .superRefine((env, ctx) => {
-      // Pictures read from a directory are for tests and the browser suites:
-      // a production server copies them from their host, or not at all.
-      if (env.IMPORT_IMAGE_SOURCE === 'fixtures' && env.NODE_ENV === 'production') {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['IMPORT_IMAGE_SOURCE'],
-          message: 'IMPORT_IMAGE_SOURCE=fixtures is for tests only and is refused in production.',
-        })
-      }
-
-      if (env.IMPORT_IMAGE_SOURCE === 'fixtures' && !env.IMPORT_IMAGE_FIXTURE_DIR) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['IMPORT_IMAGE_FIXTURE_DIR'],
-          message: 'IMPORT_IMAGE_FIXTURE_DIR is required when IMPORT_IMAGE_SOURCE is fixtures.',
-        })
-      }
-
       // Only when it was supplied on purpose. When it was filled from JWT_SECRET
       // the two are the same string, and JWT_SECRET's own rules below already
       // report the problem — telling somebody to fix a variable they never set is

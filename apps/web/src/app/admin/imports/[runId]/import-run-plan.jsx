@@ -4,16 +4,19 @@
  * A run's plan, and what can be done with it (SPEC2-XI I-H).
  *
  * One table, one row per listing: what applying the plan does to it (in
- * words), the curator's notes, its pictures (copied, waiting, or not copied
- * and why), and the event it wrote. Three actions, each sent once more after a
- * second factor when the API asks for one:
+ * words), the curator's notes, and the event it wrote. Imports copy no
+ * pictures (ADR 0015, addendum 2026-10-15 (2)); only a run applied by an older
+ * build that did has a "Pictures" column, read-only, saying how that went. Two
+ * actions, each sent once more after a second factor when the API asks for
+ * one:
  *
  *   - **"Import these {n} events"** (`POST …/apply`, the MODERATION window),
  *     while the plan is new. A published event whose listing has changed is
- *     left alone unless its "Update from Sulekha" box is ticked.
+ *     left alone unless its "Update from the listing" box is ticked.
  *   - **"Approve and publish {n} events"** (`POST …/approve`, the
  *     EVENT_PUBLISH window), once it is applied. Each event waiting for
- *     review, approved by a moderator, or published with pictures waiting has
+ *     review, approved by a moderator, or (an older run) published with
+ *     pictures waiting has
  *     a box; the answer is reported event by event in a polite live region.
  *     A run of hundreds of listings is not ticked box by box: "Tick all {n}
  *     shown" ticks every such event at once, or the first {limit} of them when
@@ -21,12 +24,11 @@
  *     (`IMPORT_LIMITS.approveItems`). Once those are published the page is
  *     read again, so the same button ticks the next ones. More boxes ticked
  *     by hand than one request takes are refused before anything is sent.
- *   - **"Retry pictures"** (`POST …/images/retry`, the MODERATION window),
- *     once it is applied and some pictures are waiting or were not copied.
  *
+ * There is no "Retry pictures": nothing is copied, so nothing is copied again.
  * The page is read again after every action, so what it shows is what the API
- * holds. No address of the listing site's pictures reaches this component:
- * the server page drops them.
+ * holds. No address of the listing's site reaches this component: the server
+ * page drops any an older run carried.
  *
  * `@file` rather than `@module`: the path is not a valid JSDoc namepath.
  *
@@ -50,6 +52,8 @@ import {
   approveSentence,
   failureReason,
   planReading,
+  ticketTypeCount,
+  ticketTypesLine,
   writtenCount,
 } from '../import-vocabulary.js'
 
@@ -71,7 +75,7 @@ const PUBLIC = new Set([
  * Whether "Approve and publish" can act on a row's event.
  *
  * @param {object} row A run row.
- * @returns {boolean} True for an event of this run, still held for import, waiting for review, approved, or published with pictures waiting.
+ * @returns {boolean} True for an event of this run, still held for import, waiting for review, approved, published with none of its imported ticket types on sale yet, or (an older run) published with pictures waiting.
  */
 export function approvable(row) {
   const event = row.event
@@ -79,9 +83,21 @@ export function approvable(row) {
   if (!event || !event.inThisRun || event.reassigned) return false
   if (event.status === 'REVIEW_PENDING' || event.status === 'APPROVED') return true
 
+  // Published, with tickets the import made and none of them on sale: approving
+  // puts them on sale.
+  if (
+    event.status === 'PUBLISHED' &&
+    event.ticketTypes?.imported > 0 &&
+    event.ticketTypes?.onSale === 0
+  ) {
+    return true
+  }
+
   return (
     PUBLIC.has(event.status) &&
-    row.pictures.some((picture) => picture.status === 'STORED' && picture.mediaStatus === 'PENDING')
+    (row.pictures ?? []).some(
+      (picture) => picture.status === 'STORED' && picture.mediaStatus === 'PENDING',
+    )
   )
 }
 
@@ -146,7 +162,8 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
   const picked = approvableRows.filter((row) => chosen.includes(row.event.id))
   const nextBatch = approvableRows.slice(0, approveLimit)
   const tooMany = picked.length > approveLimit
-  const retryable = applied && run.pictures.failed + run.pictures.waiting > 0
+  // Only a run an older build applied, which copied pictures, has any.
+  const picturesShown = run.rows.some((row) => (row.pictures ?? []).length > 0)
   const titles = new Map(
     run.rows.filter((row) => row.event).map((row) => [row.event.id, row.title]),
   )
@@ -168,7 +185,7 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
   /**
    * Send one action.
    *
-   * @param {'apply'|'approve'|'retry'} action Which.
+   * @param {'apply'|'approve'} action Which.
    * @param {boolean} [retried] Whether this is the one retry after a step-up.
    * @returns {Promise<void>} Resolves when the attempt is over.
    */
@@ -185,11 +202,6 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
           items: picked.map((row) => ({ eventId: row.event.id, revision: row.event.revision })),
         },
         failed: 'Nothing was approved.',
-      },
-      retry: {
-        path: `/v1/platform/imports/${encodeURIComponent(run.id)}/images/retry`,
-        body: {},
-        failed: 'No picture was copied again.',
       },
     }
     const request = requests[action]
@@ -211,16 +223,9 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
           setResults(parsed?.data?.results ?? [])
           setChosen([])
         } else {
-          const pictures = parsed?.data?.pictures ?? null
-          const waiting = parsed?.meta?.picturesWaiting ?? 0
-          const lead = action === 'apply' ? 'The plan was applied.' : 'Pictures were tried again.'
-          const counts = pictures
-            ? ` Pictures: ${pictures.stored} copied, ${pictures.failed} not copied, ${pictures.waiting} waiting.`
-            : ''
-          const still =
-            waiting > 0 ? ` ${waiting} pictures are still waiting: use Retry pictures.` : ''
-
-          setDone(`${lead}${counts}${still}`)
+          setDone(
+            'The plan was applied. Its events wait for review: approve and publish them here.',
+          )
           setUpdateFromSource([])
         }
 
@@ -257,7 +262,6 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
   const stepUpActions = {
     apply: 'import these events',
     approve: 'approve and publish these events',
-    retry: 'copy the pictures again',
   }
 
   return (
@@ -314,7 +318,7 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
           <thead className="bg-surface-subtle">
             <tr className="border-b border-line-strong text-ink-muted">
               <th scope="col" className="py-3 pr-4 pl-4 font-semibold">
-                {previewed ? 'Update from Sulekha' : applied ? 'Approve' : 'Choose'}
+                {previewed ? 'Update from the listing' : applied ? 'Approve' : 'Choose'}
               </th>
               <th scope="col" className="py-3 pr-4 font-semibold">
                 Listing
@@ -325,9 +329,11 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
               <th scope="col" className="py-3 pr-4 font-semibold">
                 Notes
               </th>
-              <th scope="col" className="py-3 pr-4 font-semibold">
-                Pictures
-              </th>
+              {picturesShown ? (
+                <th scope="col" className="py-3 pr-4 font-semibold">
+                  Pictures
+                </th>
+              ) : null}
               <th scope="col" className="py-3 pr-4 font-semibold">
                 Event
               </th>
@@ -348,7 +354,7 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
                       <input
                         type="checkbox"
                         id={`${id}-update-${row.sourceId}`}
-                        aria-label={`Update “${row.title}” from Sulekha`}
+                        aria-label={`Update “${row.title}” from the listing`}
                         checked={updateFromSource.includes(row.sourceId)}
                         onChange={(changed) =>
                           toggle(setUpdateFromSource, row.sourceId, changed.target.checked)
@@ -370,10 +376,15 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
                   <td className="py-3 pr-4">
                     <p className="font-semibold text-ink">{row.title}</p>
                     <p className="text-xs text-ink-muted">
-                      {`Sulekha ${row.sourceId}`}
+                      {`Listing ${row.sourceId}`}
                       {row.city ? ` · ${row.city}` : ''}
                       {row.endTimeListed ? '' : ' · No end time listed'}
                     </p>
+                    {ticketTypesLine(row) ? (
+                      <p className="text-xs text-ink-muted">{`${ticketTypesLine(row)}${
+                        row.currency ? `, in ${row.currency}` : ''
+                      }`}</p>
+                    ) : null}
                   </td>
                   <td className="py-3 pr-4">
                     <Badge variant={reading.tone} srLabel="Plan:">
@@ -392,27 +403,30 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
                       <span className="text-xs text-ink-muted">None</span>
                     )}
                   </td>
-                  <td className="py-3 pr-4">
-                    {row.pictures.length > 0 ? (
-                      <ul className="max-w-xs space-y-1 text-xs text-ink-muted">
-                        {row.pictures.map((picture, index) => (
-                          <PictureLine key={picture.id} picture={picture} index={index} />
-                        ))}
-                      </ul>
-                    ) : (
-                      <span className="text-xs text-ink-muted">
-                        {row.imageCount > 0
-                          ? `${row.imageCount} listed, copied once applied`
-                          : 'None listed'}
-                      </span>
-                    )}
-                  </td>
+                  {picturesShown ? (
+                    <td className="py-3 pr-4">
+                      {(row.pictures ?? []).length > 0 ? (
+                        <ul className="max-w-xs space-y-1 text-xs text-ink-muted">
+                          {row.pictures.map((picture, index) => (
+                            <PictureLine key={picture.id} picture={picture} index={index} />
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="text-xs text-ink-muted">None</span>
+                      )}
+                    </td>
+                  ) : null}
                   <td className="py-3 pr-4">
                     {event ? (
                       <>
                         <Badge variant={eventReading.tone} srLabel="Status:">
                           {eventReading.label}
                         </Badge>
+                        {event.ticketTypes && event.ticketTypes.imported > 0 ? (
+                          <p className="mt-1 text-xs text-ink-muted">
+                            {`${event.ticketTypes.onSale} of ${ticketTypeCount(event.ticketTypes.imported)} on sale`}
+                          </p>
+                        ) : null}
                         {event.reassigned ? (
                           <p className="mt-1 text-xs text-ink-muted">
                             {`Moved to ${event.organizationName ?? 'an organiser’s organisation'}`}
@@ -543,18 +557,6 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
             Approving and publishing needs a moderator’s review rights as well, which this account
             does not have.
           </p>
-        ) : null}
-
-        {retryable ? (
-          <Button
-            type="button"
-            variant="secondary"
-            className="min-h-11"
-            disabled={busy !== null || stepUp !== null}
-            onClick={() => void send('retry')}
-          >
-            {busy === 'retry' ? 'Copying pictures…' : 'Retry pictures'}
-          </Button>
         ) : null}
       </div>
     </div>

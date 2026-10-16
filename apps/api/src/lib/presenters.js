@@ -42,7 +42,6 @@ import {
 } from './event-media.js'
 import { REDACTED_EMAIL_DOMAIN } from './privacy-placeholders.js'
 import { publicWebsiteLink, websiteRedirectState } from './website-redirect.js'
-import { websiteHost } from '@desi-event/schemas/website'
 import { agingBand } from './reconciliation.js'
 import { admissionRefusal } from './tickets.js'
 import { venuePaymentAvailable } from './venue-booking-limits.js'
@@ -251,17 +250,14 @@ function inSalesWindow(ticketType, now) {
   }
 }
 
-/** Each import source's name, as a page writes it. */
-export const IMPORT_SOURCE_NAMES = Object.freeze({ SULEKHA: 'Sulekha' })
-
 /**
  * What an event's import record is read with, for {@link importedFromView}.
- * Never a picture's address, a source note or the curator's notes.
+ * Never a source note or the curator's notes; the record holds no address on
+ * the site the listing came from at all (2026-10-15).
  */
 export const IMPORTED_FROM_SELECT = Object.freeze({
   select: {
     source: true,
-    sourceUrl: true,
     scrapedAt: true,
     presentedBy: true,
     prices: true,
@@ -303,11 +299,9 @@ export const EVENT_SUMMARY_SELECT = Object.freeze({
   // The card's place, and the jurisdiction its "from" price is taxed in.
   venue: { select: { name: true, slug: true, city: true, region: true, country: true } },
   organization: { select: { name: true, slug: true, platformHeldSource: true } },
-  // An imported event's card names where it is listed and its lowest price
-  // there, and whether its link goes to the listing (SPEC2-XI §5.I-E).
+  // An imported event's card names who presents it and the prices its
+  // listing gave (SPEC2-XI §5.I-E).
   importItem: IMPORTED_FROM_SELECT,
-  websiteRedirectEnabled: true,
-  websiteDecidedUrl: true,
   // The event's own booking fee, when the team at The Desi Events set one: the card's
   // "from" price is priced with the terms checkout charges (SPEC3 §7.2).
   feeSource: true,
@@ -374,19 +368,20 @@ export function publicPriceName(name) {
 }
 
 /**
- * Where an imported event is listed, and what the listing said, for an event
- * still held by the platform-held organisation of the team at The Desi Events (SPEC2-XI
+ * What an imported event's listing said, for an event still held by the
+ * platform-held organisation of the team at The Desi Events (SPEC2-XI
  * §5.I-E); null for every other event, and once it has been moved to an
  * organiser's own organisation.
  *
- * Only what the source listed: who presents it, the day it was read (UTC) and
- * each price's name and amount, in the listing's order. A price's note
- * (availability, "sold out", sales dates) is never carried, nor such words
- * inside its name ({@link publicPriceName}). `ticketsOnSource`
- * says the website link is on, public, and goes to the listing's own site, so
- * the page may label it "Buy tickets on Sulekha".
+ * Only what the listing gave: who presents it, the day it was read (UTC) and
+ * each price's name and amount, in the listing's order, as the organiser
+ * listed them on that day. A price's note (availability, "sold out", sales
+ * dates) is never carried, nor such words inside its name
+ * ({@link publicPriceName}). Nothing here is an address, and nothing points
+ * at the site the listing came from: the event's tickets are its own ticket
+ * types, sold on The Desi Events (2026-10-15).
  *
- * @param {object|null|undefined} event An event row with `importItem` ({@link IMPORTED_FROM_SELECT}), `organization.platformHeldSource`, `status` and the website columns.
+ * @param {object|null|undefined} event An event row with `importItem` ({@link IMPORTED_FROM_SELECT}) and `organization.platformHeldSource`.
  * @returns {object|null} An `importedFromSchema` payload, or null.
  */
 export function importedFromView(event) {
@@ -416,16 +411,11 @@ export function importedFromView(event) {
       currency: price.currency,
     }))
 
-  const link = publicWebsiteLink(event)
-  const sourceHost = websiteHost(item.sourceUrl)
-
   return {
-    sourceName: IMPORT_SOURCE_NAMES[item.source] ?? 'Sulekha',
     presentedBy: typeof item.presentedBy === 'string' ? item.presentedBy.slice(0, 200) : null,
     listedOn: scrapedAt.toISOString().slice(0, 10),
     prices,
     priceListed: prices.length > 0,
-    ticketsOnSource: Boolean(link && sourceHost && link.host === sourceHost),
   }
 }
 

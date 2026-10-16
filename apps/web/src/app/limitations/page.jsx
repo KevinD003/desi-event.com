@@ -88,7 +88,7 @@ const ALSO = Object.freeze([
   },
   {
     key: 'fictional',
-    text: 'Events, organisers and prices on this site are fictional, except events copied from Sulekha.com listings, which name the organiser who presents them and show Sulekha’s prices.',
+    text: 'Events, organisers and prices on this site are fictional, except events imported from organisers’ public ticket listings, which name the organiser who presents them and are sold here at the prices the organiser listed.',
   },
 ])
 

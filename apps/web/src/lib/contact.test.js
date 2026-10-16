@@ -15,8 +15,13 @@ import {
   CONTACT_PHONE_E164,
   FACEBOOK_URL,
   INSTAGRAM_URL,
+  RESERVE_ON_WHATSAPP_LABEL,
+  RESERVE_ON_WHATSAPP_NAME,
+  WHATSAPP_URL,
   organizationJsonLd,
   pageLabel,
+  reserveMessage,
+  reserveOnWhatsAppUrl,
 } from './contact.js'
 
 describe('the company’s channels', () => {
@@ -98,5 +103,43 @@ describe('organizationJsonLd', () => {
     expect(organizationJsonLd(new URL('https://www.example.test/some/page')).logo).toBe(
       'https://www.example.test/brand/logo-square-512.png',
     )
+  })
+})
+
+describe('Reserve on WhatsApp', () => {
+  const event = {
+    title: 'Raga Night',
+    startsAt: '2026-11-07T01:30:00.000Z',
+    timezone: 'America/Chicago',
+    venue: { name: 'Stafford Centre', city: 'Houston' },
+  }
+
+  it('opens the company’s own WhatsApp chat with the event’s title, day and place', () => {
+    expect(reserveMessage(event)).toBe(
+      'Hi! I\'d like to reserve tickets for "Raga Night" on Friday, November 6 at Stafford Centre, Houston.',
+    )
+    expect(reserveOnWhatsAppUrl(event)).toBe(
+      `${WHATSAPP_URL}?text=Hi!%20I'd%20like%20to%20reserve%20tickets%20for%20%22Raga%20Night%22%20on%20Friday%2C%20November%206%20at%20Stafford%20Centre%2C%20Houston.`,
+    )
+    expect(new URL(reserveOnWhatsAppUrl(event)).searchParams.get('text')).toBe(
+      reserveMessage(event),
+    )
+  })
+
+  it('reads the day in the venue’s zone, not the visitor’s or UTC', () => {
+    expect(reserveMessage({ ...event, timezone: 'UTC' })).toContain('on Saturday, November 7 at')
+  })
+
+  it('encodes a title with an ampersand or a hash, so the message cannot be cut short', () => {
+    const url = new URL(reserveOnWhatsAppUrl({ ...event, title: 'Dandiya & Garba #2' }))
+
+    expect(url.searchParams.get('text')).toContain('"Dandiya & Garba #2"')
+    expect(url.hash).toBe('')
+  })
+
+  it('has an accessible name that holds its visible words and says it opens WhatsApp', () => {
+    expect(RESERVE_ON_WHATSAPP_LABEL).toBe('Reserve on WhatsApp')
+    expect(RESERVE_ON_WHATSAPP_NAME.startsWith(RESERVE_ON_WHATSAPP_LABEL)).toBe(true)
+    expect(RESERVE_ON_WHATSAPP_NAME).toMatch(/opens WhatsApp/u)
   })
 })

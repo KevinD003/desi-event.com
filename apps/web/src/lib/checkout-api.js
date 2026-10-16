@@ -277,7 +277,8 @@ export const REFERRAL_WITHDRAWN_SENTENCE =
 /**
  * The refusals that mean paying at the venue cannot be had for this booking
  * now: the switch is off, the event's limit is reached, the event is online or
- * sold elsewhere, or there is no ticket price left to pay at the door.
+ * held by the platform-held organisation, or there is no ticket price left to
+ * pay at the door.
  *
  * @type {ReadonlySet<string>}
  */

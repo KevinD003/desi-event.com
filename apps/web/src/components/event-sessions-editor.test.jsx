@@ -1164,7 +1164,7 @@ describe('writing as the team at The Desi Events, whose second factor lapses eve
 })
 
 describe('a night whose listing gave no end time', () => {
-  const LABEL = 'Not listed by Sulekha (estimate for scheduling)'
+  const LABEL = 'Not given by the listing (estimate for scheduling)'
 
   it('labels the stored end as an estimate in the list and in the edit form', async () => {
     const user = userEvent.setup()

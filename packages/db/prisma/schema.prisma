@@ -171,7 +171,7 @@ model Organization {
   /// returned by any route.
   createdById           String?
   /// Set on the one organisation that holds events imported from this source
-  /// for the team at The Desi Events ("Sulekha Events"). It has no members and takes
+  /// for the team at The Desi Events (named "The Desi Events"). It has no members and takes
   /// no team invitations (trigger `desi_platform_held_has_no_members`), and one
   /// organisation per source (unique). Only `lib/event-import.js` and
   /// `lib/organization-provisioning.js` write it.
@@ -339,19 +339,6 @@ enum EventImportRunStatus {
   EXPIRED
 }
 
-/// Whether an imported event's picture has been copied yet.
-enum EventImportImageStatus {
-  WAITING
-  STORED
-  FAILED
-}
-
-/// What the source listed a picture as.
-enum EventImportImageRole {
-  COVER
-  GALLERY
-}
-
 model Venue {
   id                String   @id @default(cuid())
   name              String
@@ -379,7 +366,7 @@ model Venue {
   /// accessible toilets. A JSON column because the vocabulary is still moving.
   accessibility     Json?
   /// Who told us about this venue: an organiser, a moderator, an import.
-  /// An import records its source here (for example `import:sulekha`).
+  /// An import records `import:listing` here.
   provenance        String?
   organizationId    String?
   /// Set when an administrator merges a duplicate into another row. The merged
@@ -969,20 +956,32 @@ model TicketType {
   /// Which session this tier sells for, when the event has more than one.
   /// Null means "every session", which is how Phase 1's single-session events
   /// migrate without inventing a session.
-  eventSessionId String?
+  eventSessionId      String?
   /// For reserved seating: the price zone this tier prices. Null for general
   /// admission, where the tier owns a quantity rather than a set of seats. At
   /// most one reserved tier prices a zone at a session: the hand-written
   /// partial unique index `TicketType_reserved_session_zone_key`
   /// ("eventSessionId", "priceZoneId") WHERE "reserved", which Prisma cannot
   /// express.
-  priceZoneId    String?
+  priceZoneId         String?
   /// True when this tier is sold by seat rather than by quantity.
-  reserved       Boolean              @default(false)
+  reserved            Boolean              @default(false)
   /// Complimentary tiers never charge and never reach a payment provider.
-  complimentary  Boolean              @default(false)
+  complimentary       Boolean              @default(false)
   /// Whether the public event page lists this tier. See `TicketTypeVisibility`.
-  visibility     TicketTypeVisibility @default(PUBLIC)
+  visibility          TicketTypeVisibility @default(PUBLIC)
+  /// For a tier an import made from a listed price: the price it was made
+  /// from (its name as the event first showed it), so a re-import finds it
+  /// again whatever an administrator renamed it to. Unique per event among the
+  /// tiers that have one (hand-written partial index
+  /// `TicketType_eventId_importKey_key` in
+  /// `20261015100000_imported_events_sold_here`). Null for every other tier.
+  importKey           String?
+  /// True when `quantityTotal` is an allowance the import set because the
+  /// listing gave no quantity, not a count the organiser gave: no page shows
+  /// how many are left from it. An organiser's own change of the quantity
+  /// clears it.
+  quantityIsAllowance Boolean              @default(false)
 
   event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
   holds        TicketHold[]
@@ -2345,14 +2344,12 @@ model MediaAsset {
   /// when the replaced cover goes.
   replacesMediaId  String?               @unique
 
-  event        Event?             @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  uploadedBy   User?              @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
-  moderatedBy  User?              @relation("MediaModeratedBy", fields: [moderatedById], references: [id], onDelete: SetNull)
-  blob         MediaBlob?
-  replaces     MediaAsset?        @relation("MediaReplacement", fields: [replacesMediaId], references: [id], onDelete: SetNull)
-  replacedBy   MediaAsset?        @relation("MediaReplacement")
-  /// The import record this picture was copied for, when it was.
-  importImages EventImportImage[]
+  event       Event?      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedBy  User?       @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  moderatedBy User?       @relation("MediaModeratedBy", fields: [moderatedById], references: [id], onDelete: SetNull)
+  blob        MediaBlob?
+  replaces    MediaAsset? @relation("MediaReplacement", fields: [replacesMediaId], references: [id], onDelete: SetNull)
+  replacedBy  MediaAsset? @relation("MediaReplacement")
 
   @@index([ownerType, ownerId])
   @@index([moderationStatus, scanStatus])
@@ -2444,9 +2441,10 @@ model EventChangeNotice {
 // Events imported from another site
 //
 // Migration `20260930160000_event_imports`. The CHECKs are hand-written there:
-// `event_import_run_shape`, `event_import_item_shape` and
-// `event_import_image_shape`. Only `apps/api/src/lib/event-import.js` writes
-// these three tables.
+// `event_import_run_shape` and `event_import_item_shape` (the latter rewritten
+// by `20261015100000_imported_events_sold_here`, which also dropped the
+// pictures' table: nothing is copied from the source any more). Only
+// `apps/api/src/lib/event-import.js` writes these two tables.
 // ---------------------------------------------------------------------------
 
 /// One upload of an import file: the dataset, the plan an administrator read,
@@ -2486,16 +2484,15 @@ model EventImportRun {
   @@index([appliedById])
 }
 
-/// One imported event and where it came from: the source's id and page, who
-/// imported it, who approved it, and where an administrator moved it. Unique
-/// per `(source, sourceId)`, so a re-import updates rather than duplicates.
+/// One imported event and where it came from: the source's id (never an
+/// address on its site), who imported it, who approved it, and where an
+/// administrator moved it. Unique per `(source, sourceId)`, so a re-import
+/// updates rather than duplicates.
 model EventImportItem {
   id                           String            @id @default(cuid())
   source                       EventImportSource
   /// The source's own id for the listing, 1-12 digits.
   sourceId                     String
-  /// The listing's https page.
-  sourceUrl                    String
   eventId                      String            @unique
   /// The run that last created or updated it.
   lastRunId                    String?
@@ -2507,7 +2504,8 @@ model EventImportItem {
   /// The organiser the source names, shown as "Presented by".
   presentedBy                  String?
   /// The prices as the source listed them: `[{name, priceCents, currency,
-  /// note}]`, at most 20. No ticket type is made from them.
+  /// note}]`, at most 20. Each is also a ticket type on the event
+  /// (`TicketType.importKey`).
   prices                       Json              @default("[]")
   priceText                    String?
   /// What the curator noted about the listing, shown to administrators only.
@@ -2519,14 +2517,13 @@ model EventImportItem {
   reassignedFromOrganizationId String?
   reassignedToOrganizationId   String?
 
-  event                      Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  lastRun                    EventImportRun?    @relation(fields: [lastRunId], references: [id], onDelete: SetNull)
-  importedBy                 User?              @relation("EventImportItemImportedBy", fields: [importedById], references: [id], onDelete: SetNull)
-  approvedBy                 User?              @relation("EventImportItemApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
-  reassignedBy               User?              @relation("EventImportItemReassignedBy", fields: [reassignedById], references: [id], onDelete: SetNull)
-  reassignedFromOrganization Organization?      @relation("EventImportItemReassignedFrom", fields: [reassignedFromOrganizationId], references: [id], onDelete: SetNull)
-  reassignedToOrganization   Organization?      @relation("EventImportItemReassignedTo", fields: [reassignedToOrganizationId], references: [id], onDelete: SetNull)
-  images                     EventImportImage[]
+  event                      Event           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  lastRun                    EventImportRun? @relation(fields: [lastRunId], references: [id], onDelete: SetNull)
+  importedBy                 User?           @relation("EventImportItemImportedBy", fields: [importedById], references: [id], onDelete: SetNull)
+  approvedBy                 User?           @relation("EventImportItemApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  reassignedBy               User?           @relation("EventImportItemReassignedBy", fields: [reassignedById], references: [id], onDelete: SetNull)
+  reassignedFromOrganization Organization?   @relation("EventImportItemReassignedFrom", fields: [reassignedFromOrganizationId], references: [id], onDelete: SetNull)
+  reassignedToOrganization   Organization?   @relation("EventImportItemReassignedTo", fields: [reassignedToOrganizationId], references: [id], onDelete: SetNull)
 
   @@unique([source, sourceId])
   @@index([lastRunId])
@@ -2535,34 +2532,6 @@ model EventImportItem {
   @@index([reassignedById])
   @@index([reassignedFromOrganizationId])
   @@index([reassignedToOrganizationId])
-}
-
-/// One picture the source listed for an imported event, and whether it has
-/// been copied. The URL is read by administrators only; no public page or
-/// payload names it. There is deliberately no coupling between STORED and
-/// `mediaAssetId`: the organiser may remove the picture later.
-model EventImportImage {
-  id           String                 @id @default(cuid())
-  itemId       String
-  /// The source's https address for it.
-  url          String
-  role         EventImportImageRole
-  /// The description the dataset gives, 1-300 characters.
-  alt          String
-  position     Int
-  status       EventImportImageStatus @default(WAITING)
-  /// Why the last attempt failed (`HOST_NOT_ALLOWED`, `TIMEOUT`, ...).
-  failureCode  String?
-  attempts     Int                    @default(0)
-  lastTriedAt  DateTime?
-  /// The stored picture, once copied.
-  mediaAssetId String?
-
-  item       EventImportItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  mediaAsset MediaAsset?     @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
-
-  @@unique([itemId, url])
-  @@index([mediaAssetId])
 }
 
 // ---------------------------------------------------------------------------

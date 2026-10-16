@@ -35,23 +35,39 @@ describe('Visit the organiser’s website', () => {
     )
   })
 
-  it('can say where tickets are bought, as the page’s main action, with the same note', () => {
+  it('is only ever “Visit the organiser’s website”: it can no longer be relabelled “Buy tickets” as a main action', () => {
+    // An imported event's tickets are sold here (ADR 0015, addendum
+    // 2026-10-15 (2)), so the "Buy tickets" variant that sent buyers away is
+    // gone: whatever is passed, the link says what it is and names its host.
     render(
       <EventWebsiteLink
         slug="garba-night"
-        link={{ host: 'events.sulekha.com' }}
-        label="Buy tickets on Sulekha"
+        link={{ host: 'tickets.example.org' }}
+        label="Buy tickets"
         button
       />,
     )
 
-    const link = screen.getByRole('link', { name: 'Buy tickets on Sulekha' })
+    const link = screen.getByRole('link', { name: 'Visit the organiser’s website' })
 
     expect(link).toHaveAttribute('href', '/events/garba-night/website')
     expect(link).toHaveAttribute('rel', 'nofollow')
     expect(link).toHaveAccessibleDescription(
-      'Opens events.sulekha.com, which The Desi Events does not run. The Desi Events counts the visit without recording your address, browser or account.',
+      'Opens tickets.example.org, which The Desi Events does not run. The Desi Events counts the visit without recording your address, browser or account.',
     )
-    expect(screen.queryByRole('link', { name: 'Visit the organiser’s website' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Buy tickets' })).toBeNull()
+  })
+
+  it('no longer takes a note in place of its host: where it goes is always printed', () => {
+    render(
+      <EventWebsiteLink
+        slug="garba-night"
+        link={{ host: 'tickets.example.org' }}
+        note="Opens the organiser’s ticket page on another site."
+      />,
+    )
+
+    expect(screen.getByText('(tickets.example.org)')).toBeInTheDocument()
+    expect(screen.queryByText(/ticket page on another site/u)).toBeNull()
   })
 })

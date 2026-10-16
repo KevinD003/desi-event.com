@@ -20,7 +20,6 @@ import {
   tierCurrencyProblems,
 } from '../lib/event-authoring.js'
 import { AUTHORITY_KINDS } from '../lib/event-authority.js'
-import { refuseSoldOnSource } from '../lib/event-lifecycle.js'
 import { readAvailabilityMap } from '../lib/inventory.js'
 import { isPublicTier, toTicketType } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
@@ -125,9 +124,6 @@ export function registerTicketTypeRoutes(app, { prisma }) {
           organizationId: event.organizationId,
         })
       }
-
-      // Tickets for a platform-held import are sold on its source (SPEC2-XI I5).
-      refuseSoldOnSource(event)
 
       // A currency left out is the event's own, as the authoring route has it,
       // and a tier priced apart from the rest could never share an order.

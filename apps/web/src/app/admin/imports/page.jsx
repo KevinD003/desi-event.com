@@ -1,6 +1,6 @@
 /**
- * Imports: events listed on Sulekha, brought onto The Desi Events by the team
- * at The Desi Events (SPEC2-XI I-H).
+ * Imports: events listed on organisers' public ticket listings, brought onto
+ * The Desi Events by the team at The Desi Events (SPEC2-XI I-H).
  *
  * An administrator uploads a listing file; the API plans it (nothing but the
  * plan is written) and the plan opens on its own page, where it is applied and
@@ -46,7 +46,7 @@ export const metadata = { title: 'Imports', robots: { index: false, follow: fals
 
 /** What the page says about itself. */
 export const INTRODUCTION =
-  'Bring events listed on Sulekha onto The Desi Events. Upload a listing file to plan an import; the plan opens on its own page, where you apply it within the hour. Each imported event is held under “Sulekha Events”, names the organiser who presents it, and sells its tickets on Sulekha. It is published only once you, or a moderator, approve it.'
+  'Bring events from organisers’ public ticket listings onto The Desi Events. Upload a listing file to plan an import; the plan opens on its own page, where you apply it within the hour. Each imported event is held under “The Desi Events” and names the organiser who presents it. Each price it lists becomes a ticket type sold here, with an allowance of 100 tickets you can change in an editing session; a price the listing marks sold out is created but not put on sale. No pictures are copied and nothing links to the listing. An event is published, with its tickets on sale, only once you, or a moderator, approve it.'
 
 /**
  * What applying a run did, in a line.

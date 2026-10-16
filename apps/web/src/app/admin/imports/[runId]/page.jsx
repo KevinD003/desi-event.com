@@ -1,17 +1,20 @@
 /**
- * One import: its plan, applying it, approving and publishing its events, and
- * copying its pictures again (SPEC2-XI I-H).
+ * One import: its plan, applying it, and approving and publishing its events
+ * (SPEC2-XI I-H).
  *
  * A plan is applied within the hour it was made; after that it has expired
  * and the file is planned again. Applying creates or updates each listing's
- * event as a draft under "Sulekha Events" and sends it for review; approving
- * one publishes it, with its Sulekha ticket link on.
+ * event as a draft under "The Desi Events", with a ticket type for each price
+ * it lists, and sends it for review; approving one publishes it with its
+ * tickets on sale here. Imports copy no pictures and keep no link to the
+ * listing (ADR 0015, addendum 2026-10-15 (2)), so there is nothing to copy
+ * again and nothing to open.
  *
  * The page asks its own question (`event:import`) as the list does, and asks
  * whether this session may also review (`moderation:review`), which approving
- * needs; the API decides both again. The run's answer names the listing
- * site's picture addresses, which are dropped here before anything reaches the
- * browser.
+ * needs; the API decides both again. Should the run's answer still carry an
+ * address of the listing's site (a run made by an older build), it is dropped
+ * here before anything reaches the browser.
  *
  * `@file` rather than `@module`: the path's `[runId]` segment is not a valid
  * JSDoc namepath.
@@ -36,8 +39,18 @@ export const dynamic = 'force-dynamic'
 
 export const metadata = { title: 'Import', robots: { index: false, follow: false } }
 
+/** The addresses a row of an older build's run carried, none of which the browser gets. */
+const SOURCE_ADDRESS_FIELDS = Object.freeze([
+  'sourceUrl',
+  'ticketUrl',
+  'url',
+  'imageUrls',
+  'images',
+])
+
 /**
- * The run as the browser may hold it: every picture's source address dropped.
+ * The run as the browser may hold it: every address of the listing's site
+ * dropped, from a row and from each picture an older build's run recorded.
  *
  * @param {object} run The API's run.
  * @returns {object} The same run, without them.
@@ -45,33 +58,27 @@ export const metadata = { title: 'Import', robots: { index: false, follow: false
 export function withoutSourceAddresses(run) {
   return {
     ...run,
-    rows: (run.rows ?? []).map((row) => ({
-      ...row,
-      pictures: (row.pictures ?? []).map((picture) => {
-        const kept = { ...picture }
+    rows: (run.rows ?? []).map((row) => {
+      const kept = { ...row }
 
-        delete kept.url
+      for (const field of SOURCE_ADDRESS_FIELDS) delete kept[field]
 
-        return kept
-      }),
-    })),
+      kept.pictures = (row.pictures ?? []).map((picture) => {
+        const keptPicture = { ...picture }
+
+        delete keptPicture.url
+
+        return keptPicture
+      })
+
+      return kept
+    }),
   }
 }
 
-/**
- * Where the run's pictures stand, in a sentence.
- *
- * @param {{total: number, stored: number, failed: number, waiting: number}} pictures The counts.
- * @param {number} waiting How many the last request left waiting.
- * @returns {string} The sentence.
- */
-export function picturesSentence(pictures, waiting) {
-  if (!pictures || pictures.total === 0) return 'The listings in this run name no pictures.'
-
-  const line = `Pictures: ${pictures.stored} of ${pictures.total} copied, ${pictures.failed} not copied, ${pictures.waiting} waiting.`
-
-  return waiting > 0 ? `${line} ${waiting} pictures are still waiting: use Retry pictures.` : line
-}
+/** What an applied run's page says about pictures: an import copies none. */
+export const NO_PICTURES_SENTENCE =
+  'Imports copy no pictures: each imported event shows a generated poster until a picture is added to it in an editing session.'
 
 /**
  * @typedef {object} ImportRunPageProps
@@ -108,14 +115,10 @@ export default async function ImportRunPage({ params }) {
   }
 
   let run = null
-  let picturesWaiting = 0
   let failure = null
 
   try {
-    const result = await getImportRun(runId)
-
-    run = result.run
-    picturesWaiting = result.picturesWaiting
+    run = (await getImportRun(runId)).run
   } catch (error) {
     failure = error
   }
@@ -156,7 +159,7 @@ export default async function ImportRunPage({ params }) {
 
       {run.status === 'PREVIEWED' ? (
         <p className="mt-3 max-w-3xl text-ink-muted">
-          {`Nothing has been imported. Check the plan, tick “Update from Sulekha” for any published event you want updated, and import it before ${formatInstant(run.expiresAt)}.`}
+          {`Nothing has been imported. Check the plan, tick “Update from the listing” for any published event you want updated, and import it before ${formatInstant(run.expiresAt)}.`}
         </p>
       ) : null}
 
@@ -169,7 +172,7 @@ export default async function ImportRunPage({ params }) {
 
       {run.status === 'APPLIED' ? (
         <p className="mt-3 max-w-3xl text-ink-muted">
-          {`${picturesSentence(run.pictures, picturesWaiting)} Imported events wait for review: approve and publish them here. A moderator may approve one from the review queue first; it is then published from here.`}
+          {`Imported events wait for review: approve and publish them here, which puts their tickets on sale here. A moderator may approve one from the review queue first; it is then published from here. ${NO_PICTURES_SENTENCE}`}
         </p>
       ) : null}
 

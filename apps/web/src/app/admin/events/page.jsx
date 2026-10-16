@@ -5,7 +5,7 @@
  * editing session opened with a reason, delete any event and restore a
  * deleted one (SPEC2-XI X-7, X-12). This is where they find it: a search, a
  * status, an organisation, the events taken off the site (deleted) on their
- * own filter, the events copied from Sulekha on theirs, and three orders. Each
+ * own filter, the imported events on theirs, and three orders. Each
  * row opens the event's own page, where every one of those actions is.
  *
  * Deleting erases nothing, so the page says so: a deleted event is listed
@@ -75,10 +75,10 @@ export const SHOWING = Object.freeze([
   { value: 'include', label: 'Both' },
 ])
 
-/** Whether the list holds every event, or only those copied from a Sulekha listing. */
+/** Whether the list holds every event, or only those imported from a source listing. */
 export const SOURCES = Object.freeze([
   { value: undefined, label: 'From every source' },
-  { value: 'only', label: 'Copied from Sulekha' },
+  { value: 'only', label: 'Imported from listings' },
 ])
 
 /** The orders the list can take, the API's default first. */
@@ -501,7 +501,7 @@ export default async function AdminEventsPage({ searchParams } = {}) {
                 ? `No event matches “${filters.q}”.`
                 : filters.deleted === 'only'
                   ? filters.imported
-                    ? 'No event copied from Sulekha has been taken off the site.'
+                    ? 'No imported event has been taken off the site.'
                     : 'No event has been taken off the site.'
                   : 'No event matches these filters.'
             }

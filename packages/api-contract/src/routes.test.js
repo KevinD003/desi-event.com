@@ -502,12 +502,6 @@ describe('importing listed events (SPEC2-XI I)', () => {
     'eventImports.preview': ['POST', '/v1/platform/imports', undefined, 201],
     'eventImports.get': ['GET', '/v1/platform/imports/:runId', undefined, 200],
     'eventImports.apply': ['POST', '/v1/platform/imports/:runId/apply', 'MODERATION', 200],
-    'eventImports.retryImages': [
-      'POST',
-      '/v1/platform/imports/:runId/images/retry',
-      'MODERATION',
-      200,
-    ],
     'eventImports.approve': ['POST', '/v1/platform/imports/:runId/approve', 'EVENT_PUBLISH', 200],
     'eventImports.targets': ['GET', '/v1/platform/import-targets', undefined, 200],
     'eventImports.reassign': [
@@ -518,7 +512,7 @@ describe('importing listed events (SPEC2-XI I)', () => {
     ],
   }
 
-  it('places the eight routes at their method and path, each held by event:import', () => {
+  it('places the seven routes at their method and path, each held by event:import', () => {
     const declared = apiRoutes.filter((route) => route.id.startsWith('eventImports.'))
 
     expect(declared.map((route) => route.id).sort()).toEqual(Object.keys(EXPECTED).sort())
@@ -541,8 +535,20 @@ describe('importing listed events (SPEC2-XI I)', () => {
     }
 
     expect(API_TAGS.find((tag) => tag.name === 'imports').description).toBe(
-      'Bringing events listed on another site onto The Desi Events, by its own team.',
+      'Bringing listed events onto The Desi Events, by its own team, and selling their tickets here.',
     )
+  })
+
+  it('has no route that copies pictures: nothing is fetched from the source any more (2026-10-15)', () => {
+    expect(apiRoutes.find((route) => route.id === 'eventImports.retryImages')).toBeUndefined()
+    expect(apiRoutes.some((route) => /\/images\/retry$/u.test(route.path))).toBe(false)
+
+    // And no import route describes copying, fetching or an address on the source.
+    for (const route of apiRoutes.filter((candidate) => candidate.id.startsWith('eventImports.'))) {
+      expect(route.description, route.id).not.toMatch(
+        /Retry pictures|IMPORT_IMAGE_HOSTS|IMPORT_SOURCE_HOSTS|pictures are copied/iu,
+      )
+    }
   })
 
   it('declares a step-up on every POST but the preview, which writes only the run', () => {
@@ -556,15 +562,10 @@ describe('importing listed events (SPEC2-XI I)', () => {
   })
 
   it('declares 409 on every write that refuses a run or an event in the wrong state', () => {
-    // Apply and retry refuse a run applied, expired or not applied; approve
-    // refuses a run not applied (`NOT_EDITABLE`); reassign refuses an event
-    // not imported or a target not eligible.
-    for (const id of [
-      'eventImports.apply',
-      'eventImports.retryImages',
-      'eventImports.approve',
-      'eventImports.reassign',
-    ]) {
+    // Apply refuses a run applied or expired; approve refuses a run not
+    // applied (`NOT_EDITABLE`); reassign refuses an event not imported or a
+    // target not eligible.
+    for (const id of ['eventImports.apply', 'eventImports.approve', 'eventImports.reassign']) {
       expect(
         routeById(id).errors.map((error) => error.status),
         id,
