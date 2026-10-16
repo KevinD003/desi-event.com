@@ -171,35 +171,15 @@ test.describe('footer → contact', () => {
 
 test.describe('the colour register across soft navigations', () => {
   // The root layout writes `data-register` on <body> from the request path,
-  // and a root layout is not rendered again on a client navigation. A page
-  // loaded in a signed-in area therefore used to keep the courtyard register
-  // after a `<Link>` back to a public page. `components/register-sync.jsx`
-  // now moves it. This config runs without the API, so nobody can sign in;
-  // the state a hard load of /account leaves is set by hand instead, and the
-  // signed-in round trip is walked in the accessibility sweep.
-  test('a soft navigation to a public page clears a courtyard register left on <body>', async ({
-    page,
-  }) => {
-    await page.goto('/events')
-    await expect(page.locator('body')).not.toHaveAttribute('data-register')
-
-    await page.evaluate(() => {
-      document.body.dataset.register = 'courtyard'
-    })
-
-    const loads = []
-    page.on('load', () => loads.push(page.url()))
-
-    await page
-      .getByRole('navigation', { name: 'Primary' })
-      .getByRole('link', { name: 'Venues', exact: true })
-      .click()
-    await expect(page).toHaveURL(/\/venues$/)
-    await expect(page.locator('body')).not.toHaveAttribute('data-register')
-    // Without a full page load, or the root layout would have fixed it alone.
-    expect(loads).toEqual([])
-  })
-
+  // and is not rendered again with a new path on a client navigation, so a
+  // page loaded in a signed-in area used to keep the courtyard register after
+  // a `<Link>` back to a public page, and the reverse. `components/register-
+  // sync.jsx` now moves it. This config runs without the API, so nobody can
+  // sign in and no signed-in page can be reached: the round trip that proves
+  // the fix (account to home to wallet, each a soft navigation) is walked in
+  // the accessibility sweep, which has a database. Here, the guard is the
+  // other half: a link into a signed-in area that ends on the sign-in page
+  // must not leave the courtyard register behind on a public page.
   test('a link into a signed-in area that lands on sign-in stays in the public register', async ({
     page,
   }) => {
@@ -207,6 +187,7 @@ test.describe('the colour register across soft navigations', () => {
     await page.getByRole('link', { name: 'Open the organiser workspace' }).click()
 
     await expect(page).toHaveURL(/\/sign-in\?next=%2Forganizer/)
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
     await expect(page.locator('body')).not.toHaveAttribute('data-register')
   })
 })
