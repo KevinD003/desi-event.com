@@ -43,6 +43,34 @@ const ORIGIN = 'https://desi-event.invalid'
 const AUTH_PAGES = Object.freeze(['/sign-in', '/register'])
 
 /**
+ * The page for an address that could not be read (`src/proxy.js`): never a
+ * place to come back to either. The server renders it at its own path and
+ * the browser shows the unreadable one, so carrying either as `next` would
+ * also draw two different sign-in links for one page.
+ */
+const DEAD_ENDS = Object.freeze(['/bad-address'])
+
+/**
+ * Whether a path leads nowhere worth returning to: a dead end, or a path
+ * whose percent-escapes do not decode.
+ *
+ * @param {string} path The path, query and all.
+ * @param {URL} resolved It, resolved.
+ * @returns {boolean} True when it is not a place to come back to.
+ */
+function isDeadEnd(path, resolved) {
+  if (DEAD_ENDS.includes(resolved.pathname)) return true
+
+  try {
+    decodeURIComponent(path.split(/[?#]/u)[0])
+
+    return false
+  } catch {
+    return true
+  }
+}
+
+/**
  * Whether a pathname is sign-in or account creation, or somewhere under them.
  *
  * @param {string} pathname A resolved pathname.
@@ -123,6 +151,7 @@ function returnPath(path) {
   const here = sameSite(path)
 
   if (!here) return ''
+  if (isDeadEnd(path, here)) return ''
 
   const next = safeNextPath(isAuthPage(here.pathname) ? here.searchParams.get('next') : path, '')
 

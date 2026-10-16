@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { REQUEST_PATH_HEADER } from './lib/request-path-header.js'
-import { config, proxy } from './proxy.js'
+import { BAD_ADDRESS_PATH, config, isMalformedPath, proxy } from './proxy.js'
 
 /**
  * The request headers a proxied response forwards to the render.
@@ -66,5 +66,59 @@ describe('proxy', () => {
     expect(matches('/api/v1/media/cmedia000000000000000001')).toBe(false)
     expect(matches('/_next/image')).toBe(false)
     expect(matches('/events/garba-night/opengraph-image/cover-cmedia000000000000000001')).toBe(true)
+  })
+})
+
+describe('an address that cannot be read', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('is one whose percent-escapes do not decode, and nothing else', () => {
+    expect(isMalformedPath('/events/%E0%A4%A')).toBe(true)
+    expect(isMalformedPath('/events/%')).toBe(true)
+    expect(isMalformedPath('/events/%E0%A4%85')).toBe(false)
+    expect(isMalformedPath('/events/bay-lights-garba-opening')).toBe(false)
+  })
+
+  it('is answered with the site’s own page for it, as a 400, carrying the visitor’s cookies only to this site', async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response('<!DOCTYPE html><h1>That address could not be read</h1>', {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' },
+        }),
+    )
+
+    vi.stubGlobal('fetch', fetch)
+
+    const response = await proxy(
+      new NextRequest('http://localhost:3000/events/%E0%A4%A?x=1', {
+        headers: { cookie: 'desi_session=abc' },
+      }),
+    )
+    const [target, init] = fetch.mock.calls[0]
+
+    expect(response.status).toBe(400)
+    expect(await response.text()).toContain('That address could not be read')
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(String(target)).toBe(`http://localhost:3000${BAD_ADDRESS_PATH}`)
+    expect(init.headers.cookie).toBe('desi_session=abc')
+  })
+
+  it('still reaches that page, by a rewrite, if rendering it for the 400 fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('connection refused')
+      }),
+    )
+
+    const response = await proxy(new NextRequest('http://localhost:3000/venues/%E0%A4%A'))
+
+    expect(response.headers.get('x-middleware-rewrite')).toBe(
+      `http://localhost:3000${BAD_ADDRESS_PATH}`,
+    )
+    expect(forwarded(response, REQUEST_PATH_HEADER)).toBe(BAD_ADDRESS_PATH)
   })
 })

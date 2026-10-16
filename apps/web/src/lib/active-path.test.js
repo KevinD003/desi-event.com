@@ -10,6 +10,14 @@ const DISCOVER = [
 ]
 
 describe('currentHref', () => {
+  it('marks nothing current on an address that cannot be decoded', () => {
+    // The server renders such an address as the page for an unreadable
+    // address, at its own path; marking "/events" current only in the
+    // browser would make the two disagree.
+    expect(currentHref(DISCOVER, '/events/%E0%A4%A', new URLSearchParams(''))).toBeNull()
+    expect(currentHref(DISCOVER, '/events/%E0%A4%85', new URLSearchParams(''))).toBe('/events')
+  })
+
   it('marks only the category the page is filtered to, not every link to /events', () => {
     expect(currentHref(DISCOVER, '/events', new URLSearchParams('category=COMEDY'))).toBe(
       '/events?category=COMEDY',

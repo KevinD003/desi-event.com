@@ -115,6 +115,19 @@ describe('signInHref', () => {
   )
 })
 
+describe('the page for an unreadable address', () => {
+  it('is never carried as next: the server and the browser see two different paths for it', () => {
+    expect(signInHref('/bad-address')).toBe('/sign-in')
+    expect(registerHref('/bad-address')).toBe('/register')
+    expect(signInHref('/events/%E0%A4%A')).toBe('/sign-in')
+    expect(registerHref('/events/%E0%A4%A?city=Edison')).toBe('/register')
+  })
+
+  it('leaves an address that decodes alone, escapes and all', () => {
+    expect(signInHref('/events/%E0%A4%85')).toBe('/sign-in?next=%2Fevents%2F%25E0%25A4%2585')
+  })
+})
+
 describe('registerHref', () => {
   it('carries the page somebody was on, the way sign-in does', () => {
     expect(registerHref('/tickets/abc')).toBe('/register?next=%2Ftickets%2Fabc')
