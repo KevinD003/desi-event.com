@@ -263,7 +263,7 @@ export function AccountShell({ session, children }) {
   const name = session.user?.displayName
 
   return (
-    <div className="mx-auto w-full max-w-content px-4 pt-4 pb-12 sm:px-6 lg:pt-10 lg:pb-16">
+    <div className="mx-auto w-full max-w-bleed px-4 pt-4 pb-12 sm:px-6 lg:px-10 lg:pt-10 lg:pb-16">
       <div className="lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-12">
         <AccountNav
           label="Your account"

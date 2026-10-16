@@ -154,11 +154,11 @@ export function SiteFooter() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-10 sm:grid-cols-3 lg:col-span-7 lg:pt-3">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-3 lg:col-span-7 lg:pt-3">
             <LinkColumn id="footer-discover" title="Discover" links={DISCOVER} />
             <LinkColumn id="footer-categories" title="Categories" links={categories} />
 
-            <div>
+            <div className="col-span-2 sm:col-span-1">
               <h2 className={COLUMN_HEADING}>For organisers</h2>
               <p className="mt-2 text-label leading-6 text-ink-inverse-muted">
                 Listings, ticket tiers, seat maps and door check-in, from the organiser workspace.
