@@ -121,7 +121,7 @@ describe('no string the API can answer with names the source site', () => {
 
   it('in the sentences a file with problems is answered with', () => {
     const file = JSON.parse(
-      readFileSync(path.join(REPO, 'packages/db/data/imports/sulekha-texas-2026.json'), 'utf8'),
+      readFileSync(path.join(REPO, 'packages/db/data/imports/texas-2026.json'), 'utf8'),
     )
     const broken = structuredClone(file)
 

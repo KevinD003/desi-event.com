@@ -152,7 +152,7 @@ describe('an import makes no outbound request', () => {
     const headers = await administrator(app)
 
     // Planning each committed file.
-    for (const file of ['sulekha-north-america-2026.json', 'sulekha-texas-2026.json']) {
+    for (const file of ['north-america-2026.json', 'texas-2026.json']) {
       const dataset = JSON.parse(
         readFileSync(new URL(`../../../packages/db/data/imports/${file}`, import.meta.url), 'utf8'),
       )
