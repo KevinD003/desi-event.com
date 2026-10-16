@@ -80,41 +80,71 @@
   --color-brand-orange-500: oklch(0.708 0.176 50.6);
 
   /*
-   * Type. Fraunces for display — a soft, warm old-style serif whose SOFT axis
-   * rounds its terminals — and Manrope for everything read at text size. Both
-   * are variable fonts under the SIL Open Font License, installed from npm
-   * (`@fontsource-variable/*`) and bundled by the build, so the browser never
-   * asks a third party for a font. The family names are the ones those
-   * packages declare; the rest of each stack is what a reader sees for the
-   * moment before the face arrives (`font-display: swap`) and if it never
-   * does.
+   * Type. Two faces from Ek Type, the Mumbai foundry, both variable or
+   * multi-weight and both under the SIL Open Font License, installed from
+   * npm (`@fontsource-variable/anek-latin`, `@fontsource/mukta`) and bundled
+   * by the build, so the browser never asks a third party for a font.
+   *
+   * Anek Latin is the display voice: a sans with a width axis (75–125%), set
+   * bold and condensed for poster titles, the way a hand-painted film poster
+   * or a mela banner sets its name. It has sister families for Devanagari,
+   * Gujarati, Gurmukhi and more, so an event title in its own script can one
+   * day match. Mukta is the reading face: clear at 14–17px, with figures that
+   * set tabular for money, times and counts. The family names are the ones
+   * the packages declare; the rest of each stack is what a reader sees for
+   * the moment before a face arrives (`font-display: swap`) and if it never
+   * does — a narrow system sans for the display, the platform sans for text.
    */
-  --font-display: 'Fraunces Variable', 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-display:
+    'Anek Latin Variable', 'Anek Latin', 'Arial Narrow', 'Roboto Condensed', ui-sans-serif,
+    system-ui, sans-serif;
   --font-sans:
-    'Manrope Variable', 'Manrope', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Mukta', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
     sans-serif;
 
   /*
-   * The type scale. Display and the two top heading levels are fluid between
-   * the mobile size (at a 375px viewport) and the desktop size (at 1280px), so
-   * one class serves both and nothing jumps at a breakpoint. The bounds are in
-   * rem, so browser zoom and a larger default font still scale them.
+   * The type scale. Display and the top heading levels are fluid between the
+   * mobile size (at a 375px viewport) and the desktop size (at about 1280px),
+   * so one class serves both and nothing jumps at a breakpoint. The bounds
+   * are in rem, so browser zoom and a larger default font still scale them.
    *
-   * display 40 → 64, h1 34 → 48, h2 26 → 32, h3 22, body 17, micro 12 (the
-   * uppercase eyebrow, tracked with `tracking-eyebrow`).
+   * display 44 → 96 (the poster title, never larger: 6rem is the ceiling),
+   * h1 36 → 60, h2 28 → 40, h3 24, title 18 (a workspace section or panel
+   * title), body 17, label 15 (a control's label, a nav entry, a table
+   * cell), caption 13 (metadata and helper text, and the floor: nothing is
+   * set smaller except `micro`), micro 12 (a chip's word, tracked caps).
+   *
+   * Leading runs inverse to size: a condensed display sets solid, at 0.95,
+   * because its ascenders and descenders are short; body opens to 1.65.
    */
-  --text-display: clamp(2.5rem, 1.88rem + 2.65vw, 4rem);
-  --text-display--line-height: 1.08;
-  --text-h1: clamp(2.125rem, 1.76rem + 1.55vw, 3rem);
-  --text-h1--line-height: 1.12;
-  --text-h2: clamp(1.625rem, 1.47rem + 0.66vw, 2rem);
-  --text-h2--line-height: 1.2;
-  --text-h3: 1.375rem;
-  --text-h3--line-height: 1.75rem;
+  --text-display: clamp(2.75rem, 1.47rem + 5.45vw, 6rem);
+  --text-display--line-height: 0.95;
+  --text-h1: clamp(2.25rem, 1.65rem + 2.55vw, 3.75rem);
+  --text-h1--line-height: 1;
+  --text-h2: clamp(1.75rem, 1.45rem + 1.27vw, 2.5rem);
+  --text-h2--line-height: 1.08;
+  --text-h3: 1.5rem;
+  --text-h3--line-height: 1.875rem;
+  --text-title: 1.125rem;
+  --text-title--line-height: 1.625rem;
   --text-body: 1.0625rem;
   --text-body--line-height: 1.75rem;
+  --text-label: 0.9375rem;
+  --text-label--line-height: 1.25rem;
+  --text-caption: 0.8125rem;
+  --text-caption--line-height: 1.125rem;
   --text-micro: 0.75rem;
   --text-micro--line-height: 1rem;
+
+  /*
+   * Tracking scales with size. Display tightens to -0.02em and no further,
+   * the floor below which a condensed bold face starts to touch; headings sit
+   * just above it; capitals open slightly. `tracking-eyebrow` is the older
+   * name for tracked caps, kept for the chips that still use it.
+   */
+  --tracking-display: -0.02em;
+  --tracking-heading: -0.01em;
+  --tracking-caps: 0.04em;
   --tracking-eyebrow: 0.08em;
 
   /*
