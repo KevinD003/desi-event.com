@@ -290,8 +290,9 @@ asked to set up two-step sign-in the first time it signs in.
   and the live-band night, ending yesterday, and the roll-up's last completion
   set to the moment the seed ran. `/analytics` says "Demonstration figures"
   while any of them is summed.
-- **No imported events**: run `pnpm import:events` after seeding (README,
-  "Importing listed events").
+- **No imported events**: run `pnpm import:events:all --as
+platform-admin@desi-event.example --apply` after seeding, then approve them
+  all at `/admin/imports` (README, "Importing listed events").
 
 **What else it seeds for booking fees, referral codes and paying at the venue
 (2026-10-13, ADRs 0016 and 0017):**
@@ -396,14 +397,20 @@ and API on one machine the defaults (`TRAFFIC_TRUSTED_FORWARDERS` loopback,
 
 ## Importing listed events locally
 
-See the README section "Importing listed events". In short:
-`pnpm import:events packages/db/data/imports/texas-2026.json --as
-platform-admin@desi-event.example` plans the file; add `--apply` to import the
-events into review, each with one ticket type per listed price.
-`north-america-2026.json`, in the same folder, is loaded the same way.
-Approving, which publishes an event and opens its sales, is done in the
-browser at `/admin/imports`. The importer needs no network access: it copies
-nothing and makes no request. Events whose date has passed are skipped.
+See the README section "Importing listed events". To get every event live:
+
+1. `pnpm db:migrate:deploy`
+2. `pnpm db:seed`
+3. `pnpm import:events:all --as platform-admin@desi-event.example --apply`:
+   `texas-2026.json`, then `north-america-2026.json`, so the newer file's
+   words stay on the ten listings both carry. Without `--apply` it only plans.
+4. Sign in at `/admin/imports` as the administrator and press "Approve and
+   publish all pending imported events", with your second factor.
+
+`pnpm import:events <file> --as <email> [--apply]` still loads one file. The
+importer needs no network access: it copies nothing and makes no request.
+Events whose date has passed are skipped when a file is planned, and an
+imported event that has started by the time it is approved is left as it is.
 
 ## Debugging
 

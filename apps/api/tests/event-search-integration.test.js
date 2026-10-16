@@ -22,7 +22,7 @@ import { buildApp } from '../src/app.js'
 import { EVENT_COVER_INCLUDE } from '../src/lib/event-media.js'
 import { databaseErrorCode, normaliseError } from '../src/lib/errors.js'
 import { EVENT_SUMMARY_SELECT, toEventSummary } from '../src/lib/presenters.js'
-import { buildEventQuery, resolveSearchTerms } from '../src/routes/events.js'
+import { buildEventQuery, resolveEventZones, resolveSearchTerms } from '../src/routes/events.js'
 
 const CONNECTION =
   process.env.TEST_DATABASE_URL ??
@@ -610,5 +610,253 @@ describe('a word that names many venues and organisers', () => {
     expect(throughIds).toHaveLength(2 * COPIES + 2)
     expect(throughIds).toContain(`${PRUNE}-society-harvest`)
     expect(throughIds).toContain(`${PRUNE}-ground-mela`)
+  })
+})
+
+describe('where, what and when on PostgreSQL', () => {
+  // Through the real route, so the language spellings and the timezones are
+  // looked up on PostgreSQL as a visitor's request looks them up.
+  const PLACE = 'placetest'
+
+  /** @type {object|null} The Fastify instance. */
+  let app = null
+  let organizationId = null
+
+  /**
+   * The listing through `GET /v1/events`, narrowed to this block's organiser.
+   *
+   * @param {string} search The query string, without `?`.
+   * @returns {Promise<string[]>} The slugs found, sorted, without the block's prefix.
+   */
+  async function list(search) {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/events?perPage=100&organizationId=${organizationId}&${search}`,
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+
+    return response
+      .json()
+      .data.map((event) => event.slug.slice(PLACE.length + 1))
+      .sort()
+  }
+
+  const venues = [
+    { key: 'il', city: 'Springfield', region: 'IL', country: 'US', postalCode: '62701' },
+    { key: 'mo', city: 'Springfield', region: 'MO', country: 'US', postalCode: '65801' },
+    { key: 'on', city: 'Toronto', region: 'ON', country: 'CA', postalCode: 'M5V 1A1' },
+    // As an organiser might type it: found by TX all the same.
+    { key: 'tx', city: 'Frisco', region: 'tx', country: 'US', postalCode: '75034' },
+  ]
+
+  // Each start is chosen so its day where it happens differs from its day in
+  // UTC: the date filter has to read the event's own zone to get these right.
+  const events = [
+    {
+      key: 'il',
+      venue: 'il',
+      timezone: 'America/Chicago',
+      // 22:30 CDT on the 16th; the 17th in UTC.
+      startsAt: '2031-10-17T03:30:00.000Z',
+      status: 'ON_SALE',
+      languages: ['Hindi'],
+      currency: 'USD',
+      tiers: [{ name: 'General', priceCents: 2_000, status: 'ON_SALE' }],
+    },
+    {
+      key: 'mo',
+      venue: 'mo',
+      timezone: 'America/Chicago',
+      startsAt: '2031-10-17T15:00:00.000Z',
+      status: 'PUBLISHED',
+      languages: ['Gujarati'],
+      currency: 'USD',
+      // Nothing on sale: the card's price is the cheapest public tier, $0.
+      tiers: [
+        { name: 'Entry', priceCents: 0, status: 'DRAFT' },
+        { name: 'Front row', priceCents: 1_500, status: 'DRAFT' },
+      ],
+    },
+    {
+      key: 'on',
+      venue: 'on',
+      timezone: 'America/Toronto',
+      // 22:00 EDT on the 17th; the 18th in UTC.
+      startsAt: '2031-10-18T02:00:00.000Z',
+      status: 'PUBLISHED',
+      languages: ['Hindi', 'English'],
+      currency: 'CAD',
+      tiers: [
+        { name: 'Free entry', priceCents: 0, status: 'ON_SALE' },
+        { name: 'Dinner', priceCents: 3_000, status: 'ON_SALE' },
+      ],
+    },
+    {
+      key: 'tx',
+      venue: 'tx',
+      timezone: 'America/Chicago',
+      // 20:00 CDT on the 17th; the 18th in UTC.
+      startsAt: '2031-10-18T01:00:00.000Z',
+      status: 'ON_SALE',
+      languages: ['Telugu'],
+      currency: 'USD',
+      // A hidden $0 guest list does not make it free.
+      tiers: [
+        { name: 'General', priceCents: 2_500, status: 'ON_SALE' },
+        { name: 'Guest list', priceCents: 0, status: 'ON_SALE', visibility: 'HIDDEN' },
+      ],
+    },
+  ]
+
+  beforeAll(async () => {
+    if (!reachable) return
+
+    app = await buildApp({
+      prisma,
+      providers: createInMemoryProviderRegistry(),
+      env: testEnv(),
+      docs: false,
+      processEnv: {},
+      rateLimit: { global: { max: 10_000, timeWindow: '1 minute' } },
+    })
+    await app.ready()
+
+    const organization = await prisma.organization.upsert({
+      where: { slug: `${PLACE}-org` },
+      update: {},
+      create: { name: 'Placefinder Society', slug: `${PLACE}-org`, contactEmail: 'p@example.com' },
+    })
+    organizationId = organization.id
+
+    for (const venue of venues) {
+      await prisma.venue.upsert({
+        where: { id: `${PLACE}venue${venue.key}00000000000000` },
+        update: {},
+        create: {
+          id: `${PLACE}venue${venue.key}00000000000000`,
+          name: `${venue.city} Hall ${venue.key}`,
+          addressLine1: '1 Place Road',
+          city: venue.city,
+          region: venue.region,
+          postalCode: venue.postalCode,
+          country: venue.country,
+        },
+      })
+    }
+
+    for (const event of events) {
+      const startsAt = new Date(event.startsAt)
+      const row = await prisma.event.upsert({
+        where: { slug: `${PLACE}-${event.key}` },
+        update: {},
+        create: {
+          organizationId,
+          venueId: `${PLACE}venue${event.venue}00000000000000`,
+          isOnline: false,
+          title: `Place Fixture ${event.key}`,
+          slug: `${PLACE}-${event.key}`,
+          summary: 'Fixture',
+          description: 'Fixture event for where, what and when.',
+          category: 'GARBA_DANDIYA',
+          status: event.status,
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + 7_200_000),
+          timezone: event.timezone,
+          languages: event.languages,
+          publishedAt: new Date('2031-01-01T00:00:00.000Z'),
+        },
+      })
+
+      for (const tier of event.tiers) {
+        const existing = await prisma.ticketType.findFirst({
+          where: { eventId: row.id, name: tier.name },
+        })
+
+        if (!existing) {
+          await prisma.ticketType.create({
+            data: { eventId: row.id, currency: event.currency, quantityTotal: 100, ...tier },
+          })
+        }
+      }
+    }
+  }, 120_000)
+
+  afterAll(async () => {
+    if (app) await app.close()
+    if (!prisma || !reachable) return
+
+    await prisma.event.deleteMany({ where: { slug: { startsWith: `${PLACE}-` } } })
+    await prisma.venue.deleteMany({ where: { id: { startsWith: PLACE } } })
+    await prisma.organization.deleteMany({ where: { slug: `${PLACE}-org` } })
+  })
+
+  it('finds a city within its state, and both Springfields without one', async () => {
+    if (!reachable) return
+
+    expect(await list('region=IL&city=Springfield')).toEqual(['il'])
+    expect(await list('region=mo&city=springfield')).toEqual(['mo'])
+    expect(await list('city=Springfield')).toEqual(['il', 'mo'])
+    // Frisco is in Texas, not Illinois.
+    expect(await list('region=IL&city=Frisco')).toEqual([])
+  })
+
+  it('matches a state stored in any case, and narrows by country', async () => {
+    if (!reachable) return
+
+    expect(await list('region=TX')).toEqual(['tx'])
+    expect(await list('country=CA')).toEqual(['on'])
+    expect(await list('country=US')).toEqual(['il', 'mo', 'tx'])
+    expect(await list('country=US&region=ON')).toEqual([])
+  })
+
+  it('matches a language in any case', async () => {
+    if (!reachable) return
+
+    expect(await list('language=hindi')).toEqual(['il', 'on'])
+    expect(await list('language=GUJARATI')).toEqual(['mo'])
+    expect(await list('language=Hind')).toEqual([])
+  })
+
+  it('finds free events by the card price rule, and events on sale now', async () => {
+    if (!reachable) return
+
+    expect(await list('free=true')).toEqual(['mo', 'on'])
+    expect(await list('onSale=true')).toEqual(['il', 'tx'])
+    expect(await list('free=true&onSale=true')).toEqual([])
+    expect(await list('free=true&country=CA')).toEqual(['on'])
+  })
+
+  it('reads a day where each event happens, not in UTC', async () => {
+    if (!reachable) return
+
+    expect(await list('fromDate=2031-10-16&toDate=2031-10-16')).toEqual(['il'])
+    expect(await list('fromDate=2031-10-17&toDate=2031-10-17')).toEqual(['mo', 'on', 'tx'])
+    expect(await list('fromDate=2031-10-18')).toEqual([])
+    expect(await list('toDate=2031-10-16')).toEqual(['il'])
+  })
+
+  it('reads "today" where each event is, at the moment it is asked', async () => {
+    if (!reachable) return
+
+    // 04:00 UTC on the 17th: 23:00 on the 16th in Chicago, midnight on the
+    // 17th in Toronto. Today is a different day in each.
+    const now = new Date('2031-10-17T04:00:00.000Z')
+    const query = listEventsQuerySchema.parse({ when: 'today', organizationId, perPage: '100' })
+    const zones = await resolveEventZones(prisma, query)
+    const { where } = buildEventQuery(query, null, { zones, now })
+    const rows = await prisma.event.findMany({ where, select: { slug: true } })
+
+    expect(zones).toEqual(expect.arrayContaining(['America/Chicago', 'America/Toronto']))
+    expect(rows.map((row) => row.slug.slice(PLACE.length + 1)).sort()).toEqual(['il', 'on'])
+  })
+
+  it('combines every filter as AND', async () => {
+    if (!reachable) return
+
+    expect(
+      await list('country=US&region=IL&city=Springfield&language=Hindi&onSale=true&isOnline=false'),
+    ).toEqual(['il'])
+    expect(await list('region=IL&language=Gujarati')).toEqual([])
   })
 })

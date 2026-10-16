@@ -307,7 +307,7 @@ budget.
 
 ## Endpoints
 
-**207 operations across 25 tags.** This page describes the ones whose behaviour
+**209 operations across 25 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
@@ -319,7 +319,7 @@ validates with, and CI fails on a difference.
 | `tickets`        | 15  | `finance`     | 12  |
 | `operations`     | 12  | `venues`      | 12  |
 | `privacy`        | 10  | `organizers`  | 9   |
-| `imports`        | 7   | `orders`      | 9   |
+| `imports`        | 9   | `orders`      | 9   |
 | `platform`       | 8   | `teams`       | 8   |
 | `referral-codes` | 7   | `refunds`     | 7   |
 | `ticket-types`   | 6   | `promo-codes` | 5   |
@@ -328,6 +328,13 @@ validates with, and CI fails on a difference.
 | `webhooks`       | 2   | `health`      | 1   |
 | `media`          | 1   | `payments`    | 1   |
 | `waitlist`       | 1   |               |     |
+
+> **Correction — 2026-10-16 (every pending import published).** The total
+> read "207 operations across 25 tags". Approving every pending imported event
+> at once (the owner, 2026-10-16: "Add all the events and publish all of them
+> on live") adds two operations and no tag, so the total is **209** across
+> **187** paths, and `imports` has nine: `eventImports.pending` and
+> `eventImports.approvePending` (ADR 0021).
 
 > **Correction — 2026-10-15 (imports sold here).** The total read "208
 > operations across 25 tags". Imported events no longer copy anything from
@@ -559,11 +566,28 @@ The full table of moves, including the ones only the system makes (`SOLD_OUT`,
 | `q`                           | Free-text search, 1–120 characters; no control characters                                                                                                                                                                                                                                                                                                       |
 | `category`                    | `MUSIC_CONCERT`, `GARBA_DANDIYA`, `BOLLYWOOD_NIGHT`, `CLASSICAL_DANCE`, `COMEDY`, `FILM_SCREENING`, `CULTURAL_FESTIVAL`, `FOOD_FESTIVAL`, `WEDDING_EXPO`, `RELIGIOUS`, `THEATRE`, `WORKSHOP`, `NETWORKING`, `SPORTS`                                                                                                                                            |
 | `status`                      | Any of the fourteen event statuses (`eventStatusSchema`: `DRAFT`, `REVIEW_PENDING`, `CHANGES_REQUIRED`, `APPROVED`, `PUBLISHED`, `ON_SALE`, `SALES_PAUSED`, `SOLD_OUT`, `COMPLETED`, `POSTPONED`, `CANCELLED`, `REJECTED`, `ARCHIVED`, `DELETED`). It narrows what the caller may already see and never widens it: anonymously, `status=DRAFT` is an empty page |
-| `city`                        | Venue city; no control characters                                                                                                                                                                                                                                                                                                                               |
+| `country`                     | The venue's country, ISO 3166-1 alpha-2 in capitals: `US`, `CA`                                                                                                                                                                                                                                                                                                 |
+| `region`                      | The venue's state or province, the second half of its ISO 3166-2 code (`TX`, `ON`); any case. With `city`, the city is looked for within it: `region=IL&city=Springfield` is not Springfield, MO                                                                                                                                                                |
+| `city`                        | Venue city, any case; no control characters                                                                                                                                                                                                                                                                                                                     |
 | `organizationId`              | Restrict to one organiser                                                                                                                                                                                                                                                                                                                                       |
 | `isOnline`                    | `true` / `false`                                                                                                                                                                                                                                                                                                                                                |
+| `language`                    | One language the event is held in, any case (`hindi` finds `Hindi`)                                                                                                                                                                                                                                                                                             |
+| `free`                        | `true`: only events whose "from" price is $0 — the cheapest public tier on sale is free or, with no tier on sale, the cheapest public tier is. The rule the card's price uses                                                                                                                                                                                   |
+| `onSale`                      | `true`: only events whose tickets are on sale now (`ON_SALE`)                                                                                                                                                                                                                                                                                                   |
 | `startsAfter`, `startsBefore` | `YYYY-MM-DD` or a full ISO timestamp. `startsBefore` must be after `startsAfter`                                                                                                                                                                                                                                                                                |
-| `sort`                        | `startsAt:asc` (default), `startsAt:desc`, `createdAt:desc`, `title:asc`                                                                                                                                                                                                                                                                                        |
+| `fromDate`, `toDate`          | Calendar days, `YYYY-MM-DD`, both inclusive, read in each event's own timezone — the day its card states. A 10 PM show in Vancouver on the 17th is on the 17th. `toDate` may not be before `fromDate`                                                                                                                                                           |
+| `when`                        | `today`, `weekend` (Friday to Sunday: the next one, or what is left of the one under way), `week` (today to Sunday) or `month` (today to the month's last day), each read where the event is at the moment of the request: at 11 PM in Vancouver, "today" is still today's Vancouver events                                                                     |
+| `sort`                        | `startsAt:asc` (default), `startsAt:desc`, `createdAt:desc`, `title:asc`. Sorting by price is not offered: prices are in more than one currency                                                                                                                                                                                                                 |
+
+`GET /v1/events/facets` takes no query. It counts every listed event
+(`scope.status` is `LISTED`: `PUBLISHED`, `ON_SALE`, `SALES_PAUSED`,
+`SOLD_OUT`) by `categories`, `cities`, `languages` and `formats`, and by
+`regions`: one entry per state or province, `{country, region, name, count,
+cities: [{value, count}]}`. The name comes from the US state and Canadian
+province table in `@desi-event/schemas/subdivisions` (`TX` is Texas, `ON` is
+Ontario; a code the table does not know is shown as the code). A city name two
+states share is one entry in each state. Ties on a count are broken by value in
+byte order (`COLLATE "C"`).
 
 ### Ticket types
 
@@ -1279,18 +1303,44 @@ factor again every ten minutes of writes. Full reasoning: ADR 0014.
 
 ### Imports — 2026-10-06, sold here since 2026-10-15
 
-Seven routes on the `imports` tag, all `event:import` (ADMIN and SUPER_ADMIN);
-approving also needs `moderation:review`.
+Nine routes on the `imports` tag, all `event:import` (ADMIN and SUPER_ADMIN);
+approving, and the list of every pending imported event, also need
+`moderation:review`.
 
-| Method | Path                                            | Step-up         | Purpose                                                             |
-| ------ | ----------------------------------------------- | --------------- | ------------------------------------------------------------------- |
-| GET    | `/v1/platform/imports`                          | —               | The import runs                                                     |
-| POST   | `/v1/platform/imports`                          | —               | Upload a dataset file and plan it; writes only the run. Up to 2 MiB |
-| GET    | `/v1/platform/imports/:runId`                   | —               | One run: its plan, notes, events and their ticket types             |
-| POST   | `/v1/platform/imports/:runId/apply`             | `MODERATION`    | Import the plan the administrator read; events land in review       |
-| POST   | `/v1/platform/imports/:runId/approve`           | `EVENT_PUBLISH` | Approve, publish and open the sales of named events                 |
-| GET    | `/v1/platform/import-targets`                   | —               | Organisations an imported event may move to                         |
-| POST   | `/v1/platform/imports/events/:eventId/reassign` | `EVENT_PUBLISH` | Move an imported event to an organiser's own organisation           |
+| Method | Path                                            | Step-up         | Purpose                                                               |
+| ------ | ----------------------------------------------- | --------------- | --------------------------------------------------------------------- |
+| GET    | `/v1/platform/imports`                          | —               | The import runs                                                       |
+| POST   | `/v1/platform/imports`                          | —               | Upload a dataset file and plan it; writes only the run. Up to 2 MiB   |
+| GET    | `/v1/platform/imports/:runId`                   | —               | One run: its plan, notes, events and their ticket types               |
+| POST   | `/v1/platform/imports/:runId/apply`             | `MODERATION`    | Import the plan the administrator read; events land in review         |
+| POST   | `/v1/platform/imports/:runId/approve`           | `EVENT_PUBLISH` | Approve, publish and open the sales of named events                   |
+| GET    | `/v1/platform/imports/pending`                  | —               | Every imported event waiting for approval, across runs, with a digest |
+| POST   | `/v1/platform/imports/approve-pending`          | `EVENT_PUBLISH` | Approve and publish every one of them, naming the digest read         |
+| GET    | `/v1/platform/import-targets`                   | —               | Organisations an imported event may move to                           |
+| POST   | `/v1/platform/imports/events/:eventId/reassign` | `EVENT_PUBLISH` | Move an imported event to an organiser's own organisation             |
+
+**Approving every pending imported event (2026-10-16, ADR 0019).**
+`GET /v1/platform/imports/pending` lists each imported event an approval
+would act on, from whichever run last wrote it: still in the platform-held
+organisation and not moved, its run applied, and `REVIEW_PENDING` or
+`APPROVED`, or `PUBLISHED` with an imported tier still a `DRAFT` (an event
+whose every imported tier is closed, sold out on its listing, is not one). It
+lists only events that start more than a minute from now, counts the rest as
+`past`, says how many approving puts on sale (`willGoOnSale`) and how many it
+publishes with nothing to sell (`publishedNothingToSell`: no prices, or every
+price sold out), and gives a `digest` over each event's id, revision and last
+run. `POST /v1/platform/imports/approve-pending {digest}` works the list out
+again and refuses 409 `IMPORT_PENDING_CHANGED` unless the digest is the same,
+then approves each event exactly as a run's page does — its own transaction,
+the lifecycle's gates, `event.approved` and `event.published` — collecting each
+refusal (`code`, `message`) without stopping, and writes one
+`event_import.bulk_approved` audit row with the counts, the runs, each refusal's
+event and code, and the digest. It answers how many are on sale, how many were
+published with nothing to sell, how many were refused and why, and how many
+were left out as past. It shares the import budget (twenty an hour with
+previews and applies). Nobody approves from the command line: `pnpm
+import:events:all` plans and imports the bundled files, and an administrator
+with a second factor approves on `/admin/imports`.
 
 Imported events belong to the member-less platform-held organisation "The
 Desi Events" (renamed from its first name on 15 October 2026, ADR 0015) and

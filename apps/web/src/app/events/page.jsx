@@ -1,5 +1,7 @@
 /**
- * The event listing: filter by category, city and free text.
+ * The event listing: filter by category, state or province and city, free
+ * text, and — behind "More filters" — when, language, format, price and
+ * whether tickets are on sale.
  *
  * All filter state lives in the query string, so the server renders the right
  * results on the first response, the back button behaves, and a filtered view
@@ -14,7 +16,14 @@ import { EmptyState } from '../../components/ui.jsx'
 
 import { loadCatalogueFacets, loadEventList } from '../../lib/api.js'
 import { describeCategories } from '../../lib/catalog.js'
-import { buildEventsHref, hasActiveFilters, parseEventFilters } from '../../lib/search-params.js'
+import {
+  buildEventsHref,
+  citiesFor,
+  hasActiveFilters,
+  parseEventFilters,
+  reconcileFilters,
+  regionValue,
+} from '../../lib/search-params.js'
 import { MirrorDivider } from '../../components/festive-decor.jsx'
 import { ArrowLeftIcon, ArrowRightIcon, InfoIcon, SearchIcon } from '../../components/icons.jsx'
 import { PRIMARY_LINK_SMALL, SECONDARY_LINK } from '../../components/link-classes.js'
@@ -32,7 +41,67 @@ export const dynamic = 'force-dynamic'
 export const metadata = {
   title: 'All events',
   description:
-    'Every garba and dandiya night, beginner garba class and Navratri mela on The Desi Events — filter by category, city or search.',
+    'Every garba and dandiya night, beginner garba class and Navratri mela on The Desi Events — filter by category, state or province, city, date, language or price, or search.',
+}
+
+/** How a "When" choice reads in the summary sentence. */
+const WHEN_PHRASES = Object.freeze({
+  today: 'today',
+  weekend: 'this weekend',
+  week: 'this week',
+  month: 'this month',
+})
+
+/**
+ * Where the summary says the events are: the city with its state's code, the
+ * city alone, or the state's name.
+ *
+ * @param {object} filters Active filters.
+ * @param {object|null} region The chosen state's facet, when one is chosen.
+ * @returns {string} ` in Frisco, TX`, ` in Texas`, or an empty string.
+ */
+function placePhrase(filters, region) {
+  if (filters.city && region) return ` in ${filters.city}, ${region.region}`
+  if (filters.city) return ` in ${filters.city}`
+  if (region) return ` in ${region.name}`
+
+  return ''
+}
+
+/**
+ * A chosen day as the summary says it.
+ *
+ * The day is a calendar day, not an instant, so it is written in UTC: the
+ * same day on the server and in every browser.
+ *
+ * @param {string} day `YYYY-MM-DD`.
+ * @returns {string} `Oct 17, 2026`.
+ */
+function dayLabel(day) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${day}T00:00:00.000Z`))
+}
+
+/**
+ * When the summary says the events are.
+ *
+ * @param {object} filters Active filters.
+ * @returns {string} ` this weekend`, ` from Oct 17, 2026 to Oct 18, 2026`, or an empty string.
+ */
+function whenPhrase(filters) {
+  const { when, from, to } = filters
+
+  if (WHEN_PHRASES[when]) return ` ${WHEN_PHRASES[when]}`
+  if (from && to && from === to) return ` on ${dayLabel(from)}`
+  if (from && to) return ` from ${dayLabel(from)} to ${dayLabel(to)}`
+  if (from) return ` from ${dayLabel(from)}`
+  if (to) return ` until ${dayLabel(to)}`
+
+  return ''
 }
 
 /**
@@ -40,14 +109,24 @@ export const metadata = {
  *
  * @param {object} pagination Page counters from the listing.
  * @param {object} filters Active filters.
- * @returns {string} A sentence such as `3 events in Houston`.
+ * @param {object|null} [region] The chosen state's facet, for its name.
+ * @returns {string} A sentence such as `3 free events in Frisco, TX this weekend`.
  */
-function resultSummary(pagination, filters) {
+function resultSummary(pagination, filters, region = null) {
   const noun = pagination.total === 1 ? 'event' : 'events'
-  const where = filters.city ? ` in ${filters.city}` : ''
+  const kind = [
+    filters.free ? 'free' : '',
+    filters.format === 'online' ? 'online' : '',
+    filters.format === 'in_person' ? 'in-person' : '',
+  ]
+    .filter(Boolean)
+    .map((word) => `${word} `)
+    .join('')
+  const language = filters.language ? ` in ${filters.language}` : ''
+  const onSale = filters.onSale ? ' on sale now' : ''
   const matching = filters.q ? ` matching “${filters.q}”` : ''
 
-  return `${pagination.total} ${noun}${where}${matching}`
+  return `${pagination.total} ${kind}${noun}${placePhrase(filters, region)}${whenPhrase(filters)}${language}${onSale}${matching}`
 }
 
 /**
@@ -62,21 +141,37 @@ function resultSummary(pagination, filters) {
  * @returns {Promise<JSX.Element>} The rendered listing.
  */
 export default async function EventsPage({ searchParams }) {
-  const filters = parseEventFilters(await searchParams)
+  const parsed = parseEventFilters(await searchParams)
 
-  // The filter selects offer every category and city the catalogue has, not
-  // just the ones surviving the current filter — otherwise choosing "Toronto"
-  // would delete every other city from the city select.
+  // The filter selects offer every category, state and city the catalogue
+  // has, not just the ones surviving the current filter — otherwise choosing
+  // "Toronto" would delete every other city from the city select. The one
+  // narrowing is the one a visitor asks for: with a state chosen, the City
+  // select lists that state's cities.
   //
-  // They come from facet counts computed in the database over every published
+  // They come from facet counts computed in the database over every listed
   // event, not from a page of results. Deriving them from one page meant a city
   // whose events all started later than the forty-eighth was absent from the
   // select entirely, and its events unreachable through filtering.
-  const [listing, facetResult] = await Promise.all([loadEventList(filters), loadCatalogueFacets()])
+  //
+  // The facets are read first because they decide which filters stand: a
+  // state, city or language the catalogue does not have is dropped, and a
+  // city outside the chosen state with it (`reconcileFilters`).
+  //
+  // Both are asked for at once with the filters as the URL gave them; in the
+  // rare case that changes them, the listing is asked for again.
+  const [facetResult, asParsed] = await Promise.all([loadCatalogueFacets(), loadEventList(parsed)])
+  const facets = facetResult.facets ?? {}
+  const filters = reconcileFilters(parsed, facets)
+  const changed = ['region', 'city', 'language'].some((name) => filters[name] !== parsed[name])
+  const listing = changed ? await loadEventList(filters) : asParsed
 
   const { events, pagination, usedFallback } = listing
-  const categories = describeCategories(facetResult.facets.categories)
-  const cities = facetResult.facets.cities.map((entry) => entry.value)
+  const categories = describeCategories(facets.categories ?? [])
+  const regions = Array.isArray(facets.regions) ? facets.regions : []
+  const region = regions.find((entry) => regionValue(entry) === filters.region) ?? null
+  const cities = citiesFor(facets, filters.region)
+  const languages = (facets.languages ?? []).map((entry) => entry.value)
   const active = hasActiveFilters(filters)
 
   // A fan of the first posters on the page, behind the heading. Decoration:
@@ -115,7 +210,9 @@ export default async function EventsPage({ searchParams }) {
           */}
           <EventFilters
             categories={categories}
+            regions={regions}
             cities={cities}
+            languages={languages}
             filters={filters}
             anyActive={active}
             resultCount={pagination?.total ?? events.length}
@@ -131,7 +228,7 @@ export default async function EventsPage({ searchParams }) {
               data-testid="result-count"
               className="font-display text-h2 font-semibold text-ink"
             >
-              {resultSummary(pagination, filters)}
+              {resultSummary(pagination, filters, region)}
             </p>
             {pagination.totalPages > 1 ? (
               <p className="mt-1 text-[0.9375rem] text-ink-muted">

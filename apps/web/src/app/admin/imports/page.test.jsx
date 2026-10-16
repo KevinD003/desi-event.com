@@ -1,7 +1,10 @@
 import { render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../../lib/imports-api.js', () => ({ getImportRuns: vi.fn() }))
+vi.mock('../../../lib/imports-api.js', () => ({
+  getImportRuns: vi.fn(),
+  getPendingImports: vi.fn(),
+}))
 vi.mock('../../../lib/session.js', () => ({ readSession: vi.fn() }))
 vi.mock('../../../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 vi.mock('next/navigation', () => ({
@@ -10,12 +13,19 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(''),
 }))
 
-const { getImportRuns } = await import('../../../lib/imports-api.js')
+const { getImportRuns, getPendingImports } = await import('../../../lib/imports-api.js')
 const { readSession } = await import('../../../lib/session.js')
 const { default: ImportsPage, INTRODUCTION, summaryLine } = await import('./page.jsx')
 const { NOT_FOR_THIS_ACCOUNT } = await import('./import-vocabulary.js')
 
 const ADMIN = { user: { id: 'u1' }, capabilities: ['event:import'], memberships: [] }
+
+/** An administrator who may also review, and so approve. */
+const REVIEWING_ADMIN = {
+  user: { id: 'u1' },
+  capabilities: ['event:import', 'moderation:review'],
+  memberships: [],
+}
 
 /**
  * One run, as the list answers it.
@@ -123,6 +133,73 @@ describe('the imports page', () => {
       screen.getByText(/^The list of imports is not something this account can open/u),
     ).toBeInTheDocument()
     expect(screen.queryByRole('table')).toBeNull()
+  })
+})
+
+describe('approving every pending imported event', () => {
+  beforeEach(() => {
+    getPendingImports.mockReset()
+    getPendingImports.mockResolvedValue({
+      pending: {
+        digest: 'c'.repeat(64),
+        total: 12,
+        willGoOnSale: 10,
+        publishedNothingToSell: 2,
+        past: 3,
+        items: [],
+      },
+    })
+  })
+
+  it('shows the counts and the button to an administrator who may review', async () => {
+    readSession.mockResolvedValue(REVIEWING_ADMIN)
+
+    await renderPage()
+
+    const panel = screen.getByRole('region', {
+      name: 'Approve and publish all pending imported events',
+    })
+
+    expect(getPendingImports).toHaveBeenCalledTimes(1)
+    expect(
+      within(panel).getByText(
+        '12 events imported from listing files wait for approval, across every import.',
+      ),
+    ).toBeInTheDocument()
+    expect(within(panel).getByText('Approving puts 10 events on sale here.')).toBeInTheDocument()
+    expect(
+      within(panel).getByRole('button', { name: 'Approve and publish all 12 events' }),
+    ).toBeInTheDocument()
+  })
+
+  it('says why an importer who may not review cannot, and reads nothing for it', async () => {
+    await renderPage()
+
+    const panel = screen.getByRole('region', {
+      name: 'Approve and publish all pending imported events',
+    })
+
+    expect(
+      within(panel).getByText(/needs a moderator’s review rights as well/u),
+    ).toBeInTheDocument()
+    expect(within(panel).queryByRole('button')).toBeNull()
+    expect(getPendingImports).not.toHaveBeenCalled()
+  })
+
+  it('draws the API’s refusal when the list cannot be read, and the runs still show', async () => {
+    readSession.mockResolvedValue(REVIEWING_ADMIN)
+    getPendingImports.mockRejectedValue(
+      Object.assign(new Error('Nope'), { status: 403, code: 'FORBIDDEN' }),
+    )
+
+    await renderPage()
+
+    expect(
+      screen.getByText(
+        /^The list of imported events waiting for approval is not something this account can open/u,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'Imports, newest first' })).toBeInTheDocument()
   })
 })
 

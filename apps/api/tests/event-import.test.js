@@ -528,7 +528,9 @@ describe('POST /v1/platform/imports/:runId/apply', () => {
     expect(prisma._store.mediaAsset.filter((row) => row.eventId === event.id)).toEqual([])
     expect(applied.data).not.toHaveProperty('pictures')
     expect(applied).not.toHaveProperty('meta')
-    expect(applied.data.rows[0].event.ticketTypes).toEqual({ imported: 3, onSale: 0 })
+    // Three made, none on sale; two wait to go on sale, and the one the listing
+    // sold out of is closed, so it does not (2026-10-16: "waiting").
+    expect(applied.data.rows[0].event.ticketTypes).toEqual({ imported: 3, onSale: 0, waiting: 2 })
     expect(applied.data.status).toBe('APPLIED')
     expect(applied.data.summary).toEqual({ CREATE: 1 })
 

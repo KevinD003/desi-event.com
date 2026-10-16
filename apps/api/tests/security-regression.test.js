@@ -967,11 +967,14 @@ describe('the surfaces added for feature completion', () => {
     'platformEvents.list',
     'platformEvents.openEdit',
     'platformEvents.restore',
-    // Importing listed events (SPEC2-XI I).
+    // Importing listed events (SPEC2-XI I), and approving every pending one
+    // (2026-10-16).
     'eventImports.apply',
     'eventImports.approve',
+    'eventImports.approvePending',
     'eventImports.get',
     'eventImports.list',
+    'eventImports.pending',
     'eventImports.preview',
     'eventImports.reassign',
     'eventImports.targets',
@@ -1694,6 +1697,8 @@ describe('every path to a public event (SPEC2 §6)', () => {
       restoreEvent: { owner: DELETION, routes: ['platformEvents.restore'] },
       applyImport: { owner: IMPORTER, routes: ['eventImports.apply'] },
       approveImported: { owner: IMPORTER, routes: ['eventImports.approve'] },
+      // Every pending imported event, across runs (the owner, 2026-10-16).
+      approvePendingImports: { owner: IMPORTER, routes: ['eventImports.approvePending'] },
       reassignImportedEvent: { owner: IMPORTER, routes: ['eventImports.reassign'] },
       // Exported, though only the importer's own steps (below) may call it:
       // no route and no other module.
@@ -1716,7 +1721,10 @@ describe('every path to a public event (SPEC2 §6)', () => {
       // Opening sales (2026-10-15): right after publication, or for a posted
       // import whose tiers wait, both only from an approval.
       openImportedSales: ['approveOne', 'publishImported'],
-      approveOne: ['approveImported'],
+      approveOne: ['approveEach'],
+      // A run's approval and "approve all pending" (2026-10-16) take the same
+      // step, one transaction per event.
+      approveEach: ['approveImported', 'approvePendingImports'],
     }
     const OWNERS = /(?:^|\/)(?:event-deletion|event-import)\.js$/u
     const callsOf = (code, name) => [
@@ -1783,7 +1791,12 @@ describe('every path to a public event (SPEC2 §6)', () => {
     // moves an import sits only where it is listed.
     const importer = readCode(IMPORTER)
 
-    for (const name of ['applyImport', 'approveImported', 'reassignImportedEvent']) {
+    for (const name of [
+      'applyImport',
+      'approveImported',
+      'approvePendingImports',
+      'reassignImportedEvent',
+    ]) {
       expect(callsOf(importer, name), `${IMPORTER} calls ${name}`).toEqual([])
     }
 
@@ -2711,8 +2724,10 @@ describe('importing listed events (SPEC2-XI I, §7)', () => {
   const I_ROUTES = [
     'eventImports.apply',
     'eventImports.approve',
+    'eventImports.approvePending',
     'eventImports.get',
     'eventImports.list',
+    'eventImports.pending',
     'eventImports.preview',
     'eventImports.reassign',
     'eventImports.targets',
@@ -2780,11 +2795,12 @@ describe('importing listed events (SPEC2-XI I, §7)', () => {
     expect(declared).toEqual({
       'eventImports.apply': 'MODERATION',
       'eventImports.approve': 'EVENT_PUBLISH',
+      'eventImports.approvePending': 'EVENT_PUBLISH',
       'eventImports.reassign': 'EVENT_PUBLISH',
     })
   })
 
-  it('spends one budget on planning and importing', () => {
+  it('spends one budget on planning, importing and approving every pending event', () => {
     const code = readCode('apps/api/src/routes/event-imports.js')
     const registrations = Object.fromEntries(
       routeRegistrations(code).map((route) => [route.id, route.body]),
@@ -2793,7 +2809,11 @@ describe('importing listed events (SPEC2-XI I, §7)', () => {
     expect(Object.keys(registrations).sort()).toEqual(I_ROUTES)
     expect(code).toMatch(/const budget = eventImportRateLimit\(/u)
 
-    for (const id of ['eventImports.apply', 'eventImports.preview']) {
+    for (const id of [
+      'eventImports.apply',
+      'eventImports.approvePending',
+      'eventImports.preview',
+    ]) {
       expect(registrations[id], id).toMatch(/preHandler:\s*\[budget\]/u)
       expect(
         routeById(id).errors.map((error) => error.code),
@@ -4244,17 +4264,19 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
 
   /**
    * The raw statements that neither lock a row nor write one, by file: reads
-   * (the facet counts, the ended-order predicate, the venue-booking count,
-   * the roll-up's days), the two advisory locks, the transaction budget's
-   * settings and its question to an expired transaction, and the health
-   * checks.
+   * (the facet counts, five with the state-and-city one; the listing's lookup
+   * of a language's stored spellings; the ended-order predicate, the
+   * venue-booking count, the roll-up's days), the two advisory locks, the
+   * transaction budget's settings and its question to an expired transaction,
+   * and the health checks.
    */
   const RAW_OTHER = {
     'apps/api/src/lib/delivery.js': 1,
-    'apps/api/src/lib/facets.js': 4,
+    'apps/api/src/lib/facets.js': 5,
     'apps/api/src/lib/referral-uses.js': 1,
     'apps/api/src/lib/transaction-budget.js': 2,
     'apps/api/src/lib/venue-booking-limits.js': 2,
+    'apps/api/src/routes/events.js': 1,
     'apps/api/src/routes/health.js': 1,
     'packages/db/src/index.js': 1,
     'packages/db/src/traffic-rollup.js': 1,

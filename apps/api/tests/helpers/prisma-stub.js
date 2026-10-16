@@ -1549,6 +1549,13 @@ function matchesCondition(value, condition) {
       case 'lte':
         if (!(toComparable(value) <= toComparable(operand))) return false
         break
+      // A scalar list holding one value, or any of several, exactly.
+      case 'has':
+        if (!Array.isArray(value) || !value.includes(operand)) return false
+        break
+      case 'hasSome':
+        if (!Array.isArray(value) || !operand.some((item) => value.includes(item))) return false
+        break
       // A scalar list's emptiness, as PostgreSQL's `cardinality(...) = 0`.
       case 'isEmpty':
         if ((Array.isArray(value) && value.length === 0) !== operand) return false
@@ -2599,6 +2606,19 @@ export function createPrismaStub(seed = {}) {
       const code = tables.referralCode.find((row) => row.id === values[0])
 
       return code ? [{ useCount: code.useCount }] : []
+    }
+
+    // The listing's language filter looks up every stored spelling of the
+    // language first (`resolveLanguageSpellings`).
+    if (text.includes('unnest(e."languages")') && text.includes('lower(language) = lower(?)')) {
+      const wanted = String(values[0]).toLowerCase()
+      const spellings = new Set(
+        tables.event.flatMap((event) =>
+          (event.languages ?? []).filter((language) => language.toLowerCase() === wanted),
+        ),
+      )
+
+      return [...spellings].map((value) => ({ value }))
     }
 
     if (text.includes('referral-order-ended')) {

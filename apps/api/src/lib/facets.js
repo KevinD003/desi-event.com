@@ -17,6 +17,7 @@
 
 import { Prisma } from '@desi-event/db'
 import { INDEXABLE_STATUSES } from '@desi-event/schemas/lifecycle'
+import { subdivisionName } from '@desi-event/schemas/subdivisions'
 
 /**
  * The statuses every facet is counted over: exactly the ones a listing shows.
@@ -47,7 +48,13 @@ const SCOPE_WHERE = Object.freeze({ status: { in: [...LISTED_STATUSES] } })
 const SCOPE_SQL = Prisma.sql`e."status"::text IN (${Prisma.join(LISTED_STATUSES)})`
 
 /**
- * Count listed events by category, city, language and format.
+ * Count listed events by category, city, state or province, language and
+ * format.
+ *
+ * `regions` nests each state's cities inside it, keyed by country and region
+ * as well as by name, so the two Springfields — Illinois and Missouri — are two
+ * entries rather than one. `cities` stays as it was, a flat list by name, for
+ * callers that read it.
  *
  * Each list is ordered by count, highest first, and a tie by value in byte
  * order. The value carries `COLLATE "C"` rather than the database's default
@@ -63,7 +70,7 @@ const SCOPE_SQL = Prisma.sql`e."status"::text IN (${Prisma.join(LISTED_STATUSES)
  * @returns {Promise<object>} Facet lists plus the scope they were computed over.
  */
 export async function loadEventFacets(prisma) {
-  const [categories, cities, languages, formats, total] = await Promise.all([
+  const [categories, cities, places, languages, formats, total] = await Promise.all([
     prisma.$queryRaw(Prisma.sql`
       SELECT e."category"::text COLLATE "C" AS value, count(*)::int AS count
       FROM "Event" e
@@ -81,6 +88,20 @@ export async function loadEventFacets(prisma) {
       WHERE ${SCOPE_SQL}
       GROUP BY v."city"
       ORDER BY count DESC, value ASC
+    `),
+
+    // By country, region and city together. The region is read trimmed and in
+    // capitals, so a venue an organiser typed as `tx` counts with Texas.
+    prisma.$queryRaw(Prisma.sql`
+      SELECT v."country" COLLATE "C" AS country,
+             upper(btrim(v."region")) COLLATE "C" AS region,
+             v."city" COLLATE "C" AS city,
+             count(*)::int AS count
+      FROM "Event" e
+      JOIN "Venue" v ON v."id" = e."venueId"
+      WHERE ${SCOPE_SQL}
+      GROUP BY 1, 2, 3
+      ORDER BY count DESC, city ASC
     `),
 
     // `languages` is an array column, so each element is counted separately.
@@ -108,6 +129,7 @@ export async function loadEventFacets(prisma) {
     scope: { status: FACET_SCOPE.status, total },
     categories: normalise(categories),
     cities: normalise(cities),
+    regions: nestRegions(places),
     languages: normalise(languages),
     formats: normalise(formats),
   }
@@ -128,4 +150,54 @@ function normalise(rows) {
   return rows
     .filter((row) => row?.value !== null && row?.value !== undefined)
     .map((row) => ({ value: String(row.value), count: Number(row.count) }))
+}
+
+/**
+ * Compare two strings by their UTF-8 bytes, the order `COLLATE "C"` uses.
+ *
+ * @param {string} a One value.
+ * @param {string} b The other.
+ * @returns {number} Negative, zero or positive.
+ */
+function byteOrder(a, b) {
+  return Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'))
+}
+
+/**
+ * Fold (country, region, city) counts into regions, each with its cities.
+ *
+ * The rows arrive ordered by count, then city in byte order, and each region
+ * keeps its cities in that order. Regions are ordered the same way: by their
+ * total, then by country and region code in byte order.
+ *
+ * @param {unknown} rows Raw query rows: `{country, region, city, count}`.
+ * @returns {Array<{country: string, region: string, name: string, count: number, cities: Array<{value: string, count: number}>}>} One entry per state or province.
+ */
+function nestRegions(rows) {
+  if (!Array.isArray(rows)) return []
+
+  /** @type {Map<string, {country: string, region: string, name: string, count: number, cities: Array<{value: string, count: number}>}>} */
+  const regions = new Map()
+
+  for (const row of rows) {
+    if (!row || row.city === null || row.city === undefined) continue
+
+    const country = String(row.country ?? '')
+    const region = String(row.region ?? '')
+    const key = `${country}\u0000${region}`
+    let entry = regions.get(key)
+
+    if (!entry) {
+      entry = { country, region, name: subdivisionName(country, region), count: 0, cities: [] }
+      regions.set(key, entry)
+    }
+
+    const count = Number(row.count)
+    entry.count += count
+    entry.cities.push({ value: String(row.city), count })
+  }
+
+  return [...regions.values()].sort(
+    (a, b) => b.count - a.count || byteOrder(a.country, b.country) || byteOrder(a.region, b.region),
+  )
 }

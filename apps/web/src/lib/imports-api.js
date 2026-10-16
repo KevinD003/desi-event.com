@@ -46,3 +46,15 @@ export async function getImportRun(runId) {
 
   return { run: body.data }
 }
+
+/**
+ * Every imported event waiting for "Approve and publish", across every run:
+ * the counts, the digest an approval names, and each event's title.
+ *
+ * @returns {Promise<{pending: object}>} The list.
+ */
+export async function getPendingImports() {
+  const body = await callApi('/v1/platform/imports/pending')
+
+  return { pending: body.data }
+}

@@ -951,6 +951,22 @@ export const eventFacetsResponseSchema = z.object({
     }),
     categories: z.array(z.object({ value: eventCategorySchema, count: countSchema })),
     cities: z.array(z.object({ value: z.string(), count: countSchema })),
+    /**
+     * Each state or province with listed events, and its cities. Keyed by
+     * country and region, so a city name two states share is two entries.
+     */
+    regions: z.array(
+      z.object({
+        /** ISO 3166-1 alpha-2, as the venue stores it. */
+        country: z.string(),
+        /** The state or province code, trimmed and in capitals: `TX`, `ON`. */
+        region: z.string(),
+        /** "Texas", "Ontario"; the code itself when it is not a known one. */
+        name: z.string(),
+        count: countSchema,
+        cities: z.array(z.object({ value: z.string(), count: countSchema })),
+      }),
+    ),
     languages: z.array(z.object({ value: z.string(), count: countSchema })),
     formats: z.array(z.object({ value: z.enum(['online', 'in_person']), count: countSchema })),
   }),
@@ -2274,8 +2290,16 @@ export const eventImportRowEventSchema = z.object({
   importedByName: z.string().max(200).nullable(),
   approvedAt: timestampSchema.nullable(),
   approvedByName: z.string().max(200).nullable(),
-  /** How many of its ticket types the import made, and how many of those are on sale now. */
-  ticketTypes: z.object({ imported: countSchema, onSale: countSchema }),
+  /**
+   * How many of its ticket types the import made, how many of those are on
+   * sale now, and how many are still waiting to go on sale (a DRAFT; one
+   * closed as sold out on the listing is not waiting).
+   */
+  ticketTypes: z.object({
+    imported: countSchema,
+    onSale: countSchema,
+    waiting: countSchema.default(0),
+  }),
 })
 
 /** One listing of a run: what the plan says, and, once applied, what it wrote. */

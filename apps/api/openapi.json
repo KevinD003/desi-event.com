@@ -16414,7 +16414,7 @@
       "get": {
         "operationId": "events.list",
         "summary": "List events",
-        "description": "Paginated, filterable event discovery. Anonymous callers see only the listed statuses: PUBLISHED, ON_SALE, SALES_PAUSED and SOLD_OUT. A token adds every event, in any status, of each organisation where the caller holds `event:view_draft`, and `platform:admin` sees every event. `status` narrows that set to one of the fourteen event statuses and never widens it. A deleted event is in a listing only when `status=DELETED` asks for it, and then only for its organisation and the team at The Desi Events. Each listing’s `minTotalCents` prices one ticket with the event’s own booking fee when the team at The Desi Events set one, else the site default.",
+        "description": "Paginated, filterable event discovery. Anonymous callers see only the listed statuses: PUBLISHED, ON_SALE, SALES_PAUSED and SOLD_OUT. A token adds every event, in any status, of each organisation where the caller holds `event:view_draft`, and `platform:admin` sees every event. `status` narrows that set to one of the fourteen event statuses and never widens it. A deleted event is in a listing only when `status=DELETED` asks for it, and then only for its organisation and the team at The Desi Events. Each listing’s `minTotalCents` prices one ticket with the event’s own booking fee when the team at The Desi Events set one, else the site default. Where: `country` (ISO 3166-1 alpha-2), `region` (the state or province code, any case) and `city` (any case) narrow one venue condition together, so `region=IL&city=Springfield` is the Illinois Springfield only. What: `category`, `language` (any case), `isOnline`, `free=true` (the card’s “from” price is $0: the cheapest public tier on sale is free, or, with none on sale, the cheapest public tier is) and `onSale=true` (status ON_SALE). When: `startsAfter`/`startsBefore` are instants; `fromDate`/`toDate` are calendar days, both inclusive, and `when` (`today`, `weekend` Friday to Sunday, `week` to Sunday, `month` to its last day) a named span of them, all read in each event’s own timezone as its card states its start. Sorting by price is not offered.",
         "tags": [
           "events"
         ],
@@ -16521,6 +16521,29 @@
                                 "type": "string",
                                 "minLength": 1,
                                 "maxLength": 500
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "region": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "country": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[A-Z]{2}$"
                               },
                               {
                                 "type": "null"
@@ -16899,6 +16922,51 @@
             }
           },
           {
+            "name": "country",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$"
+            }
+          },
+          {
+            "name": "region",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            }
+          },
+          {
+            "name": "free",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "onSale",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "q",
             "in": "query",
             "required": false,
@@ -16926,6 +16994,38 @@
               "type": "string",
               "format": "date-time",
               "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            }
+          },
+          {
+            "name": "fromDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "toDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "when",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "today",
+                "weekend",
+                "week",
+                "month"
+              ]
             }
           },
           {
@@ -19351,7 +19451,7 @@
       "get": {
         "operationId": "events.facets",
         "summary": "Filter facets for the catalogue",
-        "description": "Counts for every filterable dimension, computed over the complete eligible set — all PUBLISHED events — rather than over the page currently being displayed. Pagination changes which rows a visitor sees, never which options exist: a city whose events all fall beyond page one must still be selectable, or the filters silently hide part of the catalogue. Aggregated in the database; no table is loaded into application memory.",
+        "description": "Counts for every filterable dimension, computed over the complete eligible set — every listed event, in PUBLISHED, ON_SALE, SALES_PAUSED or SOLD_OUT (`scope.status` is `LISTED`) — rather than over the page currently being displayed. `regions` nests each state or province (country, code, display name and count) with its cities, so a city name two states share is counted once in each; `cities` is the same counts flat, by name alone. Pagination changes which rows a visitor sees, never which options exist: a city whose events all fall beyond page one must still be selectable, or the filters silently hide part of the catalogue. Aggregated in the database; no table is loaded into application memory.",
         "tags": [
           "events"
         ],
@@ -19442,6 +19542,57 @@
                             "additionalProperties": false
                           }
                         },
+                        "regions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "country": {
+                                "type": "string"
+                              },
+                              "region": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              },
+                              "cities": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "type": "string"
+                                    },
+                                    "count": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 10000000
+                                    }
+                                  },
+                                  "required": [
+                                    "value",
+                                    "count"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "country",
+                              "region",
+                              "name",
+                              "count",
+                              "cities"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
                         "languages": {
                           "type": "array",
                           "items": {
@@ -19493,6 +19644,7 @@
                         "scope",
                         "categories",
                         "cities",
+                        "regions",
                         "languages",
                         "formats"
                       ],
@@ -47791,11 +47943,18 @@
                                             "type": "integer",
                                             "minimum": 0,
                                             "maximum": 10000000
+                                          },
+                                          "waiting": {
+                                            "default": 0,
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 10000000
                                           }
                                         },
                                         "required": [
                                           "imported",
-                                          "onSale"
+                                          "onSale",
+                                          "waiting"
                                         ],
                                         "additionalProperties": false
                                       }
@@ -48304,11 +48463,18 @@
                                             "type": "integer",
                                             "minimum": 0,
                                             "maximum": 10000000
+                                          },
+                                          "waiting": {
+                                            "default": 0,
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 10000000
                                           }
                                         },
                                         "required": [
                                           "imported",
-                                          "onSale"
+                                          "onSale",
+                                          "waiting"
                                         ],
                                         "additionalProperties": false
                                       }
@@ -48776,11 +48942,18 @@
                                             "type": "integer",
                                             "minimum": 0,
                                             "maximum": 10000000
+                                          },
+                                          "waiting": {
+                                            "default": 0,
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 10000000
                                           }
                                         },
                                         "required": [
                                           "imported",
-                                          "onSale"
+                                          "onSale",
+                                          "waiting"
                                         ],
                                         "additionalProperties": false
                                       }
@@ -49225,6 +49398,476 @@
                 },
                 "required": [
                   "items"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/platform/imports/pending": {
+      "get": {
+        "operationId": "eventImports.pending",
+        "summary": "Every imported event waiting for approval, across runs",
+        "description": "Each imported event “Approve and publish all pending imported events” would act on, from whichever run last wrote it: still in the platform-held organisation and not moved to an organiser’s, its run applied, and REVIEW_PENDING or APPROVED, or PUBLISHED with an imported ticket type still waiting to go on sale (an event whose every imported ticket type is closed, sold out on its listing, is not one). Only events that start more than a minute from now are listed; `past` counts the ones left out for having started. `willGoOnSale` and `publishedNothingToSell` say what approving them does: an event with no prices, or every price sold out, is published with nothing to sell. `digest` is over each event’s id, revision and last run, and is what `approve-pending` must name. Held by `event:import` and `moderation:review`. Never cached.\n\nRequires the `event:import` capability.",
+        "tags": [
+          "imports"
+        ],
+        "responses": {
+          "200": {
+            "description": "Every imported event waiting for approval, across runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "digest": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "willGoOnSale": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "publishedNothingToSell": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "past": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "eventId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "REVIEW_PENDING",
+                                  "APPROVED",
+                                  "PUBLISHED"
+                                ]
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "runId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "sourceId": {
+                                "type": "string",
+                                "pattern": "^[0-9]{1,12}$"
+                              },
+                              "city": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 200
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "region": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 120
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "willGoOnSale": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "eventId",
+                              "title",
+                              "startsAt",
+                              "status",
+                              "revision",
+                              "runId",
+                              "sourceId",
+                              "city",
+                              "region",
+                              "willGoOnSale"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "digest",
+                        "total",
+                        "willGoOnSale",
+                        "publishedNothingToSell",
+                        "past",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/platform/imports/approve-pending": {
+      "post": {
+        "operationId": "eventImports.approvePending",
+        "summary": "Approve and publish every pending imported event",
+        "description": "Works the pending list out again and refuses 409 `IMPORT_PENDING_CHANGED` unless it gives the `digest` the administrator read, so what is approved is what they were shown. Then each event on it is approved exactly as `POST /v1/platform/imports/:runId/approve` approves one, from the run that last wrote it and at the revision the list held: its own transaction, the lifecycle’s gates and the reviewer-independence exemption; approved, published and put on sale, or published with nothing to sell. A refusal is that event’s alone, reported with its code, and the rest go on. A second call names a list that has changed and approves nothing. Held by `event:import` and `moderation:review`, with a second factor within the EVENT_PUBLISH window; it shares the twenty-an-hour budget of previews and applies. Audited `event.approved` and `event.published` per event, and `event_import.bulk_approved` once, with the counts, the runs, each refusal’s event and code, and the digest.\n\nRequires the `event:import` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "imports"
+        ],
+        "responses": {
+          "200": {
+            "description": "Approve and publish every pending imported event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "onSale": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "publishedNothingToSell": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "refused": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "skippedPast": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "results": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "eventId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "outcome": {
+                                "type": "string",
+                                "enum": [
+                                  "PUBLISHED",
+                                  "SALES_OPENED",
+                                  "REFUSED"
+                                ]
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "DRAFT",
+                                      "REVIEW_PENDING",
+                                      "CHANGES_REQUIRED",
+                                      "APPROVED",
+                                      "PUBLISHED",
+                                      "ON_SALE",
+                                      "SALES_PAUSED",
+                                      "SOLD_OUT",
+                                      "COMPLETED",
+                                      "POSTPONED",
+                                      "CANCELLED",
+                                      "REJECTED",
+                                      "ARCHIVED",
+                                      "DELETED"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "revision": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "ticketTypesOnSale": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "code": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 100
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "message": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "eventId",
+                              "outcome",
+                              "status",
+                              "revision",
+                              "ticketTypesOnSale",
+                              "code",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "refusals": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "eventId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "code": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 100
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "message": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "eventId",
+                              "code",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "onSale",
+                        "publishedNothingToSell",
+                        "refused",
+                        "skippedPast",
+                        "results",
+                        "refusals"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "digest"
                 ],
                 "additionalProperties": false
               }
@@ -65737,6 +66380,29 @@
                               }
                             ]
                           },
+                          "region": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "country": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[A-Z]{2}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "venueName": {
                             "anyOf": [
                               {
@@ -81806,6 +82472,29 @@
                                     }
                                   ]
                                 },
+                                "region": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "country": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "pattern": "^[A-Z]{2}$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "venueName": {
                                   "anyOf": [
                                     {
@@ -82011,29 +82700,6 @@
                                         "priceListed"
                                       ],
                                       "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "country": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "pattern": "^[A-Z]{2}$"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "region": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 500
                                     },
                                     {
                                       "type": "null"
@@ -83301,6 +83967,29 @@
                                       }
                                     ]
                                   },
+                                  "region": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 500
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "country": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^[A-Z]{2}$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
                                   "venueName": {
                                     "anyOf": [
                                       {
@@ -83506,29 +84195,6 @@
                                           "priceListed"
                                         ],
                                         "additionalProperties": false
-                                      },
-                                      {
-                                        "type": "null"
-                                      }
-                                    ]
-                                  },
-                                  "country": {
-                                    "anyOf": [
-                                      {
-                                        "type": "string",
-                                        "pattern": "^[A-Z]{2}$"
-                                      },
-                                      {
-                                        "type": "null"
-                                      }
-                                    ]
-                                  },
-                                  "region": {
-                                    "anyOf": [
-                                      {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 500
                                       },
                                       {
                                         "type": "null"
@@ -85144,6 +85810,29 @@
                                     }
                                   ]
                                 },
+                                "region": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "country": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "pattern": "^[A-Z]{2}$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "venueName": {
                                   "anyOf": [
                                     {
@@ -85349,29 +86038,6 @@
                                         "priceListed"
                                       ],
                                       "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "country": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "pattern": "^[A-Z]{2}$"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "region": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 500
                                     },
                                     {
                                       "type": "null"

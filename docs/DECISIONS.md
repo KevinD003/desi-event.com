@@ -30,17 +30,20 @@ replaced it; everything under that line stays as written.
 | [0012](adr/0012-event-website-link.md)                                        | An event's website link, switched by administrators and counted on the way out | Accepted, 2026-10-06                                     |
 | [0013](adr/0013-first-party-visit-counting.md)                                | First-party visit counting, without cookies or stored addresses                | Accepted, 2026-10-06                                     |
 | [0014](adr/0014-full-control-of-posted-events.md)                             | Full control of posted events                                                  | Accepted, 2026-10-06                                     |
-| [0015](adr/0015-importing-listed-events.md)                                   | Importing listed events                                                        | Accepted, 2026-10-06; amended by 0019                    |
+| [0015](adr/0015-importing-listed-events.md)                                   | Importing listed events                                                        | Accepted, 2026-10-06; amended by 0019 and 0021           |
 | [0016](adr/0016-per-event-booking-fee-and-referral-codes.md)                  | Per-event booking fee and referral codes                                       | Accepted, 2026-10-09                                     |
 | [0017](adr/0017-paying-at-the-venue-outside-the-ledger.md)                    | Paying at the venue: money at the door outside the ledger                      | Accepted, 2026-10-09                                     |
 | [0018](adr/0018-platform-administrator-holds-all-but-platform-roles.md)       | The platform administrator holds everything but platform roles                 | Accepted, 2026-10-16                                     |
 | [0019](adr/0019-door-access-by-invitation.md)                                 | Door access is given by invitation, for named events                           | Accepted, 2026-10-16                                     |
+| [0020](adr/0020-browsing-by-state-then-city.md)                               | Browsing by state, then city, and the other listing filters                    | Accepted, 2026-10-16                                     |
+| [0021](adr/0021-publishing-every-pending-import.md)                           | Publishing every pending imported event at once                                | Accepted, 2026-10-16                                     |
 
 One record is superseded: 0005, by 0006. Four are superseded in part: 0008's
 `EMAIL` wording by 0011, 0009's "a published event takes no new picture" by
 0014, and 0007's "only `SUPER_ADMIN` admits on platform authority" and 0010's
 fourteen-capability allow-list for the platform administrator, both by 0018;
-0015's "the platform-held organisation has no members" is amended by 0019. Each
+0015's "the platform-held organisation has no members" is amended by 0019, and
+0015's approval of one run's events at a time gains a second way in by 0021. Each
 keeps its text, and the index says so (0009 also carries a marked note beside
 the superseded consequence). Nothing is deprecated.
 
@@ -231,6 +234,25 @@ when they accept. Owners and administrators name any of the organisation's
 events, a manager only those it is scoped to itself. The organisation that
 holds imported events now takes door scanners, invited by a platform
 administrator, and still refuses every other role.
+
+### 0020 — Browsing by state, then city, and the other listing filters
+
+The public listing narrows by state or province first, then by a city within
+it, so two cities of one name in different states are two options. It also
+filters by when (calendar days, or today, this weekend, this week or this
+month, each read in the event's own timezone), language, format, free events
+only and tickets on sale now. The facets count each state and each of its
+cities, and a card reads "City, ST".
+
+### 0021 — Publishing every pending imported event at once
+
+One confirmed step approves and publishes every imported event waiting for
+approval, whichever run wrote it, for a person who may import and review and
+has a second factor, against a digest of the list they were shown; a changed
+list is refused. An event with tickets goes on sale, one with nothing to sell
+is published, and one about to start is left as past. One audit row records
+the step. The notes that asked to check Canadian prices now say the owner
+confirmed they are in CAD.
 
 ## Decisions that live in code, not in an ADR
 

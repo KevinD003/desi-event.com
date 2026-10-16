@@ -7,6 +7,10 @@
  * its events approved and published. This page holds the upload form and the
  * runs, newest first.
  *
+ * Above the runs, "Approve and publish all pending imported events" (ADR
+ * 0021) takes every imported event waiting for approval, whichever run wrote
+ * it, for an account that may also review (`moderation:review`).
+ *
  * The administration layout admits a platform administrator on other
  * capabilities too, and a moderator is never admitted; this page asks its own
  * question again (`event:import`, held by platform administrators and super
@@ -22,7 +26,7 @@ import { ReadRefusal, RefusalNotice } from '../../../components/read-refusal.jsx
 import { Badge, EmptyState } from '../../../components/ui.jsx'
 import { PANEL, TABLE_FRAME, TEXT_LINK } from '../../../components/workspace-kit.jsx'
 import { sessionCan } from '../../../lib/capabilities.js'
-import { getImportRuns } from '../../../lib/imports-api.js'
+import { getImportRuns, getPendingImports } from '../../../lib/imports-api.js'
 import { readSession } from '../../../lib/session.js'
 import {
   PAGER_LINK_CLASSES,
@@ -39,6 +43,7 @@ import {
   runPath,
 } from './import-vocabulary.js'
 import { ImportUploadForm } from './import-upload-form.jsx'
+import { ApprovePendingPanel } from './approve-pending-panel.jsx'
 
 export const dynamic = 'force-dynamic'
 
@@ -112,6 +117,17 @@ export default async function ImportsPage({ searchParams }) {
   }
 
   const beyond = !failure && isPastTheEnd(runs.length, pagination, page)
+  const canApprove = sessionCan(session, 'moderation:review')
+  let pending = null
+  let pendingFailure = null
+
+  if (canApprove) {
+    try {
+      pending = (await getPendingImports()).pending
+    } catch (error) {
+      pendingFailure = error
+    }
+  }
 
   return (
     <div>
@@ -123,6 +139,26 @@ export default async function ImportsPage({ searchParams }) {
           Plan an import
         </h2>
         <ImportUploadForm maxBytes={IMPORT_LIMITS.datasetBytes} />
+      </section>
+
+      <section aria-labelledby="pending-heading" className={`mt-6 p-4 sm:p-6 ${PANEL}`}>
+        <h2 id="pending-heading" className="text-lg font-semibold text-ink">
+          Approve and publish all pending imported events
+        </h2>
+        {!canApprove ? (
+          <p className="mt-3 max-w-3xl text-ink-muted">
+            Approving and publishing needs a moderator’s review rights as well, which this account
+            does not have.
+          </p>
+        ) : null}
+        {pendingFailure ? (
+          <ReadRefusal
+            error={pendingFailure}
+            what="The list of imported events waiting for approval"
+            action="approve them"
+          />
+        ) : null}
+        {pending ? <ApprovePendingPanel pending={pending} /> : null}
       </section>
 
       <section aria-labelledby="runs-heading" className="mt-10">

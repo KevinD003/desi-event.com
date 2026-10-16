@@ -201,6 +201,10 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // over imported events' terms and FAQ, their records' notes, their history
   // and change notices, and a stored file, beside an event nobody imported.
   '20261015110000_imported_listing_words',
+  // The owner confirmed Canadian prices are in CAD (2026-10-16): data only,
+  // the one note asking to check the currency reworded on an import record,
+  // a stored file and a stored plan, beside notes it leaves alone.
+  '20261016100000_canadian_prices_confirmed_cad',
   // Door grants by invitation (2026-10-16, ADR 0019): the invitation scope
   // table and its trigger, and the platform-held organisation's no-members
   // trigger replaced so it holds door scanners, over memberships and waiting
@@ -514,6 +518,43 @@ const BEFORE_MIGRATION_FIXTURES = Object.freeze({
       EventChangeNotice: 1,
     }
   },
+  // The note asking to check a Canadian listing's currency, as the North
+  // America file wrote it before 2026-10-16: on an import record beside a
+  // note in other words and an unrelated one, and in a stored run's file and
+  // plan beside a listing with no notes at all.
+  '20261016100000_canadian_prices_confirmed_cad': async (prisma) => {
+    const literal = (text) => `'${text.replaceAll("'", "''")}'`
+    const json = (value) => `${literal(JSON.stringify(value))}::jsonb`
+
+    await prisma.$executeRawUnsafe(
+      'UPDATE "EventImportItem" SET "importNotes" = ARRAY[' +
+        `${[CAD_NOTE.other, CAD_NOTE.before, CAD_NOTE.reworded].map(literal).join(', ')}]::text[] ` +
+        `WHERE "eventId" = ${literal(LEGACY_IMPORTED_EVENTS[1].id)}`,
+    )
+    await prisma.$executeRawUnsafe(
+      'INSERT INTO "EventImportRun" ("id", "source", "status", "fileName", "datasetSha256", ' +
+        '"dataset", "plan", "planDigest", "eventCount", "createdAt", "expiresAt", "appliedAt") VALUES (' +
+        `'${LEGACY_CAD_RUN}', 'SULEKHA', 'APPLIED', 'north-america-2026.json', '${'c'.repeat(64)}', ` +
+        `${json({
+          format: 'desi-event-import/1',
+          source: 'SULEKHA',
+          events: [
+            {
+              sourceId: '9100000101',
+              title: 'A Canadian listing',
+              importNotes: [CAD_NOTE.before, CAD_NOTE.other],
+            },
+            { sourceId: '9100000102', title: 'A listing with no notes' },
+          ],
+        })}, ` +
+        `${json([
+          { sourceId: '9100000101', action: 'CREATE', importNotes: [CAD_NOTE.before] },
+          { sourceId: '9100000102', action: 'CREATE', importNotes: [] },
+        ])}, '${'d'.repeat(64)}', 2, '2026-10-15T00:00:00Z', '2026-10-15T01:00:00Z', '2026-10-15T00:30:00Z')`,
+    )
+
+    return { EventImportRun: 1 }
+  },
   // The platform-held organisation as the first build made it, and an ordinary
   // organisation that already has the address it is renamed to, both cloned
   // from the filler's organisation.
@@ -713,6 +754,22 @@ const LEGACY_IMPORT_WORDS = Object.freeze({
   ],
   notice: 'Updated from its Sulekha listing by the team at The Desi Events, run legacy-import-run.',
 })
+
+/**
+ * The note `20261016100000_canadian_prices_confirmed_cad` rewrites, what it
+ * becomes, and a note in other words it must leave alone.
+ */
+const CAD_NOTE = Object.freeze({
+  before:
+    'The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). Check the currency with the organiser.',
+  after:
+    'The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). The owner confirmed on 2026-10-16 that Canadian prices are in CAD.',
+  reworded: 'Prices look Canadian. Check the currency with the organiser.',
+  other: 'Kids under 5 free.',
+})
+
+/** The run that fixture stores, with a file and a plan holding the note. */
+const LEGACY_CAD_RUN = 'legacy-import-run-cad'
 
 /** What the rename migration makes of the platform-held organisation. */
 const RENAMED_PLATFORM_HELD = Object.freeze({
@@ -2593,6 +2650,79 @@ async function checkImportedListingWords(prisma) {
 }
 
 /**
+ * Check what `20261016100000_canadian_prices_confirmed_cad` made of the note
+ * asking to check a Canadian listing's currency: reworded, word for word, on
+ * the import record, in the stored file and in the stored plan; the notes
+ * beside it, a note in other words and a listing with no notes left as they
+ * were; the stored file's SHA-256 unchanged; the old sentence nowhere; and
+ * the migration's helper function gone.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkCanadianPricesConfirmed(prisma) {
+  let ok = true
+  // jsonb keeps its own key order, so values are compared with keys sorted.
+  const canonical = (value) =>
+    JSON.stringify(value, (_, item) =>
+      item && typeof item === 'object' && !Array.isArray(item)
+        ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
+        : item,
+    )
+  const same = (left, right) => canonical(left) === canonical(right)
+  const [row] = await prisma.$queryRawUnsafe(
+    'SELECT i."importNotes" AS notes, r."dataset", r."plan", r."datasetSha256" AS sha, ' +
+      "to_regproc('confirm_cad_note_in') IS NULL AS dropped " +
+      `FROM "EventImportItem" AS i, "EventImportRun" AS r ` +
+      `WHERE i."eventId" = '${LEGACY_IMPORTED_EVENTS[1].id}' AND r."id" = '${LEGACY_CAD_RUN}'`,
+  )
+
+  ok =
+    record(
+      'the note asking to check a Canadian currency says the owner confirmed CAD, and nothing else changed',
+      same(row?.notes, [CAD_NOTE.other, CAD_NOTE.after, CAD_NOTE.reworded]) &&
+        same(row.dataset?.events?.[0]?.importNotes, [CAD_NOTE.after, CAD_NOTE.other]) &&
+        same(row.dataset?.events?.[1], {
+          sourceId: '9100000102',
+          title: 'A listing with no notes',
+        }) &&
+        same(
+          (row.plan ?? []).map((entry) => entry.importNotes),
+          [[CAD_NOTE.after], []],
+        ) &&
+        row.sha === 'c'.repeat(64) &&
+        row.dropped === true,
+      {
+        note: `notes ${JSON.stringify(row?.notes)}; file ${JSON.stringify(row?.dataset?.events)}; plan ${JSON.stringify(row?.plan)}; helper ${row?.dropped ? 'dropped' : 'left behind'}`,
+      },
+    ) && ok
+
+  const [left] = await prisma.$queryRawUnsafe(
+    'SELECT ' +
+      `(SELECT count(*)::int FROM "EventImportItem" WHERE ${literalSql(CAD_NOTE.before)} = ANY("importNotes")) AS items, ` +
+      `(SELECT count(*)::int FROM "EventImportRun" WHERE ("dataset"::text || "plan"::text) LIKE ${literalSql(`%${CAD_NOTE.before.slice(-40)}%`)}) AS runs`,
+  )
+
+  return (
+    record(
+      'no import record, stored file or stored plan still asks to check the currency in the old words',
+      left?.items === 0 && left.runs === 0,
+      { note: JSON.stringify(left) },
+    ) && ok
+  )
+}
+
+/**
+ * A text value as an SQL string literal.
+ *
+ * @param {string} text The value.
+ * @returns {string} It quoted, with any `'` doubled.
+ */
+function literalSql(text) {
+  return `'${text.replaceAll("'", "''")}'`
+}
+
+/**
  * Check what SPEC3-XI added to the payment-terms and pay-at-the-venue
  * migrations, over a database that holds rows (SPEC3-XI §5.7): nothing
  * cancelled unpaid, nothing kept and no referral use given back on any existing
@@ -3085,6 +3215,7 @@ async function main() {
     ok = (await checkPlatformHeldRename(prisma)) && ok
     ok = (await checkImportedEventsSoldHere(prisma)) && ok
     ok = (await checkImportedListingWords(prisma)) && ok
+    ok = (await checkCanadianPricesConfirmed(prisma)) && ok
 
     const [adminAfter] = await prisma.$queryRawUnsafe(
       `SELECT "role"::text AS role FROM "User" WHERE id = 'upgrade-fixture-User'`,

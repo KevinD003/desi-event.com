@@ -255,8 +255,11 @@ import {
   restoreEventRequestSchema,
   sessionCancellationPreviewResponseSchema,
   eventImportApplyRequestSchema,
+  eventImportApprovePendingRequestSchema,
+  eventImportApprovePendingResponseSchema,
   eventImportApproveRequestSchema,
   eventImportApproveResponseSchema,
+  eventImportPendingResponseSchema,
   eventImportEventParamSchema,
   eventImportListQuerySchema,
   eventImportPreviewRequestSchema,
@@ -1964,7 +1967,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events',
       summary: 'List events',
       description:
-        'Paginated, filterable event discovery. Anonymous callers see only the listed statuses: PUBLISHED, ON_SALE, SALES_PAUSED and SOLD_OUT. A token adds every event, in any status, of each organisation where the caller holds `event:view_draft`, and `platform:admin` sees every event. `status` narrows that set to one of the fourteen event statuses and never widens it. A deleted event is in a listing only when `status=DELETED` asks for it, and then only for its organisation and the team at The Desi Events. Each listing’s `minTotalCents` prices one ticket with the event’s own booking fee when the team at The Desi Events set one, else the site default.',
+        'Paginated, filterable event discovery. Anonymous callers see only the listed statuses: PUBLISHED, ON_SALE, SALES_PAUSED and SOLD_OUT. A token adds every event, in any status, of each organisation where the caller holds `event:view_draft`, and `platform:admin` sees every event. `status` narrows that set to one of the fourteen event statuses and never widens it. A deleted event is in a listing only when `status=DELETED` asks for it, and then only for its organisation and the team at The Desi Events. Each listing’s `minTotalCents` prices one ticket with the event’s own booking fee when the team at The Desi Events set one, else the site default. Where: `country` (ISO 3166-1 alpha-2), `region` (the state or province code, any case) and `city` (any case) narrow one venue condition together, so `region=IL&city=Springfield` is the Illinois Springfield only. What: `category`, `language` (any case), `isOnline`, `free=true` (the card’s “from” price is $0: the cheapest public tier on sale is free, or, with none on sale, the cheapest public tier is) and `onSale=true` (status ON_SALE). When: `startsAfter`/`startsBefore` are instants; `fromDate`/`toDate` are calendar days, both inclusive, and `when` (`today`, `weekend` Friday to Sunday, `week` to Sunday, `month` to its last day) a named span of them, all read in each event’s own timezone as its card states its start. Sorting by price is not offered.',
       tags: ['events'],
       auth: 'optional',
       params: null,
@@ -1980,7 +1983,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events/facets',
       summary: 'Filter facets for the catalogue',
       description:
-        'Counts for every filterable dimension, computed over the complete eligible set — all PUBLISHED events — rather than over the page currently being displayed. Pagination changes which rows a visitor sees, never which options exist: a city whose events all fall beyond page one must still be selectable, or the filters silently hide part of the catalogue. Aggregated in the database; no table is loaded into application memory.',
+        'Counts for every filterable dimension, computed over the complete eligible set — every listed event, in PUBLISHED, ON_SALE, SALES_PAUSED or SOLD_OUT (`scope.status` is `LISTED`) — rather than over the page currently being displayed. `regions` nests each state or province (country, code, display name and count) with its cities, so a city name two states share is counted once in each; `cities` is the same counts flat, by name alone. Pagination changes which rows a visitor sees, never which options exist: a city whose events all fall beyond page one must still be selectable, or the filters silently hide part of the catalogue. Aggregated in the database; no table is loaded into application memory.',
       tags: ['events'],
       auth: 'none',
       params: null,
@@ -2633,6 +2636,51 @@ export const apiRoutes = Object.freeze(
         // Each event is its own budgeted transaction (one that cannot wait is
         // refused `TRY_AGAIN` in its result); only a step outside them running
         // out answers this (`Retry-After`).
+        API_ERRORS.unavailable,
+      ],
+    },
+    {
+      id: 'eventImports.pending',
+      method: 'GET',
+      path: '/v1/platform/imports/pending',
+      summary: 'Every imported event waiting for approval, across runs',
+      description:
+        'Each imported event “Approve and publish all pending imported events” would act on, from whichever run last wrote it: still in the platform-held organisation and not moved to an organiser’s, its run applied, and REVIEW_PENDING or APPROVED, or PUBLISHED with an imported ticket type still waiting to go on sale (an event whose every imported ticket type is closed, sold out on its listing, is not one). Only events that start more than a minute from now are listed; `past` counts the ones left out for having started. `willGoOnSale` and `publishedNothingToSell` say what approving them does: an event with no prices, or every price sold out, is published with nothing to sell. `digest` is over each event’s id, revision and last run, and is what `approve-pending` must name. Held by `event:import` and `moderation:review`. Never cached.',
+      tags: ['imports'],
+      auth: 'session',
+      capability: 'event:import',
+      params: null,
+      query: null,
+      body: null,
+      response: eventImportPendingResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.unauthorized, API_ERRORS.forbidden],
+    },
+    {
+      id: 'eventImports.approvePending',
+      method: 'POST',
+      path: '/v1/platform/imports/approve-pending',
+      summary: 'Approve and publish every pending imported event',
+      description:
+        'Works the pending list out again and refuses 409 `IMPORT_PENDING_CHANGED` unless it gives the `digest` the administrator read, so what is approved is what they were shown. Then each event on it is approved exactly as `POST /v1/platform/imports/:runId/approve` approves one, from the run that last wrote it and at the revision the list held: its own transaction, the lifecycle’s gates and the reviewer-independence exemption; approved, published and put on sale, or published with nothing to sell. A refusal is that event’s alone, reported with its code, and the rest go on. A second call names a list that has changed and approves nothing. Held by `event:import` and `moderation:review`, with a second factor within the EVENT_PUBLISH window; it shares the twenty-an-hour budget of previews and applies. Audited `event.approved` and `event.published` per event, and `event_import.bulk_approved` once, with the counts, the runs, each refusal’s event and code, and the digest.',
+      tags: ['imports'],
+      auth: 'session',
+      capability: 'event:import',
+      stepUp: 'EVENT_PUBLISH',
+      params: null,
+      query: null,
+      body: eventImportApprovePendingRequestSchema,
+      response: eventImportApprovePendingResponseSchema,
+      successStatus: 200,
+      errors: [
+        API_ERRORS.validation,
+        API_ERRORS.unauthorized,
+        API_ERRORS.stepUpRequired,
+        API_ERRORS.conflict,
+        API_ERRORS.rateLimited,
+        // Each event is its own budgeted transaction (one that cannot wait is
+        // refused `TRY_AGAIN` in its result); only the summary row running out
+        // answers this (`Retry-After`).
         API_ERRORS.unavailable,
       ],
     },

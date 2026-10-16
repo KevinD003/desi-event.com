@@ -402,22 +402,74 @@ describe('an applied plan', () => {
     expect(line).toHaveTextContent('2 of 3 ticket types on sale')
   })
 
-  it('offers approval for a published import whose ticket types are not on sale yet, to put them on sale', () => {
+  it('offers approval for a published import whose ticket types are waiting to go on sale, to put them on sale', () => {
     expect(
       approvable(
-        row({ event: written({ status: 'PUBLISHED', ticketTypes: { imported: 2, onSale: 0 } }) }),
+        row({
+          event: written({
+            status: 'PUBLISHED',
+            ticketTypes: { imported: 2, onSale: 0, waiting: 2 },
+          }),
+        }),
       ),
     ).toBe(true)
     expect(
       approvable(
-        row({ event: written({ status: 'ON_SALE', ticketTypes: { imported: 2, onSale: 2 } }) }),
+        row({
+          event: written({
+            status: 'ON_SALE',
+            ticketTypes: { imported: 2, onSale: 2, waiting: 0 },
+          }),
+        }),
       ),
     ).toBe(false)
     expect(
       approvable(
-        row({ event: written({ status: 'PUBLISHED', ticketTypes: { imported: 0, onSale: 0 } }) }),
+        row({
+          event: written({
+            status: 'PUBLISHED',
+            ticketTypes: { imported: 0, onSale: 0, waiting: 0 },
+          }),
+        }),
       ),
     ).toBe(false)
+  })
+
+  it('does not tick a published import whose imported ticket types are all closed, sold out on its listing', () => {
+    // Nothing waits, so the API refuses it NOT_EDITABLE: it used to be ticked
+    // in every "Tick all" batch and refused every time.
+    const allClosed = written({
+      status: 'PUBLISHED',
+      ticketTypes: { imported: 2, onSale: 0, waiting: 0 },
+    })
+
+    expect(approvable(row({ event: allClosed }))).toBe(false)
+    // From an API that does not say how many wait: nothing is assumed to.
+    expect(
+      approvable(
+        row({ event: written({ status: 'PUBLISHED', ticketTypes: { imported: 2, onSale: 0 } }) }),
+      ),
+    ).toBe(false)
+
+    render(
+      <ImportRunPlan
+        run={run({
+          status: 'APPLIED',
+          rows: [
+            row({ sourceId: '401001', title: 'Closed Night', event: allClosed }),
+            row({
+              sourceId: '401002',
+              title: 'Waiting Night',
+              event: written({ id: 'cevent0000000000000000002', title: 'Waiting Night' }),
+            }),
+          ],
+        })}
+        canApprove
+      />,
+    )
+
+    expect(screen.queryByRole('checkbox', { name: 'Approve “Closed Night”' })).toBeNull()
+    expect(screen.getByRole('checkbox', { name: 'Approve “Waiting Night”' })).toBeInTheDocument()
   })
 
   it('has no “Pictures” column for a run that recorded no pictures, as no import does now', () => {

@@ -54,6 +54,7 @@ import {
   ticketTypeVisibilitySchema,
 } from './enums.js'
 import { addressFree } from './addresses.js'
+import { WHEN_PRESETS, isCalendarDay } from './calendar-days.js'
 import { ATTENDEE_ONLY_MESSAGE } from './auth.js'
 import { connectActionSchema } from './connect.js'
 import { eventPoliciesSchema } from './entities.js'
@@ -312,11 +313,25 @@ export const publishEventRequestSchema = z.object({
 })
 
 /**
+ * A calendar date, `YYYY-MM-DD`, that exists: `2026-02-30` is refused rather
+ * than rolled into March.
+ */
+const calendarDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/u, { message: 'Use a date written YYYY-MM-DD.', abort: true })
+  .refine(isCalendarDay, 'Use a date that exists, in 1970 or later.')
+
+/**
  * Query string for `GET /events`.
  *
  * Values arrive as strings from the URL, so `page`/`perPage` are coerced and
  * `startsAfter`/`startsBefore` accept a bare `YYYY-MM-DD` as well as a full
  * ISO timestamp.
+ *
+ * `startsAfter`/`startsBefore` are instants. `fromDate`/`toDate` and `when`
+ * are calendar days read where each event happens, the way its card states its
+ * start: a 10 PM show in Vancouver on the 17th is on the 17th, although it is
+ * the 18th in Toronto by then (`calendar-days.js`).
  */
 export const listEventsQuerySchema = paginationQuerySchema
   .extend({
@@ -325,6 +340,23 @@ export const listEventsQuerySchema = paginationQuerySchema
     // Both reach PostgreSQL as search terms, so neither may carry a NUL or any
     // other control character: refused here as a 400, not by the database as a 500.
     city: withoutControlCharacters(nonEmptyStringSchema).optional(),
+    /** The venue's country, ISO 3166-1 alpha-2: `US`, `CA`. */
+    country: z
+      .string()
+      .regex(/^[A-Z]{2}$/u, 'A two-letter country code in capitals, such as US or CA.')
+      .optional(),
+    /**
+     * The venue's state or province, as the second half of its ISO 3166-2 code
+     * (`TX`, `ON`). Matched without regard to case; with `city`, the city is
+     * looked for within it.
+     */
+    region: withoutControlCharacters(z.string().trim().min(1).max(120)).optional(),
+    /** One language the event is held in, matched without regard to case. */
+    language: withoutControlCharacters(z.string().trim().min(1).max(60)).optional(),
+    /** Only events whose "from" price is $0: the rule a card's price uses. */
+    free: z.stringbool().optional(),
+    /** Only events whose tickets are on sale now (`ON_SALE`). */
+    onSale: z.stringbool().optional(),
     q: z
       .preprocess(
         (value) => (typeof value === 'string' ? value.trim() : value),
@@ -333,17 +365,35 @@ export const listEventsQuerySchema = paginationQuerySchema
       .optional(),
     startsAfter: queryDateTimeSchema.optional(),
     startsBefore: queryDateTimeSchema.optional(),
+    /** The first day, inclusive, in each event's own timezone. */
+    fromDate: calendarDateSchema.optional(),
+    /** The last day, inclusive, in each event's own timezone. */
+    toDate: calendarDateSchema.optional(),
+    /**
+     * A named span of days, read in each event's own timezone at the moment of
+     * the request: `today`, `weekend` (Friday to Sunday), `week` (today to
+     * Sunday) or `month` (today to the month's last day).
+     */
+    when: z.enum([...WHEN_PRESETS]).optional(),
     organizationId: cuidSchema.optional(),
     isOnline: z.stringbool().optional(),
     sort: z.enum([...EVENT_SORT_OPTIONS]).default('startsAt:asc'),
   })
   .superRefine((value, ctx) => {
-    const { startsAfter, startsBefore } = value
+    const { startsAfter, startsBefore, fromDate, toDate } = value
     if (startsAfter && startsBefore && Date.parse(startsBefore) <= Date.parse(startsAfter)) {
       ctx.addIssue({
         code: 'custom',
         path: ['startsBefore'],
         message: 'startsBefore must be after startsAfter',
+      })
+    }
+    // Both inclusive, so one day is `fromDate` and `toDate` the same.
+    if (fromDate && toDate && toDate < fromDate) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['toDate'],
+        message: 'toDate must be on or after fromDate',
       })
     }
   })

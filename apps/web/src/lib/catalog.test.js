@@ -106,6 +106,51 @@ describe('filterEvents', () => {
     expect(filterEvents(events, { city: 'toronto' })).toHaveLength(0)
   })
 
+  it('narrows by state or province, as US-TX, and by a city within it', () => {
+    const places = [
+      summary({ id: 'a', city: 'Springfield', region: 'IL', country: 'US' }),
+      summary({ id: 'b', city: 'Springfield', region: 'MO', country: 'US' }),
+      summary({ id: 'c', city: 'Toronto', region: 'ON', country: 'CA' }),
+    ]
+    const ids = (filters) => filterEvents(places, filters).map((event) => event.id)
+
+    expect(ids({ region: 'US-IL' })).toEqual(['a'])
+    expect(ids({ region: 'US-MO', city: 'Springfield' })).toEqual(['b'])
+    expect(ids({ city: 'Springfield' })).toEqual(['a', 'b'])
+    expect(ids({ region: 'US-ON' })).toEqual([])
+  })
+
+  it('narrows by language in any case, format, free and on sale, as the API does', () => {
+    const items = [
+      summary({ id: 'free', minPriceCents: 0, status: 'PUBLISHED', isOnline: false }),
+      summary({ id: 'paid', minPriceCents: 2_500, status: 'ON_SALE', isOnline: true }),
+    ]
+    const languagesOf = (event) => (event.id === 'free' ? ['Hindi'] : ['Gujarati'])
+    const ids = (filters) => filterEvents(items, filters, { languagesOf }).map((event) => event.id)
+
+    expect(ids({ language: 'hindi' })).toEqual(['free'])
+    expect(ids({ format: 'online' })).toEqual(['paid'])
+    expect(ids({ format: 'in_person' })).toEqual(['free'])
+    expect(ids({ free: true })).toEqual(['free'])
+    expect(ids({ onSale: true })).toEqual(['paid'])
+  })
+
+  it('reads days where each event is', () => {
+    const items = [
+      // 22:00 in Vancouver on Friday the 16th: the 17th in UTC.
+      summary({ id: 'west', startsAt: '2026-10-17T05:00:00.000Z', timezone: 'America/Vancouver' }),
+      summary({ id: 'east', startsAt: '2026-10-17T23:00:00.000Z', timezone: 'America/Toronto' }),
+    ]
+    const now = new Date('2026-10-16T18:00:00.000Z')
+    const ids = (filters) => filterEvents(items, filters, { now }).map((event) => event.id)
+
+    expect(ids({ when: 'today' })).toEqual(['west'])
+    expect(ids({ when: 'weekend' })).toEqual(['west', 'east'])
+    expect(ids({ when: 'dates', from: '2026-10-17', to: '2026-10-17' })).toEqual(['east'])
+    expect(ids({ when: 'dates', to: '2026-10-16' })).toEqual(['west'])
+    expect(ids({ when: 'dates' })).toEqual(['west', 'east'])
+  })
+
   it('requires every search term to match, across any searchable field', () => {
     expect(filterEvents(events, { q: 'garba ahmedabad' })).toHaveLength(1)
     expect(filterEvents(events, { q: 'garba london' })).toHaveLength(0)

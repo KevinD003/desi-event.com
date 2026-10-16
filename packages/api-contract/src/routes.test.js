@@ -529,6 +529,15 @@ describe('importing listed events (SPEC2-XI I)', () => {
     'eventImports.get': ['GET', '/v1/platform/imports/:runId', undefined, 200],
     'eventImports.apply': ['POST', '/v1/platform/imports/:runId/apply', 'MODERATION', 200],
     'eventImports.approve': ['POST', '/v1/platform/imports/:runId/approve', 'EVENT_PUBLISH', 200],
+    // Every imported event waiting, across runs, and approving them all
+    // (the owner, 2026-10-16: "Add all the events and publish all of them on live").
+    'eventImports.pending': ['GET', '/v1/platform/imports/pending', undefined, 200],
+    'eventImports.approvePending': [
+      'POST',
+      '/v1/platform/imports/approve-pending',
+      'EVENT_PUBLISH',
+      200,
+    ],
     'eventImports.targets': ['GET', '/v1/platform/import-targets', undefined, 200],
     'eventImports.reassign': [
       'POST',
@@ -538,7 +547,7 @@ describe('importing listed events (SPEC2-XI I)', () => {
     ],
   }
 
-  it('places the seven routes at their method and path, each held by event:import', () => {
+  it('places the nine routes at their method and path, each held by event:import', () => {
     const declared = apiRoutes.filter((route) => route.id.startsWith('eventImports.'))
 
     expect(declared.map((route) => route.id).sort()).toEqual(Object.keys(EXPECTED).sort())
@@ -591,7 +600,13 @@ describe('importing listed events (SPEC2-XI I)', () => {
     // Apply refuses a run applied or expired; approve refuses a run not
     // applied (`NOT_EDITABLE`); reassign refuses an event not imported or a
     // target not eligible.
-    for (const id of ['eventImports.apply', 'eventImports.approve', 'eventImports.reassign']) {
+    // Approving every pending event refuses a list that changed since it was read.
+    for (const id of [
+      'eventImports.apply',
+      'eventImports.approve',
+      'eventImports.approvePending',
+      'eventImports.reassign',
+    ]) {
       expect(
         routeById(id).errors.map((error) => error.status),
         id,

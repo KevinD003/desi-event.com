@@ -46,6 +46,7 @@
     "bundle:scan": "node scripts/scan-browser-bundle.mjs",
     "manifest:emit": "pnpm --filter @desi-event/api-contract run manifest:emit",
     "import:events": "node apps/api/scripts/import-events.mjs",
+    "import:events:all": "node apps/api/scripts/import-events-all.mjs",
     "test:e2e:refusals": "pnpm --filter @desi-event/web run test:e2e:refusals",
     "verify:tests:fresh": "node scripts/verify-tests-fresh.mjs",
     "skips:check": "node scripts/check-skipped-tests.mjs",

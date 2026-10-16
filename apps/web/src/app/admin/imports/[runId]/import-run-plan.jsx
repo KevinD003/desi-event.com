@@ -75,7 +75,7 @@ const PUBLIC = new Set([
  * Whether "Approve and publish" can act on a row's event.
  *
  * @param {object} row A run row.
- * @returns {boolean} True for an event of this run, still held for import, waiting for review, approved, published with none of its imported ticket types on sale yet, or (an older run) published with pictures waiting.
+ * @returns {boolean} True for an event of this run, still held for import, waiting for review, approved, published with an imported ticket type still waiting to go on sale, or (an older run) published with pictures waiting.
  */
 export function approvable(row) {
   const event = row.event
@@ -83,13 +83,11 @@ export function approvable(row) {
   if (!event || !event.inThisRun || event.reassigned) return false
   if (event.status === 'REVIEW_PENDING' || event.status === 'APPROVED') return true
 
-  // Published, with tickets the import made and none of them on sale: approving
-  // puts them on sale.
-  if (
-    event.status === 'PUBLISHED' &&
-    event.ticketTypes?.imported > 0 &&
-    event.ticketTypes?.onSale === 0
-  ) {
+  // Published, with a ticket type the import made still waiting (a DRAFT):
+  // approving puts it on sale. One whose imported tiers are all closed, sold
+  // out on the listing, has nothing to put on sale, and the API refuses it;
+  // it used to be ticked in every "Tick all" batch and refused every time.
+  if (event.status === 'PUBLISHED' && (event.ticketTypes?.waiting ?? 0) > 0) {
     return true
   }
 

@@ -22,6 +22,8 @@
  * @module lib/api
  */
 
+import { subdivisionName } from '@desi-event/schemas/subdivisions'
+
 import { filterEvents, sortByStartDate } from './catalog.js'
 import { paginate } from './search-params.js'
 import {
@@ -129,20 +131,60 @@ async function readOrFallback(key, read, fallback) {
  */
 
 /**
+ * The `GET /v1/events` query for the listing's filters.
+ *
+ * The URL carries a state as its whole code (`US-TX`); the API takes the
+ * country and the state apart. "When" is a named span the API reads where
+ * each event is, or the From and To days.
+ *
+ * @param {object} filters The listing's filters (`parseEventFilters`).
+ * @returns {object} Only the parameters that narrow anything.
+ */
+export function eventListQuery(filters = {}) {
+  const { category, region, city, q, language, when, from, to, format, free, onSale } = filters
+  const [country, subdivision] = typeof region === 'string' && region ? region.split('-') : []
+  const days = !when || when === 'dates'
+
+  return {
+    ...(category ? { category } : {}),
+    ...(country && subdivision ? { country, region: subdivision } : {}),
+    ...(city ? { city } : {}),
+    ...(q ? { q } : {}),
+    ...(language ? { language } : {}),
+    ...(when && !days ? { when } : {}),
+    ...(days && from ? { fromDate: from } : {}),
+    ...(days && to ? { toDate: to } : {}),
+    ...(format === 'online' ? { isOnline: true } : {}),
+    ...(format === 'in_person' ? { isOnline: false } : {}),
+    ...(free ? { free: true } : {}),
+    ...(onSale ? { onSale: true } : {}),
+  }
+}
+
+/**
  * Load a page of the event catalogue.
  *
- * @param {object} [filters] Listing filters.
+ * @param {object} [filters] Listing filters, as `parseEventFilters` reads them.
  * @param {string} [filters.category] An `EventCategory` enum member.
+ * @param {string} [filters.region] A state or province as `US-TX`.
  * @param {string} [filters.city] Exact city name.
  * @param {string} [filters.q] Free-text query.
+ * @param {string} [filters.language] A language.
+ * @param {string} [filters.when] `today`, `weekend`, `week`, `month` or `dates`.
+ * @param {string} [filters.from] The first day with `when=dates`, `YYYY-MM-DD`.
+ * @param {string} [filters.to] The last day with `when=dates`, `YYYY-MM-DD`.
+ * @param {string} [filters.format] `in_person` or `online`.
+ * @param {boolean} [filters.free] Only events whose "from" price is $0.
+ * @param {boolean} [filters.onSale] Only events on sale now.
  * @param {number} [filters.page] 1-based page number.
  * @param {number} [filters.perPage] Page size.
  * @param {object} [options] Overrides.
  * @param {object} [options.client] API client to use; defaults to the shared one.
+ * @param {Date|number} [options.now] When "today" is, for the fallback catalogue.
  * @returns {Promise<EventListResult>} The page, whether it came from the API or the fallback.
  */
 export async function loadEventList(filters = {}, options = {}) {
-  const { category, city, q, page = 1, perPage = 12 } = filters
+  const { page = 1, perPage = 12 } = filters
 
   return readOrFallback(
     'events.list',
@@ -157,9 +199,7 @@ export async function loadEventList(filters = {}, options = {}) {
           // paused and sold out. This asked for PUBLISHED alone, which after
           // the lifecycle meant an event vanished from discovery the moment
           // its organiser opened sales.
-          ...(category ? { category } : {}),
-          ...(city ? { city } : {}),
-          ...(q ? { q } : {}),
+          ...eventListQuery(filters),
         },
         callOptions(),
       )
@@ -172,11 +212,11 @@ export async function loadEventList(filters = {}, options = {}) {
     },
     () => {
       const matching = sortByStartDate(
-        filterEvents(
-          sampleEventSummaries(),
-          { category, city, q },
-          { descriptionOf: (event) => findSampleEvent(event.slug)?.description ?? null },
-        ),
+        filterEvents(sampleEventSummaries(), filters, {
+          descriptionOf: (event) => findSampleEvent(event.slug)?.description ?? null,
+          languagesOf: (event) => findSampleEvent(event.slug)?.languages ?? [],
+          now: options.now,
+        }),
       )
       const { items, pagination } = paginate(matching, { page, perPage })
 
@@ -332,9 +372,50 @@ const FALLBACK_FACETS = Object.freeze({
   scope: { status: 'LISTED', total: 0 },
   categories: [],
   cities: [],
+  regions: [],
   languages: [],
   formats: [],
 })
+
+/**
+ * Fold sample summaries into `regions` facets, as `GET /v1/events/facets`
+ * would: by country, state and city, each state with its cities, highest
+ * count first.
+ *
+ * @param {object[]} events Event summaries carrying `country`, `region` and `city`.
+ * @returns {Array<{country: string, region: string, name: string, count: number, cities: Array<{value: string, count: number}>}>} The facets.
+ */
+export function regionFacets(events) {
+  const regions = new Map()
+
+  for (const event of events ?? []) {
+    if (!event?.city || !event.region || !event.country) continue
+
+    const key = `${event.country}-${event.region}`
+    const entry = regions.get(key) ?? {
+      country: event.country,
+      region: event.region,
+      name: subdivisionName(event.country, event.region),
+      count: 0,
+      cities: new Map(),
+    }
+
+    entry.count += 1
+    entry.cities.set(event.city, (entry.cities.get(event.city) ?? 0) + 1)
+    regions.set(key, entry)
+  }
+
+  const byCode = (entry) => `${entry.country}-${entry.region}`
+
+  return [...regions.values()]
+    .map((entry) => ({
+      ...entry,
+      cities: [...entry.cities.entries()]
+        .map(([value, count]) => ({ value, count }))
+        .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value)),
+    }))
+    .sort((a, b) => b.count - a.count || byCode(a).localeCompare(byCode(b)))
+}
 
 /**
  * Load filter facets, counted over the complete catalogue.
@@ -378,6 +459,9 @@ export async function loadCatalogueFacets(options = {}) {
           scope: { status: 'LISTED', total: events.length },
           categories: count(events.map((event) => event.category)),
           cities: count(events.map((event) => event.city).filter(Boolean)),
+          regions: regionFacets(events),
+          languages: count(events.flatMap((event) => findSampleEvent(event.slug)?.languages ?? [])),
+          formats: count(events.map((event) => (event.isOnline ? 'online' : 'in_person'))),
         },
         usedFallback: true,
       }

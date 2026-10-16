@@ -44,6 +44,17 @@ const TIE_CITIES = Object.freeze([`${TAG}Xtie`, `${TAG}_tie`, `${TAG}atie`])
 /** Events per tie city: equal, so only the value can order them. */
 const TIE_EVENTS_PER_CITY = 2
 
+/**
+ * One city name in two states. The flat `cities` list merges them, which is
+ * why `regions` exists: Springfield, Illinois and Springfield, Missouri are
+ * different places to go. The Missouri venue's region is stored in lower case
+ * with a space, as an organiser might type it, and is still counted as `MO`.
+ */
+const SHARED_CITY = `${TAG}Springfield`
+
+/** Events at the Illinois and the Missouri venue: unequal, so the counts tell them apart. */
+const SPRINGFIELD_EVENTS = Object.freeze({ IL: 3, MO: 2 })
+
 let prisma = null
 let reachable = false
 let organizationId = null
@@ -124,6 +135,27 @@ beforeAll(async () => {
     ),
   )
 
+  const springfields = await Promise.all(
+    [
+      { key: 'IL', region: 'IL' },
+      { key: 'MO', region: ' mo' },
+    ].map(({ key, region }) =>
+      prisma.venue.upsert({
+        where: { id: `${TAG}venuespring${key}0000000000000` },
+        update: {},
+        create: {
+          id: `${TAG}venuespring${key}0000000000000`,
+          name: `Spring Hall ${key}`,
+          addressLine1: '5 Spring Road',
+          city: SHARED_CITY,
+          region,
+          postalCode: '62701',
+          country: 'US',
+        },
+      }),
+    ),
+  )
+
   const base = new Date('2030-01-01T00:00:00.000Z').getTime()
 
   for (let index = 0; index < EVENT_COUNT; index += 1) {
@@ -165,6 +197,33 @@ beforeAll(async () => {
           slug: `${TAG}-event-tie-${venueIndex}-${index}`,
           summary: 'Fixture',
           description: 'Fixture event for the facet tie-break.',
+          category: 'COMEDY',
+          status: 'PUBLISHED',
+          startsAt: new Date(base + day * 86_400_000),
+          endsAt: new Date(base + day * 86_400_000 + 7_200_000),
+          languages: ['Hindi'],
+          publishedAt: new Date(base),
+        },
+      })
+    }
+  }
+
+  for (const [venueIndex, venue] of springfields.entries()) {
+    const key = venueIndex === 0 ? 'IL' : 'MO'
+
+    for (let index = 0; index < SPRINGFIELD_EVENTS[key]; index += 1) {
+      const day = EVENT_COUNT + 20 + venueIndex * 5 + index
+
+      await prisma.event.upsert({
+        where: { slug: `${TAG}-event-spring-${key}-${index}` },
+        update: {},
+        create: {
+          organizationId,
+          venueId: venue.id,
+          title: `Facet Spring Event ${key}-${index}`,
+          slug: `${TAG}-event-spring-${key}-${index}`,
+          summary: 'Fixture',
+          description: 'Fixture event for a city name two states share.',
           category: 'COMEDY',
           status: 'PUBLISHED',
           startsAt: new Date(base + day * 86_400_000),
@@ -319,6 +378,83 @@ describe('facets cover the complete eligible set', () => {
     const restored = await prisma.event.findUnique({ where: { slug: `${TAG}-event-0` } })
 
     expect(restored.status).toBe('PUBLISHED')
+  })
+})
+
+describe('facets by state or province, each with its cities', () => {
+  it('keeps a city two states share apart, and counts it once in each', async () => {
+    if (!reachable) return
+
+    const facets = await loadEventFacets(prisma)
+    const illinois = facets.regions.find((entry) => entry.country === 'US' && entry.region === 'IL')
+    const missouri = facets.regions.find((entry) => entry.country === 'US' && entry.region === 'MO')
+
+    expect(illinois?.name).toBe('Illinois')
+    expect(missouri?.name).toBe('Missouri')
+    expect(illinois.cities.find((city) => city.value === SHARED_CITY)).toEqual({
+      value: SHARED_CITY,
+      count: SPRINGFIELD_EVENTS.IL,
+    })
+    // Stored as " mo", counted as MO.
+    expect(missouri.cities.find((city) => city.value === SHARED_CITY)).toEqual({
+      value: SHARED_CITY,
+      count: SPRINGFIELD_EVENTS.MO,
+    })
+    expect(facets.regions.some((entry) => entry.region === ' mo' || entry.region === 'mo')).toBe(
+      false,
+    )
+
+    // The flat list still merges them, as it always has.
+    expect(facets.cities.find((city) => city.value === SHARED_CITY)?.count).toBe(
+      SPRINGFIELD_EVENTS.IL + SPRINGFIELD_EVENTS.MO,
+    )
+  })
+
+  it('nests the province beyond the first page under its country, with its name', async () => {
+    if (!reachable) return
+
+    const facets = await loadEventFacets(prisma)
+    const ontario = facets.regions.find((entry) => entry.country === 'CA' && entry.region === 'ON')
+
+    expect(ontario?.name).toBe('Ontario')
+    expect(ontario.cities.find((city) => city.value === 'Lastchanceton')).toEqual({
+      value: 'Lastchanceton',
+      count: 5,
+    })
+  })
+
+  it('names a region it has no name for by its code', async () => {
+    if (!reachable) return
+
+    const facets = await loadEventFacets(prisma)
+    const maharashtra = facets.regions.find(
+      (entry) => entry.country === 'IN' && entry.region === 'MH',
+    )
+
+    expect(maharashtra?.name).toBe('MH')
+  })
+
+  it('makes each region the sum of its cities, and orders both deterministically', async () => {
+    if (!reachable) return
+
+    const facets = await loadEventFacets(prisma)
+    const byBytes = (a, b) => Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'))
+
+    for (const entry of facets.regions) {
+      expect(entry.count).toBe(entry.cities.reduce((sum, city) => sum + city.count, 0))
+      expect(entry.cities).toEqual(
+        [...entry.cities].sort((a, b) => b.count - a.count || byBytes(a.value, b.value)),
+      )
+    }
+    expect(facets.regions).toEqual(
+      [...facets.regions].sort(
+        (a, b) => b.count - a.count || byBytes(a.country, b.country) || byBytes(a.region, b.region),
+      ),
+    )
+    // And every event with a venue is in exactly one region.
+    const inRegions = facets.regions.reduce((sum, entry) => sum + entry.count, 0)
+    const inCities = facets.cities.reduce((sum, city) => sum + city.count, 0)
+    expect(inRegions).toBe(inCities)
   })
 })
 
