@@ -1,7 +1,6 @@
 /**
- * The workspace front page says what each analytics destination is for: an
- * organisation's own visits and sales, and, for a platform administrator,
- * every event's visits.
+ * The workspace front page says what the account looks after, organisation
+ * by organisation, and leaves the way around the workspace to the rail.
  *
  * @module app/organizer/page.test
  */
@@ -28,42 +27,57 @@ async function renderFor(session) {
   render(await OrganizerHomePage())
 }
 
+/** An owner of one organisation. */
+const OWNER = {
+  user: { id: 'u1' },
+  capabilities: [],
+  memberships: [
+    {
+      organizationId: 'corgalpha00000000000001',
+      organizationName: 'Alpha Garba',
+      role: 'OWNER',
+      capabilities: ['report:view', 'event:create', 'ticket:check_in'],
+    },
+  ],
+}
+
 describe('the workspace front page', () => {
-  it('says analytics covers who visited each event page, for an owner', async () => {
-    await renderFor({
-      user: { id: 'u1' },
-      capabilities: [],
-      memberships: [
-        {
-          organizationId: 'corgalpha00000000000001',
-          organizationName: 'Alpha Garba',
-          role: 'OWNER',
-          capabilities: ['report:view', 'event:create'],
-        },
-      ],
-    })
+  it('says, per organisation, what this account holds there, in words', async () => {
+    await renderFor(OWNER)
 
-    const card = screen.getByRole('link', { name: /^Analytics/u })
+    const section = screen.getByRole('region', { name: 'Your organisations' })
+    const held = within(section).getByRole('list', { name: 'What this role lets you do' })
 
-    expect(card).toHaveAttribute('href', '/analytics')
+    expect(within(section).getByText('Alpha Garba')).toBeInTheDocument()
+    expect(within(section).getByText('OWNER')).toBeInTheDocument()
     expect(
-      within(card).getByText(
-        'Who visited each event page, what sold, what is held and who came in.',
-      ),
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /Every event’s visits/u })).toBeNull()
+      within(held)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Create and edit events', 'Admit people at the door', 'See how events are selling'])
   })
 
-  it('offers a platform administrator every event’s visits, and says what it is', async () => {
+  it('repeats no menu: the rail beside it is the way around the workspace', async () => {
+    // The page used to end in a grid of link cards, one per rail entry, which
+    // with the rail and an area's tabs made three menus on one screen.
+    await renderFor(OWNER)
+
+    expect(screen.queryAllByRole('link')).toEqual([])
+    expect(screen.queryByRole('region', { name: 'Events and venues' })).toBeNull()
+  })
+
+  it('says where a platform administrator’s reach comes from when they belong to no organisation', async () => {
     await renderFor({
       user: { id: 'u2' },
       capabilities: [...PLATFORM_ROLE_CAPABILITIES.ADMIN],
       memberships: [],
     })
 
-    const card = screen.getByRole('link', { name: /Every event’s visits/u })
-
-    expect(card).toHaveAttribute('href', '/analytics/events')
-    expect(within(card).getByText('Visits to every event on the platform.')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'You are not a member of any organisation. What you can open here comes from a platform role.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryAllByRole('link')).toEqual([])
   })
 })

@@ -11,13 +11,15 @@
  * already carry. It describes what the account may be offered; the API still
  * decides every action.
  *
+ * It no longer repeats the rail. Its lower half used to be a grid of link
+ * cards, one per rail entry, which with the rail beside it and an area's tabs
+ * above made three menus on one screen; the rail is the way around, and
+ * this page is about what the account looks after.
+ *
  * @module app/organizer/page
  */
 
-import Link from 'next/link'
-
-import { LINK_PANEL, PageHeader, PANEL, Section } from '../../components/workspace-kit.jsx'
-import { workspaceGroups } from '../../lib/navigation.js'
+import { PageHeader, Section } from '../../components/workspace-kit.jsx'
 import { readSession } from '../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
@@ -45,30 +47,6 @@ const PLAIN_WORDS = Object.freeze([
 ])
 
 /**
- * What each destination is for, in a line, for the ones on this page.
- *
- * Words about the place, not promises about what is in it: a destination
- * card says what somebody goes there to do, and the page they land on says
- * what there is. A destination not listed here is drawn with its name alone.
- *
- * @type {Readonly<Record<string, string>>}
- */
-const PURPOSE = Object.freeze({
-  '/organizer/events': 'Drafts, reviews, publishing and sales, one event at a time.',
-  '/organizer/venues': 'Addresses, access and seating maps.',
-  '/organizer/check-in': 'Admit people at the door from a phone.',
-  '/organizer/team': 'Who is in the organisation, and in which role.',
-  '/analytics': 'Who visited each event page, what sold, what is held and who came in.',
-  '/analytics/events': 'Visits to every event on the platform.',
-  '/finance': 'Figures from the ledger, refunds and payout setup.',
-  '/operations': 'What the system could not finish on its own.',
-  '/operations/notifications': 'Messages waiting in the outbox, and what became of them.',
-  '/moderation/events': 'Events waiting for a moderator’s decision.',
-  '/privacy': 'Access and erasure requests, exports and holds.',
-  '/retention': 'What the retention rules would remove, rehearsed.',
-})
-
-/**
  * The workspace front page.
  *
  * @returns {Promise<JSX.Element>} The rendered page.
@@ -76,17 +54,13 @@ const PURPOSE = Object.freeze({
 export default async function OrganizerHomePage() {
   const session = await readSession()
   const memberships = session?.memberships ?? []
-  const groups = workspaceGroups(session).map((group) => ({
-    ...group,
-    items: group.items.filter((item) => item.href !== '/organizer'),
-  }))
 
   return (
     <div>
       <PageHeader
         eyebrow="Workspace"
         title="Organiser workspace"
-        description="What you look after, and where each part of it is done."
+        description="What you look after, and what your role lets you do in each organisation. The menu leads to each part of it."
       />
 
       <Section id="workspace-organisations" title="Your organisations" className="mt-10">
@@ -96,15 +70,15 @@ export default async function OrganizerHomePage() {
             role.
           </p>
         ) : (
-          <ul className="mt-4 grid gap-4 md:grid-cols-2">
+          <ul className="mt-4 divide-y divide-line border-y border-line">
             {memberships.map((membership) => {
               const held = PLAIN_WORDS.filter(([capability]) =>
                 (membership.capabilities ?? []).includes(capability),
               )
 
               return (
-                <li key={membership.organizationId} className={`p-5 ${PANEL}`}>
-                  <p className="font-display text-lg font-semibold break-words text-ink">
+                <li key={membership.organizationId} className="py-5">
+                  <p className="font-display text-title font-bold break-words text-ink">
                     {membership.organizationName ?? 'An organisation'}
                   </p>
                   <p className="mt-1 text-sm text-ink-muted">
@@ -131,39 +105,6 @@ export default async function OrganizerHomePage() {
           </ul>
         )}
       </Section>
-
-      {groups.map((group) =>
-        group.items.length > 0 ? (
-          <Section key={group.id} id={`workspace-${group.id}`} title={group.label}>
-            <ul className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {group.items.map((item) => (
-                <li key={item.href}>
-                  <Link href={item.href} className={`group ${LINK_PANEL}`}>
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="font-display text-lg font-semibold text-ink">
-                        {item.label}
-                      </span>
-                      <svg
-                        aria-hidden="true"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                        className="size-5 shrink-0 text-accent-strong transition-transform duration-(--duration-fast) ease-standard motion-safe:group-hover:translate-x-0.5"
-                      >
-                        <path d="M7.3 4.3a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L11.6 10 7.3 5.7a1 1 0 0 1 0-1.4Z" />
-                      </svg>
-                    </span>
-                    {PURPOSE[item.href] ? (
-                      <span className="mt-1 block text-sm text-ink-muted">
-                        {PURPOSE[item.href]}
-                      </span>
-                    ) : null}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </Section>
-        ) : null,
-      )}
     </div>
   )
 }
