@@ -126,9 +126,10 @@ export function analyticsTabs(session) {
  * Inviting organisers is held by `organizer:invite` (platform administrators
  * and super administrators), and so is editing, deleting and restoring every
  * organisation's events (`event:platform_edit`) and importing listed events
- * (`event:import`); changing platform roles and
- * putting people into organisations directly by `platform:admin` (super
- * administrators alone).
+ * (`event:import`); finding accounts and putting people into organisations
+ * directly by `platform:admin` (platform administrators and super
+ * administrators, ADR 0018), where only a super administrator is shown the
+ * platform-role change (`platform:role_manage`).
  * Each tab is offered only to somebody its page serves. The literals stay in
  * this server module; no client component imports it.
  *

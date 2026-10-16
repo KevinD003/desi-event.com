@@ -40,6 +40,17 @@
  * of that kind is 403 `POSTING_ROLE_NEEDS_PLATFORM`, decided again on locked
  * rows, and the database refuses a waiting team invitation for such a role.
  *
+ * And a seventh: **door access is given by invitation, for named events**
+ * (ADR 0019). An invitation for a door role (STAFF, SCANNER) carries the events
+ * it will admit at, stored as `InvitationScope` rows and copied into the
+ * member's `ScannerScope` rows by the transaction that accepts it. Whoever
+ * holds `team:role_manage` here (OWNER, ADMIN) may name any of the
+ * organisation's events; a MANAGER, who invites but does not manage roles, may
+ * name only events it is itself scoped to, so inviting is never a way to reach
+ * a door it cannot open. The platform-held organisation that holds imported
+ * events takes door scanners only, invited by a platform administrator
+ * (`platform:admin`), who is not a member of it.
+ *
  * @module @desi-event/api/routes/teams
  */
 
@@ -59,6 +70,7 @@ import {
   orgCapabilitiesFor,
   orgRoleFor,
   postsEvents,
+  requiresAdmissionScope,
   CAPABILITIES,
   can,
 } from '@desi-event/permissions'
@@ -79,6 +91,7 @@ import {
   forbidden,
   httpError,
   notFound,
+  unprocessable,
 } from '../lib/errors.js'
 import { assertNotLastOwner, lockMembership, setScannerScopes } from '../lib/memberships.js'
 import {
@@ -187,7 +200,10 @@ export const INVITATION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000
  * the code or its digest: the code exists only in the one response that minted
  * it, added beside this by the route, and the digest is nobody's business.
  *
- * @param {object} invitation The invitation row, with `invitedBy` included.
+ * `events` names the events a door role invited here will admit at (ADR
+ * 0019), so the inviter sees what was offered; empty for every other role.
+ *
+ * @param {object} invitation The invitation row, with {@link INVITATION_INCLUDE} included.
  * @param {'FULL'|'STEP_UP_REQUIRED'|'HIDDEN'} visibility How much of an address the caller may see.
  * @returns {object} The summary.
  */
@@ -201,7 +217,47 @@ export function toInvitationSummary(invitation, visibility) {
     expiresAt: invitation.expiresAt.toISOString(),
     createdAt: invitation.createdAt.toISOString(),
     deliveryMode: invitation.deliveryMode ?? null,
+    events: toDoorEvents((invitation.scopes ?? []).map((scope) => scope.event)),
   }
+}
+
+/**
+ * What every invitation read for a team response includes: the inviter, and
+ * the events its door role is scoped to, by id and title.
+ */
+export const INVITATION_INCLUDE = Object.freeze({
+  invitedBy: true,
+  scopes: { select: { event: { select: { id: true, title: true } } } },
+})
+
+/**
+ * Events by id and title, in a stable order: by title, then id.
+ *
+ * @param {Array<{id: string, title: string}|null|undefined>} events The events.
+ * @returns {Array<{id: string, title: string}>} The list.
+ */
+function toDoorEvents(events) {
+  return events
+    .filter(Boolean)
+    .map((event) => ({ id: event.id, title: event.title }))
+    .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id))
+}
+
+/**
+ * Whether this is the platform-held organisation and the caller holds
+ * `platform:admin` (ADMIN, SUPER_ADMIN).
+ *
+ * The one organisation nobody is a member of but its door scanners: imported
+ * events are run by the team at The Desi Events, and a platform administrator
+ * invites, rescopes and removes the scanners there without a membership of its
+ * own (ADR 0019). Only SCANNER — the database refuses every other role there.
+ *
+ * @param {object} actor The request actor.
+ * @param {{platformHeldSource?: string|null}} organization The organisation row.
+ * @returns {boolean} True when the caller runs this organisation's door team.
+ */
+function runsPlatformHeldDoor(actor, organization) {
+  return Boolean(organization?.platformHeldSource) && can(actor, CAPABILITIES.PLATFORM_ADMIN)
 }
 
 /**
@@ -262,11 +318,20 @@ export const HEIR_MUST_POST_EVENTS_SENTENCE =
  * create or publish events are never in it: those come from the team at
  * The Desi Events, so an owner can offer exactly FINANCE, STAFF, SCANNER and VIEWER.
  *
+ * The platform-held organisation is the exception: nobody is a member of it,
+ * and a platform administrator may offer SCANNER there and nothing else
+ * (ADR 0019).
+ *
  * @param {object} actor The request actor.
  * @param {string} organizationId Which organisation.
+ * @param {{platformHeldSource?: string|null}|null} [organization] The organisation row, when it may be platform-held.
  * @returns {string[]} Grantable roles, most senior first.
  */
-export function assignableRoles(actor, organizationId) {
+export function assignableRoles(actor, organizationId, organization = null) {
+  if (organization?.platformHeldSource) {
+    return runsPlatformHeldDoor(actor, organization) ? ['SCANNER'] : []
+  }
+
   const held = orgRoleFor(actor, organizationId)
 
   if (!held) return []
@@ -295,13 +360,23 @@ function postingRoleRefusal() {
  * that posts events only downwards, for somebody who already posts. It includes
  * the member's current role, so a screen can show it selected.
  *
+ * In the platform-held organisation a platform administrator may keep a
+ * scanner a scanner (to change its events), and nothing else.
+ *
  * @param {object} actor The request actor.
  * @param {string} organizationId Which organisation.
  * @param {{userId: string, role: string}} membership The member.
+ * @param {{platformHeldSource?: string|null}|null} [organization] The organisation row, when it may be platform-held.
  * @returns {string[]} The roles, most senior first.
  */
-export function roleChoicesFor(actor, organizationId, membership) {
+export function roleChoicesFor(actor, organizationId, membership, organization = null) {
   if (membership.userId === actor.id || membership.role === 'OWNER') return []
+
+  if (organization?.platformHeldSource) {
+    return runsPlatformHeldDoor(actor, organization) && membership.role === 'SCANNER'
+      ? ['SCANNER']
+      : []
+  }
 
   const held = orgRoleFor(actor, organizationId)
 
@@ -319,10 +394,19 @@ export function roleChoicesFor(actor, organizationId, membership) {
  * @param {string} organizationId Which organisation.
  * @param {string} fromRole The member's role now.
  * @param {string} toRole The role asked for.
+ * @param {{platformHeldSource?: string|null}|null} [organization] The organisation row, when it may be platform-held.
  * @returns {void}
  * @throws {Error} 403 `POSTING_ROLE_NEEDS_PLATFORM` for a refused move to a role that posts events, a 403 otherwise.
  */
-function assertMayMove(actor, organizationId, fromRole, toRole) {
+function assertMayMove(actor, organizationId, fromRole, toRole, organization = null) {
+  if (organization?.platformHeldSource) {
+    const scannerStays = fromRole === 'SCANNER' && toRole === 'SCANNER'
+
+    if (runsPlatformHeldDoor(actor, organization) && scannerStays) return
+
+    throw forbidden(PLATFORM_HELD_SCANNERS_ONLY)
+  }
+
   const held = orgRoleFor(actor, organizationId)
 
   if (held && canMoveOrgRole(held, fromRole, toRole)) return
@@ -341,18 +425,93 @@ function assertMayMove(actor, organizationId, fromRole, toRole) {
  * @param {object} actor The request actor.
  * @param {string} organizationId Which organisation.
  * @param {string} role The role being granted.
+ * @param {{platformHeldSource?: string|null}|null} [organization] The organisation row, when it may be platform-held.
  * @returns {void}
  * @throws {Error} 403 `POSTING_ROLE_NEEDS_PLATFORM` for a role that posts events; a 403 when the caller may not grant it.
  */
-function assertMayGrant(actor, organizationId, role) {
+function assertMayGrant(actor, organizationId, role, organization = null) {
   if (postsEvents(role)) throw postingRoleRefusal()
 
-  if (assignableRoles(actor, organizationId).includes(role)) return
+  const grantable = assignableRoles(actor, organizationId, organization)
+
+  if (grantable.includes(role)) return
+
+  if (organization?.platformHeldSource) throw forbidden(PLATFORM_HELD_SCANNERS_ONLY)
 
   throw forbidden(
     `Your role in this organisation cannot grant ${role}. You can grant: ` +
-      `${assignableRoles(actor, organizationId).join(', ') || 'no roles'}.`,
+      `${grantable.join(', ') || 'no roles'}.`,
   )
+}
+
+/** The refusal for anything but a platform administrator's door scanner in the platform-held organisation. */
+export const PLATFORM_HELD_SCANNERS_ONLY =
+  'This organisation holds imported events for the team at The Desi Events. Its only members are door scanners, invited by a platform administrator for its events.'
+
+/** The refusal for events on an invitation for a role that does not admit by event. */
+export const EVENTS_NEED_DOOR_ROLE_SENTENCE =
+  'Only a door role (staff or scanner) is invited for chosen events. Choose that role, or invite without events.'
+
+/**
+ * The events an invitation may scope its door role to, read and checked.
+ *
+ * Every id must be one of this organisation's events (422 otherwise), and the
+ * role must admit by event (422 otherwise). A caller who manages roles here
+ * through its own membership (`team:role_manage`: OWNER, ADMIN), or a platform
+ * administrator (`platform:admin`), may name any of them; anybody else who may
+ * invite — a MANAGER — only events its own membership is scoped to (403
+ * otherwise), so an invitation never opens a door its inviter cannot.
+ *
+ * @param {object} db A Prisma client or transaction client.
+ * @param {object} options Options.
+ * @param {object} options.actor The request actor.
+ * @param {object} options.organization The organisation row.
+ * @param {string} options.role The role the invitation offers.
+ * @param {string[]} options.eventIds The events asked for.
+ * @returns {Promise<Array<{id: string, title: string}>>} The events, checked.
+ * @throws {Error} A 422 or a 403, with nothing written.
+ */
+async function invitationEventsFor(db, { actor, organization, role, eventIds }) {
+  const wanted = [...new Set(eventIds ?? [])]
+
+  if (wanted.length === 0) return []
+
+  if (!requiresAdmissionScope(role)) throw unprocessable(EVENTS_NEED_DOOR_ROLE_SENTENCE)
+
+  const events = await db.event.findMany({
+    where: { id: { in: wanted }, organizationId: organization.id },
+    select: { id: true, title: true },
+  })
+
+  if (events.length !== wanted.length) {
+    throw unprocessable(
+      `${wanted.length - events.length} of the requested events are not events of this organisation. ` +
+        'Door access can only be given for one of its own events.',
+    )
+  }
+
+  const anyEvent =
+    orgCapabilitiesFor(actor, organization.id).includes(CAPABILITIES.TEAM_ROLE_MANAGE) ||
+    can(actor, CAPABILITIES.PLATFORM_ADMIN)
+
+  if (!anyEvent) {
+    const own = await db.scannerScope.findMany({
+      where: {
+        eventId: { in: wanted },
+        membership: { userId: actor.id, organizationId: organization.id },
+      },
+      select: { eventId: true },
+    })
+    const mine = new Set(own.map((scope) => scope.eventId))
+
+    if (wanted.some((eventId) => !mine.has(eventId))) {
+      throw forbidden(
+        'You can give door access only for the events you are scoped to yourself. Ask an owner or administrator for the others.',
+      )
+    }
+  }
+
+  return toDoorEvents(events)
 }
 
 /**
@@ -366,10 +525,17 @@ function assertMayGrant(actor, organizationId, role) {
  * @param {object} actor The request actor.
  * @param {string} organizationId Which organisation.
  * @param {string} targetRole The role the target currently holds.
+ * @param {{platformHeldSource?: string|null}|null} [organization] The organisation row, when it may be platform-held.
  * @returns {void}
  * @throws {Error} A 403 when the caller has no power over the target.
  */
-function assertMayActOn(actor, organizationId, targetRole) {
+function assertMayActOn(actor, organizationId, targetRole, organization = null) {
+  if (organization?.platformHeldSource) {
+    if (runsPlatformHeldDoor(actor, organization) && targetRole === 'SCANNER') return
+
+    throw forbidden(PLATFORM_HELD_SCANNERS_ONLY)
+  }
+
   const held = orgRoleFor(actor, organizationId)
 
   if (held && canAssignOrgRole(held, targetRole)) return
@@ -503,7 +669,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
         }),
         prisma.invitation.findMany({
           where: { organizationId: organization.id, status: 'PENDING' },
-          include: { invitedBy: true },
+          include: INVITATION_INCLUDE,
           orderBy: { createdAt: 'desc' },
         }),
       ])
@@ -534,12 +700,12 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
             joinedAt: membership.createdAt.toISOString(),
             self: membership.userId === request.actor.id,
             postsEvents: postsEvents(membership.role),
-            roleChoices: roleChoicesFor(request.actor, organization.id, membership),
+            roleChoices: roleChoicesFor(request.actor, organization.id, membership, organization),
           })),
           invitations: invitations.map((invitation) =>
             toInvitationSummary(invitation, emailVisibility),
           ),
-          assignableRoles: assignableRoles(request.actor, organization.id),
+          assignableRoles: assignableRoles(request.actor, organization.id, organization),
         },
       }
     },
@@ -551,7 +717,16 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
       const organization = await organizationFor(request, CAPABILITIES.TEAM_INVITE)
       const { email, role, eventIds = [] } = request.body
 
-      assertMayGrant(request.actor, organization.id, role)
+      assertMayGrant(request.actor, organization.id, role, organization)
+
+      // Read and checked before anything is written; written below, with the
+      // invitation, in one transaction.
+      const events = await invitationEventsFor(prisma, {
+        actor: request.actor,
+        organization,
+        role,
+        eventIds,
+      })
 
       const existing = await prisma.user.findUnique({ where: { email } })
 
@@ -605,7 +780,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
             })
           }
 
-          const created = await tx.invitation.create({
+          const issued = await tx.invitation.create({
             data: {
               organizationId: organization.id,
               email,
@@ -614,28 +789,29 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
               invitedById: request.actor.id,
               expiresAt: new Date(now.getTime() + INVITATION_LIFETIME_MS),
               deliveryMode: mode,
+              // The events the door role will admit at. There is no membership
+              // until the invitation is accepted, so they wait on the
+              // invitation and the acceptance copies them into its scopes.
+              scopes: { create: events.map((event) => ({ eventId: event.id })) },
             },
-            include: { invitedBy: true },
+            include: INVITATION_INCLUDE,
           })
 
-          // The scopes cannot be attached yet — there is no membership until the
-          // invitation is accepted — so they ride along on the audit record and
-          // are applied by whoever sets the role next. How the code went out is
-          // recorded; the code and its digest never are.
+          // How the code went out is recorded; the code and its digest never are.
           await recordAudit(tx, {
             actorId: request.actor.id,
             action: AUDIT_ACTIONS.TEAM_INVITED,
             entityType: 'Invitation',
-            entityId: created.id,
+            entityId: issued.id,
             metadata: {
               organizationId: organization.id,
               role,
-              requestedEventIds: eventIds,
+              eventIds: events.map((event) => event.id),
               deliveryMode: mode,
             },
           })
 
-          return created
+          return issued
         })
       } catch (error) {
         if (isUniqueViolation(error)) throw conflict(CONCURRENT_INVITATION)
@@ -677,8 +853,20 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
 
       // Bounded exactly like issuing one: a MANAGER cannot obtain a code for an
       // ADMIN invitation an owner created, because holding the code is holding
-      // the invitation.
-      assertMayGrant(request.actor, organization.id, current.role)
+      // the invitation — nor for a scanner an owner invited for an event the
+      // MANAGER is not scoped to.
+      assertMayGrant(request.actor, organization.id, current.role, organization)
+
+      const scoped = await prisma.invitationScope.findMany({
+        where: { invitationId: current.id },
+        select: { eventId: true },
+      })
+      const events = await invitationEventsFor(prisma, {
+        actor: request.actor,
+        organization,
+        role: current.role,
+        eventIds: scoped.map((scope) => scope.eventId),
+      })
 
       const now = new Date()
       const { secret, hash } = issueToken()
@@ -716,8 +904,10 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
               invitedById: request.actor.id,
               expiresAt: new Date(now.getTime() + INVITATION_LIFETIME_MS),
               deliveryMode: mode,
+              // The same events as the invitation it replaces.
+              scopes: { create: events.map((event) => ({ eventId: event.id })) },
             },
-            include: { invitedBy: true },
+            include: INVITATION_INCLUDE,
           })
 
           await recordAudit(tx, {
@@ -729,6 +919,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
               organizationId: organization.id,
               role: created.role,
               supersedes: current.id,
+              eventIds: events.map((event) => event.id),
               deliveryMode: mode,
             },
           })
@@ -826,10 +1017,11 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
       const now = new Date()
 
       /**
-       * Spend the invitation and join, in one transaction.
+       * Spend the invitation and join, in one transaction, with the door
+       * scopes it carries.
        *
        * @param {object} tx The transaction client.
-       * @returns {Promise<{membership: object, created: boolean, siblingsRevoked: number}>} What happened.
+       * @returns {Promise<{membership: object, created: boolean, siblingsRevoked: number, events: Array<{id: string, title: string}>}>} What happened.
        */
       const join = async (tx) => {
         // Conditional on PENDING: two simultaneous acceptances both read a
@@ -870,6 +1062,30 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
             },
           }))
 
+        // The events the invitation named become the new member's door
+        // scopes, in the transaction that creates the membership (ADR 0019).
+        // Read here, inside it, and only those still the organisation's. An
+        // existing membership is left alone, scopes included.
+        const scoped =
+          !already && requiresAdmissionScope(joined.role)
+            ? await tx.invitationScope.findMany({
+                where: {
+                  invitationId: invitation.id,
+                  event: { organizationId: invitation.organizationId },
+                },
+                select: { event: { select: { id: true, title: true } } },
+              })
+            : []
+        const events = toDoorEvents(scoped.map((scope) => scope.event))
+
+        if (events.length > 0) {
+          await setScannerScopes(tx, {
+            membership: joined,
+            eventIds: events.map((event) => event.id),
+            organizationId: invitation.organizationId,
+          })
+        }
+
         // Finding NF-10: the caller now holds authority their other sessions
         // were not opened under. They end in the transaction that granted it.
         const revoked = already ? 0 : await revokeOtherSessionsOf(tx, request, now)
@@ -882,18 +1098,19 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
           metadata: {
             organizationId: invitation.organizationId,
             role: joined.role,
+            scopedEventIds: events.map((event) => event.id),
             siblingsRevoked: revoked,
           },
         })
 
-        return { membership: joined, created: !already, siblingsRevoked: revoked }
+        return { membership: joined, created: !already, siblingsRevoked: revoked, events }
       }
 
-      // A super administrator's direct grant can add this account to the same
+      // A platform administrator's direct grant can add this account to the same
       // organisation at the same moment. The database refuses the second
       // membership; the whole acceptance rolls back — the code stays usable —
       // and the caller is told why rather than handed a server error.
-      const { membership, created, siblingsRevoked } = await prisma
+      const { membership, created, siblingsRevoked, events } = await prisma
         .$transaction(join)
         .catch((error) => {
           if (isUniqueViolation(error)) {
@@ -927,6 +1144,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
           organizationName: invitation.organization.name,
           role: membership.role,
           joined: created,
+          events,
           session: { mfaRequired: session.mfaRequired, mfaEnrolled: session.mfaEnrolled },
         },
       }
@@ -991,8 +1209,8 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
       // Answered from the committed row first, so a plain refusal opens no
       // transaction. The decision that counts is made again below, from the
       // row as it is once locked.
-      assertMayActOn(request.actor, organization.id, membership.role)
-      assertMayMove(request.actor, organization.id, membership.role, role)
+      assertMayActOn(request.actor, organization.id, membership.role, organization)
+      assertMayMove(request.actor, organization.id, membership.role, role, organization)
 
       await prisma.$transaction(async (tx) => {
         // Locked, then read again: an ownership transfer that committed since
@@ -1001,10 +1219,10 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
 
         if (!current) throw notFound('No such member.')
 
-        assertMayActOn(request.actor, organization.id, current.role)
+        assertMayActOn(request.actor, organization.id, current.role, organization)
         // Decided again from the locked row: a move that was downwards when
         // read may not be once another change has landed.
-        assertMayMove(request.actor, organization.id, current.role, role)
+        assertMayMove(request.actor, organization.id, current.role, role, organization)
 
         if (current.role === 'OWNER' && role !== 'OWNER') {
           // The owner rows are locked before they are counted. Counting alone,
@@ -1061,7 +1279,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
 
       // Answered from the committed row first; decided again below from the
       // locked one.
-      assertMayActOn(request.actor, organization.id, membership.role)
+      assertMayActOn(request.actor, organization.id, membership.role, organization)
 
       await prisma.$transaction(async (tx) => {
         // The membership row is locked before its scopes are touched. A door
@@ -1075,7 +1293,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
 
         if (!current) throw notFound('No such member.')
 
-        assertMayActOn(request.actor, organization.id, current.role)
+        assertMayActOn(request.actor, organization.id, current.role, organization)
 
         // Locked, then counted — see `lib/memberships.js`.
         if (current.role === 'OWNER') await assertNotLastOwner(tx, organization.id)

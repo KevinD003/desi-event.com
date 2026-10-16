@@ -17,12 +17,14 @@ import {
   ALL_CAPABILITIES,
   ORG_ROLE_CAPABILITIES,
   PLATFORM_ROLE_CAPABILITIES,
+  SUPER_ADMIN_ONLY_CAPABILITIES as PERMISSIONS_SUPER_ADMIN_ONLY,
   can,
   orgCapabilitiesFor,
 } from '@desi-event/permissions'
 import { describe, expect, it } from 'vitest'
 
 import {
+  SUPER_ADMIN_ONLY_CAPABILITIES,
   connectOrganizations,
   membershipCan,
   membershipsWith,
@@ -88,13 +90,37 @@ describe('sessionCan', () => {
   })
 
   it('does not lend a platform role what neither it nor the membership holds', () => {
-    // A platform administrator who is a door scanner somewhere publishes
-    // nothing there: neither grant holds event:publish.
-    const { session } = person('ADMIN', [[ORG_A, 'SCANNER']])
+    // A moderator who is a door scanner somewhere publishes nothing there:
+    // neither grant holds event:publish.
+    const { session } = person('MODERATOR', [[ORG_A, 'SCANNER']])
 
     expect(sessionCan(session, 'event:publish', ORG_A)).toBe(false)
     expect(sessionCan(session, 'finance:view', ORG_A)).toBe(false)
     expect(sessionCan(session, 'ticket:check_in', ORG_A)).toBe(true)
+  })
+
+  it('gives a platform administrator everything but platform:role_manage, everywhere (ADR 0018)', () => {
+    const { session } = person('ADMIN')
+
+    for (const capability of ALL_CAPABILITIES) {
+      const expected = capability !== 'platform:role_manage'
+
+      expect(sessionCan(session, capability, ORG_A), capability).toBe(expected)
+      expect(sessionCan(session, capability), capability).toBe(expected)
+    }
+  })
+
+  it('never lets platform:admin stand in for platform:role_manage, even as an owner', () => {
+    const { session } = person('ADMIN', [[ORG_A, 'OWNER']])
+
+    expect(sessionCan(session, 'platform:role_manage')).toBe(false)
+    expect(sessionCan(session, 'platform:role_manage', ORG_A)).toBe(false)
+    expect(sessionCan(session, 'platform:role_manage', ORG_B)).toBe(false)
+    expect(sessionCan(person('SUPER_ADMIN').session, 'platform:role_manage')).toBe(true)
+  })
+
+  it('mirrors the permissions package’s super-admin-only list', () => {
+    expect([...SUPER_ADMIN_ONLY_CAPABILITIES]).toEqual([...PERMISSIONS_SUPER_ADMIN_ONLY])
   })
 
   it('gives a super administrator everything, everywhere', () => {

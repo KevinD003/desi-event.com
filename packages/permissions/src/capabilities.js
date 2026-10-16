@@ -255,8 +255,8 @@ export const CAPABILITIES = deepFreeze({
    * cannot be derived from a platform-wide count without asking a different
    * question of the database than the one the sweep asked.
    *
-   * Which platform role should carry it is an owner decision and has not been
-   * made: only `SUPER_ADMIN` holds it, through `ALL_CAPABILITIES`.
+   * Held by the platform administrators: ADMIN, and SUPER_ADMIN through
+   * `ALL_CAPABILITIES` (ADR 0018).
    */
   RETENTION_VIEW: 'retention:view',
   /**
@@ -314,13 +314,28 @@ export const CAPABILITIES = deepFreeze({
    *
    * Platform-only, and not `order:refund`: the organisation side of the same
    * decision is a membership granting `order:refund` (OWNER, ADMIN), checked
-   * on the membership alone. ADMIN cannot hold `order:refund` (its allow-list
-   * is an equality), so the team at The Desi Events needs its own name for it. Held by
-   * ADMIN, and by SUPER_ADMIN through ALL_CAPABILITIES; not by FINANCE_ADMIN,
-   * MODERATOR or SUPPORT.
+   * on the membership alone, so the platform side keeps its own name for it.
+   * Held by ADMIN, and by SUPER_ADMIN through ALL_CAPABILITIES; not by
+   * FINANCE_ADMIN, MODERATOR or SUPPORT.
    */
   VENUE_BOOKING_CANCEL: 'venue_booking:cancel',
+  /**
+   * Act on any organisation as the team at The Desi Events: the platform-wide
+   * bypass of organisation membership. Held by ADMIN, and by SUPER_ADMIN
+   * through ALL_CAPABILITIES (ADR 0018).
+   */
   PLATFORM_ADMIN: 'platform:admin',
+  /**
+   * Change anybody's platform role (`platform.setUserRole`): make and revoke
+   * administrators, super administrators and every narrower platform role.
+   *
+   * Platform-only, and the one thing a platform administrator (ADMIN) may not
+   * do (ADR 0018): it is listed in {@link SUPER_ADMIN_ONLY_CAPABILITIES}, so
+   * only SUPER_ADMIN holds it, through ALL_CAPABILITIES. The route also
+   * re-reads the actor's role inside its transaction and refuses anybody who is
+   * not an unsuspended SUPER_ADMIN, so this capability is not the only guard.
+   */
+  PLATFORM_ROLE_MANAGE: 'platform:role_manage',
 })
 
 /**
@@ -358,6 +373,7 @@ export const PLATFORM_ONLY_CAPABILITIES = deepFreeze([
   CAPABILITIES.PLATFORM_FEE_REFUND,
   CAPABILITIES.VENUE_BOOKING_CANCEL,
   CAPABILITIES.PLATFORM_ADMIN,
+  CAPABILITIES.PLATFORM_ROLE_MANAGE,
 ])
 
 /**
@@ -388,7 +404,8 @@ export const ORG_ROLE_ORDER = deepFreeze([
  * Phase 1's single `ADMIN` became `SUPER_ADMIN`. The narrower roles exist so
  * that support, moderation, finance and platform administration work does not
  * require the key to everything. Today's `ADMIN` is the platform administrator
- * (see {@link PLATFORM_ADMINISTRATOR_CAPABILITIES}), not Phase 1's catch-all.
+ * (see {@link PLATFORM_ADMINISTRATOR_CAPABILITIES}): everything SUPER_ADMIN
+ * holds except changing platform roles (ADR 0018).
  *
  * @type {ReadonlyArray<string>}
  */
@@ -631,53 +648,48 @@ function resolveAll(grants, inherits) {
 export const ORG_ROLE_CAPABILITIES = deepFreeze(resolveAll(ORG_ROLE_GRANTS, ORG_ROLE_INHERITS))
 
 /**
- * Everything the platform administrator (`ADMIN`) holds, and nothing else.
+ * The capabilities only SUPER_ADMIN holds: the platform administrator (`ADMIN`)
+ * holds every capability except these (ADR 0018, the owner's decision of
+ * 2026-10-16: "Admin should be able to do all super admin has access. Only
+ * difference is that Super Admin can create, revoke the admin and all other").
  *
- * An allow-list rather than a list of exclusions: the role reviews events,
- * pictures and organisations, invites organisers, switches an event's website
- * link, and reads every event's figures, and a later edit that hands it one
- * more capability — a door, a ticket refund, an event of its own to publish —
- * has to change this list and its test on purpose. A reviewer who could also
- * write and publish events would be the self-review hole the review gate exists
- * to close, and one who could move an organiser's money or change platform
- * roles would be a second SUPER_ADMIN. {@link assertPlatformAdministratorBounds}
- * holds the role table to exactly this list when the module loads.
+ * Today that is changing platform roles (`platform:role_manage`) and nothing
+ * else. A capability added later that should also stay with SUPER_ADMIN must
+ * be listed here on purpose: {@link assertPlatformAdministratorBounds} holds
+ * ADMIN to exactly "everything but this list", so a new capability reaches
+ * ADMIN unless somebody decides otherwise here.
  *
- * `report:view` is platform-wide here, so `can(admin, 'report:view',
- * {organizationId})` answers yes for every organisation; the money on those
- * reports stays behind `finance:view`, which ADMIN does not hold, except one
- * order's booking-fee figures, read by reference to refund that fee
- * (`platform_fee:refund`).
+ * @type {ReadonlyArray<string>}
+ */
+export const SUPER_ADMIN_ONLY_CAPABILITIES = deepFreeze([CAPABILITIES.PLATFORM_ROLE_MANAGE].sort())
+
+const SUPER_ADMIN_ONLY_LOOKUP = new Set(SUPER_ADMIN_ONLY_CAPABILITIES)
+
+/**
+ * Everything the platform administrator (`ADMIN`) holds, and nothing else:
+ * {@link ALL_CAPABILITIES} minus {@link SUPER_ADMIN_ONLY_CAPABILITIES}.
  *
- * ADMIN edits posted events only, in audited sittings (`event:platform_edit`),
- * and deletes events (`event:platform_delete`), with the whole-order refunds
- * that requires: no amount, recipient or order is chosen. It imports listed
- * events onto the platform-held organisation (`event:import`). It sets the
- * booking fee and pay-at-the-venue switch of any event, makes referral codes
- * that waive the fee (ADR 0016), refunds one order's booking fee by hand
- * (A4), and cancels unpaid pay-at-the-venue tickets of any event, keeping
- * their booking fee (SPEC3-XI XU); it moves no organiser's money, refunds no
- * ticket price and holds no posting capability.
+ * Under the owner's hierarchy (super admin > admin > organizer > organizer
+ * manager > organizer staff > user, ADR 0018) the platform administrator does
+ * everything a super administrator does except make, change or revoke anybody's
+ * platform role. So ADMIN holds `platform:admin`, the bypass of organisation
+ * membership: it may publish, cancel, refund and edit any organisation's event,
+ * move an organiser's money, read every report with its money, admit people at
+ * any door on platform authority (ADR 0007, amended by ADR 0018), grant
+ * organisation memberships and merge venues.
+ *
+ * This supersedes in part ADR 0007 (SUPER_ADMIN was the only platform door
+ * role) and ADR 0010 (ADMIN reviewed events and could post none of its own).
+ * The review gate still holds for organisers; a platform administrator acting
+ * on platform authority is the team at The Desi Events, as SUPER_ADMIN always
+ * was. What keeps ADMIN below SUPER_ADMIN is `platform:role_manage`, the
+ * in-transaction database re-check on `platform.setUserRole`, and the
+ * last-super-admin guard.
  *
  * @type {ReadonlyArray<string>}
  */
 export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
-  [
-    CAPABILITIES.MODERATION_REVIEW,
-    CAPABILITIES.EVENT_VIEW_DRAFT,
-    CAPABILITIES.VENUE_MANAGE,
-    CAPABILITIES.ORGANIZER_INVITE,
-    CAPABILITIES.REPORT_VIEW,
-    CAPABILITIES.WEBSITE_REDIRECT_MANAGE,
-    CAPABILITIES.ANALYTICS_VIEW_ALL,
-    CAPABILITIES.EVENT_PLATFORM_EDIT,
-    CAPABILITIES.EVENT_PLATFORM_DELETE,
-    CAPABILITIES.EVENT_IMPORT,
-    CAPABILITIES.PAYMENT_TERMS_MANAGE,
-    CAPABILITIES.REFERRAL_CODE_MANAGE,
-    CAPABILITIES.PLATFORM_FEE_REFUND,
-    CAPABILITIES.VENUE_BOOKING_CANCEL,
-  ].sort(),
+  ALL_CAPABILITIES.filter((capability) => !SUPER_ADMIN_ONLY_LOOKUP.has(capability)),
 )
 
 /**
@@ -692,11 +704,8 @@ export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
  * The narrow staff roles exist so that the common platform jobs do not need
  * `SUPER_ADMIN`. A moderator cannot refund; a finance administrator cannot
  * approve an event; support can read an order and change nothing; a platform
- * administrator reviews, invites organisers, switches website links, edits and
- * deletes posted events and imports listed ones, sets booking fees and paying
- * at the venue, makes referral codes and cancels unpaid pay-at-the-venue
- * tickets, and cannot change anybody's platform role, move an organiser's money
- * or admit anybody at a door. MODERATOR, SUPPORT and FINANCE_ADMIN hold none of
+ * administrator does everything SUPER_ADMIN does except change anybody's
+ * platform role (ADR 0018). MODERATOR, SUPPORT and FINANCE_ADMIN hold none of
  * the three platform event capabilities (`event:platform_edit`,
  * `event:platform_delete`, `event:import`), and none of `payment_terms:manage`,
  * `referral_code:manage` or `venue_booking:cancel`; FINANCE_ADMIN refunds one
@@ -730,11 +739,16 @@ export const PLATFORM_ROLE_CAPABILITIES = deepFreeze({
 
 /**
  * Throw unless the platform administrator's capabilities are exactly
- * {@link PLATFORM_ADMINISTRATOR_CAPABILITIES}: nothing missing, nothing extra.
+ * {@link PLATFORM_ADMINISTRATOR_CAPABILITIES} (every capability but
+ * {@link SUPER_ADMIN_ONLY_CAPABILITIES}): nothing missing, nothing extra, and
+ * none of the super-admin-only capabilities in particular.
  *
- * An equality rather than a check for a few forbidden names, so nothing is
- * added silently: a capability invented next year is outside the list until
- * somebody puts it there.
+ * An equality rather than a check for a few forbidden names, so a capability
+ * that should stay with SUPER_ADMIN has to be listed in
+ * SUPER_ADMIN_ONLY_CAPABILITIES on purpose, and a table that hands ADMIN
+ * `platform:role_manage` fails the process that loads it. It also requires
+ * SUPER_ADMIN to hold every super-admin-only capability, so the role that can
+ * change platform roles never disappears from the table.
  *
  * @param {Record<string, ReadonlyArray<string>>} table A platform role table.
  * @returns {Record<string, ReadonlyArray<string>>} The same table, when it holds.
@@ -742,6 +756,14 @@ export const PLATFORM_ROLE_CAPABILITIES = deepFreeze({
  */
 export function assertPlatformAdministratorBounds(table) {
   const held = new Set(table?.ADMIN ?? [])
+  const forbidden = SUPER_ADMIN_ONLY_CAPABILITIES.filter((capability) => held.has(capability))
+
+  if (forbidden.length > 0) {
+    throw new Error(
+      `The platform administrator (ADMIN) must never hold a super-admin-only capability; it holds ${forbidden.join(', ')}`,
+    )
+  }
+
   const allowed = new Set(PLATFORM_ADMINISTRATOR_CAPABILITIES)
   const extra = [...held].filter((capability) => !allowed.has(capability)).sort()
   const missing = [...allowed].filter((capability) => !held.has(capability)).sort()
@@ -751,6 +773,17 @@ export function assertPlatformAdministratorBounds(table) {
       'The platform administrator (ADMIN) must hold exactly PLATFORM_ADMINISTRATOR_CAPABILITIES' +
         `${extra.length ? `; it also holds ${extra.join(', ')}` : ''}` +
         `${missing.length ? `; it lacks ${missing.join(', ')}` : ''}`,
+    )
+  }
+
+  const superHeld = new Set(table?.SUPER_ADMIN ?? [])
+  const superMissing = SUPER_ADMIN_ONLY_CAPABILITIES.filter(
+    (capability) => !superHeld.has(capability),
+  )
+
+  if (superMissing.length > 0) {
+    throw new Error(
+      `SUPER_ADMIN must hold every super-admin-only capability; it lacks ${superMissing.join(', ')}`,
     )
   }
 

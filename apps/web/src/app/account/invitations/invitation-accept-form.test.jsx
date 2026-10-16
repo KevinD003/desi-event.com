@@ -125,6 +125,54 @@ describe('the invitation accept form', () => {
     expect(refresh).toHaveBeenCalled()
   })
 
+  it('names the events a door role now admits at, and links to the door (ADR 0019)', async () => {
+    const user = userEvent.setup()
+    const body = joined({ mfaRequired: false, mfaEnrolled: false })
+
+    body.data.role = 'SCANNER'
+    body.data.events = [
+      { id: 'evt00000000000000000001', title: 'Diwali Mela' },
+      { id: 'evt00000000000000000002', title: 'Garba Night' },
+    ]
+    apiFetch.mockResolvedValue(answer(200, body))
+
+    render(<InvitationAcceptForm />)
+
+    await user.type(screen.getByLabelText(/Invitation code/u), CODE)
+    await user.click(screen.getByRole('button', { name: 'Join the organisation' }))
+
+    expect(await screen.findByText('You may admit people at:')).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'Diwali Mela',
+      'Garba Night',
+    ])
+    expect(screen.getByRole('link', { name: 'Open the door' })).toHaveAttribute(
+      'href',
+      '/organizer/check-in',
+    )
+  })
+
+  it('says a door role invited for no events admits nobody until an owner chooses its events', async () => {
+    const user = userEvent.setup()
+    const body = joined({ mfaRequired: false, mfaEnrolled: false })
+
+    body.data.role = 'SCANNER'
+    body.data.events = []
+    apiFetch.mockResolvedValue(answer(200, body))
+
+    render(<InvitationAcceptForm />)
+
+    await user.type(screen.getByLabelText(/Invitation code/u), CODE)
+    await user.click(screen.getByRole('button', { name: 'Join the organisation' }))
+
+    expect(
+      await screen.findByText(
+        'You admit nobody at the door until an owner or administrator chooses your events.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open the workspace' })).toBeInTheDocument()
+  })
+
   it('sends a newly privileged account to set up two-step sign-in', async () => {
     const user = userEvent.setup()
 

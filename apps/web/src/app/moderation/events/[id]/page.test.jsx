@@ -396,7 +396,9 @@ describe('an import the platform-held organisation holds (SPEC2-XI O16)', () => 
     expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled()
     expect(screen.queryByText(/your reason goes to the organiser/i)).toBeNull()
     expect(
-      screen.getByText(/the organisation holding this event has no members, so it goes to nobody/i),
+      screen.getByText(
+        /the organisation holding this event has no members but door scanners, so it goes to nobody/i,
+      ),
     ).toBeVisible()
   })
 

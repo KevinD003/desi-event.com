@@ -49,13 +49,21 @@ vi.mock('../../../lib/session.js', async () => {
 vi.mock('../../../lib/workspace-api.js', async () => {
   const actual = await vi.importActual('../../../lib/workspace-api.js')
 
-  return { ...actual, getTeam: vi.fn(), listOrganizationEvents: vi.fn() }
+  return {
+    ...actual,
+    getTeam: vi.fn(),
+    listOrganizationEvents: vi.fn(),
+    getPlatformHeldOrganization: vi.fn(),
+  }
 })
 
-const { getTeam, listOrganizationEvents } = await import('../../../lib/workspace-api.js')
+const { getPlatformHeldOrganization, getTeam, listOrganizationEvents } =
+  await import('../../../lib/workspace-api.js')
 const {
   HEIR_SENTENCE,
   INVITE_DELIVERY_SENTENCES,
+  NO_PLATFORM_HELD_SENTENCE,
+  PLATFORM_HELD_TEAM_SENTENCE,
   POSTING_ROLES_SENTENCE,
   default: TeamPage,
 } = await import('./page.jsx')
@@ -152,6 +160,7 @@ function invitation(overrides = {}) {
     expiresAt: '2099-01-01T00:00:00.000Z',
     createdAt: '2026-09-01T00:00:00.000Z',
     deliveryMode: 'MANUAL',
+    events: [],
     ...overrides,
   }
 }
@@ -682,10 +691,115 @@ describe('door scopes', () => {
       },
     })
 
-    expect(screen.getByText('Admits nobody: no event named')).toBeInTheDocument()
-    expect(screen.getByText('Admits to: Garba Night')).toBeInTheDocument()
-    expect(screen.getByText('Any event of this organisation')).toBeInTheDocument()
-    expect(screen.getByText('Does not work a door')).toBeInTheDocument()
+    const members = within(screen.getByRole('table', { name: /^Members of/u }))
+
+    expect(members.getByText('Admits nobody: no event named')).toBeInTheDocument()
+    expect(members.getByText('Admits to: Garba Night')).toBeInTheDocument()
+    expect(members.getByText('Any event of this organisation')).toBeInTheDocument()
+    expect(members.getByText('Does not work a door')).toBeInTheDocument()
+  })
+
+  it('names the events each open invitation will scope its door role to (ADR 0019)', async () => {
+    await renderPage({
+      answer: team('HIDDEN', {
+        invitations: [
+          invitation({
+            id: 'inv-a',
+            role: 'SCANNER',
+            events: [{ id: 'e1', title: 'Garba Night' }],
+          }),
+          invitation({ id: 'inv-b', role: 'STAFF', events: [] }),
+          invitation({ id: 'inv-c', role: 'VIEWER', events: [] }),
+        ],
+      }),
+    })
+
+    const open = within(screen.getByRole('table', { name: 'Invitations waiting to be accepted' }))
+
+    expect(open.getByRole('columnheader', { name: 'Door events' })).toBeInTheDocument()
+    expect(open.getByText('Admits to: Garba Night')).toBeInTheDocument()
+    expect(open.getByText('Admits nobody: no event named')).toBeInTheDocument()
+    expect(open.getByText('Does not work a door')).toBeInTheDocument()
+  })
+
+  it('offers the upcoming events in the invite form, and a manager only its own', async () => {
+    const user = userEvent.setup()
+    const events = {
+      events: [
+        {
+          id: 'e-past',
+          title: 'Last Year',
+          status: 'COMPLETED',
+          startsAt: '2025-10-11T14:00:00.000Z',
+          endsAt: '2025-10-11T18:00:00.000Z',
+          timezone: 'Asia/Kolkata',
+        },
+        {
+          id: 'e-mine',
+          title: 'Garba Night',
+          status: 'ON_SALE',
+          startsAt: '2099-10-11T14:00:00.000Z',
+          endsAt: '2099-10-11T18:00:00.000Z',
+          timezone: 'Asia/Kolkata',
+        },
+        {
+          id: 'e-other',
+          title: 'Diwali Mela',
+          status: 'PUBLISHED',
+          startsAt: '2099-11-01T14:00:00.000Z',
+          endsAt: '2099-11-01T18:00:00.000Z',
+          timezone: 'Asia/Kolkata',
+        },
+      ],
+      pagination: null,
+    }
+
+    const { unmount } = await renderPage({ answer: team('HIDDEN'), events })
+    const invite = within(screen.getByRole('form', { name: 'Invite somebody' }))
+
+    await user.selectOptions(invite.getByLabelText(/Role/u), 'SCANNER')
+    expect(invite.getByRole('checkbox', { name: /Garba Night/u })).toBeInTheDocument()
+    expect(invite.getByRole('checkbox', { name: /Diwali Mela/u })).toBeInTheDocument()
+    expect(invite.queryByRole('checkbox', { name: /Last Year/u })).toBeNull()
+    unmount()
+
+    // A manager invites but does not manage roles: only the events it is
+    // scoped to itself are offered.
+    await renderPage({
+      as: session([
+        {
+          organizationId: ORG,
+          organizationName: 'Rangoli',
+          role: 'MANAGER',
+          capabilities: ['organization:view_members', 'team:invite'],
+        },
+      ]),
+      answer: team('HIDDEN', {
+        members: [
+          member({
+            id: 'mem-self',
+            role: 'MANAGER',
+            self: true,
+            postsEvents: true,
+            roleChoices: [],
+            scopedEventIds: ['e-mine'],
+          }),
+        ],
+        assignableRoles: ['STAFF', 'SCANNER', 'VIEWER'],
+      }),
+      events,
+    })
+
+    const managers = within(screen.getByRole('form', { name: 'Invite somebody' }))
+
+    await user.selectOptions(managers.getByLabelText(/Role/u), 'SCANNER')
+    expect(managers.getByRole('checkbox', { name: /Garba Night/u })).toBeInTheDocument()
+    expect(managers.queryByRole('checkbox', { name: /Diwali Mela/u })).toBeNull()
+    expect(
+      managers.getByText(
+        /You can give door access only for the events you are scoped to yourself/u,
+      ),
+    ).toBeInTheDocument()
   })
 
   it('says how many events the picker leaves out when the organisation has more than it lists', async () => {
@@ -724,7 +838,101 @@ describe('door scopes', () => {
     })
 
     expect(screen.getByText('Admits to 2 named events')).toBeInTheDocument()
-    expect(screen.getByText(/events could not be read/u)).toBeInTheDocument()
+    expect(screen.getByText(/door scopes are shown as a count/u)).toBeInTheDocument()
+  })
+})
+
+describe('the platform-held organisation (ADR 0019)', () => {
+  /** "The Desi Events", as the platform search finds it. */
+  const HELD = 'org00000000000000000009'
+
+  /**
+   * A platform administrator, a member of nothing.
+   *
+   * @returns {object} The session.
+   */
+  function platformAdministrator() {
+    return {
+      user: { displayName: 'Anil', role: 'ADMIN' },
+      capabilities: ['platform:admin', 'team:invite', 'team:role_manage', 'team:remove'],
+      memberships: [],
+      deliveryMode: 'MANUAL',
+    }
+  }
+
+  it('offers a platform administrator The Desi Events, to invite door scanners for its events', async () => {
+    const user = userEvent.setup()
+
+    getPlatformHeldOrganization.mockResolvedValue({
+      organizationId: HELD,
+      organizationName: 'The Desi Events',
+      platformHeld: true,
+    })
+
+    await renderPage({
+      as: platformAdministrator(),
+      answer: team('HIDDEN', {
+        members: [
+          member({
+            id: 'mem-scan',
+            displayName: 'Door One',
+            role: 'SCANNER',
+            roleChoices: ['SCANNER'],
+          }),
+        ],
+        invitations: [],
+        assignableRoles: ['SCANNER'],
+      }),
+      events: {
+        events: [
+          {
+            id: 'e-imported',
+            title: 'Toronto Garba',
+            status: 'ON_SALE',
+            startsAt: '2099-10-11T14:00:00.000Z',
+            endsAt: '2099-10-11T18:00:00.000Z',
+            timezone: 'America/Toronto',
+          },
+        ],
+        pagination: null,
+      },
+    })
+
+    expect(getTeam).toHaveBeenCalledWith(HELD)
+    expect(screen.getByText(PLATFORM_HELD_TEAM_SENTENCE)).toBeInTheDocument()
+    expect(screen.queryByText(POSTING_ROLES_SENTENCE)).toBeNull()
+
+    const invite = within(screen.getByRole('form', { name: 'Invite somebody' }))
+
+    expect(invite.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Door scanner',
+    ])
+    expect(invite.getByRole('checkbox', { name: /Toronto Garba/u })).toBeInTheDocument()
+
+    // A scanner there stays a scanner: changing its events is the one change.
+    await user.click(screen.getByRole('button', { name: 'Change Door One’s role' }))
+    // The invite form's and the opened panel's.
+    expect(screen.getAllByRole('checkbox', { name: /Toronto Garba/u })).toHaveLength(2)
+  })
+
+  it('tells a platform administrator with no organisation, before any import, that there is no team to run', async () => {
+    getPlatformHeldOrganization.mockResolvedValue(null)
+    readSession.mockResolvedValue(platformAdministrator())
+
+    render(await TeamPage({ searchParams: Promise.resolve({}) }))
+
+    expect(screen.getByText('No door team to run')).toBeInTheDocument()
+    expect(screen.getByText(NO_PLATFORM_HELD_SENTENCE)).toBeInTheDocument()
+    expect(getTeam).not.toHaveBeenCalledWith(undefined)
+  })
+
+  it('offers nobody without platform:admin the platform-held organisation', async () => {
+    getPlatformHeldOrganization.mockReset()
+
+    await renderPage({ answer: team('HIDDEN') })
+
+    expect(getPlatformHeldOrganization).not.toHaveBeenCalled()
+    expect(screen.queryByText(PLATFORM_HELD_TEAM_SENTENCE)).toBeNull()
   })
 })
 

@@ -2,10 +2,11 @@
  * Platform staff administration: finding an account, changing its platform
  * role, and putting somebody into an organisation directly.
  *
- * Every write here is held by `platform:admin` alone — a super administrator —
- * and needs a second factor confirmed within the `SECURITY_ROLE` window and a
- * written reason. A narrower capability would be a false promise: whoever can
- * grant `SUPER_ADMIN` effectively holds everything already.
+ * Changing a platform role is `platform:role_manage`, which only a super
+ * administrator holds; searching and granting an organisation membership are
+ * `platform:admin`, which the platform administrator (ADMIN) holds as well
+ * (ADR 0018). Both writes need a second factor confirmed within the
+ * `SECURITY_ROLE` window and a written reason.
  *
  * Searching for an account takes its query in a request body rather than the
  * URL. The query is usually an email address, and a URL is written to access
@@ -124,7 +125,7 @@ export const platformOrganizationSearchQuerySchema = paginationQuerySchema.exten
   q: z.preprocess(trimmed, withoutControlCharacters(z.string().min(2).max(120))),
 })
 
-/** One organisation in the super administrator's search. */
+/** One organisation in the platform administrators' search. */
 export const platformOrganizationSummarySchema = z.object({
   id: cuidSchema,
   name: nonEmptyStringSchema,
@@ -134,6 +135,12 @@ export const platformOrganizationSummarySchema = z.object({
   memberCount: countSchema,
   /** Zero means nobody can manage it, which is the case the direct grant exists for. */
   ownerCount: countSchema,
+  /**
+   * Whether this is the platform-held organisation that holds imported events
+   * ("The Desi Events"), whose only members are the door scanners a platform
+   * administrator invites (ADR 0019).
+   */
+  platformHeld: z.boolean(),
 })
 
 /** `GET /v1/platform/organizations`. */

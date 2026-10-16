@@ -403,8 +403,9 @@ sweeping it would delete evidence rather than a working copy.
 `GET /v1/operations/retention/sweeps`, and `/retention` in the browser. Requires
 `retention:view`, which is platform-only — no organisation role can carry it,
 because `RetentionSweep` has no `organizationId` and a sweep counts across every
-tenant at once. **Which platform role should hold it is an owner decision that
-has not been made**; only `SUPER_ADMIN` has it, through `ALL_CAPABILITIES`.
+tenant at once. The platform administrators hold it: `SUPER_ADMIN`, through
+`ALL_CAPABILITIES`, and `ADMIN`, which holds everything but changing platform
+roles (ADR 0018, the owner's decision of 2026-10-16).
 
 Each row carries its own approval status rather than the page stating it once, so
 a number lifted into a ticket or a screenshot brings `PROPOSED — REQUIRES

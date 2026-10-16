@@ -261,11 +261,11 @@ asked to set up two-step sign-in the first time it signs in.
 
 **Accounts for the team at The Desi Events:**
 
-| Account                             | Role          | What it is for                                                                                                                                                                            |
-| ----------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `admin@desi-event.example`          | `SUPER_ADMIN` | Everything, People and roles (`/admin/users`) included                                                                                                                                    |
-| `platform-admin@desi-event.example` | `ADMIN`       | The platform administrator: organiser invitations, event and picture review, website links, every event's visits, editing and deleting posted events, imports. Belongs to no organisation |
-| `moderator@desi-event.example`      | `MODERATOR`   | Event, picture and organisation reviews only                                                                                                                                              |
+| Account                             | Role          | What it is for                                                                                                                                                                  |
+| ----------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin@desi-event.example`          | `SUPER_ADMIN` | Everything, People and roles (`/admin/users`) included                                                                                                                          |
+| `platform-admin@desi-event.example` | `ADMIN`       | The platform administrator: everything a super administrator does except changing platform roles (ADR 0018), the door and People and roles included. Belongs to no organisation |
+| `moderator@desi-event.example`      | `MODERATOR`   | Event, picture and organisation reviews only                                                                                                                                    |
 
 **What else it seeds for the new screens (2026-10-06):**
 

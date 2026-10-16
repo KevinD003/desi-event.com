@@ -738,7 +738,7 @@ export async function runEventControlProbes(prisma, { probe, record }) {
     async (tx) => {
       const held = await platformHeld(tx)
       const membership = await tx.membership.findFirst({
-        where: { organizationId: organization.id },
+        where: { organizationId: organization.id, role: { not: 'SCANNER' } },
       })
 
       if (!membership) throw new Error('the seed left the first organisation without members')
@@ -766,6 +766,118 @@ export async function runEventControlProbes(prisma, { probe, record }) {
           expiresAt: new Date(Date.now() + DAY_MS),
         },
       })
+    },
+  )
+  // ADR 0019: door scanners, and nothing else, for imported events.
+
+  /**
+   * A team invitation, written directly.
+   *
+   * @param {object} tx A transaction client.
+   * @param {string} organizationId Where.
+   * @param {string} role Its role.
+   * @returns {Promise<object>} The invitation.
+   */
+  const invitationTo = (tx, organizationId, role) =>
+    tx.invitation.create({
+      data: {
+        organizationId,
+        email: `${unique('invitee')}@example.test`,
+        role,
+        tokenHash: digest(),
+        invitedById: user.id,
+        deliveryMode: 'MANUAL',
+        expiresAt: new Date(Date.now() + DAY_MS),
+      },
+    })
+
+  await check(
+    'a door scanner may join the platform-held organisation (ADR 0019)',
+    null,
+    async (tx) => {
+      const held = await platformHeld(tx)
+
+      await tx.membership.create({
+        data: { userId: user.id, organizationId: held.id, role: 'SCANNER' },
+      })
+    },
+  )
+  await check(
+    'a SCANNER team invitation into the platform-held organisation is accepted (ADR 0019)',
+    null,
+    async (tx) => {
+      const held = await platformHeld(tx)
+
+      await invitationTo(tx, held.id, 'SCANNER')
+    },
+  )
+  for (const role of ['ADMIN', 'MANAGER', 'STAFF']) {
+    await check(
+      `${role === 'ADMIN' ? 'an' : 'a'} ${role} membership in a platform-held organisation is refused`,
+      noMembers,
+      async (tx) => {
+        const held = await platformHeld(tx)
+
+        await tx.membership.create({ data: { userId: user.id, organizationId: held.id, role } })
+      },
+    )
+    await check(
+      `${role === 'ADMIN' ? 'an' : 'a'} ${role} team invitation into a platform-held organisation is refused`,
+      noMembers,
+      async (tx) => {
+        const held = await platformHeld(tx)
+
+        await invitationTo(tx, held.id, role)
+      },
+    )
+  }
+  await check(
+    'a scanner of the platform-held organisation cannot be moved to another role',
+    noMembers,
+    async (tx) => {
+      const held = await platformHeld(tx)
+      const scanner = await tx.membership.create({
+        data: { userId: user.id, organizationId: held.id, role: 'SCANNER' },
+      })
+
+      await tx.membership.update({ where: { id: scanner.id }, data: { role: 'STAFF' } })
+    },
+  )
+  await check(
+    'an invitation scope naming its own organisation’s event, for a scanner, is accepted',
+    null,
+    async (tx) => {
+      const event = await probeEvent(tx, organization.id)
+      const invitation = await invitationTo(tx, organization.id, 'SCANNER')
+
+      await tx.invitationScope.create({ data: { invitationId: invitation.id, eventId: event.id } })
+    },
+  )
+  await check(
+    'an invitation scope naming another organisation’s event is refused',
+    /invitation_scope_same_organization/,
+    async (tx) => {
+      const other = await tx.organization.create({
+        data: {
+          name: 'Probe other organisation',
+          slug: unique('other-org'),
+          contactEmail: `${unique('other')}@example.test`,
+        },
+      })
+      const event = await probeEvent(tx, other.id)
+      const invitation = await invitationTo(tx, organization.id, 'SCANNER')
+
+      await tx.invitationScope.create({ data: { invitationId: invitation.id, eventId: event.id } })
+    },
+  )
+  await check(
+    'an invitation scope on a role that does not admit by event is refused',
+    /invitation_scope_door_role/,
+    async (tx) => {
+      const event = await probeEvent(tx, organization.id)
+      const invitation = await invitationTo(tx, organization.id, 'VIEWER')
+
+      await tx.invitationScope.create({ data: { invitationId: invitation.id, eventId: event.id } })
     },
   )
   await check(

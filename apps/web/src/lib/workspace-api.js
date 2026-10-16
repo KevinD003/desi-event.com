@@ -65,6 +65,29 @@ function queryFrom(options, keys) {
   return text ? `?${text}` : ''
 }
 
+/** The web address the platform-held organisation is given, or begins with when made unique. */
+const PLATFORM_HELD_SLUG = 'the-desi-events'
+
+/**
+ * The platform-held organisation that holds imported events ("The Desi
+ * Events"), for a platform administrator to run its door team (ADR 0019).
+ *
+ * `GET /v1/platform/organizations?q=the-desi-events`, which only a session
+ * holding `platform:admin` may ask, and the one result the API marks
+ * `platformHeld`. Its web address is `the-desi-events`, or that address made
+ * unique when another organisation already had it, so the search finds it
+ * either way. Null when there is none: no import has been applied.
+ *
+ * @returns {Promise<{organizationId: string, organizationName: string, platformHeld: true}|null>} The organisation, or null.
+ */
+export async function getPlatformHeldOrganization() {
+  const query = new URLSearchParams({ q: PLATFORM_HELD_SLUG, perPage: '20' })
+  const body = await callApi(`/v1/platform/organizations?${query.toString()}`)
+  const held = (body.data ?? []).find((organization) => organization.platformHeld === true)
+
+  return held ? { organizationId: held.id, organizationName: held.name, platformHeld: true } : null
+}
+
 /**
  * The team of one organisation: members, open invitations, and the roles the
  * caller may grant.

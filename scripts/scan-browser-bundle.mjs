@@ -146,6 +146,8 @@ const FORBIDDEN = [
       ['capability: payout:manage', 'payout:manage'],
       ['capability: ledger:manage', 'ledger:manage'],
       ['capability: platform:admin', 'platform:admin'],
+      // ADR 0018: who may change platform roles, the super administrators' alone.
+      ['capability: platform:role_manage', 'platform:role_manage'],
       // SPEC2 §0.2: client components are given booleans, never these names.
       ['capability: organizer:invite', 'organizer:invite'],
       ['capability: website_redirect:manage', 'website_redirect:manage'],

@@ -2,11 +2,11 @@
  * Platform administration.
  *
  * Signed in, and on the team at The Desi Events as a platform administrator
- * (`organizer:invite`: inviting organisers) or a super administrator
- * (`platform:admin` as well: changing who can do what across the platform).
- * The shell refuses everybody else before a page is drawn; each page asks its
- * own question again, so a platform administrator who opens People and roles
- * is told it is not theirs; and the API refuses them all again on every
+ * or a super administrator (`platform:admin`: everything here, ADR 0018), or a
+ * finance administrator for the booking-fee refund page. The shell refuses
+ * everybody else before a page is drawn; each page asks its own question
+ * again, so only a super administrator is shown People and roles' platform-role
+ * change (`platform:role_manage`); and the API refuses them all again on every
  * request, with a recent second factor demanded for every change.
  *
  * `noindex` on the whole area: none of it is public.

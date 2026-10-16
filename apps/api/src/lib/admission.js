@@ -37,16 +37,17 @@
  * revocation racing the confirmation waits for it rather than slipping
  * underneath.
  *
- * A platform super administrator admits at any event on a third authority,
- * `PLATFORM_ROLE` (ADR 0007), and only when no membership gives it one: a
- * super administrator who is also an event's organiser is recorded as that.
+ * A platform administrator (ADMIN) or super administrator admits at any event
+ * on a third authority, `PLATFORM_ROLE` (ADR 0007, amended by ADR 0018), and
+ * only when no membership gives it one: one who is also an event's organiser
+ * is recorded as that.
  * The platform role is read from the `User` row — per request for a preview,
  * and again inside the confirming transaction together with `suspendedAt` — so
  * a demotion between preview and confirmation refuses the confirmation. Every
  * platform lookup and admission also writes `ticket.admission_platform_authority`
- * on the Event, so the organisation's own record shows it. SUPPORT, MODERATOR,
- * FINANCE_ADMIN and ADMIN (the platform administrator, who reviews events and
- * invites organisers) admit nobody, and a refused attempt is audited.
+ * on the Event, naming which platform role acted, so the organisation's own
+ * record shows it. SUPPORT, MODERATOR and FINANCE_ADMIN admit nobody, and a
+ * refused attempt is audited.
  *
  * ## One lock order for every confirmation (SPEC3 §9.3, SPEC3-XI §2)
  *
@@ -430,11 +431,12 @@ async function resolve(db, presentation) {
  * Whether an actor holds door authority anywhere at all.
  *
  * The cheapest refusal, and one that reveals nothing about any ticket: it is a
- * statement about the caller. A platform super administrator holds it
- * everywhere; every other platform role holds it only through a membership.
+ * statement about the caller. A platform administrator (ADMIN) or super
+ * administrator holds it everywhere; every other platform role holds it only
+ * through a membership.
  *
  * @param {object} actor The request actor.
- * @returns {boolean} True for a super administrator, or when some membership carries `ticket:check_in`.
+ * @returns {boolean} True for a platform door role, or when some membership carries `ticket:check_in`.
  */
 export function holdsDoorAuthority(actor) {
   if (platformAdmissionAuthorityFor(actor?.role)) return true
@@ -448,7 +450,7 @@ export function holdsDoorAuthority(actor) {
  * Refuse, before any lookup, a caller who could not admit anybody.
  *
  * A platform role that holds capabilities but not door authority — SUPPORT,
- * MODERATOR, FINANCE_ADMIN, ADMIN — is refused like anybody else, and, because
+ * MODERATOR, FINANCE_ADMIN — is refused like anybody else, and, because
  * somebody with platform powers trying the door is worth knowing about, the
  * refusal is written to the audit log against the account.
  *
@@ -526,8 +528,8 @@ export async function readAdmissionAuthority(
 }
 
 /**
- * Record, on the event, that a platform super administrator used its own
- * authority at this door.
+ * Record, on the event, that a platform administrator (ADMIN) or super
+ * administrator used its own authority at this door, and which of the two.
  *
  * On the Event rather than the ticket, so an organisation reading its event's
  * record sees every platform lookup and admission in one place. Ids, the
@@ -535,7 +537,8 @@ export async function readAdmissionAuthority(
  *
  * @param {object} db A Prisma client or transaction client.
  * @param {object} options Options.
- * @param {string} options.actorId The super administrator.
+ * @param {string} options.actorId The platform administrator.
+ * @param {string} options.role Its platform role, from the authority (ADMIN or SUPER_ADMIN).
  * @param {string} options.eventId The event.
  * @param {string} options.organizationId Its organisation.
  * @param {'preview'|'check_in'|'group_preview'|'group_check_in'} options.operation What they did.
@@ -545,14 +548,21 @@ export async function readAdmissionAuthority(
  */
 export async function recordPlatformAuthorityUse(
   db,
-  { actorId, eventId, organizationId, operation, subject, outcome },
+  { actorId, role, eventId, organizationId, operation, subject, outcome },
 ) {
   await recordAudit(db, {
     action: AUDIT_ACTIONS.TICKET_ADMISSION_PLATFORM_AUTHORITY,
     entityType: 'Event',
     entityId: eventId,
     actorId,
-    metadata: { operation, ...subject, organizationId, outcome, authority: 'PLATFORM_ROLE' },
+    metadata: {
+      operation,
+      ...subject,
+      organizationId,
+      outcome,
+      authority: 'PLATFORM_ROLE',
+      role,
+    },
   })
 }
 
@@ -1129,6 +1139,7 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
   if (authority.authority === 'PLATFORM_ROLE') {
     await recordPlatformAuthorityUse(prisma, {
       actorId: actor.id,
+      role: authority.role,
       eventId: event.id,
       organizationId: event.organizationId,
       operation: 'preview',
@@ -1451,7 +1462,7 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
   await tx.$queryRaw`SELECT "id" FROM "Ticket" WHERE "id" = ${claims.t} FOR UPDATE`
 
   // The caller's platform role and suspension, read now rather than trusted
-  // from the request: a super administrator demoted, or anybody suspended,
+  // from the request: a platform administrator demoted, or anybody suspended,
   // since the preview is refused here. Not locked — nothing changes a platform
   // role inside a transaction that also touches tickets, and a FOR SHARE here
   // would wait on privacy redaction's own update of the row.
@@ -1600,6 +1611,7 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
   if (authority.authority === 'PLATFORM_ROLE') {
     await recordPlatformAuthorityUse(tx, {
       actorId: actor.id,
+      role: authority.role,
       eventId: event.id,
       organizationId: event.organizationId,
       operation: 'check_in',
@@ -1743,7 +1755,7 @@ export async function listAdmissionEvents({ prisma, actor, filters = {}, now = n
   })
 
   if (platformAdmissionAuthorityFor(actor.role)) {
-    return platformDoorList({ prisma, memberships, filters, since })
+    return platformDoorList({ prisma, platformRole: actor.role, memberships, filters, since })
   }
 
   const entries = []
@@ -1805,16 +1817,21 @@ export async function listAdmissionEvents({ prisma, actor, filters = {}, now = n
 }
 
 /**
- * A platform super administrator's door list.
+ * A platform administrator's (ADMIN or SUPER_ADMIN) door list.
+ *
+ * Every event on the platform with a door open now, each on the caller's
+ * membership authority where it has one, and otherwise on its own platform
+ * role's authority.
  *
  * @param {object} options Options.
  * @param {object} options.prisma A Prisma client.
+ * @param {string} options.platformRole The caller's platform role, which admits on platform authority.
  * @param {Array<object>} options.memberships The caller's memberships, with scopes.
  * @param {{organizationId?: string, q?: string}} options.filters The caller's filter.
  * @param {Date} options.since The earliest `endsAt` still shown.
  * @returns {Promise<{entries: Array<object>, meta: object}>} The list.
  */
-async function platformDoorList({ prisma, memberships, filters, since }) {
+async function platformDoorList({ prisma, platformRole, memberships, filters, since }) {
   const [events, organizations] = await Promise.all([
     prisma.event.findMany({
       where: doorEventWhere(since, filters),
@@ -1835,13 +1852,18 @@ async function platformDoorList({ prisma, memberships, filters, since }) {
   const byOrganization = new Map(
     memberships.map((membership) => [membership.organization.id, membership]),
   )
+  const platformAuthority = platformAdmissionAuthorityFor(platformRole)
+
+  if (!platformAuthority) throw new Error('platformDoorList needs a platform door role')
 
   const entries = events.slice(0, PLATFORM_DOOR_LIST_LIMIT).map((event) => {
-    // Membership wins, exactly as at the door: a super administrator who
+    // Membership wins, exactly as at the door: a platform administrator who
     // organises this event is recorded on that authority, not the platform's.
+    // Otherwise the caller's own platform role, so an ADMIN is never shown or
+    // recorded as a SUPER_ADMIN.
     const authority =
       admissionAuthorityFor(byOrganization.get(event.organization.id) ?? null, event.id) ??
-      platformAdmissionAuthorityFor('SUPER_ADMIN')
+      platformAuthority
     const { organization, ...row } = event
 
     return {

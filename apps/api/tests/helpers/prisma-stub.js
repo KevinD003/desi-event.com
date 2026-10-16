@@ -309,6 +309,16 @@ const RELATIONS = {
   invitation: {
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
     invitedBy: { kind: 'one', model: 'user', from: 'invitedById', to: 'id' },
+    // The events a door role invited here will admit at (ADR 0019).
+    scopes: { kind: 'many', model: 'invitationScope', from: 'id', to: 'invitationId' },
+  },
+  invitationScope: {
+    invitation: { kind: 'one', model: 'invitation', from: 'invitationId', to: 'id' },
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+  },
+  scannerScope: {
+    membership: { kind: 'one', model: 'membership', from: 'membershipId', to: 'id' },
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
   },
   organization: {
     // Provenance for a self-service organisation, and the per-account
@@ -821,6 +831,7 @@ const DEFAULTS = {
   trafficSalt: {},
   trafficRollupState: { leaseOwner: null, leaseExpiresAt: null, lastCompletedAt: null },
   scannerScope: {},
+  invitationScope: {},
   venueMap: { notes: null, archivedAt: null },
   venueMapVersion: { publishedAt: null, seatCount: 0, revision: 0 },
   section: { kind: 'SEATED', sortOrder: 0, standingCapacity: null },
@@ -1157,6 +1168,7 @@ const COMPOUND_UNIQUE = {
   venueMapVersion: [['venueMapId', 'version']],
   membership: [['userId', 'organizationId']],
   scannerScope: [['membershipId', 'eventId']],
+  invitationScope: [['invitationId', 'eventId']],
   exportArtifactSubject: [['exportArtifactId', 'subjectUserId']],
   // A code is unique within its organisation; two organisations may both
   // offer SAVE10.
@@ -1389,6 +1401,7 @@ const CREATED_ONLY = new Set([
   'organizerInvitation',
   'trafficSalt',
   'scannerScope',
+  'invitationScope',
   'venueMap',
   'venueMapVersion',
   'eventSession',

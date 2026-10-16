@@ -3,7 +3,8 @@
 /**
  * Moving an imported event to an organiser's own organisation (SPEC2-XI I-F).
  *
- * An imported event is held by "The Desi Events", which has no members. Once
+ * An imported event is held by "The Desi Events", which has no members but
+ * door scanners (ADR 0019). Once
  * its organiser has an organisation here, the team at The Desi Events moves it
  * there: its status, pictures, web address and ticket types stay as they
  * are, and it stops being presented as an imported listing, so its new owner

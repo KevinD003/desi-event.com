@@ -160,12 +160,15 @@ describe('requiresAdmissionScope', () => {
 })
 
 describe('platform door authority', () => {
-  it('belongs to SUPER_ADMIN and to no other platform role', () => {
-    expect(PLATFORM_ADMISSION_ROLES).toEqual(['SUPER_ADMIN'])
-    expect(platformAdmissionAuthorityFor('SUPER_ADMIN')).toEqual({
-      authority: ADMISSION_AUTHORITIES.PLATFORM_ROLE,
-      role: 'SUPER_ADMIN',
-    })
+  it('belongs to SUPER_ADMIN and ADMIN and to no other platform role (ADR 0018)', () => {
+    expect(PLATFORM_ADMISSION_ROLES).toEqual(['ADMIN', 'SUPER_ADMIN'])
+
+    for (const role of ['ADMIN', 'SUPER_ADMIN']) {
+      expect(platformAdmissionAuthorityFor(role)).toEqual({
+        authority: ADMISSION_AUTHORITIES.PLATFORM_ROLE,
+        role,
+      })
+    }
 
     for (const role of [
       'ATTENDEE',
@@ -173,7 +176,6 @@ describe('platform door authority', () => {
       'SUPPORT',
       'MODERATOR',
       'FINANCE_ADMIN',
-      'ADMIN',
       undefined,
       null,
       '',
@@ -184,14 +186,21 @@ describe('platform door authority', () => {
   })
 
   it('names the platform roles that hold capabilities but are refused at the door', () => {
-    // ADMIN, the platform administrator, holds capabilities and no door
-    // authority, so the derived list takes it in with no edit to admission.js.
+    // ADMIN now holds the door (ADR 0018); the derived list keeps the three
+    // narrow staff roles with no edit to admission.js.
     expect([...REFUSED_PLATFORM_ADMISSION_ROLES].sort()).toEqual(
-      ['ADMIN', 'FINANCE_ADMIN', 'MODERATOR', 'SUPPORT'].sort(),
+      ['FINANCE_ADMIN', 'MODERATOR', 'SUPPORT'].sort(),
     )
 
     for (const role of REFUSED_PLATFORM_ADMISSION_ROLES) {
       expect(PLATFORM_ROLE_CAPABILITIES[role], role).not.toContain(CAPABILITIES.TICKET_CHECK_IN)
+    }
+  })
+
+  it('requires every platform door role to hold platform:admin', () => {
+    for (const role of PLATFORM_ADMISSION_ROLES) {
+      expect(PLATFORM_ROLE_CAPABILITIES[role], role).toContain(CAPABILITIES.PLATFORM_ADMIN)
+      expect(PLATFORM_ROLE_CAPABILITIES[role], role).toContain(CAPABILITIES.TICKET_CHECK_IN)
     }
   })
 
@@ -221,6 +230,32 @@ describe('platform door authority', () => {
     }
 
     expect(() => assertPlatformAdmissionPolicy(drifted)).toThrow(/does not hold platform:admin/u)
+  })
+
+  it('refuses a table where ADMIN lost platform:admin', () => {
+    const drifted = {
+      ...PLATFORM_ROLE_CAPABILITIES,
+      ADMIN: PLATFORM_ROLE_CAPABILITIES.ADMIN.filter(
+        (capability) => capability !== CAPABILITIES.PLATFORM_ADMIN,
+      ),
+    }
+
+    expect(() => assertPlatformAdmissionPolicy(drifted)).toThrow(
+      /ADMIN admits on platform authority but does not hold platform:admin/u,
+    )
+  })
+
+  it('refuses a table where ADMIN lost ticket:check_in', () => {
+    const drifted = {
+      ...PLATFORM_ROLE_CAPABILITIES,
+      ADMIN: PLATFORM_ROLE_CAPABILITIES.ADMIN.filter(
+        (capability) => capability !== CAPABILITIES.TICKET_CHECK_IN,
+      ),
+    }
+
+    expect(() => assertPlatformAdmissionPolicy(drifted)).toThrow(
+      /Platform admission policy out of date/u,
+    )
   })
 
   it('refuses a table where SUPER_ADMIN lost ticket:check_in', () => {
