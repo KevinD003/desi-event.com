@@ -433,7 +433,7 @@
    * is still drawn black on white inside it: a scanner needs full contrast,
    * not a theme.
    */
-  --color-ticket-paper: oklch(0.985 0.012 88);
+  --color-ticket-paper: oklch(0.987 0.007 88);
   --color-ticket-ink: oklch(0.24 0.11 300);
 
   /*
