@@ -189,6 +189,30 @@ describe('entrances', () => {
     expect(delayOf({ index: 2 })).toBe('3')
   })
 
+  it('marks a mount entrance done once its delay and duration have passed', () => {
+    vi.useFakeTimers()
+
+    try {
+      const { container } = render(<FadeIn delay={0.08}>Poster</FadeIn>)
+      const element = container.firstChild
+
+      // 2 steps of 40 ms, the 250 ms rise and a 50 ms margin.
+      vi.advanceTimersByTime(379)
+      expect(element).not.toHaveAttribute('data-motion-done')
+
+      vi.advanceTimersByTime(2)
+      expect(element).toHaveAttribute('data-motion-done')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('takes a finished entrance off in the theme, so one hidden while it should have run is at rest', async () => {
+    const css = await themeCss()
+
+    expect(css).toMatch(/\[data-motion='enter'\]\[data-motion-done\]\s*\{\s*animation: none;/)
+  })
+
   it('fades without rising when asked for no distance', () => {
     expect(renderToStaticMarkup(<FadeIn distance={0}>Art</FadeIn>)).toContain(
       'data-motion-rise="none"',

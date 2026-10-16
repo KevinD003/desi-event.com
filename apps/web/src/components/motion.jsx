@@ -177,6 +177,36 @@ export function MotionProvider({ children }) {
 }
 
 /**
+ * Mark a CSS entrance finished once it has had time to run, so the theme can
+ * drop the animation and leave the element at rest.
+ *
+ * An entrance inside something hidden (`display: none` — a decorative poster
+ * shown only on wide screens) never runs, and the browser reports it at the
+ * animation's first frame, transparent, for as long as it stays hidden. After
+ * its delay and duration have passed, `data-motion-done` takes the animation
+ * off, so the element is simply at rest whenever it is shown. Without
+ * JavaScript the theme's `scripting: none` rule does the same.
+ *
+ * @param {object} ref The element's ref.
+ * @param {string|undefined} step Its delay step (40 ms each).
+ * @returns {void}
+ */
+function useEntranceSettles(ref, step) {
+  useEffect(() => {
+    const element = ref.current
+
+    if (!element) return undefined
+
+    const wait = Number(step ?? 0) * DELAY_STEP * 1000 + DURATION.slow * 1000 + 50
+    const timer = setTimeout(() => {
+      element.dataset.motionDone = ''
+    }, wait)
+
+    return () => clearTimeout(timer)
+  }, [ref, step])
+}
+
+/**
  * Rise content in as soon as it is painted — from the first frame, by CSS.
  *
  * Use for anything already on screen when the page loads, such as the hero.
@@ -195,11 +225,17 @@ export function FadeIn({
   children,
   ...rest
 }) {
+  const ref = useRef(null)
+  const step = delayStep(staggeredDelay(delay, index))
+
+  useEntranceSettles(ref, step)
+
   return (
     <Component
+      ref={ref}
       className={className}
       data-motion="enter"
-      data-motion-delay={delayStep(staggeredDelay(delay, index))}
+      data-motion-delay={step}
       data-motion-rise={distance === 0 ? 'none' : undefined}
       {...rest}
     >

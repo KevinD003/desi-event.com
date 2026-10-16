@@ -686,6 +686,12 @@
     animation-name: motion-fade;
   }
 
+  /* Once an entrance has had its time, it is taken off: an element that was
+     hidden while it should have run is then simply at rest when shown. */
+  [data-motion='enter'][data-motion-done] {
+    animation: none;
+  }
+
   [data-motion='reveal'] {
     transition-property: opacity, transform;
     transition-duration: var(--duration-slow);

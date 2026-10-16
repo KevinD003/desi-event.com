@@ -3065,6 +3065,9 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     const page = await context.newPage()
 
     await signIn(page, seeded.betaOwnerEmail)
+    // Signing in may finish with a full load of the account page; let it
+    // land before counting loads, so only the two moves below are counted.
+    await page.waitForLoadState('load')
     await expect(page.locator('body')).toHaveAttribute('data-register', 'courtyard')
 
     // Out: the brand link to the home page is a soft navigation.
