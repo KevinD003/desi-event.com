@@ -652,6 +652,9 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
         organizationVerified: organization.verificationStatus === 'VERIFIED',
         role: invitation.role,
         expiresAt: invitation.expiresAt.toISOString(),
+        // The events a door role is invited to check tickets at (ADR 0019),
+        // by title: the letter names them.
+        events: toDoorEvents((invitation.scopes ?? []).map((scope) => scope.event)),
       },
       withdraw: () => withdrawAfterFailedDelivery(invitation.id, organization.id, request.actor.id),
     })

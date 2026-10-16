@@ -73,8 +73,9 @@ organisation "The Desi Events", which a trigger kept free of every member
   populated upgrade in `verify-populated-upgrade.mjs` check the new trigger
   bodies and the invitation scope trigger; `door-grants-integration.test.js`
   invites, accepts and admits against PostgreSQL.
-- The invitation email does not list the events; the invitee sees them once
-  they accept, and the inviter on the team page.
+- The invitation email names the events by title, one to a line
+  (`teamInvitationLetter` in `@desi-event/schemas/code-letters`); the invitee
+  sees them again once they accept, and the inviter on the team page.
 - Reverting needs the manual rollback written at the top of the migration,
   including deleting every SCANNER membership and invitation of the
   platform-held organisation before the old trigger is restored.
