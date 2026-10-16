@@ -49,13 +49,23 @@ const SCOPE_SQL = Prisma.sql`e."status"::text IN (${Prisma.join(LISTED_STATUSES)
 /**
  * Count listed events by category, city, language and format.
  *
+ * Each list is ordered by count, highest first, and a tie by value in byte
+ * order. The value carries `COLLATE "C"` rather than the database's default
+ * collation: that default is chosen when a database is created and differs
+ * between environments (`C.UTF-8` on one, an ICU or glibc locale on another),
+ * and the two disagree on, for one, whether `Snake_town` comes before
+ * `SnakeXtown`. `"C"` exists in every PostgreSQL, so the order is the same
+ * everywhere and a caller can reproduce it by comparing UTF-8 bytes. Display
+ * order is the caller's choice; this is only the tie-break that makes the
+ * response deterministic.
+ *
  * @param {object} prisma A Prisma client or transaction client.
  * @returns {Promise<object>} Facet lists plus the scope they were computed over.
  */
 export async function loadEventFacets(prisma) {
   const [categories, cities, languages, formats, total] = await Promise.all([
     prisma.$queryRaw(Prisma.sql`
-      SELECT e."category"::text AS value, count(*)::int AS count
+      SELECT e."category"::text COLLATE "C" AS value, count(*)::int AS count
       FROM "Event" e
       WHERE ${SCOPE_SQL}
       GROUP BY e."category"
@@ -65,7 +75,7 @@ export async function loadEventFacets(prisma) {
     // Joined rather than denormalised: the city lives on the venue, and an
     // online event has none.
     prisma.$queryRaw(Prisma.sql`
-      SELECT v."city" AS value, count(*)::int AS count
+      SELECT v."city" COLLATE "C" AS value, count(*)::int AS count
       FROM "Event" e
       JOIN "Venue" v ON v."id" = e."venueId"
       WHERE ${SCOPE_SQL}
@@ -75,7 +85,7 @@ export async function loadEventFacets(prisma) {
 
     // `languages` is an array column, so each element is counted separately.
     prisma.$queryRaw(Prisma.sql`
-      SELECT language AS value, count(*)::int AS count
+      SELECT language COLLATE "C" AS value, count(*)::int AS count
       FROM "Event" e, unnest(e."languages") AS language
       WHERE ${SCOPE_SQL}
       GROUP BY language
@@ -83,7 +93,7 @@ export async function loadEventFacets(prisma) {
     `),
 
     prisma.$queryRaw(Prisma.sql`
-      SELECT CASE WHEN e."isOnline" THEN 'online' ELSE 'in_person' END AS value,
+      SELECT CASE WHEN e."isOnline" THEN 'online' ELSE 'in_person' END COLLATE "C" AS value,
              count(*)::int AS count
       FROM "Event" e
       WHERE ${SCOPE_SQL}
