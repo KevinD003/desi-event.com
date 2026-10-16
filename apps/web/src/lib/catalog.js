@@ -9,6 +9,8 @@
  * @module lib/catalog
  */
 
+import { localDay, presetDays } from '@desi-event/schemas/calendar-days'
+
 /**
  * @typedef {object} CategoryDescriptor
  * @property {string} value The `EventCategory` enum member.
@@ -235,28 +237,80 @@ function matchesQuery(event, query, description) {
 }
 
 /**
+ * Whether an event starts on one of the days a "When" choice covers, read
+ * where the event is — the rule `GET /v1/events` applies per timezone.
+ *
+ * @param {object} event An event summary with `startsAt` and `timezone`.
+ * @param {object} filters The listing's day filters.
+ * @param {string} [filters.when] `today`, `weekend`, `week`, `month` or `dates`.
+ * @param {string} [filters.from] The first day, `YYYY-MM-DD`.
+ * @param {string} [filters.to] The last day, `YYYY-MM-DD`.
+ * @param {Date|number} now The moment a named span is read at.
+ * @returns {boolean} True when it does, or when no days were chosen.
+ */
+function onChosenDays(event, { when, from, to }, now) {
+  const zone = event.timezone ?? 'UTC'
+  const span =
+    when && when !== 'dates'
+      ? presetDays(when, zone, now)
+      : { fromDate: from || null, toDate: to || null }
+
+  if (!span || (!span.fromDate && !span.toDate)) return true
+
+  const day = localDay(event.startsAt, zone)
+
+  return (!span.fromDate || day >= span.fromDate) && (!span.toDate || day <= span.toDate)
+}
+
+/**
  * Apply the listing filters to a set of event summaries.
  *
  * This mirrors what `GET /v1/events` does server-side, so the fallback
  * catalogue behaves like the real one: the same filters narrow it the same way.
- * A summary carries no description, so the caller that has one supplies it.
+ * A summary carries no description or languages, so the caller that has them
+ * supplies them.
  *
  * @param {object[]} events Event summaries to filter.
- * @param {object} [filters] Active filters.
+ * @param {object} [filters] Active filters, as `parseEventFilters` reads them.
  * @param {string} [filters.category] An `EventCategory` enum member.
+ * @param {string} [filters.region] A state or province as `US-TX`.
  * @param {string} [filters.city] Exact city name.
  * @param {string} [filters.q] Free-text query.
+ * @param {string} [filters.language] A language, in any case.
+ * @param {string} [filters.when] `today`, `weekend`, `week`, `month` or `dates`.
+ * @param {string} [filters.from] The first day, `YYYY-MM-DD`.
+ * @param {string} [filters.to] The last day, `YYYY-MM-DD`.
+ * @param {string} [filters.format] `in_person` or `online`.
+ * @param {boolean} [filters.free] Only events whose "from" price is $0.
+ * @param {boolean} [filters.onSale] Only events on sale now.
  * @param {object} [options] How to read what a summary leaves out.
  * @param {Function} [options.descriptionOf] Given an event, its description or `null`.
+ * @param {Function} [options.languagesOf] Given an event, its languages.
+ * @param {Date|number} [options.now] The moment "today" is read at.
  * @returns {object[]} The matching events, in input order.
  */
-export function filterEvents(events, filters = {}, { descriptionOf = () => null } = {}) {
-  const { category, city, q } = filters
+export function filterEvents(
+  events,
+  filters = {},
+  { descriptionOf = () => null, languagesOf = () => [], now = Date.now() } = {},
+) {
+  const { category, region, city, q, language, format, free, onSale } = filters
+  const [country, subdivision] = region ? region.split('-') : []
+  const wanted = language ? language.toLowerCase() : ''
 
   return (events ?? []).filter((event) => {
     if (category && event.category !== category) return false
+    if (region && (event.country !== country || event.region !== subdivision)) return false
     if (city && event.city !== city) return false
     if (q && !matchesQuery(event, q, descriptionOf(event))) return false
+    if (wanted && !languagesOf(event).some((entry) => entry.toLowerCase() === wanted)) {
+      return false
+    }
+    if (format === 'online' && !event.isOnline) return false
+    if (format === 'in_person' && event.isOnline) return false
+    if (free && event.minPriceCents !== 0) return false
+    if (onSale && event.status !== 'ON_SALE') return false
+    if (!onChosenDays(event, filters, now ?? Date.now())) return false
 
     return true
   })

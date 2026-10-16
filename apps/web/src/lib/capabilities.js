@@ -15,6 +15,16 @@
  */
 
 /**
+ * The capabilities only a super administrator holds, mirroring
+ * `SUPER_ADMIN_ONLY_CAPABILITIES` in `@desi-event/permissions` (a test holds
+ * the two equal). Written out rather than imported so this module stays free
+ * of imports for the client components that ask it.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const SUPER_ADMIN_ONLY_CAPABILITIES = Object.freeze(['platform:role_manage'])
+
+/**
  * Whether this session holds a capability, optionally in one organisation.
  *
  * Asked the way `can()` in `@desi-event/permissions` decides it: a capability
@@ -38,6 +48,11 @@ export function sessionCan(session, capability, organizationId) {
 
   if ((session.capabilities ?? []).includes(capability)) return true
   if (!organizationId) return false
+
+  // Held through the platform role or not at all: `platform:admin` does not
+  // stand in for it. So a platform administrator (ADMIN) never appears to hold
+  // `platform:role_manage`, which only a super administrator holds (ADR 0018).
+  if (SUPER_ADMIN_ONLY_CAPABILITIES.includes(capability)) return false
 
   // `platform:admin` is the power to grant oneself any membership, so it still
   // answers for every organisation, as it always did here.

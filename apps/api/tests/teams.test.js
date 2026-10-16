@@ -2203,6 +2203,28 @@ describe('emailing a team invitation (EMAIL mode)', () => {
       organizationVerified: true,
       role: 'STAFF',
       expiresAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u),
+      events: [],
+    })
+
+    await app.close()
+  })
+
+  it('names the events a door role is invited for, so the letter can list them (ADR 0019)', async () => {
+    const delivered = []
+    const { app, ids } = await emailingTeam(async (message) => delivered.push(message))
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/organizations/${org(ids)}/invitations`,
+      headers: bearer(await signIn(app, 'owner@rangoli.example')),
+      payload: { email: 'door3@example.com', role: 'SCANNER', eventIds: [ids.publishedEvent.id] },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+    expect(delivered.at(-1)).toMatchObject({
+      purpose: 'TEAM_INVITATION',
+      role: 'SCANNER',
+      events: [{ id: ids.publishedEvent.id, title: ids.publishedEvent.title }],
     })
 
     await app.close()

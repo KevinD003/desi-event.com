@@ -84,6 +84,7 @@ export function composeCodeLetter(message, webOrigin) {
         organizationVerified: message.organizationVerified,
         role: message.role,
         expiresAt: message.expiresAt,
+        events: message.events ?? [],
         joinUrl,
       }),
     }

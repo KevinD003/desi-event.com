@@ -739,6 +739,39 @@ when()('a group confirmation', () => {
       }),
     ).toBe(2)
   })
+
+  it('9b. a platform administrator (ADMIN) is admitted on platform authority, recorded as ADMIN (ADR 0018)', async () => {
+    const w = await world()
+    const platform = await user('platform-admin', 'ADMIN')
+    const body = await groupPreviewed(platform, { code: w.pass.groupCode })
+    const admitted = await groupConfirmAs(platform, body)
+
+    expect(admitted.status, admitted.message).toBe(200)
+    expect(await admissions(w.tickets)).toBe(3)
+
+    const onTheEvent = await prisma.auditLog.findMany({
+      where: {
+        action: 'ticket.admission_platform_authority',
+        entityType: 'Event',
+        entityId: w.event.id,
+      },
+    })
+
+    expect(onTheEvent.map((row) => row.metadata.operation).sort()).toEqual([
+      'group_check_in',
+      'group_preview',
+    ])
+    expect(onTheEvent.every((row) => row.actorId === platform.id)).toBe(true)
+    expect(onTheEvent.every((row) => row.metadata.role === 'ADMIN')).toBe(true)
+    expect(
+      await prisma.auditLog.count({
+        where: {
+          action: 'ticket.admission_refused',
+          entityId: platform.id,
+        },
+      }),
+    ).toBe(0)
+  })
 })
 
 when()('the group-pass trigger', () => {

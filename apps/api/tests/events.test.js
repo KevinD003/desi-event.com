@@ -14,7 +14,7 @@ import {
 import { minutesFromNow } from './helpers/fixtures.js'
 import { reservedWorld } from './helpers/reserved-world.js'
 import { EVENT_SUMMARY_SELECT, toEventSummary } from '../src/lib/presenters.js'
-import { resolveSearchTerms, searchTerms } from '../src/routes/events.js'
+import { buildEventQuery, resolveSearchTerms, searchTerms } from '../src/routes/events.js'
 
 /**
  * Fetch the event list and return the parsed body.
@@ -376,6 +376,168 @@ describe('GET /v1/events', () => {
 
     // One word that matches nothing sinks the whole search.
     expect((await list(app, 'q=garba%20nothing-matches-this')).data).toHaveLength(0)
+  })
+
+  it('filters by country, state and city together, in any case', async () => {
+    const { app } = await createTestApp()
+
+    // Both listed events' venues are in Maharashtra, India: one in Mumbai,
+    // one in Pune.
+    const slugs = async (query) => (await list(app, query)).data.map((event) => event.slug).sort()
+    const both = ['classical-dance-masterclass', 'navratri-garba-night']
+
+    expect(await slugs('country=IN')).toEqual(both)
+    expect(await slugs('country=US')).toEqual([])
+    expect(await slugs('region=maharashtra')).toEqual(both)
+    expect(await slugs('region=MAHARASHTRA&city=mumbai')).toEqual(['navratri-garba-night'])
+    expect(await slugs('region=Maharashtra&city=Pune')).toEqual(['classical-dance-masterclass'])
+    // The city exists, but not in that state: one venue condition, not two.
+    expect(await slugs('region=TX&city=Mumbai')).toEqual([])
+    expect(await slugs('country=CA&region=Maharashtra')).toEqual([])
+  })
+
+  it('says each card’s state and country', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const online = await prisma.event.findFirst({ where: { slug: 'classical-dance-masterclass' } })
+
+    // Streamed from nowhere in particular: no venue, so no place.
+    await prisma.event.update({ where: { id: online.id }, data: { venueId: null } })
+    expect(ids.publishedEvent.slug).toBe('navratri-garba-night')
+
+    const cards = (await list(app)).data
+    const garba = cards.find((event) => event.slug === 'navratri-garba-night')
+    const streamed = cards.find((event) => event.slug === 'classical-dance-masterclass')
+
+    expect(garba).toMatchObject({ city: 'Mumbai', region: 'MAHARASHTRA', country: 'IN' })
+    expect(streamed).toMatchObject({ city: null, region: null, country: null })
+  })
+
+  it('filters by language without regard to case', async () => {
+    const { app } = await createTestApp()
+
+    for (const language of ['Hindi', 'hindi', 'HINDI']) {
+      const body = await list(app, `language=${language}`)
+      expect(body.data.map((event) => event.slug)).toContain('navratri-garba-night')
+      expect(body.data.every((event) => event.slug !== 'secret-bollywood-night')).toBe(true)
+    }
+    expect((await list(app, 'language=Klingon')).data).toEqual([])
+    // A part of a language is not the language.
+    expect((await list(app, 'language=Hin')).data).toEqual([])
+  })
+
+  it('finds free events by the rule the card’s price uses', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const isFree = async () =>
+      (await list(app, 'free=true')).data.some((event) => event.slug === 'navratri-garba-night')
+
+    expect(await isFree()).toBe(false)
+
+    const tiers = await prisma.ticketType.findMany({ where: { eventId: ids.publishedEvent.id } })
+    const onSale = tiers.filter((tier) => tier.status === 'ON_SALE')
+    const other = tiers.find((tier) => tier.status !== 'ON_SALE')
+
+    // A $0 tier that is not on sale does not make an event with paid tiers on
+    // sale free: its card's price is the cheapest tier on sale.
+    await prisma.ticketType.update({ where: { id: other.id }, data: { priceCents: 0 } })
+    expect(await isFree()).toBe(false)
+
+    // A hidden $0 guest list is no price anybody can pay. Hiding the only tier
+    // on sale leaves none on sale, and then the cheapest public tier — the $0
+    // one not on sale — is the card's price; with another tier still on sale,
+    // that one is.
+    await prisma.ticketType.update({
+      where: { id: onSale[0].id },
+      data: { priceCents: 0, visibility: 'HIDDEN' },
+    })
+    expect(await isFree()).toBe(onSale.length === 1)
+
+    // A public $0 tier on sale does, and the card says $0.
+    await prisma.ticketType.update({
+      where: { id: onSale[0].id },
+      data: { priceCents: 0, visibility: 'PUBLIC' },
+    })
+    expect(await isFree()).toBe(true)
+    const [card] = (await list(app, 'free=true&q=garba')).data
+    expect(card.minPriceCents).toBe(0)
+    // free=false is no filter at all.
+    expect((await list(app, 'free=false')).pagination.total).toBe(
+      (await list(app)).pagination.total,
+    )
+  })
+
+  it('finds events with nothing on sale as free when their cheapest public tier is $0', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const tiers = await prisma.ticketType.findMany({ where: { eventId: ids.publishedEvent.id } })
+
+    for (const tier of tiers) {
+      await prisma.ticketType.update({
+        where: { id: tier.id },
+        data: { status: 'DRAFT', priceCents: tier === tiers[0] ? 0 : tier.priceCents },
+      })
+    }
+
+    const [card] = (await list(app, 'free=true&q=garba')).data
+    expect(card?.slug).toBe('navratri-garba-night')
+    expect(card.minPriceCents).toBe(0)
+  })
+
+  it('filters to events on sale now', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    expect((await list(app, 'onSale=true')).data).toEqual([])
+
+    await prisma.event.update({ where: { id: ids.publishedEvent.id }, data: { status: 'ON_SALE' } })
+
+    expect((await list(app, 'onSale=true')).data.map((event) => event.slug)).toEqual([
+      'navratri-garba-night',
+    ])
+    expect((await list(app, 'onSale=false')).pagination.total).toBe(2)
+  })
+
+  it('reads fromDate and toDate as days where each event happens', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    // 23:30 in Kolkata on 17 October is 18:00 UTC; the same instant is the
+    // 17th in Kolkata and in London alike, so move it to 01:00 on the 18th in
+    // Kolkata, which is still the 17th in UTC.
+    await prisma.event.update({
+      where: { id: ids.publishedEvent.id },
+      data: {
+        startsAt: new Date('2031-10-17T19:30:00.000Z'),
+        endsAt: new Date('2031-10-17T23:30:00.000Z'),
+      },
+    })
+
+    const slugs = async (query) => (await list(app, query)).data.map((event) => event.slug)
+
+    expect(await slugs('fromDate=2031-10-18&toDate=2031-10-18')).toEqual(['navratri-garba-night'])
+    expect(await slugs('fromDate=2031-10-17&toDate=2031-10-17')).toEqual([])
+    expect(await slugs('fromDate=2031-10-18')).toEqual(['navratri-garba-night'])
+    expect(await slugs('toDate=2031-10-17')).not.toContain('navratri-garba-night')
+
+    const backwards = await app.inject({
+      method: 'GET',
+      url: '/v1/events?fromDate=2031-10-18&toDate=2031-10-17',
+    })
+    expect(backwards.statusCode).toBe(400)
+    expect(backwards.json().error.issues[0].path).toBe('toDate')
+  })
+
+  it('takes a named span of days and refuses one it does not know', async () => {
+    const { app } = await createTestApp()
+
+    expect((await list(app, 'when=month')).data).toBeInstanceOf(Array)
+
+    const unknown = await app.inject({ method: 'GET', url: '/v1/events?when=tonight' })
+    expect(unknown.statusCode).toBe(400)
+    expect(unknown.json().error.issues[0].path).toBe('when')
+  })
+
+  it('still refuses a price sort', async () => {
+    const { app } = await createTestApp()
+    const response = await app.inject({ method: 'GET', url: '/v1/events?sort=price:asc&free=true' })
+
+    expect(response.statusCode).toBe(400)
   })
 
   it('filters by start window and rejects a window that runs backwards', async () => {
@@ -913,6 +1075,112 @@ describe('a listing card reads the columns it shows, and no others', () => {
     expect(listings.every((args) => args.include === undefined)).toBe(true)
 
     await app.close()
+  })
+})
+
+describe('buildEventQuery', () => {
+  const base = { page: 1, perPage: 20, sort: 'startsAt:asc' }
+
+  /**
+   * The conditions a query adds after the visibility and status ones.
+   *
+   * @param {object} query The parsed query.
+   * @param {object} [options] `buildEventQuery` options.
+   * @returns {object[]} The extra conditions.
+   */
+  const extra = (query, options) =>
+    buildEventQuery({ ...base, ...query }, null, options).where.AND.slice(2)
+
+  it('puts country, state and city in one venue condition', () => {
+    expect(extra({ country: 'US', region: 'IL', city: 'Springfield' })).toEqual([
+      {
+        venue: {
+          // In any case, so a venue stored as `us` before codes were stored
+          // in capitals is still found under United States.
+          country: { equals: 'US', mode: 'insensitive' },
+          region: { equals: 'IL', mode: 'insensitive' },
+          city: { equals: 'Springfield', mode: 'insensitive' },
+        },
+      },
+    ])
+  })
+
+  it('escapes a region before it is matched as ILIKE', () => {
+    expect(extra({ region: 'T_' })).toEqual([
+      { venue: { region: { equals: 'T\\_', mode: 'insensitive' } } },
+    ])
+  })
+
+  it('matches a language by its stored spellings, and finds nothing for none', () => {
+    expect(extra({ language: 'hindi' }, { languages: ['Hindi', 'HINDI'] })).toEqual([
+      { languages: { hasSome: ['Hindi', 'HINDI'] } },
+    ])
+    expect(extra({ language: 'hindi' }, { languages: [] })).toEqual([{ id: { in: [] } }])
+    // Unresolved, the value is matched as given.
+    expect(extra({ language: 'Hindi' })).toEqual([{ languages: { has: 'Hindi' } }])
+  })
+
+  it('says free the way the card price does, and on sale as ON_SALE', () => {
+    const [free] = extra({ free: true })
+    const publicTier = { visibility: { not: 'HIDDEN' } }
+
+    expect(free).toEqual({
+      OR: [
+        { ticketTypes: { some: { ...publicTier, status: 'ON_SALE', priceCents: 0 } } },
+        {
+          AND: [
+            { ticketTypes: { none: { ...publicTier, status: 'ON_SALE' } } },
+            { ticketTypes: { some: { ...publicTier, priceCents: 0 } } },
+          ],
+        },
+      ],
+    })
+    expect(extra({ onSale: true })).toEqual([{ status: 'ON_SALE' }])
+    expect(extra({ free: false, onSale: false })).toEqual([])
+  })
+
+  it('reads a day range once per timezone', () => {
+    const [condition] = extra(
+      { fromDate: '2026-10-17', toDate: '2026-10-17' },
+      { zones: ['America/Chicago', 'America/Toronto', 'America/Chicago'] },
+    )
+
+    expect(condition).toEqual({
+      OR: [
+        {
+          timezone: 'America/Chicago',
+          startsAt: {
+            gte: new Date('2026-10-17T05:00:00.000Z'),
+            lt: new Date('2026-10-18T05:00:00.000Z'),
+          },
+        },
+        {
+          timezone: 'America/Toronto',
+          startsAt: {
+            gte: new Date('2026-10-17T04:00:00.000Z'),
+            lt: new Date('2026-10-18T04:00:00.000Z'),
+          },
+        },
+      ],
+    })
+    // A named span is read at the moment given.
+    const [today] = extra(
+      { when: 'today' },
+      { zones: ['America/Toronto'], now: new Date('2026-10-17T03:00:00.000Z') },
+    )
+    expect(today).toEqual({
+      OR: [
+        {
+          timezone: 'America/Toronto',
+          startsAt: {
+            gte: new Date('2026-10-16T04:00:00.000Z'),
+            lt: new Date('2026-10-17T04:00:00.000Z'),
+          },
+        },
+      ],
+    })
+    // With no event in any zone, a date filter finds nothing.
+    expect(extra({ fromDate: '2026-10-17' }, { zones: [] })).toEqual([{ id: { in: [] } }])
   })
 })
 

@@ -2657,6 +2657,30 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "events": {
+                                    "maxItems": 200,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "maxLength": 64,
+                                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                        },
+                                        "title": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "title"
+                                      ],
+                                      "additionalProperties": false
+                                    }
                                   }
                                 },
                                 "required": [
@@ -2666,7 +2690,8 @@
                                   "status",
                                   "expiresAt",
                                   "createdAt",
-                                  "deliveryMode"
+                                  "deliveryMode",
+                                  "events"
                                 ],
                                 "additionalProperties": false
                               }
@@ -2856,6 +2881,30 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "events": {
+                                    "maxItems": 200,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "maxLength": 64,
+                                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                        },
+                                        "title": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "title"
+                                      ],
+                                      "additionalProperties": false
+                                    }
                                   }
                                 },
                                 "required": [
@@ -2864,7 +2913,8 @@
                                   "status",
                                   "expiresAt",
                                   "createdAt",
-                                  "deliveryMode"
+                                  "deliveryMode",
+                                  "events"
                                 ],
                                 "additionalProperties": false
                               }
@@ -3054,6 +3104,30 @@
                                         "type": "null"
                                       }
                                     ]
+                                  },
+                                  "events": {
+                                    "maxItems": 200,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "id": {
+                                          "type": "string",
+                                          "maxLength": 64,
+                                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                        },
+                                        "title": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 500
+                                        }
+                                      },
+                                      "required": [
+                                        "id",
+                                        "title"
+                                      ],
+                                      "additionalProperties": false
+                                    }
                                   }
                                 },
                                 "required": [
@@ -3062,7 +3136,8 @@
                                   "status",
                                   "expiresAt",
                                   "createdAt",
-                                  "deliveryMode"
+                                  "deliveryMode",
+                                  "events"
                                 ],
                                 "additionalProperties": false
                               }
@@ -3160,7 +3235,7 @@
       "post": {
         "operationId": "teams.invite",
         "summary": "Invite somebody to the team",
-        "description": "Issue a single-use invitation code for an email address, for a role bounded by what the caller holds: a member cannot invite somebody to a role that carries powers they lack, and OWNER cannot be invited at all. Roles that create or publish events (event manager, manager, administrator) are given by the team at The Desi Events, and inviting somebody to one answers 403 `POSTING_ROLE_NEEDS_PLATFORM` with nothing written. An address that already belongs to the organisation answers 409. A second invitation to the same address supersedes the first, and the database holds at most one live invitation per address, so two issued at the same moment produce one invitation and one 409. How the code reaches the invitee is the deployment’s `DELIVERY_MODE`. In `MANUAL`, the default, `data.delivery.invitationCode` carries the code, returned exactly once, in this 201 only, with `cache-control: no-store, private`; it is never logged or audited, and only its SHA-256 digest is stored, so nobody can show it again. The inviter hands it over themselves. In `EMAIL` (`DELIVERY_MODE=EMAIL` with an SMTP server configured) the mail server sends it, `invitationCode` is null, and an address that has already been sent three codes from The Desi Events in the last day answers 429 `RECIPIENT_DAILY_LIMIT`; if the server refuses the message, the invitation is withdrawn and the answer is 503 `DELIVERY_FAILED`, so no code is left live that nobody holds. Waits behind other changes to the organisation or to the address for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing issued and nothing sent).\n\nRequires the `team:invite` capability.",
+        "description": "Issue a single-use invitation code for an email address, for a role bounded by what the caller holds: a member cannot invite somebody to a role that carries powers they lack, and OWNER cannot be invited at all. Roles that create or publish events (event manager, manager, administrator) are given by the team at The Desi Events, and inviting somebody to one answers 403 `POSTING_ROLE_NEEDS_PLATFORM` with nothing written. A door role (staff, scanner) may be invited for chosen events, `eventIds`: stored with the invitation, shown on it as `data.events`, and applied as the member’s door scopes when it is accepted. Each must be one of this organisation’s events (422), events for any other role answer 422, and a caller who does not manage roles here (a manager) may name only events it is scoped to itself (403). The platform-held organisation that holds imported events takes door scanners only, invited by a platform administrator (`platform:admin`). An address that already belongs to the organisation answers 409. A second invitation to the same address supersedes the first, and the database holds at most one live invitation per address, so two issued at the same moment produce one invitation and one 409. How the code reaches the invitee is the deployment’s `DELIVERY_MODE`. In `MANUAL`, the default, `data.delivery.invitationCode` carries the code, returned exactly once, in this 201 only, with `cache-control: no-store, private`; it is never logged or audited, and only its SHA-256 digest is stored, so nobody can show it again. The inviter hands it over themselves. In `EMAIL` (`DELIVERY_MODE=EMAIL` with an SMTP server configured) the mail server sends it, `invitationCode` is null, and an address that has already been sent three codes from The Desi Events in the last day answers 429 `RECIPIENT_DAILY_LIMIT`; if the server refuses the message, the invitation is withdrawn and the answer is 503 `DELIVERY_FAILED`, so no code is left live that nobody holds. Waits behind other changes to the organisation or to the address for a bounded time (503 `SERVICE_UNAVAILABLE` with `Retry-After`, nothing issued and nothing sent).\n\nRequires the `team:invite` capability.",
         "tags": [
           "teams"
         ],
@@ -3239,6 +3314,30 @@
                             }
                           ]
                         },
+                        "events": {
+                          "maxItems": 200,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
                         "delivery": {
                           "oneOf": [
                             {
@@ -3287,6 +3386,7 @@
                         "expiresAt",
                         "createdAt",
                         "deliveryMode",
+                        "events",
                         "delivery"
                       ],
                       "additionalProperties": false
@@ -3342,6 +3442,16 @@
           },
           "409": {
             "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Well-formed but not actionable, e.g. sold out or outside the sales window.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3440,7 +3550,7 @@
       "post": {
         "operationId": "teams.accept",
         "summary": "Accept an invitation",
-        "description": "Join an organisation with an invitation code, typed rather than followed from a link. The caller must be signed in as the address the invitation names — a code passed on to somebody else does not work for them, which is what stops an invitation becoming a transferable key, and the refusal names no part of that address. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership. Joining is a privilege change (finding NF-10): every other session the caller holds ends, a cookie session is given a new secret, and the session is shortened to the privileged lifetime when the new role is privileged. `data.joined` is false when the account already belonged to the organisation: the code is spent, the existing role is unchanged and no session ends. `data.session` says whether the account now needs a second factor and whether it has one. A direct grant that adds the account at the same moment answers 409 and leaves the code usable. An invitation that offers a role which creates or publishes events (one written before such invitations were withdrawn) answers 403 `POSTING_ROLE_NEEDS_PLATFORM` and is not spent, and an organiser invitation code answers 403 `WRONG_INVITATION_KIND` and is not spent either. Rate limited per account.",
+        "description": "Join an organisation with an invitation code, typed rather than followed from a link. The caller must be signed in as the address the invitation names — a code passed on to somebody else does not work for them, which is what stops an invitation becoming a transferable key, and the refusal names no part of that address. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership. Joining is a privilege change (finding NF-10): every other session the caller holds ends, a cookie session is given a new secret, and the session is shortened to the privileged lifetime when the new role is privileged. `data.joined` is false when the account already belonged to the organisation: the code is spent, the existing role is unchanged and no session ends. `data.events` names the events a door role now admits at: the ones the invitation named, applied as door scopes in the same transaction (empty when nothing was joined), and only those its inviter can still give, read again from the database as it is accepted: a manager who lost the scope on an event, or its membership, since inviting gives that door no more. `data.withdrawnEventCount` says how many named events were dropped that way. `data.session` says whether the account now needs a second factor and whether it has one. A direct grant that adds the account at the same moment answers 409 and leaves the code usable. An invitation that offers a role which creates or publishes events (one written before such invitations were withdrawn) answers 403 `POSTING_ROLE_NEEDS_PLATFORM` and is not spent, and an organiser invitation code answers 403 `WRONG_INVITATION_KIND` and is not spent either. Rate limited per account.",
         "tags": [
           "teams"
         ],
@@ -3481,6 +3591,35 @@
                         "joined": {
                           "type": "boolean"
                         },
+                        "events": {
+                          "maxItems": 200,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "withdrawnEventCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 200
+                        },
                         "session": {
                           "type": "object",
                           "properties": {
@@ -3503,6 +3642,8 @@
                         "organizationName",
                         "role",
                         "joined",
+                        "events",
+                        "withdrawnEventCount",
                         "session"
                       ],
                       "additionalProperties": false
@@ -3767,6 +3908,30 @@
                             }
                           ]
                         },
+                        "events": {
+                          "maxItems": 200,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
                         "email": {
                           "type": "string",
                           "maxLength": 254,
@@ -3820,6 +3985,7 @@
                         "expiresAt",
                         "createdAt",
                         "deliveryMode",
+                        "events",
                         "delivery"
                       ],
                       "additionalProperties": false
@@ -5851,7 +6017,7 @@
       "post": {
         "operationId": "platform.searchUsers",
         "summary": "Find accounts",
-        "description": "Search accounts by email, name or exact id, with each one’s platform role, whether it has a second factor, and its memberships. A POST because the query is usually an email address, and a URL is written to access logs and browser history where a body is not. At least three characters, at most fifty results a page, and never cached (`cache-control: no-store, private`). Carries no credential, hash or factor. Super administrators (`platform:admin`) only.\n\nRequires the `platform:admin` capability.",
+        "description": "Search accounts by email, name or exact id, with each one’s platform role, whether it has a second factor, and its memberships. A POST because the query is usually an email address, and a URL is written to access logs and browser history where a body is not. At least three characters, at most fifty results a page, and never cached (`cache-control: no-store, private`). Carries no credential, hash or factor. Platform administrators (`platform:admin`: ADMIN and SUPER_ADMIN) only.\n\nRequires the `platform:admin` capability.",
         "tags": [
           "platform"
         ],
@@ -6109,7 +6275,7 @@
       "post": {
         "operationId": "platform.setUserRole",
         "summary": "Change an account’s platform role",
-        "description": "Any of the seven platform roles — ATTENDEE, ORGANIZER, SUPPORT, MODERATOR, FINANCE_ADMIN, ADMIN (the platform administrator, who invites organisers and reviews) and SUPER_ADMIN — with a written reason recorded on the audit row. Super administrators (`platform:admin`) only, with a second factor confirmed within the SECURITY_ROLE window. Never the caller’s own account (403). The change is made with every super administrator locked and the caller’s own role re-read, so two administrators demoting each other at once cannot both succeed, and a change that would leave no super administrator answers 422. An unchanged role answers 409. Every session the account holds ends in the same transaction, so it signs in again under the new role — and a privileged role must then set up a second factor before it can work.\n\nRequires the `platform:admin` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Any of the seven platform roles — ATTENDEE, ORGANIZER, SUPPORT, MODERATOR, FINANCE_ADMIN, ADMIN (the platform administrator, who holds everything a super administrator does except this route) and SUPER_ADMIN — with a written reason recorded on the audit row. Super administrators (`platform:role_manage`) only: a platform administrator (ADMIN) is refused (403) whatever the account or role, its own included, with a second factor confirmed within the SECURITY_ROLE window. Never the caller’s own account (403). The change is made with every super administrator locked and the caller’s own role re-read, so two administrators demoting each other at once cannot both succeed, and a change that would leave no super administrator answers 422. An unchanged role answers 409. Every session the account holds ends in the same transaction, so it signs in again under the new role — and a privileged role must then set up a second factor before it can work.\n\nRequires the `platform:role_manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "platform"
         ],
@@ -6296,7 +6462,7 @@
       "get": {
         "operationId": "platform.searchOrganizations",
         "summary": "Find organisations",
-        "description": "Search organisations by name or slug, with their verification state, whether they are suspended, and how many members and owners they have — an organisation with no owner is the case the direct grant exists for. A GET, because an organisation’s name is public already. Super administrators (`platform:admin`) only.\n\nRequires the `platform:admin` capability.",
+        "description": "Search organisations by name or slug, with their verification state, whether they are suspended, and how many members and owners they have — an organisation with no owner is the case the direct grant exists for. A GET, because an organisation’s name is public already. Platform administrators (`platform:admin`: ADMIN and SUPER_ADMIN) only.\n\nRequires the `platform:admin` capability.",
         "tags": [
           "platform"
         ],
@@ -6350,6 +6516,9 @@
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 10000000
+                          },
+                          "platformHeld": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -6359,7 +6528,8 @@
                           "verificationStatus",
                           "suspended",
                           "memberCount",
-                          "ownerCount"
+                          "ownerCount",
+                          "platformHeld"
                         ],
                         "additionalProperties": false
                       }
@@ -6493,7 +6663,7 @@
       "post": {
         "operationId": "platform.grantMembership",
         "summary": "Put an account into an organisation",
-        "description": "Adds an existing account to an organisation with a role, or changes the role of somebody already in it — the one path in the API that can grant OWNER directly, for an organisation whose only owner has left. Super administrators (`platform:admin`) only, with a second factor confirmed within the SECURITY_ROLE window and a written reason recorded on the audit row. Never the caller’s own account (403), never a suspended account (422), and never a change that would leave the organisation with no owner (422, decided with the owners locked). No invitation is created. Every session the account holds ends in the same transaction. The same role the account already holds, or a membership created for it by another request at the same moment, answers 409.\n\nRequires the `platform:admin` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Adds an existing account to an organisation with a role, or changes the role of somebody already in it — the one path in the API that can grant OWNER directly, for an organisation whose only owner has left. Platform administrators (`platform:admin`: ADMIN and SUPER_ADMIN) only, with a second factor confirmed within the SECURITY_ROLE window and a written reason recorded on the audit row. Never the caller’s own account (403), never a suspended account (422), and never a change that would leave the organisation with no owner (422, decided with the owners locked). No invitation is created. Every session the account holds ends in the same transaction. The same role the account already holds, or a membership created for it by another request at the same moment, answers 409. It changes an organisation role only, never the account’s platform role.\n\nRequires the `platform:admin` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "platform"
         ],
@@ -8655,7 +8825,7 @@
       "post": {
         "operationId": "privacy.createRequest",
         "summary": "Raise a redaction request",
-        "description": "Opens a request to redact one person’s personal data inside this organisation, and returns a single-use confirmation phrase that must be typed back to execute it. Nothing is redacted here. Requires `privacy:redact` and a `PRIVACY_ERASURE` step-up no older than two minutes, both asserted against the organisation in the path. The body carries a subject id and a reason code and nothing else: the organisation, the idempotency key, the confirmation phrase, the policy revision and the hold decision are all produced on the server, because a request body that could carry them would be a request body that could lie about them. Refuses with 409 when a legal hold, a fraud investigation or an open operational process — a pending ticket transfer, a refund still moving, an unspent admission — still needs the data, and records the refusal as immutable evidence. The confirmation phrase appears in this response and nowhere else; only its digest is stored.\n\nRequires the `privacy:redact` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Opens a request to redact one person’s personal data inside this organisation, and returns a single-use confirmation phrase that must be typed back to execute it. Nothing is redacted here. Requires `privacy:redact` and a `PRIVACY_ERASURE` step-up no older than two minutes, both asserted against the organisation in the path. The body carries a subject id and a reason code and nothing else: the organisation, the idempotency key, the confirmation phrase, the policy revision and the hold decision are all produced on the server, because a request body that could carry them would be a request body that could lie about them. Refuses with 403 when the subject is a super administrator and the caller is not one (`platform:role_manage`): a redaction ends every session of the account, and only a super administrator revokes a super administrator; confirming asks again, with the account’s row locked. Refuses with 409 when a legal hold, a fraud investigation or an open operational process — a pending ticket transfer, a refund still moving, an unspent admission — still needs the data, and records the refusal as immutable evidence. The confirmation phrase appears in this response and nowhere else; only its digest is stored.\n\nRequires the `privacy:redact` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "privacy"
         ],
@@ -11925,8 +12095,7 @@
                   },
                   "country": {
                     "type": "string",
-                    "minLength": 2,
-                    "maxLength": 2
+                    "pattern": "^[A-Z]{2}$"
                   },
                   "latitude": {
                     "anyOf": [
@@ -12936,8 +13105,7 @@
                   },
                   "country": {
                     "type": "string",
-                    "minLength": 2,
-                    "maxLength": 2
+                    "pattern": "^[A-Z]{2}$"
                   },
                   "latitude": {
                     "anyOf": [
@@ -16250,7 +16418,7 @@
       "get": {
         "operationId": "events.list",
         "summary": "List events",
-        "description": "Paginated, filterable event discovery. Anonymous callers see only the listed statuses: PUBLISHED, ON_SALE, SALES_PAUSED and SOLD_OUT. A token adds every event, in any status, of each organisation where the caller holds `event:view_draft`, and `platform:admin` sees every event. `status` narrows that set to one of the fourteen event statuses and never widens it. A deleted event is in a listing only when `status=DELETED` asks for it, and then only for its organisation and the team at The Desi Events. Each listing’s `minTotalCents` prices one ticket with the event’s own booking fee when the team at The Desi Events set one, else the site default.",
+        "description": "Paginated, filterable event discovery. Anonymous callers see only the listed statuses: PUBLISHED, ON_SALE, SALES_PAUSED and SOLD_OUT. A token adds every event, in any status, of each organisation where the caller holds `event:view_draft`, and `platform:admin` sees every event. `status` narrows that set to one of the fourteen event statuses and never widens it. A deleted event is in a listing only when `status=DELETED` asks for it, and then only for its organisation and the team at The Desi Events. Each listing’s `minTotalCents` prices one ticket with the event’s own booking fee when the team at The Desi Events set one, else the site default. Where: `country` (ISO 3166-1 alpha-2), `region` (the state or province code, any case) and `city` (any case) narrow one venue condition together, so `region=IL&city=Springfield` is the Illinois Springfield only. What: `category`, `language` (any case), `isOnline`, `free=true` (the card’s “from” price is $0: the cheapest public tier on sale is free, or, with none on sale, the cheapest public tier is) and `onSale=true` (status ON_SALE). When: `startsAfter`/`startsBefore` are instants; `fromDate`/`toDate` are calendar days, both inclusive, and `when` (`today`, `weekend` Friday to Sunday, `week` to Sunday, `month` to its last day) a named span of them, all read in each event’s own timezone as its card states its start. Sorting by price is not offered.",
         "tags": [
           "events"
         ],
@@ -16357,6 +16525,29 @@
                                 "type": "string",
                                 "minLength": 1,
                                 "maxLength": 500
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "region": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "country": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[A-Z]{2}$"
                               },
                               {
                                 "type": "null"
@@ -16735,6 +16926,51 @@
             }
           },
           {
+            "name": "country",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$"
+            }
+          },
+          {
+            "name": "region",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60
+            }
+          },
+          {
+            "name": "free",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "onSale",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "q",
             "in": "query",
             "required": false,
@@ -16762,6 +16998,38 @@
               "type": "string",
               "format": "date-time",
               "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            }
+          },
+          {
+            "name": "fromDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "toDate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "when",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "today",
+                "weekend",
+                "week",
+                "month"
+              ]
             }
           },
           {
@@ -19187,7 +19455,7 @@
       "get": {
         "operationId": "events.facets",
         "summary": "Filter facets for the catalogue",
-        "description": "Counts for every filterable dimension, computed over the complete eligible set — all PUBLISHED events — rather than over the page currently being displayed. Pagination changes which rows a visitor sees, never which options exist: a city whose events all fall beyond page one must still be selectable, or the filters silently hide part of the catalogue. Aggregated in the database; no table is loaded into application memory.",
+        "description": "Counts for every filterable dimension, computed over the complete eligible set — every listed event, in PUBLISHED, ON_SALE, SALES_PAUSED or SOLD_OUT (`scope.status` is `LISTED`) — rather than over the page currently being displayed. `regions` nests each state or province (country, code, display name and count) with its cities, so a city name two states share is counted once in each, and a venue whose region is not a subdivision code (a name typed before venues stored codes) is left out of `regions`, never offered as a state that filters nothing; `cities` is the same counts flat, by name alone, every venue included. Pagination changes which rows a visitor sees, never which options exist: a city whose events all fall beyond page one must still be selectable, or the filters silently hide part of the catalogue. Aggregated in the database; no table is loaded into application memory.",
         "tags": [
           "events"
         ],
@@ -19278,6 +19546,57 @@
                             "additionalProperties": false
                           }
                         },
+                        "regions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "country": {
+                                "type": "string"
+                              },
+                              "region": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              },
+                              "cities": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "value": {
+                                      "type": "string"
+                                    },
+                                    "count": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 10000000
+                                    }
+                                  },
+                                  "required": [
+                                    "value",
+                                    "count"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "country",
+                              "region",
+                              "name",
+                              "count",
+                              "cities"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
                         "languages": {
                           "type": "array",
                           "items": {
@@ -19329,6 +19648,7 @@
                         "scope",
                         "categories",
                         "cities",
+                        "regions",
                         "languages",
                         "formats"
                       ],
@@ -47627,11 +47947,18 @@
                                             "type": "integer",
                                             "minimum": 0,
                                             "maximum": 10000000
+                                          },
+                                          "waiting": {
+                                            "default": 0,
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 10000000
                                           }
                                         },
                                         "required": [
                                           "imported",
-                                          "onSale"
+                                          "onSale",
+                                          "waiting"
                                         ],
                                         "additionalProperties": false
                                       }
@@ -48140,11 +48467,18 @@
                                             "type": "integer",
                                             "minimum": 0,
                                             "maximum": 10000000
+                                          },
+                                          "waiting": {
+                                            "default": 0,
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 10000000
                                           }
                                         },
                                         "required": [
                                           "imported",
-                                          "onSale"
+                                          "onSale",
+                                          "waiting"
                                         ],
                                         "additionalProperties": false
                                       }
@@ -48612,11 +48946,18 @@
                                             "type": "integer",
                                             "minimum": 0,
                                             "maximum": 10000000
+                                          },
+                                          "waiting": {
+                                            "default": 0,
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 10000000
                                           }
                                         },
                                         "required": [
                                           "imported",
-                                          "onSale"
+                                          "onSale",
+                                          "waiting"
                                         ],
                                         "additionalProperties": false
                                       }
@@ -49077,6 +49418,476 @@
         ]
       }
     },
+    "/v1/platform/imports/pending": {
+      "get": {
+        "operationId": "eventImports.pending",
+        "summary": "Every imported event waiting for approval, across runs",
+        "description": "Each imported event “Approve and publish all pending imported events” would act on, from whichever run last wrote it: still in the platform-held organisation and not moved to an organiser’s, its run applied, and REVIEW_PENDING or APPROVED, or PUBLISHED with an imported ticket type still waiting to go on sale (an event whose every imported ticket type is closed, sold out on its listing, is not one). Only events that start more than a minute from now are listed; `past` counts the ones left out for having started. `willGoOnSale` and `publishedNothingToSell` say what approving them does: an event with no prices, or every price sold out, is published with nothing to sell. `digest` is over each event’s id, revision and last run, and is what `approve-pending` must name. Held by `event:import` and `moderation:review`. Never cached.\n\nRequires the `event:import` capability.",
+        "tags": [
+          "imports"
+        ],
+        "responses": {
+          "200": {
+            "description": "Every imported event waiting for approval, across runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "digest": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "willGoOnSale": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "publishedNothingToSell": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "past": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "eventId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "REVIEW_PENDING",
+                                  "APPROVED",
+                                  "PUBLISHED"
+                                ]
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "runId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "sourceId": {
+                                "type": "string",
+                                "pattern": "^[0-9]{1,12}$"
+                              },
+                              "city": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 200
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "region": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 120
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "willGoOnSale": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "eventId",
+                              "title",
+                              "startsAt",
+                              "status",
+                              "revision",
+                              "runId",
+                              "sourceId",
+                              "city",
+                              "region",
+                              "willGoOnSale"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "digest",
+                        "total",
+                        "willGoOnSale",
+                        "publishedNothingToSell",
+                        "past",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/platform/imports/approve-pending": {
+      "post": {
+        "operationId": "eventImports.approvePending",
+        "summary": "Approve and publish every pending imported event",
+        "description": "Works the pending list out again and refuses 409 `IMPORT_PENDING_CHANGED` unless it gives the `digest` the administrator read, so what is approved is what they were shown. Then each event on it is approved exactly as `POST /v1/platform/imports/:runId/approve` approves one, from the run that last wrote it and at the revision the list held: its own transaction, the lifecycle’s gates and the reviewer-independence exemption; approved, published and put on sale, or published with nothing to sell. A refusal is that event’s alone, reported with its code, and the rest go on. A second call names a list that has changed and approves nothing. Held by `event:import` and `moderation:review`, with a second factor within the EVENT_PUBLISH window; it shares the twenty-an-hour budget of previews and applies. Audited `event.approved` and `event.published` per event, and `event_import.bulk_approved` once, with the counts, the runs, each refusal’s event and code, and the digest.\n\nRequires the `event:import` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "imports"
+        ],
+        "responses": {
+          "200": {
+            "description": "Approve and publish every pending imported event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "onSale": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "publishedNothingToSell": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "refused": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "skippedPast": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "results": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "eventId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "outcome": {
+                                "type": "string",
+                                "enum": [
+                                  "PUBLISHED",
+                                  "SALES_OPENED",
+                                  "REFUSED"
+                                ]
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "DRAFT",
+                                      "REVIEW_PENDING",
+                                      "CHANGES_REQUIRED",
+                                      "APPROVED",
+                                      "PUBLISHED",
+                                      "ON_SALE",
+                                      "SALES_PAUSED",
+                                      "SOLD_OUT",
+                                      "COMPLETED",
+                                      "POSTPONED",
+                                      "CANCELLED",
+                                      "REJECTED",
+                                      "ARCHIVED",
+                                      "DELETED"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "revision": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "ticketTypesOnSale": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "code": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 100
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "message": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "eventId",
+                              "outcome",
+                              "status",
+                              "revision",
+                              "ticketTypesOnSale",
+                              "code",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "refusals": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "eventId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "code": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 100
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "message": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "eventId",
+                              "code",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "onSale",
+                        "publishedNothingToSell",
+                        "refused",
+                        "skippedPast",
+                        "results",
+                        "refusals"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "digest"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/platform/import-targets": {
       "get": {
         "operationId": "eventImports.targets",
@@ -49201,7 +50012,7 @@
       "post": {
         "operationId": "eventImports.reassign",
         "summary": "Move an imported event to an organiser’s organisation",
-        "description": "Moves an imported event out of the platform-held organisation into a verified, unsuspended organisation (409 `TARGET_NOT_ELIGIBLE` otherwise; 409 `NOT_IMPORTED` or `NOT_PLATFORM_HELD` for an event that is not, or no longer, held there; 409 `NOT_EDITABLE` for a deleted one; 409 `STALE_REVISION` for another revision). In one transaction: the event and its venue move (the venue is copied when another event uses it), the move is recorded on the import record, and its website link is switched off when on. Its status, ticket types, sales, pictures and web address are unchanged; it no longer shows “Presented by” or the listing’s prices, and its new owner runs its ticket types and sales from then on. The organisation is not asked first. A reason of 10 to 500 characters and a second factor within the EVENT_PUBLISH window. Held by `event:import`. Audited `event.import_reassigned`.\n\nRequires the `event:import` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Moves an imported event out of the platform-held organisation into a verified, unsuspended organisation (409 `TARGET_NOT_ELIGIBLE` otherwise; 409 `NOT_IMPORTED` or `NOT_PLATFORM_HELD` for an event that is not, or no longer, held there; 409 `NOT_EDITABLE` for a deleted one; 409 `STALE_REVISION` for another revision). In one transaction: the platform-held door scanners’ and team invitations’ scopes on the event are removed (they stay that organisation’s; the new owner gives its own door access), the event and its venue move (the venue is copied when another event uses it), the move is recorded on the import record, and its website link is switched off when on. Its status, ticket types, sales, pictures and web address are unchanged; it no longer shows “Presented by” or the listing’s prices, and its new owner runs its ticket types and sales from then on. The organisation is not asked first. A reason of 10 to 500 characters and a second factor within the EVENT_PUBLISH window. Held by `event:import`. Audited `event.import_reassigned`.\n\nRequires the `event:import` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "imports"
         ],
@@ -65573,6 +66384,29 @@
                               }
                             ]
                           },
+                          "region": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 500
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "country": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^[A-Z]{2}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "venueName": {
                             "anyOf": [
                               {
@@ -81642,6 +82476,29 @@
                                     }
                                   ]
                                 },
+                                "region": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "country": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "pattern": "^[A-Z]{2}$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "venueName": {
                                   "anyOf": [
                                     {
@@ -81847,29 +82704,6 @@
                                         "priceListed"
                                       ],
                                       "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "country": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "pattern": "^[A-Z]{2}$"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "region": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 500
                                     },
                                     {
                                       "type": "null"
@@ -83137,6 +83971,29 @@
                                       }
                                     ]
                                   },
+                                  "region": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 500
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "country": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^[A-Z]{2}$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
                                   "venueName": {
                                     "anyOf": [
                                       {
@@ -83342,29 +84199,6 @@
                                           "priceListed"
                                         ],
                                         "additionalProperties": false
-                                      },
-                                      {
-                                        "type": "null"
-                                      }
-                                    ]
-                                  },
-                                  "country": {
-                                    "anyOf": [
-                                      {
-                                        "type": "string",
-                                        "pattern": "^[A-Z]{2}$"
-                                      },
-                                      {
-                                        "type": "null"
-                                      }
-                                    ]
-                                  },
-                                  "region": {
-                                    "anyOf": [
-                                      {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "maxLength": 500
                                       },
                                       {
                                         "type": "null"
@@ -84980,6 +85814,29 @@
                                     }
                                   ]
                                 },
+                                "region": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "country": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "pattern": "^[A-Z]{2}$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "venueName": {
                                   "anyOf": [
                                     {
@@ -85185,29 +86042,6 @@
                                         "priceListed"
                                       ],
                                       "additionalProperties": false
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "country": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "pattern": "^[A-Z]{2}$"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
-                                "region": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 500
                                     },
                                     {
                                       "type": "null"

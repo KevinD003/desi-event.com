@@ -926,7 +926,7 @@ describe('the traffic branch of GET /v1/analytics/summary', () => {
     }
   })
 
-  it('lets the platform administrator read any organisation’s visits, never its money', async () => {
+  it('lets the platform administrator read any organisation’s visits, and its money as a super administrator does (ADR 0018)', async () => {
     const { app, ids } = await trafficWorld()
 
     const response = await summary(
@@ -938,8 +938,9 @@ describe('the traffic branch of GET /v1/analytics/summary', () => {
 
     expect(response.statusCode).toBe(200)
     expect(data.organizationName).toBe(ids.otherOrganization.name)
-    expect(data.moneyWithheld).toBe('CAPABILITY')
-    expect(data.money).toBeNull()
+    // It holds finance:view, and signed in with its second factor just now.
+    expect(data.moneyWithheld).toBeNull()
+    expect(data.money).not.toBeNull()
     expect(data.traffic.totals.views).toBe(50)
   })
 

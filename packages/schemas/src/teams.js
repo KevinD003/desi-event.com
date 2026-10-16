@@ -13,6 +13,10 @@
  *   - A member's role can be changed and their membership removed, and both are
  *     bounded the same way, plus one more: the last `OWNER` cannot be demoted or
  *     removed. An organisation with no owner is an organisation nobody can fix.
+ *   - An invitation for a door role names the **events** it admits at, and the
+ *     inviter may name only events it could give door access for itself
+ *     (ADR 0019). Without that, a manager scoped to one night invites a friend
+ *     to every door the organisation has.
  *
  * @module @desi-event/schemas/teams
  */
@@ -31,7 +35,7 @@ import { cuidSchema, emailSchema, nonEmptyStringSchema, timestampSchema } from '
  * being the owner" are one action and doing half of it leaves an organisation
  * with two owners who each think the other is responsible. The only other ways
  * to an `OWNER` membership are creating an organisation, and an audited grant
- * by a platform super administrator (`platform.grantMembership`), which names
+ * by a platform administrator (`platform.grantMembership`), which names
  * its reason. Accepting an organiser invitation from the team at The Desi Events makes
  * somebody the owner of a new organisation.
  *
@@ -47,13 +51,13 @@ export const assignableOrgRoleSchema = orgRoleSchema.exclude(['OWNER'])
 export const inviteMemberRequestSchema = z.object({
   email: emailSchema,
   role: assignableOrgRoleSchema,
-  // Door scopes. Only meaningful for MANAGER, STAFF and SCANNER, who may admit
-  // only to the events a scope names; see `@desi-event/permissions/admission`.
-  //
-  // Recorded on the invitation's audit row and not yet applied on acceptance —
-  // an invited door role starts with no scope, which admits nobody, and is
-  // scoped by a role change afterwards. Known, and listed in the Phase 4
-  // report's limitations.
+  // Door scopes: the events a door role (STAFF, SCANNER) will admit at, which
+  // may admit only to the events a scope names; see
+  // `@desi-event/permissions/admission`. Stored with the invitation and copied
+  // into the member's scopes by the transaction that accepts it (ADR 0019).
+  // Each must be one of the organisation's events (422 otherwise), and events
+  // on an invitation for any other role answer 422. An owner or administrator
+  // may name any of its events; a manager only those it is scoped to itself.
   eventIds: z.array(cuidSchema).max(200).optional(),
 })
 
@@ -121,6 +125,16 @@ export const memberSummarySchema = z.object({
   roleChoices: z.array(orgRoleSchema),
 })
 
+/**
+ * An event a door scope names, as a team response shows it: its id and title.
+ *
+ * @type {object}
+ */
+export const doorEventSummarySchema = z.object({
+  id: cuidSchema,
+  title: nonEmptyStringSchema,
+})
+
 /** An invitation that has not yet been accepted. */
 export const invitationSummarySchema = z.object({
   id: cuidSchema,
@@ -139,6 +153,12 @@ export const invitationSummarySchema = z.object({
    * nobody ever received a code. A screen says so and offers a new one.
    */
   deliveryMode: invitationDeliveryModeSchema.nullable(),
+  /**
+   * The events a door role invited here will admit at, once accepted
+   * (ADR 0019). Empty for every other role, and for a door role invited for
+   * none, which admits nobody until its events are chosen.
+   */
+  events: z.array(doorEventSummarySchema).max(200),
 })
 
 /**
@@ -300,6 +320,18 @@ export const acceptedInvitationResponseSchema = z.object({
      * nothing was gained, and no other session ended.
      */
     joined: z.boolean(),
+    /**
+     * The events this membership now admits at: the ones the invitation named,
+     * applied as door scopes in the same transaction (ADR 0019). Empty for a
+     * role that does not admit by event, and when `joined` is false.
+     */
+    events: z.array(doorEventSummarySchema).max(200),
+    /**
+     * How many events the invitation named that it no longer opens, because
+     * whoever invited lost the door to them (a manager's scope or membership
+     * taken away) before it was accepted. Zero when nothing was withdrawn.
+     */
+    withdrawnEventCount: z.number().int().min(0).max(200),
     session: privilegeSessionSchema,
   }),
 })

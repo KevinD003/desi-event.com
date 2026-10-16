@@ -7,9 +7,12 @@
  *
  * In one platform-held organisation per source ("The Desi Events",
  * `Organization.platformHeldSource = 'SULEKHA'`), created VERIFIED the first
- * time an import is applied, with no members: the database refuses any
- * (`desi_platform_held_has_no_members`). Each event names the organiser who
- * presents it and keeps the prices the listing gave on its import record.
+ * time an import is applied, with no members but the door scanners a platform
+ * administrator invites for its events: the database refuses every other role
+ * (`desi_platform_held_has_no_members`, ADR 0019). A scanner edits nothing, so
+ * nobody runs an imported event but the team at The Desi Events. Each event
+ * names the organiser who presents it and keeps the prices the listing gave on
+ * its import record.
  *
  * ## Sold here, and nothing goes to the source (2026-10-15)
  *
@@ -189,6 +192,11 @@ const IMPORT_SUMMARY_BUDGET = Object.freeze({
   budget: TRANSACTION_BUDGETS.ROW,
   refusal:
     'Every listing this run wrote stands, but its summary could not be saved in time behind another change. Reload the run to see what it wrote.',
+})
+const BULK_APPROVAL_SUMMARY_BUDGET = Object.freeze({
+  budget: TRANSACTION_BUDGETS.ROW,
+  refusal:
+    'Every event this approved stands, but the record of the request could not be saved in time behind another change. Reload the list to see what is still waiting.',
 })
 const REASSIGN_BUDGET = Object.freeze({
   budget: TRANSACTION_BUDGETS.ROW,
@@ -1492,6 +1500,23 @@ function notInRun() {
  * @returns {Promise<object[]>} One result per item, in the order asked.
  */
 export async function approveImported(prisma, { run, items, actor, now = new Date() }) {
+  return approveEach(prisma, { run, items, actor, now })
+}
+
+/**
+ * The approvals one request makes, one transaction each ({@link approveOne}),
+ * a refusal reported for its event and the rest carried on. The one step both
+ * a run's approval and "approve all pending" take.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} options Inputs.
+ * @param {object} options.run The run the events are approved from.
+ * @param {Array<{eventId: string, revision: number}>} options.items The events, at the revisions read.
+ * @param {object} options.actor The administrator.
+ * @param {Date} options.now The moment.
+ * @returns {Promise<object[]>} One result per item, in the order given.
+ */
+async function approveEach(prisma, { run, items, actor, now }) {
   const results = []
 
   for (const item of items) {
@@ -1514,6 +1539,219 @@ export async function approveImported(prisma, { run, items, actor, now = new Dat
   }
 
   return results
+}
+
+/**
+ * How far ahead of its start an imported event must be for "approve all
+ * pending" to take it: the margin {@link openImportedSales} keeps before it
+ * opens sales, so every event taken can still have something sold.
+ */
+const PENDING_LEAD_MS = 60_000
+
+/** The statuses an imported event waits for approval in. */
+const AWAITING_APPROVAL = Object.freeze(['REVIEW_PENDING', 'APPROVED'])
+
+/**
+ * Every imported event waiting for "Approve and publish", across every run.
+ *
+ * An event is waiting when its import record has not been moved to an
+ * organiser's organisation, it is still in the platform-held organisation,
+ * the run that last wrote it was applied, and it is either REVIEW_PENDING or
+ * APPROVED, or PUBLISHED with an imported ticket type still a DRAFT that can
+ * go on sale. Only events that start more than a minute from now are taken;
+ * the rest are counted as `past`. Each is approved from the run that last
+ * wrote it, which is the only run `approveOne` accepts, so a listing two runs
+ * imported is approved once, from the later.
+ *
+ * The digest is over each waiting event's id, revision and last run, in id
+ * order: a change to any of them, an event joining or leaving, changes it.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} [options] Options.
+ * @param {Date} [options.now] The moment.
+ * @param {string[]} [options.runIds] Only the events these runs last wrote. The routes never pass it: it is for a caller that shares the database with imports it must not touch (the integration suites).
+ * @returns {Promise<{digest: string, total: number, willGoOnSale: number, publishedNothingToSell: number, past: number, items: object[]}>} The list and its counts.
+ */
+export async function pendingImports(prisma, { now = new Date(), runIds } = {}) {
+  const records = await prisma.eventImportItem.findMany({
+    where: {
+      reassignedAt: null,
+      lastRunId: Array.isArray(runIds) ? { in: runIds } : { not: null },
+      lastRun: { status: 'APPLIED' },
+      event: {
+        organization: { platformHeldSource: { not: null } },
+        OR: [
+          { status: { in: [...AWAITING_APPROVAL] } },
+          {
+            status: 'PUBLISHED',
+            ticketTypes: { some: { importKey: { not: null }, status: 'DRAFT' } },
+          },
+        ],
+      },
+    },
+    select: {
+      sourceId: true,
+      lastRunId: true,
+      event: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          revision: true,
+          startsAt: true,
+          venue: { select: { city: true, region: true } },
+          ticketTypes: { select: { status: true, importKey: true } },
+        },
+      },
+    },
+  })
+
+  const from = now.getTime() + PENDING_LEAD_MS
+  const waiting = records.filter((record) => new Date(record.event.startsAt).getTime() > from)
+  const items = waiting
+    .map((record) => {
+      const { event } = record
+      const tiers = event.ticketTypes ?? []
+      const opens = tiers.filter((tier) => tier.importKey !== null && tier.status === 'DRAFT')
+      const onSale = tiers.filter((tier) => tier.status === 'ON_SALE')
+
+      return {
+        eventId: event.id,
+        title: event.title,
+        startsAt: new Date(event.startsAt).toISOString(),
+        status: event.status,
+        revision: event.revision,
+        runId: record.lastRunId,
+        sourceId: record.sourceId,
+        city: event.venue?.city ?? null,
+        region: event.venue?.region ?? null,
+        willGoOnSale: opens.length > 0 || onSale.length > 0,
+      }
+    })
+    .sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.eventId.localeCompare(b.eventId))
+
+  const digest = canonicalDigest(
+    [...items]
+      .sort((a, b) => a.eventId.localeCompare(b.eventId))
+      .map(({ eventId, revision, runId }) => ({ eventId, revision, lastRunId: runId })),
+  )
+  const willGoOnSale = items.filter((item) => item.willGoOnSale).length
+
+  return {
+    digest,
+    total: items.length,
+    willGoOnSale,
+    publishedNothingToSell: items.length - willGoOnSale,
+    past: records.length - waiting.length,
+    items,
+  }
+}
+
+/**
+ * The refusal for a confirmation of a list that is no longer the list.
+ *
+ * @returns {Error} 409 `IMPORT_PENDING_CHANGED`.
+ */
+function pendingChanged() {
+  return httpError(
+    409,
+    'IMPORT_PENDING_CHANGED',
+    'The imported events waiting for approval changed after you read the list, so nothing was approved. Read the list again and confirm what it says now.',
+  )
+}
+
+/**
+ * "Approve and publish all pending imported events": every event
+ * {@link pendingImports} lists, each through the same `approveOne` a run's
+ * page uses — its own transaction, the lifecycle's gates, the reviewer
+ * independence exemption and the `event.approved` and `event.published`
+ * audit rows — from the run that last wrote it, at the revision the list
+ * held. A refusal is that event's alone and is reported; the rest go on.
+ * One `event_import.bulk_approved` row records the request.
+ *
+ * The list is worked out again first and must give the digest the
+ * administrator confirmed (409 `IMPORT_PENDING_CHANGED`), so what is
+ * approved is exactly what they were shown. A second call finds the list
+ * changed — every event it approved has left it — and approves nothing.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} options Inputs.
+ * @param {string} options.digest The digest the administrator confirmed.
+ * @param {object} options.actor The administrator.
+ * @param {Date} [options.now] The moment.
+ * @param {string[]} [options.runIds] Only these runs' events, as {@link pendingImports} takes it; the route never passes it.
+ * @returns {Promise<object>} The counts, each event's result and the refusals.
+ * @throws {Error} 409 `IMPORT_PENDING_CHANGED`.
+ */
+export async function approvePendingImports(prisma, { digest, actor, now = new Date(), runIds }) {
+  const pending = await pendingImports(prisma, { now, runIds })
+
+  if (pending.digest !== digest) throw pendingChanged()
+
+  const fromRuns = [...new Set(pending.items.map((item) => item.runId))]
+  const runs = new Map(
+    (await prisma.eventImportRun.findMany({ where: { id: { in: fromRuns } } })).map((run) => [
+      run.id,
+      run,
+    ]),
+  )
+  const results = []
+
+  for (const item of pending.items) {
+    const run = runs.get(item.runId)
+
+    if (!run) {
+      results.push({
+        eventId: item.eventId,
+        outcome: 'REFUSED',
+        status: null,
+        revision: null,
+        ticketTypesOnSale: 0,
+        code: 'NOT_IN_RUN',
+        message: notInRun().message,
+      })
+      continue
+    }
+
+    const [result] = await approveEach(prisma, {
+      run,
+      items: [{ eventId: item.eventId, revision: item.revision }],
+      actor,
+      now,
+    })
+
+    results.push(result)
+  }
+
+  const refusals = results
+    .filter((result) => result.outcome === 'REFUSED')
+    .map(({ eventId, code, message }) => ({ eventId, code, message }))
+  const summary = {
+    total: results.length,
+    onSale: results.filter((result) => result.status === 'ON_SALE').length,
+    publishedNothingToSell: results.filter(
+      (result) => result.outcome !== 'REFUSED' && result.status === 'PUBLISHED',
+    ).length,
+    refused: refusals.length,
+  }
+
+  await budgetedTransaction(prisma, BULK_APPROVAL_SUMMARY_BUDGET, async (tx) => {
+    await recordAudit(tx, {
+      action: AUDIT_ACTIONS.EVENT_IMPORT_BULK_APPROVED,
+      entityType: 'EventImport',
+      entityId: 'pending',
+      actorId: actor.id,
+      metadata: {
+        digest,
+        ...summary,
+        skippedPast: pending.past,
+        runIds: fromRuns,
+        refusals: refusals.map(({ eventId, code }) => ({ eventId, code })),
+      },
+    })
+  })
+
+  return { ...summary, skippedPast: pending.past, results, refusals }
 }
 
 /**
@@ -1839,8 +2077,10 @@ export function reassignLinkReason(name) {
  * Move an imported event to an organiser's own organisation (SPEC2-XI I-F),
  * in one transaction that locks the event first: the event and its venue move
  * (the venue is copied when another event uses it), the move is stamped on the
- * import record, the website link is switched off when it is on, and it is
- * audited. Its status, ticket types, sales, pictures and slug are unchanged.
+ * import record, the website link is switched off when it is on, the
+ * platform-held door scanners' and waiting scanner invitations' scopes on it
+ * are removed (they stay that organisation's), and it is audited. Its status,
+ * ticket types, sales, pictures and slug are unchanged.
  *
  * @param {object} prisma The Prisma client.
  * @param {object} options Inputs.
@@ -1953,6 +2193,19 @@ export async function reassignImportedEvent(prisma, options) {
       }
     }
 
+    // The platform-held organisation's door scanners, and its waiting scanner
+    // invitations, named this event (ADR 0019). They stay that
+    // organisation's, so their scope on an event that is no longer its own
+    // goes with the move, before it: a scope names an event of its own
+    // organisation, which `desi_event_move_leaves_no_door_scope` holds at the
+    // database. The new organiser gives its own door access.
+    const scannerScopes = await tx.scannerScope.deleteMany({
+      where: { eventId: event.id, membership: { organizationId: event.organizationId } },
+    })
+    const invitationScopes = await tx.invitationScope.deleteMany({
+      where: { eventId: event.id, invitation: { organizationId: event.organizationId } },
+    })
+
     await tx.event.update({
       where: { id: event.id },
       data: { organizationId: target.id, venueId, revision: { increment: 1 } },
@@ -1992,6 +2245,8 @@ export async function reassignImportedEvent(prisma, options) {
         reason,
         websiteLinkTurnedOff: linkOn,
         venue: event.venueId ? (venueMoved ? 'MOVED' : 'COPIED') : null,
+        scannerScopesRemoved: scannerScopes.count,
+        invitationScopesRemoved: invitationScopes.count,
       },
     })
 
@@ -2160,6 +2415,9 @@ export async function toRunView(prisma, run, now) {
             ticketTypes: {
               imported: tiers.length,
               onSale: tiers.filter((tier) => tier.status === 'ON_SALE').length,
+              // Still a DRAFT, so approving can put it on sale; a tier closed
+              // as sold out on the listing is neither.
+              waiting: tiers.filter((tier) => tier.status === 'DRAFT').length,
             },
           }
         : null,

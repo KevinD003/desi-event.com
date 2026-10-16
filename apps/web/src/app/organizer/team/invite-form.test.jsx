@@ -11,7 +11,9 @@
  *     handed it over" removes, and only then is the page read again;
  *   - the code never reaches browser storage, a link or the address bar;
  *   - an EMAIL answer draws no code at all;
- *   - refusals are the API's own sentences, and a rate limit says how long.
+ *   - refusals are the API's own sentences, and a rate limit says how long;
+ *   - a door role is invited for the events ticked in a labelled group of
+ *     checkboxes, sent as `eventIds` (ADR 0019); no other role sends any.
  *
  * @module app/organizer/team/invite-form.test
  */
@@ -292,13 +294,103 @@ describe('the invite form', () => {
     expect(await screen.findByText(/Wait about a minute, then try again/u)).toBeInTheDocument()
   })
 
-  it('says a door role admits nobody until its events are chosen', async () => {
+  it('says a door role admits nobody until its events are chosen when the events could not be read', async () => {
     const user = userEvent.setup()
 
     render(<InviteForm organizationId={ORG} assignableRoles={['SCANNER', 'VIEWER']} />)
     await user.selectOptions(screen.getByLabelText(/Role/u), 'SCANNER')
 
-    expect(screen.getByText(/A door role admits nobody until you choose its events/u)).toBeVisible()
+    expect(
+      screen.getByText(
+        /Invited without events, they admit nobody until an owner or administrator chooses their events/u,
+      ),
+    ).toBeVisible()
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+  })
+
+  it('invites a door scanner for the events ticked, in a labelled group (ADR 0019)', async () => {
+    const user = userEvent.setup()
+    const events = [
+      { id: 'evt00000000000000000001', title: 'Garba Night', when: 'Sat 24 Oct' },
+      { id: 'evt00000000000000000002', title: 'Diwali Mela', when: 'Sun 1 Nov' },
+    ]
+
+    apiFetch.mockResolvedValue(answer(201, invited({ mode: 'EMAIL', invitationCode: null })))
+    render(
+      <InviteForm
+        organizationId={ORG}
+        assignableRoles={['STAFF', 'SCANNER', 'VIEWER']}
+        deliveryMode="EMAIL"
+        events={events}
+      />,
+    )
+    await user.selectOptions(screen.getByLabelText(/Role/u), 'SCANNER')
+
+    const group = screen.getByRole('group', { name: 'Which events they may admit people to' })
+
+    expect(group).toHaveAccessibleDescription(
+      /The events you tick become their door scope when they accept\. With none ticked they admit nobody until an owner or administrator chooses their events\./u,
+    )
+
+    await user.click(screen.getByRole('checkbox', { name: /Garba Night/u }))
+    await invite(user)
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      email: 'new.person@example.com',
+      role: 'SCANNER',
+      eventIds: ['evt00000000000000000001'],
+    })
+  })
+
+  it('sends no events for a role that does not work a door, and offers no picker for it', async () => {
+    const user = userEvent.setup()
+    const events = [{ id: 'evt00000000000000000001', title: 'Garba Night', when: null }]
+
+    apiFetch.mockResolvedValue(answer(201, invited({ mode: 'EMAIL', invitationCode: null })))
+    render(
+      <InviteForm
+        organizationId={ORG}
+        assignableRoles={['SCANNER', 'VIEWER']}
+        deliveryMode="EMAIL"
+        events={events}
+      />,
+    )
+
+    await user.selectOptions(screen.getByLabelText(/Role/u), 'SCANNER')
+    await user.click(screen.getByRole('checkbox', { name: /Garba Night/u }))
+    await user.selectOptions(screen.getByLabelText(/Role/u), 'VIEWER')
+
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+
+    await invite(user)
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      email: 'new.person@example.com',
+      role: 'VIEWER',
+    })
+  })
+
+  it('tells a manager it can give door access only for its own events', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <InviteForm
+        organizationId={ORG}
+        assignableRoles={['STAFF', 'SCANNER']}
+        events={[]}
+        limitedToOwnScope
+      />,
+    )
+    await user.selectOptions(screen.getByLabelText(/Role/u), 'SCANNER')
+
+    expect(
+      screen.getByText(/You can give door access only for the events you are scoped to yourself/u),
+    ).toBeVisible()
+    expect(
+      screen.getByText('You are scoped to no upcoming event, so there is none to name.'),
+    ).toBeVisible()
   })
 
   it('draws nothing when no role may be granted', () => {

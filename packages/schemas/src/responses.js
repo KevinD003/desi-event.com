@@ -402,9 +402,11 @@ export const checkInResponseSchema = z.object({
  * the events its scopes name and nothing else, so the door screen cannot even
  * offer an event the server would refuse.
  *
- * A platform super administrator is shown every organisation's current door
- * events as well, on `PLATFORM_ROLE` authority — the only authority whose role
- * is a platform role, which the refinement pins so neither half can drift.
+ * A platform administrator (ADMIN) or super administrator is shown every
+ * organisation's current door events as well, on `PLATFORM_ROLE` authority —
+ * the only authority whose role is a platform role, which the refinement pins
+ * so neither half can drift: platform authority rests on ADMIN or SUPER_ADMIN,
+ * and SUPER_ADMIN on nothing else (ADR 0018).
  * `meta.scope` says which kind of list this is; `meta.organizations` feeds the
  * organisation filter; `meta.truncated` says the list was cut at its limit.
  */
@@ -432,11 +434,15 @@ export const admissionEventsResponseSchema = z.object({
         role: admissionRoleSchema,
       })
       .superRefine((entry, ctx) => {
-        if ((entry.authority === 'PLATFORM_ROLE') !== (entry.role === 'SUPER_ADMIN')) {
+        const platform = entry.authority === 'PLATFORM_ROLE'
+        const platformRole = entry.role === 'ADMIN' || entry.role === 'SUPER_ADMIN'
+
+        if ((platform && !platformRole) || (!platform && entry.role === 'SUPER_ADMIN')) {
           ctx.addIssue({
             code: 'custom',
             path: ['role'],
-            message: 'Platform authority rests on SUPER_ADMIN, and only platform authority does',
+            message:
+              'Platform authority rests on ADMIN or SUPER_ADMIN, and SUPER_ADMIN only on platform authority',
           })
         }
       }),
@@ -945,6 +951,22 @@ export const eventFacetsResponseSchema = z.object({
     }),
     categories: z.array(z.object({ value: eventCategorySchema, count: countSchema })),
     cities: z.array(z.object({ value: z.string(), count: countSchema })),
+    /**
+     * Each state or province with listed events, and its cities. Keyed by
+     * country and region, so a city name two states share is two entries.
+     */
+    regions: z.array(
+      z.object({
+        /** ISO 3166-1 alpha-2, as the venue stores it. */
+        country: z.string(),
+        /** The state or province code, trimmed and in capitals: `TX`, `ON`. */
+        region: z.string(),
+        /** "Texas", "Ontario"; the code itself when it is not a known one. */
+        name: z.string(),
+        count: countSchema,
+        cities: z.array(z.object({ value: z.string(), count: countSchema })),
+      }),
+    ),
     languages: z.array(z.object({ value: z.string(), count: countSchema })),
     formats: z.array(z.object({ value: z.enum(['online', 'in_person']), count: countSchema })),
   }),
@@ -2268,8 +2290,16 @@ export const eventImportRowEventSchema = z.object({
   importedByName: z.string().max(200).nullable(),
   approvedAt: timestampSchema.nullable(),
   approvedByName: z.string().max(200).nullable(),
-  /** How many of its ticket types the import made, and how many of those are on sale now. */
-  ticketTypes: z.object({ imported: countSchema, onSale: countSchema }),
+  /**
+   * How many of its ticket types the import made, how many of those are on
+   * sale now, and how many are still waiting to go on sale (a DRAFT; one
+   * closed as sold out on the listing is not waiting).
+   */
+  ticketTypes: z.object({
+    imported: countSchema,
+    onSale: countSchema,
+    waiting: countSchema.default(0),
+  }),
 })
 
 /** One listing of a run: what the plan says, and, once applied, what it wrote. */

@@ -253,10 +253,11 @@ export function byPlatform(authority) {
  * postponement, cancellation, reschedule, review submissions, archive).
  *
  *   - A member whose membership carries the capability: ORGANIZATION.
- *   - A SUPER_ADMIN (`platform:admin`) who is not such a member keeps the move,
- *     as before, through the platform role; it is recorded as the doing of the
- *     team at The Desi Events (`via: 'LIFECYCLE'`).
- *   - A platform ADMIN holds none of these capabilities: 403 `ORGANIZER_ONLY`.
+ *   - A SUPER_ADMIN or platform ADMIN (`platform:admin`, ADR 0018) who is not
+ *     such a member keeps the move through the platform role; it is recorded
+ *     as the doing of the team at The Desi Events (`via: 'LIFECYCLE'`).
+ *   - A platform role that edits posted events (`event:platform_edit`) without
+ *     `platform:admin` (none today): 403 `ORGANIZER_ONLY`.
  *   - Anybody else: the ordinary capability refusal.
  *
  * @param {object} actor The request actor.

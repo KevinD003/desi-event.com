@@ -141,14 +141,17 @@ describe('adminTabs', () => {
     ])
   })
 
-  it('offers a platform administrator the invitations, the events, the referral codes, the booking fee refunds and the imports, never people and roles', () => {
-    expect(adminTabs(platform('ADMIN'))).toEqual([
-      { href: '/admin/organizer-invitations', label: 'Organiser invitations' },
-      { href: '/admin/events', label: 'Events' },
-      { href: '/admin/referral-codes', label: 'Referral codes' },
-      { href: '/admin/fee-refunds', label: 'Booking fee refunds' },
-      { href: '/admin/imports', label: 'Imports' },
-    ])
+  it('offers a platform administrator every section a super administrator has, people and roles included (ADR 0018)', () => {
+    expect(adminTabs(platform('ADMIN'))).toEqual(adminTabs(platform('SUPER_ADMIN')))
+    expect(hrefs(adminTabs(platform('ADMIN')))).toContain('/admin/users')
+  })
+
+  it('offers people and roles to exactly the platform roles holding platform:admin', () => {
+    for (const [role, capabilities] of Object.entries(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(hrefs(adminTabs(platform(role))).includes('/admin/users'), role).toBe(
+        capabilities.includes('platform:admin'),
+      )
+    }
   })
 
   it('offers a finance administrator the booking fee refunds and nothing else (SPEC3 §12.11)', () => {

@@ -106,6 +106,67 @@ test.describe('listing filters', () => {
     await expect(page.getByLabel('Category')).toHaveValue('MUSIC_CONCERT')
   })
 
+  test('a state lists only its cities, and a new state clears the city', async ({ page }) => {
+    await page.goto('/events')
+    await expect(page.locator('form[aria-label="Filter events"]')).toHaveAttribute(
+      'data-enhanced',
+      'true',
+    )
+
+    const region = page.getByLabel('State or province')
+    const city = page.getByLabel('City')
+
+    // Grouped under the country, with how many events each state has.
+    await expect(region.locator('optgroup[label="United States"]')).toHaveCount(1)
+    await expect(region.locator('option[value="US-NJ"]')).toHaveText(/^New Jersey \(\d+\)$/)
+
+    await region.selectOption('US-NJ')
+    await expect(page).toHaveURL(/region=US-NJ/)
+    await expect(page.getByTestId('result-count')).toContainText('in New Jersey')
+    await expect(city.locator('option')).toHaveText([
+      'Every city in New Jersey',
+      'Edison',
+      'Jersey City',
+    ])
+
+    await city.selectOption('Edison')
+    await expect(page).toHaveURL(/region=US-NJ&city=Edison/)
+    await expect(page.getByTestId('result-count')).toContainText('3 events in Edison, NJ')
+
+    await region.selectOption('US-TX')
+    await expect(page).toHaveURL(/region=US-TX$/)
+    await expect(city).toHaveValue('')
+    await expect(page.getByTestId('result-count')).toContainText('in Texas')
+    await expect(city.locator('option', { hasText: 'Edison' })).toHaveCount(0)
+  })
+
+  test('a city outside the chosen state is dropped, as a form without JavaScript sends it', async ({
+    page,
+  }) => {
+    await page.goto('/events?region=US-TX&city=Edison')
+
+    await expect(page.getByLabel('State or province')).toHaveValue('US-TX')
+    await expect(page.getByLabel('City')).toHaveValue('')
+    await expect(page.getByTestId('result-count')).toContainText('in Texas')
+  })
+
+  test('more filters open from the keyboard and combine with the place', async ({ page }) => {
+    await page.goto('/events?region=US-NJ')
+
+    const summary = page.locator('form[aria-label="Filter events"] summary')
+    await summary.focus()
+    await page.keyboard.press('Enter')
+
+    await page.getByLabel('Format').selectOption('in_person')
+    await expect(page).toHaveURL(/region=US-NJ.*format=in_person/)
+    await expect(page.getByTestId('result-count')).toContainText('in-person events in New Jersey')
+
+    await page.getByRole('button', { name: 'Clear filters' }).click()
+    await expect(page).toHaveURL(/\/events$/)
+    await expect(page.getByLabel('State or province')).toHaveValue('')
+    await expect(page.getByLabel('Format')).toHaveValue('')
+  })
+
   test('the filter bar works as a plain GET form', async ({ page }) => {
     await page.goto('/events')
     const form = page.getByRole('form', { name: 'Filter events' })

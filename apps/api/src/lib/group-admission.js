@@ -417,6 +417,7 @@ export async function previewGroupAdmission({ prisma, env, actor, body, log, now
   if (authority.authority === 'PLATFORM_ROLE') {
     await recordPlatformAuthorityUse(prisma, {
       actorId: actor.id,
+      role: authority.role,
       eventId: event.id,
       organizationId: event.organizationId,
       operation: 'group_preview',
@@ -822,6 +823,7 @@ async function decideGroup(tx, { actor, body, presentation, claims, now }) {
     if (authority.authority === 'PLATFORM_ROLE') {
       await recordPlatformAuthorityUse(tx, {
         actorId: actor.id,
+        role: authority.role,
         eventId: event.id,
         organizationId: event.organizationId,
         operation: 'group_check_in',

@@ -22,6 +22,7 @@ export {
   PLATFORM_ONLY_CAPABILITIES,
   PLATFORM_ROLE_CAPABILITIES,
   PLATFORM_ROLE_ORDER,
+  SUPER_ADMIN_ONLY_CAPABILITIES,
   assertAcyclic,
   assertPlatformAdministratorBounds,
   assertPostingPolicy,

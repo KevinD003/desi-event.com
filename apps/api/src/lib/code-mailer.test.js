@@ -105,6 +105,20 @@ describe('composeCodeLetter', () => {
     expect(verified.text).not.toContain('has not been verified')
   })
 
+  it('names the events a door role is invited for, by title (ADR 0019)', () => {
+    const letter = composeCodeLetter(
+      { ...teamMessage, role: 'SCANNER', events: [{ id: 'evt_1', title: 'Garba Night' }] },
+      WEB_ORIGIN,
+    )
+
+    expect(letter.text).toContain('as a ticket scanner.')
+    expect(letter.text).toContain(
+      'You are invited to check tickets at this event:\n  - "Garba Night"\n',
+    )
+    expect(letter.text).not.toContain('evt_1')
+    expect(composeCodeLetter(teamMessage, WEB_ORIGIN).text).not.toContain('check tickets')
+  })
+
   it('writes the ticket transfer to the recipient, quoting the sender as the sender', () => {
     const letter = composeCodeLetter(transferMessage, WEB_ORIGIN)
 

@@ -31,20 +31,22 @@
  *   each needs an active `ScannerScope` naming the event. No scope, no
  *   admission: the model's comment is now what the code does.
  *
- * ## One platform role, and only one
+ * ## Two platform roles, and only two
  *
- * **`SUPER_ADMIN` admits at any event, on its own authority.** It is a third
- * authority, `PLATFORM_ROLE`, and it rests on the same argument as the
- * OWNER/ADMIN bypass: a super administrator can grant itself any membership
- * (and the platform routes let it), so refusing it at the door would be
- * ceremony rather than control. Unlike the membership path, it is recorded
- * distinctly: the API writes a `ticket.admission_platform_authority` row on
- * the event for every platform lookup and admission, so the organisation can
- * see that somebody outside it stood at its door. (ADR 0007 reverses the
- * earlier rule that platform roles admit nobody.)
+ * **`SUPER_ADMIN` and the platform administrator `ADMIN` admit at any event,
+ * on their own authority.** It is a third authority, `PLATFORM_ROLE`, and it
+ * rests on the same argument as the OWNER/ADMIN bypass: both hold
+ * `platform:admin` and can grant themselves any membership (the platform
+ * routes let them), so refusing them at the door would be ceremony rather than
+ * control. Unlike the membership path, it is recorded distinctly: the API
+ * writes a `ticket.admission_platform_authority` row on the event for every
+ * platform lookup and admission, naming the platform role that acted, so the
+ * organisation can see that somebody outside it stood at its door. (ADR 0007
+ * reversed the earlier rule that platform roles admit nobody; ADR 0018 adds
+ * ADMIN beside SUPER_ADMIN.)
  *
- * Membership wins. A super administrator who is also a member of the event's
- * organisation is recorded on the membership's authority; the platform
+ * Membership wins. A platform administrator who is also a member of the
+ * event's organisation is recorded on the membership's authority; the platform
  * authority is the fallback, never the first answer.
  *
  * **Every other platform role admits nobody.** `SUPPORT`, `MODERATOR` and
@@ -147,9 +149,14 @@ assertAdmissionPolicy(ORG_ROLE_CAPABILITIES)
 /**
  * Platform roles that may admit at any event, on platform authority.
  *
+ * SUPER_ADMIN and, since ADR 0018 (amending ADR 0007), the platform
+ * administrator ADMIN, which holds everything SUPER_ADMIN does except changing
+ * platform roles. Both hold `platform:admin`. The audit row records which of
+ * the two admitted.
+ *
  * @type {ReadonlyArray<string>}
  */
-export const PLATFORM_ADMISSION_ROLES = Object.freeze(['SUPER_ADMIN'])
+export const PLATFORM_ADMISSION_ROLES = Object.freeze(['ADMIN', 'SUPER_ADMIN'])
 
 /**
  * Platform roles that hold some capability but may not admit anybody.

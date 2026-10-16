@@ -251,7 +251,7 @@ describe('a cancelled night', () => {
 })
 
 describe('Rule L: the organiser’s lifecycle moves', () => {
-  it('refuses a platform ADMIN with ORGANIZER_ONLY, the reschedule included', async () => {
+  it('lets a platform ADMIN who is not a member make the move, audited as the team at The Desi Events, the reschedule included (ADR 0018)', async () => {
     const { app, prisma, ids } = await createTestApp()
     const headers = await as(app, 'anil@desi-event.example')
 
@@ -264,17 +264,21 @@ describe('Rule L: the organiser’s lifecycle moves', () => {
       payload: {},
     })
 
-    expect(paused.statusCode).toBe(403)
-    expect(paused.json().error.code).toBe('ORGANIZER_ONLY')
+    expect(paused.statusCode, paused.body).toBe(200)
+    expect(
+      prisma._store.auditLog.find((entry) => entry.action === 'event.sales_paused').metadata,
+    ).toMatchObject({ authority: 'PLATFORM', from: 'ON_SALE' })
 
-    prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status = 'POSTPONED'
+    const event = prisma._store.event.find((row) => row.id === ids.publishedEvent.id)
+
+    event.status = 'POSTPONED'
 
     const rescheduled = await app.inject({
       method: 'POST',
       url: `/v1/events/${ids.publishedEvent.id}/reschedule`,
       headers,
       payload: {
-        revision: 0,
+        revision: event.revision,
         startsAt: minutesFromNow(60 * 24 * 50).toISOString(),
         endsAt: minutesFromNow(60 * 24 * 50 + 300).toISOString(),
         resume: 'PUBLISHED',
@@ -283,8 +287,31 @@ describe('Rule L: the organiser’s lifecycle moves', () => {
       },
     })
 
-    expect(rescheduled.statusCode).toBe(403)
-    expect(rescheduled.json().error.code).toBe('ORGANIZER_ONLY')
+    expect(rescheduled.statusCode, rescheduled.body).toBe(200)
+    expect(prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status).toBe(
+      'PUBLISHED',
+    )
+
+    await app.close()
+  })
+
+  it('still refuses a moderator, who holds no lifecycle move, with the ordinary refusal', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status = 'ON_SALE'
+
+    const paused = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/pause-sales`,
+      headers: await as(app, 'maya@desi-event.example'),
+      payload: {},
+    })
+
+    expect(paused.statusCode).toBe(403)
+    expect(paused.json().error.code).not.toBe('ORGANIZER_ONLY')
+    expect(prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status).toBe(
+      'ON_SALE',
+    )
 
     await app.close()
   })

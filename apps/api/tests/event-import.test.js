@@ -528,7 +528,9 @@ describe('POST /v1/platform/imports/:runId/apply', () => {
     expect(prisma._store.mediaAsset.filter((row) => row.eventId === event.id)).toEqual([])
     expect(applied.data).not.toHaveProperty('pictures')
     expect(applied).not.toHaveProperty('meta')
-    expect(applied.data.rows[0].event.ticketTypes).toEqual({ imported: 3, onSale: 0 })
+    // Three made, none on sale; two wait to go on sale, and the one the listing
+    // sold out of is closed, so it does not (2026-10-16: "waiting").
+    expect(applied.data.rows[0].event.ticketTypes).toEqual({ imported: 3, onSale: 0, waiting: 2 })
     expect(applied.data.status).toBe('APPLIED')
     expect(applied.data.summary).toEqual({ CREATE: 1 })
 
@@ -1327,7 +1329,7 @@ describe('the review of a platform-held import (SPEC2-XI O5, O16)', () => {
 })
 
 describe('sold here while the platform holds it (2026-10-15)', () => {
-  it('lets an administrator add and change tiers and open and pause sales in an editing session, with no SOLD_ON_SOURCE', async () => {
+  it('lets an administrator add and change tiers in an editing session and open and pause sales on platform authority, with no SOLD_ON_SOURCE', async () => {
     const { app, prisma, ids } = await importApp()
     const headers = await as(app, ANIL)
     const { run } = await importFile(app, headers, dataset([listing('900300', { prices: [] })]))
@@ -1339,7 +1341,9 @@ describe('sold here while the platform holds it (2026-10-15)', () => {
 
     const revision = () => prisma._store.event.find((row) => row.id === event.id).revision
 
-    // Outside a sitting, an ADMIN may not open sales (Rule L stands)...
+    // Outside a sitting an ADMIN takes the ordinary path a SUPER_ADMIN takes
+    // (ADR 0018): the move is refused for what the event lacks — a ticket type
+    // on sale — and never for the authority...
     const early = await app.inject({
       method: 'POST',
       url: `/v1/events/${event.id}/open-sales`,
@@ -1347,8 +1351,11 @@ describe('sold here while the platform holds it (2026-10-15)', () => {
       payload: {},
     })
 
-    expect(early.statusCode).toBe(403)
-    expect(early.json().error.code).toBe('PLATFORM_EDIT_NOT_OPEN')
+    expect(early.statusCode).toBe(422)
+    expect(early.json().error.code).toBe('UNPROCESSABLE')
+    expect(early.json().error.problems).toEqual([
+      'Put at least one ticket type on sale before opening sales.',
+    ])
 
     // ...in one, they add a tier, change its allowance and open sales.
     const sitting = await app.inject({
@@ -1400,11 +1407,9 @@ describe('sold here while the platform holds it (2026-10-15)', () => {
 
     const [opened] = audits(prisma, 'event.on_sale').filter((row) => row.entityId === event.id)
 
-    // Recorded as the team's doing, under the sitting.
-    expect(opened.metadata).toMatchObject({
-      authority: 'PLATFORM',
-      platformEditId: prisma._store.eventPlatformEdit.find((row) => row.eventId === event.id).id,
-    })
+    // Recorded as the team's doing, on the platform role's authority as a
+    // super administrator's move is (ADR 0018), not under the sitting.
+    expect(opened.metadata).toMatchObject({ authority: 'PLATFORM', platformEditId: null })
 
     const paused = await app.inject({
       method: 'POST',
@@ -1415,7 +1420,8 @@ describe('sold here while the platform holds it (2026-10-15)', () => {
 
     expect(paused.statusCode, paused.body).toBe(200)
 
-    // A sitting opens nothing else: postponing stays the organiser's (Rule L).
+    // Postponing is no longer the organiser's alone: a platform administrator
+    // holds every lifecycle move a super administrator does (ADR 0018).
     const postponed = await app.inject({
       method: 'POST',
       url: `/v1/events/${event.id}/postpone`,
@@ -1423,10 +1429,11 @@ describe('sold here while the platform holds it (2026-10-15)', () => {
       payload: { reasonCode: 'WEATHER', reason: 'Rain is expected that evening.' },
     })
 
-    expect(postponed.statusCode).toBe(403)
-    expect(postponed.json().error.code).toBe('ORGANIZER_ONLY')
+    expect(postponed.statusCode, postponed.body).toBe(200)
+    expect(prisma._store.event.find((row) => row.id === event.id).status).toBe('POSTPONED')
 
-    // And an organiser's own event is not opened by a sitting either.
+    // Nor is an organiser's own event closed to it: it opens sales there on
+    // the platform role's authority, recorded as the team's doing.
     const own = await app.inject({
       method: 'POST',
       url: `/v1/events/${ids.publishedEvent.id}/open-sales`,
@@ -1434,7 +1441,11 @@ describe('sold here while the platform holds it (2026-10-15)', () => {
       payload: {},
     })
 
-    expect(own.statusCode).toBe(403)
+    expect(own.statusCode, own.body).toBe(200)
+    expect(
+      audits(prisma, 'event.on_sale').find((row) => row.entityId === ids.publishedEvent.id)
+        .metadata,
+    ).toMatchObject({ authority: 'PLATFORM' })
 
     await app.close()
   })
@@ -1720,6 +1731,8 @@ describe('POST /v1/platform/imports/events/:eventId/reassign', () => {
       reason: 'They run this event themselves.',
       websiteLinkTurnedOff: true,
       venue: 'MOVED',
+      scannerScopesRemoved: 0,
+      invitationScopesRemoved: 0,
     })
     expect(audits(prisma, 'event.website_redirect_changed')).toHaveLength(2)
 
@@ -1969,7 +1982,7 @@ describe('the platform-held organisation takes no members', () => {
       statusCode: 409,
       code: 'PLATFORM_HELD_ORGANIZATION',
       message:
-        "This organisation holds imported events for the team at The Desi Events and has no members. Move the event to the organiser's own organisation instead.",
+        "This organisation holds imported events for the team at The Desi Events and has no members but door scanners. Move the event to the organiser's own organisation instead.",
     })
     // Another check violation is still a fault.
     error.meta.driverAdapterError.cause.originalMessage = 'something_else'

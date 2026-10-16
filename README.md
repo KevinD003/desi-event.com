@@ -194,27 +194,58 @@ the source identifier `SULEKHA` are identifiers only):
   Canadian provinces, from the owner's own export of 397 listings, curated on
   15 October 2026, dated 15 October 2026 to 7 May 2027.
 
-They are loaded after seeding by an account that holds `event:import` (a
-platform administrator or super administrator):
+**Getting every event live (2026-10-16, ADR 0021).** Four steps, the last
+one a person with a second factor:
 
 ```bash
-pnpm import:events packages/db/data/imports/north-america-2026.json \
+pnpm db:migrate:deploy                       # 1. the schema
+pnpm db:seed                                 # 2. the accounts, including the administrator
+pnpm import:events:all \
+  --as platform-admin@desi-event.example      #    (plan only: writes the runs, imports nothing)
+pnpm import:events:all \
+  --as platform-admin@desi-event.example --apply   # 3. both files, into review
+```
+
+4. Sign in at `/admin/imports` as that administrator (enrol the second factor
+   the first time) and press **"Approve and publish all pending imported
+   events"**. The panel says how many events wait, how many go on sale and
+   how many are published with nothing to sell (no prices, or every price
+   sold out), and asks for the second factor. Each event is approved on its
+   own; one that cannot be is reported with its reason, and the rest go on.
+   Events that have already started are left as they are.
+
+`pnpm import:events:all` imports `texas-2026.json` first and
+`north-america-2026.json` second, through `pnpm import:events` for each. The
+two files share ten listings (all in Texas), and the North America file is
+the newer: imported second, its words are the ones left on those ten, and its
+run is the one they are approved from. Each of the ten carries a note saying
+how the newer export differs. The command never approves or publishes.
+
+One file at a time works as before, by an account that holds `event:import`
+(a platform administrator or super administrator):
+
+```bash
+pnpm import:events packages/db/data/imports/texas-2026.json \
   --as platform-admin@desi-event.example            # plan only; writes the run
-pnpm import:events packages/db/data/imports/north-america-2026.json \
+pnpm import:events packages/db/data/imports/texas-2026.json \
   --as platform-admin@desi-event.example --apply    # import into review
 ```
 
-The two files share ten listings (all in Texas). Importing both is safe: each
-listing is imported once, by its source id, and the second file plans those
-ten as updates of the drafts the first one wrote (or leaves a posted one as it
-is unless "Update from the listing" is ticked). Each of the ten carries a note
-saying how the newer export differs.
+Import the Texas file before the North America one, or the older Texas words
+go back over the ten listings both carry. Each listing is imported once, by
+its source id: the second file plans those ten as updates of the drafts the
+first one wrote (or leaves a posted one as it is unless "Update from the
+listing" is ticked).
 
 The file can also be uploaded at `/admin/imports`, which shows the same plan.
 Applying writes each event as a draft waiting for review, with one ticket type
-per listed price. Approving is done only in the browser, at `/admin/imports`,
-with a second factor; it publishes the event and opens its ticket sales. The
-command line never approves and never changes an event that is already posted.
+per listed price. Approving is done only in the browser, at `/admin/imports`
+(every pending event at once, or a run's events from its own page), with a
+second factor; it publishes the event and opens its ticket sales. The command
+line never approves and never changes an event that is already posted.
+
+Canadian prices are in Canadian dollars (CAD): the owner confirmed it on
+16 October 2026, and the notes on those listings say so.
 
 **Tickets are sold on The Desi Events (15 October 2026).** At the owner's
 request nothing links, redirects or connects to the site the listings came

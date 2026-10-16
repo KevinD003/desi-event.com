@@ -20,7 +20,7 @@
 
 import { z } from 'zod'
 
-import { eventCategorySchema, eventImportSourceSchema } from './enums.js'
+import { eventCategorySchema, eventImportSourceSchema, eventStatusSchema } from './enums.js'
 import { controlReasonSchema } from './event-control.js'
 import {
   centsSchema,
@@ -30,6 +30,7 @@ import {
   revisionPreconditionSchema,
   timezoneSchema,
 } from './primitives.js'
+import { venueRegionCode } from './subdivisions.js'
 
 /** The format every import file declares, and the only one this build reads. */
 export const IMPORT_DATASET_FORMAT = 'desi-event-import/1'
@@ -166,7 +167,9 @@ export const importEventSchema = z
         name: text(200),
         addressLine1: text(200),
         city: text(100),
-        region: text(100),
+        // Its subdivision code wherever one can be told, as a venue an
+        // organiser writes (`venueRegionCode`).
+        region: z.preprocess(venueRegionCode, text(100)),
         postalCode: text(20),
         country: z.string().regex(/^[A-Z]{2}$/u, 'A two-letter country code.'),
       })
@@ -271,6 +274,86 @@ export const eventImportApproveRequestSchema = z
       ),
   })
   .strict()
+
+/** The digest of the pending list an administrator read: 64 hexadecimal characters. */
+const pendingDigestSchema = z
+  .string()
+  .regex(/^[0-9a-f]{64}$/u, 'A list digest is 64 hexadecimal characters.')
+
+/**
+ * `POST /v1/platform/imports/approve-pending`: the digest of the list of
+ * pending imported events the administrator read. A list that has changed
+ * since is refused, so what is approved is what they were shown.
+ */
+export const eventImportApprovePendingRequestSchema = z
+  .object({ digest: pendingDigestSchema })
+  .strict()
+
+/** One imported event waiting for "Approve and publish", in any run. */
+export const pendingImportedEventSchema = z.object({
+  eventId: cuidSchema,
+  title: z.string().min(1).max(IMPORT_LIMITS.title),
+  startsAt: isoDateTimeSchema,
+  /** REVIEW_PENDING, APPROVED, or PUBLISHED with an imported ticket type that can go on sale. */
+  status: z.enum(['REVIEW_PENDING', 'APPROVED', 'PUBLISHED']),
+  revision: z.int().min(0),
+  /** The run that last wrote it, which is the run it is approved from. */
+  runId: cuidSchema,
+  sourceId: importSourceIdSchema,
+  city: z.string().max(200).nullable(),
+  region: z.string().max(120).nullable(),
+  /** Whether approving it puts something on sale; false means it is published with nothing to sell. */
+  willGoOnSale: z.boolean(),
+})
+
+/** `GET /v1/platform/imports/pending`: every imported event waiting, across every run. */
+export const eventImportPendingResponseSchema = z.object({
+  data: z.object({
+    /** What `approve-pending` must name: over each event's id, revision and last run. */
+    digest: pendingDigestSchema,
+    total: z.int().min(0),
+    /** How many approving puts on sale. */
+    willGoOnSale: z.int().min(0),
+    /** How many approving publishes with nothing to sell: no prices, or every price sold out. */
+    publishedNothingToSell: z.int().min(0),
+    /** Imported events waiting for approval that start within the minute or have started: left out. */
+    past: z.int().min(0),
+    items: z.array(pendingImportedEventSchema),
+  }),
+})
+
+/** What approving one pending event did. */
+export const pendingApprovalResultSchema = z.object({
+  eventId: cuidSchema,
+  outcome: z.enum(['PUBLISHED', 'SALES_OPENED', 'REFUSED']),
+  status: eventStatusSchema.nullable(),
+  revision: z.int().min(0).nullable(),
+  ticketTypesOnSale: z.int().min(0),
+  code: z.string().max(100).nullable(),
+  message: z.string().max(1000).nullable(),
+})
+
+/** `POST /v1/platform/imports/approve-pending`: the counts, and each event's result. */
+export const eventImportApprovePendingResponseSchema = z.object({
+  data: z.object({
+    total: z.int().min(0),
+    /** How many are on sale after it. */
+    onSale: z.int().min(0),
+    /** How many were published with nothing to sell. */
+    publishedNothingToSell: z.int().min(0),
+    refused: z.int().min(0),
+    /** Imported events waiting that had started, or start within the minute: left out. */
+    skippedPast: z.int().min(0),
+    results: z.array(pendingApprovalResultSchema),
+    refusals: z.array(
+      z.object({
+        eventId: cuidSchema,
+        code: z.string().max(100).nullable(),
+        message: z.string().max(1000).nullable(),
+      }),
+    ),
+  }),
+})
 
 /** `POST /v1/platform/imports/events/:eventId/reassign`. */
 export const eventImportReassignRequestSchema = z

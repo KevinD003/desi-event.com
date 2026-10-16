@@ -28,9 +28,11 @@
  * (`EventImportItem.importedById`, which every import submission names)
  * deciding their own latest submission is exempt: an account that only
  * withdrew the import and sent it back by hand is its submitter, not its
- * importer, and is refused as any submitter is. That organisation has no members (a trigger
- * refuses any), so `CONFLICT_OF_INTEREST` cannot arise there, and the import is
- * work done by the team at The Desi Events itself, reviewed on the run page.
+ * importer, and is refused as any submitter is. That organisation has no members but door
+ * scanners (a trigger refuses every other role, ADR 0019), and a door scanner
+ * there edits nothing and is not a conflict of interest, so `CONFLICT_OF_INTEREST`
+ * cannot arise there, and the import is work done by the team at The Desi
+ * Events itself, reviewed on the run page.
  * The exemption is `PLATFORM_HELD_IMPORT`, returned to the caller, which records it with who
  * imported and who approved. Once the event is moved to an organiser's own
  * organisation the exemption no longer applies.
@@ -123,9 +125,23 @@ export async function reviewIndependence(
   prisma,
   { actor, organizationId, eventId = null, uploadedById = null },
 ) {
-  const member = (actor?.memberships ?? []).some(
+  const here = (actor?.memberships ?? []).filter(
     (membership) => membership.organizationId === organizationId,
   )
+  let member = here.length > 0
+
+  // A door scanner of the platform-held organisation (ADR 0019) edits nothing
+  // there and runs none of its events, which are the team's own: holding that
+  // membership is no conflict. Read only for a scanner, so every other
+  // reviewer costs no extra query.
+  if (member && here.every((membership) => membership.role === 'SCANNER')) {
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { platformHeldSource: true },
+    })
+
+    if (organization?.platformHeldSource) member = false
+  }
 
   if (member) {
     const { code, message } = REVIEW_INDEPENDENCE.CONFLICT_OF_INTEREST

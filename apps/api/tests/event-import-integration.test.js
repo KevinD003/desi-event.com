@@ -41,7 +41,11 @@
  *  - a platform-held organisation made under its first name ends up named
  *    "The Desi Events": by migration 20261015090000 (its own SQL, run here),
  *    which makes a taken address unique and changes nothing the second time,
- *    and by the next import, which audits it once.
+ *    and by the next import, which audits it once;
+ *  - approving every pending imported event (2026-10-16), held to this
+ *    suite's runs: a listing two runs imported is approved once, from the
+ *    later; one with nothing to sell is published; one that has started is
+ *    left; a stale digest is refused; a second call approves nothing.
  *
  * Collected by the API suite and by `pnpm verify:tests:fresh`, and run with
  * `REQUIRE_DATABASE=1` in CI. Nothing is cleaned up; every row carries this
@@ -66,10 +70,13 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest'
 
 import { buildApp } from '../src/app.js'
 import { feeConfigFor } from '../src/lib/checkout-pricing.js'
+import { loadActor } from '../src/lib/actor.js'
 import {
   IMPORT_POLICIES,
   RUN_DATASET_BYTES,
+  approvePendingImports,
   jsonbTextBytes,
+  pendingImports,
   reassignLinkReason,
   syncListingTiers,
 } from '../src/lib/event-import.js'
@@ -388,7 +395,7 @@ when()('the platform-held organisation and its records', () => {
     ).rejects.toThrow(/event_public_requires_review|review/u)
   })
 
-  it('takes no member: the trigger refuses one, and the API answers 409, not 500', async () => {
+  it('takes no member but a door scanner: the trigger refuses every other role, and the API answers 409, not 500', async () => {
     const id = sourceId()
 
     await importFile(dataset([listing(id)]))
@@ -426,7 +433,28 @@ when()('the platform-held organisation and its records', () => {
 
     expect(response.statusCode, response.body).toBe(409)
     expect(response.json().error.code).toBe('PLATFORM_HELD_ORGANIZATION')
-    expect(await prisma.membership.count({ where: { organizationId: organization.id } })).toBe(0)
+    // Door scanners are the one role it holds (ADR 0019), which another suite
+    // may have put in at the same moment; nothing else, ever.
+    expect(
+      await prisma.membership.count({
+        where: { organizationId: organization.id, role: { not: 'SCANNER' } },
+      }),
+    ).toBe(0)
+    expect(
+      await prisma.membership.count({
+        where: { organizationId: organization.id, userId: world.organiser.id },
+      }),
+    ).toBe(0)
+
+    // A door scanner is let in, and stays a scanner.
+    const scanner = await prisma.membership.create({
+      data: { userId: world.organiser.id, organizationId: organization.id, role: 'SCANNER' },
+    })
+
+    await expect(
+      prisma.membership.update({ where: { id: scanner.id }, data: { role: 'OWNER' } }),
+    ).rejects.toThrow(/platform_held_organization_has_no_members/u)
+    await prisma.membership.delete({ where: { id: scanner.id } })
   })
 
   it('holds one platform-held organisation per source, and one record per listing', async () => {
@@ -1164,8 +1192,9 @@ when()('selling an imported event on The Desi Events (2026-10-15)', () => {
       orderBy: { id: 'asc' },
     })
 
-    // The door: the platform-held organisation has no members, so the team's
-    // super administrator admits (the platform's door authority).
+    // The door: the team's super administrator admits on the platform's door
+    // authority, as a platform administrator may (ADR 0018); the door
+    // scanners a platform administrator invites admit by scope (ADR 0019).
     const looked = await app.inject({
       method: 'POST',
       url: '/v1/tickets/admission/preview',
@@ -2504,5 +2533,114 @@ when()('the platform-held organisation renamed "The Desi Events"', () => {
       }),
     ).toBe(1)
     expect(await prisma.organization.findUnique({ where: { id: held.id } })).toEqual(after)
+  })
+})
+
+when()('approving every pending imported event (2026-10-16)', () => {
+  // Through the library, held to this block's own runs (`runIds`): the route
+  // approves every pending import in the database, and on the shared test
+  // database that would include the other suites'. The route itself is
+  // tested on the stub (`event-import-pending.test.js`).
+  it('lists events two runs imported once, from the later, and approves them all on PostgreSQL', async () => {
+    const [a, b, c, bare, closed, past] = [1, 2, 3, 4, 5, 6].map(() => sourceId())
+    const first = await importFile(dataset([listing(a), listing(b), listing(past)]))
+    const second = await importFile(
+      dataset([
+        listing(b, { title: `Imported Garba ${RUN} ${b}, newer` }),
+        listing(c),
+        // Nothing to sell: no prices, and every price sold out.
+        listing(bare, { prices: [], priceText: null }),
+        listing(closed, {
+          prices: [{ name: 'Regular', priceCents: 2500, currency: 'USD', note: 'Sold Out' }],
+        }),
+      ]),
+    )
+    const runIds = [first.id, second.id]
+
+    // One of the first file's listings has started since it was imported.
+    const started = await eventFor(past)
+
+    await prisma.event.update({
+      where: { id: started.id },
+      data: { startsAt: new Date(Date.now() - 3_600_000) },
+    })
+
+    const list = await pendingImports(prisma, { runIds })
+
+    expect(list).toMatchObject({ total: 5, willGoOnSale: 3, publishedNothingToSell: 2, past: 1 })
+    expect(Object.fromEntries(list.items.map((item) => [item.sourceId, item.runId]))).toEqual({
+      [a]: first.id,
+      [b]: second.id,
+      [c]: second.id,
+      [bare]: second.id,
+      [closed]: second.id,
+    })
+
+    // A digest from another moment of the list is refused, and nothing moves.
+    await expect(
+      approvePendingImports(prisma, {
+        digest: 'f'.repeat(64),
+        actor: (await loadActor(prisma, world.administrator.user.id)).actor,
+        runIds,
+      }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'IMPORT_PENDING_CHANGED' })
+    expect((await eventFor(a)).status).toBe('REVIEW_PENDING')
+
+    const { actor } = await loadActor(prisma, world.administrator.user.id)
+    const outcome = await approvePendingImports(prisma, { digest: list.digest, actor, runIds })
+
+    expect(outcome).toMatchObject({
+      total: 5,
+      onSale: 3,
+      publishedNothingToSell: 2,
+      refused: 0,
+      skippedPast: 1,
+    })
+
+    for (const id of [a, b, c]) expect((await eventFor(id)).status, id).toBe('ON_SALE')
+    for (const id of [bare, closed]) expect((await eventFor(id)).status, id).toBe('PUBLISHED')
+    expect((await eventFor(past)).status).toBe('REVIEW_PENDING')
+    expect((await eventFor(b)).title).toBe(`Imported Garba ${RUN} ${b}, newer`)
+
+    // Each event's own audit rows, and one for the request.
+    const approved = await prisma.auditLog.count({
+      where: {
+        action: 'event.approved',
+        entityId: {
+          in: await Promise.all([a, b, c, bare, closed].map(async (id) => (await eventFor(id)).id)),
+        },
+      },
+    })
+
+    expect(approved).toBe(5)
+
+    const summary = await prisma.auditLog.findFirst({
+      where: { action: 'event_import.bulk_approved', actorId: world.administrator.user.id },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    expect(summary).toMatchObject({ entityType: 'EventImport', entityId: 'pending' })
+    expect(summary.metadata).toMatchObject({
+      digest: list.digest,
+      total: 5,
+      onSale: 3,
+      publishedNothingToSell: 2,
+      refused: 0,
+      skippedPast: 1,
+    })
+    expect([...summary.metadata.runIds].sort()).toEqual([...runIds].sort())
+
+    // A second call: the old digest is refused, and the list now holds only
+    // the event that started.
+    await expect(
+      approvePendingImports(prisma, { digest: list.digest, actor, runIds }),
+    ).rejects.toMatchObject({ code: 'IMPORT_PENDING_CHANGED' })
+
+    const after = await pendingImports(prisma, { runIds })
+
+    expect(after).toMatchObject({ total: 0, past: 1 })
+    expect(
+      await approvePendingImports(prisma, { digest: after.digest, actor, runIds }),
+    ).toMatchObject({ total: 0, onSale: 0, refused: 0 })
   })
 })

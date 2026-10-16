@@ -20,12 +20,13 @@ export const CONFLICT_OF_INTEREST_NOTICE =
 
 /**
  * What a reviewer is told about an event nobody runs on The Desi Events: an import
- * the platform-held organisation holds, which has no members (SPEC2-XI O16).
+ * the platform-held organisation holds, whose only members are door scanners,
+ * who edit nothing (SPEC2-XI O16, ADR 0019).
  * The API refuses "request changes" on it (`IMPORTED_EVENT_NO_EDITOR`), so the
  * review page does not offer it and says why.
  */
 export const IMPORTED_EVENT_NO_EDITOR_NOTICE =
-  'The organisation holding this event has no members, so nobody could make the changes you ask for. Approve it and correct it once it is published, reject it, or delete it.'
+  'The organisation holding this event has no members but door scanners, so nobody could make the changes you ask for. Approve it and correct it once it is published, reject it, or delete it.'
 
 /**
  * Whether this session belongs to an organisation, through its own membership.
@@ -33,14 +34,21 @@ export const IMPORTED_EVENT_NO_EDITOR_NOTICE =
  * Membership only: a platform role is not a membership, and a platform
  * reviewer with no membership there is exactly the person who should decide.
  *
+ * In the platform-held organisation (`platformHeld`) a door scanner's
+ * membership does not count: a scanner there edits nothing, and the API does
+ * not refuse it as a conflict of interest either (ADR 0019).
+ *
  * @param {object|null} session The session payload.
  * @param {string|null|undefined} organizationId The organisation.
+ * @param {{platformHeld?: boolean}} [options] Whether the organisation holds imported events.
  * @returns {boolean} True when one of the session's memberships is in it.
  */
-export function belongsTo(session, organizationId) {
+export function belongsTo(session, organizationId, { platformHeld = false } = {}) {
   if (!organizationId) return false
 
   return (session?.memberships ?? []).some(
-    (membership) => membership.organizationId === organizationId,
+    (membership) =>
+      membership.organizationId === organizationId &&
+      !(platformHeld && membership.role === 'SCANNER'),
   )
 }

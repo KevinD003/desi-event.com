@@ -42,7 +42,9 @@ import {
  *   capability, are refused — on the screens and by the API, including the
  *   platform list (`traffic/events`).
  * - **N8** A platform administrator reads every organisation's events' visits
- *   with no money, drills into one, and is offered the list in the rail.
+ *   on a list with no money, drills into one, where it reads the event's money
+ *   as a super administrator does (ADR 0018), and is offered the list in the
+ *   rail.
  * - **N9** A keyboard's Enter on a card counts as its click.
  *
  * And, throughout: no beacon carries a cookie, a beacon's body names nothing
@@ -615,7 +617,7 @@ test.describe.serial('visits to an event’s page', () => {
     expect((await viewer.request.get('/api/v1/traffic/events')).status()).toBe(403)
   })
 
-  test('N8: a platform administrator reads every event’s visits, with no money', async ({
+  test('N8: a platform administrator reads every event’s visits, and one event’s money as a super administrator does (ADR 0018)', async ({
     browser,
   }) => {
     const { gammaGaEventTitle, linkAdminEmail, tag } = ids()
@@ -646,7 +648,7 @@ test.describe.serial('visits to an event’s page', () => {
       // Every organisation's events, not one: alpha's evening is listed too.
       await expect(events).toContainText(`Gamma Collective ${tag}`)
       await expect(events).toContainText(`Alpha Collective ${tag}`)
-      // No money, anywhere on the list.
+      // No money, anywhere on the list: it counts visits only.
       await expect(admin.getByRole('main')).not.toContainText('$')
 
       // The navigation offers the list.
@@ -664,9 +666,16 @@ test.describe.serial('visits to an event’s page', () => {
           exact: true,
         }),
       ).toBeVisible()
+      // The platform administrator holds finance:view everywhere (ADR 0018),
+      // and signed in with its second factor just now, so the server sends the
+      // event's money from the ledger, as it does to a super administrator.
+      const money = admin.getByRole('region', { name: 'Money, from the ledger', exact: true })
+
+      await expect(money).toBeVisible()
+      await expect(money.getByText('Gross collected', { exact: true })).toBeVisible()
       await expect(
         admin.getByText('Money figures are not included for this account', { exact: true }),
-      ).toBeVisible()
+      ).toHaveCount(0)
     } finally {
       await context.close()
     }

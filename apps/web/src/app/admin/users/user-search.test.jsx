@@ -177,7 +177,7 @@ describe('the account search', () => {
     fetchMock.mockResolvedValue(
       reply(200, found([account({ displayName: 'Root', role: 'SUPER_ADMIN', self: true })])),
     )
-    render(<UserSearch />)
+    render(<UserSearch mayChangePlatformRoles />)
 
     await searchFor(user, 'root')
 
@@ -188,6 +188,69 @@ describe('the account search', () => {
     expect(button).toHaveAccessibleDescription(
       'This is your own account. Another super administrator must change your platform role.',
     )
+  })
+
+  it('offers a platform administrator no platform-role change, and says whose it is (ADR 0018)', async () => {
+    const user = userEvent.setup()
+
+    fetchMock.mockResolvedValue(
+      reply(
+        200,
+        found([
+          account(),
+          account({
+            id: 'usr00000000000000000003',
+            email: 'root@example.com',
+            displayName: 'Root',
+            role: 'SUPER_ADMIN',
+          }),
+        ]),
+      ),
+    )
+    render(<UserSearch />)
+
+    await searchFor(user, 'example.com')
+
+    const asha = await screen.findByRole('article', { name: 'Asha Rao' })
+
+    expect(within(asha).queryByRole('button', { name: /platform role/u })).toBeNull()
+    expect(
+      within(asha).getByText('Only a super administrator can change a platform role.'),
+    ).toBeVisible()
+    // Putting people into organisations is the platform administrator's too.
+    expect(
+      within(asha).getByRole('button', { name: 'Put Asha Rao into an organisation' }),
+    ).toBeEnabled()
+
+    // A super administrator's memberships are not the platform administrator's
+    // to change: the grant would end every session they hold.
+    const root = screen.getByRole('article', { name: 'Root' })
+
+    expect(within(root).queryByRole('button', { name: /platform role/u })).toBeNull()
+    expect(within(root).queryByRole('button', { name: /into an organisation/u })).toBeNull()
+    expect(
+      within(root).getByText(
+        'This is a super administrator. Only another super administrator can change their memberships.',
+      ),
+    ).toBeVisible()
+  })
+
+  it('offers a super administrator both changes on another super administrator', async () => {
+    const user = userEvent.setup()
+
+    fetchMock.mockResolvedValue(
+      reply(200, found([account({ displayName: 'Root', role: 'SUPER_ADMIN' })])),
+    )
+    render(<UserSearch mayChangePlatformRoles />)
+
+    await searchFor(user, 'root')
+
+    const root = await screen.findByRole('article', { name: 'Root' })
+
+    expect(within(root).getByRole('button', { name: 'Change Root’s platform role' })).toBeEnabled()
+    expect(
+      within(root).getByRole('button', { name: 'Put Root into an organisation' }),
+    ).toBeEnabled()
   })
 
   it('says so when nothing matches', async () => {

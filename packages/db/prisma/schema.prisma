@@ -171,10 +171,12 @@ model Organization {
   /// returned by any route.
   createdById           String?
   /// Set on the one organisation that holds events imported from this source
-  /// for the team at The Desi Events (named "The Desi Events"). It has no members and takes
-  /// no team invitations (trigger `desi_platform_held_has_no_members`), and one
-  /// organisation per source (unique). Only `lib/event-import.js` and
-  /// `lib/organization-provisioning.js` write it.
+  /// for the team at The Desi Events (named "The Desi Events"). Its only
+  /// members and team invitations are door scanners (SCANNER), invited for its
+  /// events by a platform administrator (ADR 0019); every other role is refused
+  /// (trigger `desi_platform_held_has_no_members`). One organisation per source
+  /// (unique). Only `lib/event-import.js` and `lib/organization-provisioning.js`
+  /// write it.
   platformHeldSource    EventImportSource? @unique
 
   createdBy            User?                           @relation("OrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
@@ -591,6 +593,8 @@ model Event {
   media                     MediaAsset[]
   /// The door scanners whose authority names this event.
   scannerScopes             ScannerScope[]
+  /// The waiting team invitations that will scope a door role to this event.
+  invitationScopes          InvitationScope[]
   /// The administrator who last decided the website link.
   websiteRedirectChangedBy  User?                      @relation("EventWebsiteRedirectChangedBy", fields: [websiteRedirectChangedById], references: [id], onDelete: SetNull)
   /// Counted visits, kept for two days after their day. See `TrafficEvent`.
@@ -1852,14 +1856,37 @@ model Invitation {
   /// modes existed: no code was delivered to anybody.
   deliveryMode     InvitationDelivery?
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  invitedBy    User         @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
-  acceptedBy   User?        @relation("InvitationAcceptedBy", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User              @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+  acceptedBy   User?             @relation("InvitationAcceptedBy", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
   membership   Membership?
+  /// The events a door role (STAFF, SCANNER) invited here will admit at. Copied
+  /// into `ScannerScope` rows when the invitation is accepted (ADR 0019).
+  scopes       InvitationScope[]
 
   @@index([organizationId, status])
   @@index([email, status])
   @@index([expiresAt])
+}
+
+/// One event a team invitation scopes its door role to (ADR 0019).
+///
+/// Written with the invitation, by whoever issues it, and copied into
+/// `ScannerScope` rows inside the transaction that accepts it. A trigger
+/// (`desi_invitation_scope_same_organization`) refuses an event of another
+/// organisation than the invitation's, and an invitation whose role is not one
+/// that admits only at the events a scope names (MANAGER, STAFF, SCANNER).
+model InvitationScope {
+  id           String   @id @default(cuid())
+  invitationId String
+  eventId      String
+  createdAt    DateTime @default(now())
+
+  invitation Invitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  event      Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([invitationId, eventId])
+  @@index([eventId])
 }
 
 // Hand-written in `20260930100000_organiser_invitations_and_review_gate`: the

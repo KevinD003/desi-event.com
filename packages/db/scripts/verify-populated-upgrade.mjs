@@ -201,6 +201,24 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // over imported events' terms and FAQ, their records' notes, their history
   // and change notices, and a stored file, beside an event nobody imported.
   '20261015110000_imported_listing_words',
+  // The owner confirmed Canadian prices are in CAD (2026-10-16): data only,
+  // the one note asking to check the currency reworded on an import record,
+  // a stored file and a stored plan, beside notes it leaves alone.
+  '20261016100000_canadian_prices_confirmed_cad',
+  // Door grants by invitation (2026-10-16, ADR 0019): the invitation scope
+  // table and its trigger, and the platform-held organisation's no-members
+  // trigger replaced so it holds door scanners, over memberships and waiting
+  // invitations that already exist.
+  '20261016130000_door_grants_by_invitation',
+  // Venue regions and countries stored as codes (2026-10-16, ADR 0020): data
+  // only, over venues whose state was typed by name or whose code or country
+  // was typed in lower case, beside one whose region is no code at all.
+  '20261016140000_venue_region_codes',
+  // An event moves only without another organisation's door scope (2026-10-16,
+  // ADR 0019): the stale scopes deleted and the guard trigger added, over a
+  // member's and a waiting invitation's scope on an event that was moved,
+  // beside scopes that are their own organisation's.
+  '20261016150000_event_move_leaves_no_door_scope',
 ])
 
 /**
@@ -509,6 +527,119 @@ const BEFORE_MIGRATION_FIXTURES = Object.freeze({
       EventChangeNotice: 1,
     }
   },
+  // The note asking to check a Canadian listing's currency, as the North
+  // America file wrote it before 2026-10-16: on an import record beside a
+  // note in other words and an unrelated one, and in a stored run's file and
+  // plan beside a listing with no notes at all.
+  '20261016100000_canadian_prices_confirmed_cad': async (prisma) => {
+    const literal = (text) => `'${text.replaceAll("'", "''")}'`
+    const json = (value) => `${literal(JSON.stringify(value))}::jsonb`
+
+    await prisma.$executeRawUnsafe(
+      'UPDATE "EventImportItem" SET "importNotes" = ARRAY[' +
+        `${[CAD_NOTE.other, CAD_NOTE.before, CAD_NOTE.reworded].map(literal).join(', ')}]::text[] ` +
+        `WHERE "eventId" = ${literal(LEGACY_IMPORTED_EVENTS[1].id)}`,
+    )
+    await prisma.$executeRawUnsafe(
+      'INSERT INTO "EventImportRun" ("id", "source", "status", "fileName", "datasetSha256", ' +
+        '"dataset", "plan", "planDigest", "eventCount", "createdAt", "expiresAt", "appliedAt") VALUES (' +
+        `'${LEGACY_CAD_RUN}', 'SULEKHA', 'APPLIED', 'north-america-2026.json', '${'c'.repeat(64)}', ` +
+        `${json({
+          format: 'desi-event-import/1',
+          source: 'SULEKHA',
+          events: [
+            {
+              sourceId: '9100000101',
+              title: 'A Canadian listing',
+              importNotes: [CAD_NOTE.before, CAD_NOTE.other],
+            },
+            { sourceId: '9100000102', title: 'A listing with no notes' },
+          ],
+        })}, ` +
+        `${json([
+          { sourceId: '9100000101', action: 'CREATE', importNotes: [CAD_NOTE.before] },
+          { sourceId: '9100000102', action: 'CREATE', importNotes: [] },
+        ])}, '${'d'.repeat(64)}', 2, '2026-10-15T00:00:00Z', '2026-10-15T01:00:00Z', '2026-10-15T00:30:00Z')`,
+    )
+
+    return { EventImportRun: 1 }
+  },
+  // Venues as an organiser could type them before venue writes stored codes,
+  // cloned from the filler's venue.
+  '20261016140000_venue_region_codes': async (prisma) => {
+    const columns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'Venue' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+
+    for (const legacy of LEGACY_TYPED_VENUES) {
+      const values = columns.map((column) => {
+        if (column === 'id') return literalSql(legacy.id)
+        if (column === 'slug') return 'NULL'
+        if (column === 'region') return literalSql(legacy.region)
+        if (column === 'country') return literalSql(legacy.country)
+
+        return `"${column}"`
+      })
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Venue" (${columns.map((column) => `"${column}"`).join(', ')}) ` +
+          `SELECT ${values.join(', ')} FROM "Venue" WHERE "id" = 'upgrade-fixture-Venue'`,
+      )
+    }
+
+    return { Venue: LEGACY_TYPED_VENUES.length }
+  },
+  // Two events of the filler's organisation, each with a member's door scope
+  // and a waiting STAFF invitation's; then one of them is moved to another
+  // organisation, as an imported event's reassignment did before the guard.
+  '20261016150000_event_move_leaves_no_door_scope': async (prisma) => {
+    const columns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'Event' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+
+    for (const id of [LEGACY_DOOR.kept, LEGACY_DOOR.moved]) {
+      const values = columns.map((column) =>
+        column === 'id' || column === 'slug' ? literalSql(id) : `"${column}"`,
+      )
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Event" (${columns.map((column) => `"${column}"`).join(', ')}) ` +
+          `SELECT ${values.join(', ')} FROM "Event" WHERE "id" = 'upgrade-fixture-Event'`,
+      )
+    }
+
+    const [membership] = await prisma.$queryRawUnsafe(
+      'SELECT "id" FROM "Membership" WHERE "organizationId" = ' +
+        `(SELECT "organizationId" FROM "Event" WHERE "id" = 'upgrade-fixture-Event') ORDER BY "id" LIMIT 1`,
+    )
+
+    if (!membership) throw new Error('no membership of the filler event’s organisation')
+
+    for (const id of [LEGACY_DOOR.kept, LEGACY_DOOR.moved]) {
+      await prisma.$executeRawUnsafe(
+        'INSERT INTO "ScannerScope" ("id", "membershipId", "eventId") VALUES (' +
+          `${literalSql(`${id}-member`)}, ${literalSql(membership.id)}, ${literalSql(id)})`,
+      )
+      await prisma.$executeRawUnsafe(
+        'INSERT INTO "InvitationScope" ("id", "invitationId", "eventId") VALUES (' +
+          `${literalSql(`${id}-invitation`)}, 'upgrade-invite-staff', ${literalSql(id)})`,
+      )
+    }
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Event" SET "organizationId" = ${literalSql(LEGACY_ORGANISATIONS[1].id)} ` +
+        `WHERE "id" = ${literalSql(LEGACY_DOOR.moved)}`,
+    )
+
+    // The moved event's two scopes go; the kept event's stay.
+    return { Event: 2, ScannerScope: 1, InvitationScope: 1 }
+  },
   // The platform-held organisation as the first build made it, and an ordinary
   // organisation that already has the address it is renamed to, both cloned
   // from the filler's organisation.
@@ -708,6 +839,37 @@ const LEGACY_IMPORT_WORDS = Object.freeze({
   ],
   notice: 'Updated from its Sulekha listing by the team at The Desi Events, run legacy-import-run.',
 })
+
+/**
+ * The note `20261016100000_canadian_prices_confirmed_cad` rewrites, what it
+ * becomes, and a note in other words it must leave alone.
+ */
+const CAD_NOTE = Object.freeze({
+  before:
+    'The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). Check the currency with the organiser.',
+  after:
+    'The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). The owner confirmed on 2026-10-16 that Canadian prices are in CAD.',
+  reworded: 'Prices look Canadian. Check the currency with the organiser.',
+  other: 'Kids under 5 free.',
+})
+
+/** The run that fixture stores, with a file and a plan holding the note. */
+const LEGACY_CAD_RUN = 'legacy-import-run-cad'
+
+/**
+ * Venues as typed before venue writes stored codes, and what
+ * `20261016140000_venue_region_codes` must make of each.
+ */
+const LEGACY_TYPED_VENUES = Object.freeze([
+  { id: 'legacy-venue-texas', region: 'Texas', country: 'us', after: ['TX', 'US'] },
+  { id: 'legacy-venue-jersey', region: ' new  JERSEY ', country: 'US', after: ['NJ', 'US'] },
+  { id: 'legacy-venue-quebec', region: 'Québec', country: 'CA', after: ['QC', 'CA'] },
+  { id: 'legacy-venue-code', region: ' on ', country: 'ca', after: ['ON', 'CA'] },
+  { id: 'legacy-venue-other', region: 'Maharashtra', country: 'IN', after: ['Maharashtra', 'IN'] },
+])
+
+/** The events `20261016150000_event_move_leaves_no_door_scope`'s fixture scopes. */
+const LEGACY_DOOR = Object.freeze({ kept: 'legacy-door-kept', moved: 'legacy-door-moved' })
 
 /** What the rename migration makes of the platform-held organisation. */
 const RENAMED_PLATFORM_HELD = Object.freeze({
@@ -2071,6 +2233,47 @@ async function checkFullControlAndImportBackfills(prisma) {
       { note: memberGuards.join(', ') || 'missing' },
     ) && ok
 
+  // ADR 0019: it lets door scanners in and nobody else, and fires on a role
+  // change as well, so a scanner there cannot be moved to another role.
+  const memberGuardDefinitions = (
+    await prisma.$queryRawUnsafe(
+      'SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger WHERE NOT tgisinternal ' +
+        "AND tgname = 'desi_platform_held_has_no_members' ORDER BY 1",
+    )
+  ).map((row) => row.definition)
+  const [memberGuardBody] = await prisma.$queryRawUnsafe(
+    "SELECT prosrc AS body FROM pg_proc WHERE proname = 'desi_platform_held_has_no_members'",
+  )
+  ok =
+    record(
+      'the platform-held trigger admits SCANNER alone and fires on a role change too',
+      memberGuardDefinitions.length === 2 &&
+        memberGuardDefinitions.every((definition) =>
+          /UPDATE OF "organizationId", role/u.test(definition),
+        ) &&
+        /'SCANNER'/u.test(memberGuardBody?.body ?? ''),
+      { note: memberGuardDefinitions.join(' | ') || 'missing' },
+    ) && ok
+
+  const scopeGuards = (
+    await prisma.$queryRawUnsafe(
+      'SELECT tgrelid::regclass::text AS relation FROM pg_trigger WHERE NOT tgisinternal ' +
+        "AND tgname = 'desi_invitation_scope_same_organization' ORDER BY 1",
+    )
+  ).map((row) => row.relation)
+  // The rows a later fixture put in on purpose (`legacy-door-*`) aside.
+  const [invitationScopes] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM "InvitationScope" WHERE "id" NOT LIKE \'legacy-door-%\'',
+  )
+  ok =
+    record(
+      'invitation scopes start empty, guarded by their organisation-and-role trigger',
+      scopeGuards.length === 1 &&
+        scopeGuards[0] === '"InvitationScope"' &&
+        invitationScopes.n === 0,
+      { note: `${scopeGuards.join(', ') || 'no trigger'}; ${invitationScopes.n} rows` },
+    ) && ok
+
   // The rows a later fixture put in on purpose (`legacy-import-*`) aside; the
   // pictures' table was dropped since (20261015100000).
   const [imports] = await prisma.$queryRawUnsafe(
@@ -2545,6 +2748,136 @@ async function checkImportedListingWords(prisma) {
       { note: JSON.stringify(left) },
     ) && ok
   )
+}
+
+/**
+ * Check what `20261016100000_canadian_prices_confirmed_cad` made of the note
+ * asking to check a Canadian listing's currency: reworded, word for word, on
+ * the import record, in the stored file and in the stored plan; the notes
+ * beside it, a note in other words and a listing with no notes left as they
+ * were; the stored file's SHA-256 unchanged; the old sentence nowhere; and
+ * the migration's helper function gone.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkCanadianPricesConfirmed(prisma) {
+  let ok = true
+  // jsonb keeps its own key order, so values are compared with keys sorted.
+  const canonical = (value) =>
+    JSON.stringify(value, (_, item) =>
+      item && typeof item === 'object' && !Array.isArray(item)
+        ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)))
+        : item,
+    )
+  const same = (left, right) => canonical(left) === canonical(right)
+  const [row] = await prisma.$queryRawUnsafe(
+    'SELECT i."importNotes" AS notes, r."dataset", r."plan", r."datasetSha256" AS sha, ' +
+      "to_regproc('confirm_cad_note_in') IS NULL AS dropped " +
+      `FROM "EventImportItem" AS i, "EventImportRun" AS r ` +
+      `WHERE i."eventId" = '${LEGACY_IMPORTED_EVENTS[1].id}' AND r."id" = '${LEGACY_CAD_RUN}'`,
+  )
+
+  ok =
+    record(
+      'the note asking to check a Canadian currency says the owner confirmed CAD, and nothing else changed',
+      same(row?.notes, [CAD_NOTE.other, CAD_NOTE.after, CAD_NOTE.reworded]) &&
+        same(row.dataset?.events?.[0]?.importNotes, [CAD_NOTE.after, CAD_NOTE.other]) &&
+        same(row.dataset?.events?.[1], {
+          sourceId: '9100000102',
+          title: 'A listing with no notes',
+        }) &&
+        same(
+          (row.plan ?? []).map((entry) => entry.importNotes),
+          [[CAD_NOTE.after], []],
+        ) &&
+        row.sha === 'c'.repeat(64) &&
+        row.dropped === true,
+      {
+        note: `notes ${JSON.stringify(row?.notes)}; file ${JSON.stringify(row?.dataset?.events)}; plan ${JSON.stringify(row?.plan)}; helper ${row?.dropped ? 'dropped' : 'left behind'}`,
+      },
+    ) && ok
+
+  const [left] = await prisma.$queryRawUnsafe(
+    'SELECT ' +
+      `(SELECT count(*)::int FROM "EventImportItem" WHERE ${literalSql(CAD_NOTE.before)} = ANY("importNotes")) AS items, ` +
+      `(SELECT count(*)::int FROM "EventImportRun" WHERE ("dataset"::text || "plan"::text) LIKE ${literalSql(`%${CAD_NOTE.before.slice(-40)}%`)}) AS runs`,
+  )
+
+  return (
+    record(
+      'no import record, stored file or stored plan still asks to check the currency in the old words',
+      left?.items === 0 && left.runs === 0,
+      { note: JSON.stringify(left) },
+    ) && ok
+  )
+}
+
+/**
+ * Check what `20261016140000_venue_region_codes` made of venues typed before
+ * venue writes stored codes: a state named in full is its code, a typed code
+ * and a country are in capitals, and a region that is no code is untouched.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkVenueRegionCodes(prisma) {
+  const rows = await prisma.$queryRawUnsafe(
+    'SELECT "id", "region", "country" FROM "Venue" WHERE "id" LIKE \'legacy-venue-%\' ORDER BY "id"',
+  )
+  const found = new Map(rows.map((row) => [row.id, [row.region, row.country]]))
+  const wrong = LEGACY_TYPED_VENUES.filter(
+    (legacy) => JSON.stringify(found.get(legacy.id)) !== JSON.stringify(legacy.after),
+  )
+
+  return record(
+    'a venue state typed by name is its code, codes and countries are in capitals, and any other region is untouched',
+    wrong.length === 0 && rows.length === LEGACY_TYPED_VENUES.length,
+    { note: JSON.stringify(Object.fromEntries(found)) },
+  )
+}
+
+/**
+ * Check what `20261016150000_event_move_leaves_no_door_scope` made of door
+ * scopes on an event that had moved to another organisation: both gone, the
+ * scopes of the event that stayed kept, no door scope anywhere naming another
+ * organisation's event, and the guard trigger on `Event`.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkEventMoveDoorScopes(prisma) {
+  const [row] = await prisma.$queryRawUnsafe(
+    'SELECT ' +
+      '(SELECT array_agg("id" ORDER BY "id") FROM "ScannerScope" WHERE "id" LIKE \'legacy-door-%\') AS members, ' +
+      '(SELECT array_agg("id" ORDER BY "id") FROM "InvitationScope" WHERE "id" LIKE \'legacy-door-%\') AS invitations, ' +
+      '(SELECT count(*)::int FROM "ScannerScope" s JOIN "Membership" m ON m."id" = s."membershipId" ' +
+      'JOIN "Event" e ON e."id" = s."eventId" WHERE m."organizationId" <> e."organizationId") AS "crossMembers", ' +
+      '(SELECT count(*)::int FROM "InvitationScope" s JOIN "Invitation" i ON i."id" = s."invitationId" ' +
+      'JOIN "Event" e ON e."id" = s."eventId" WHERE i."organizationId" <> e."organizationId") AS "crossInvitations", ' +
+      '(SELECT count(*)::int FROM pg_trigger WHERE NOT tgisinternal ' +
+      "AND tgname = 'desi_event_move_leaves_no_door_scope' AND tgrelid = '\"Event\"'::regclass) AS guards",
+  )
+
+  return record(
+    'door scopes on a moved event are gone, its own organisation’s are kept, none crosses organisations, and the move guard is on Event',
+    JSON.stringify(row?.members) === JSON.stringify([`${LEGACY_DOOR.kept}-member`]) &&
+      JSON.stringify(row.invitations) === JSON.stringify([`${LEGACY_DOOR.kept}-invitation`]) &&
+      row.crossMembers === 0 &&
+      row.crossInvitations === 0 &&
+      row.guards === 1,
+    { note: JSON.stringify(row) },
+  )
+}
+
+/**
+ * A text value as an SQL string literal.
+ *
+ * @param {string} text The value.
+ * @returns {string} It quoted, with any `'` doubled.
+ */
+function literalSql(text) {
+  return `'${text.replaceAll("'", "''")}'`
 }
 
 /**
@@ -3040,6 +3373,9 @@ async function main() {
     ok = (await checkPlatformHeldRename(prisma)) && ok
     ok = (await checkImportedEventsSoldHere(prisma)) && ok
     ok = (await checkImportedListingWords(prisma)) && ok
+    ok = (await checkCanadianPricesConfirmed(prisma)) && ok
+    ok = (await checkVenueRegionCodes(prisma)) && ok
+    ok = (await checkEventMoveDoorScopes(prisma)) && ok
 
     const [adminAfter] = await prisma.$queryRawUnsafe(
       `SELECT "role"::text AS role FROM "User" WHERE id = 'upgrade-fixture-User'`,

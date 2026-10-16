@@ -7,8 +7,9 @@
  * that: an account the server gives no events to is shown that it has none,
  * and everything after — lookup, admission — is the server's answer too.
  *
- * A platform super administrator is given every organisation's current door
- * events, on its own authority (ADR 0007). For that list the page offers a
+ * A platform administrator or super administrator is given every
+ * organisation's current door events, on its own authority (ADR 0007,
+ * ADR 0018). For that list the page offers a
  * filter — an organisation and a search, as a plain `GET` form, since neither
  * is a secret — says when the list was cut at its limit, and tells the
  * administrator, persistently, that every lookup and admission is recorded on

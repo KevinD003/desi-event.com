@@ -850,6 +850,16 @@ describe('the Sulekha North America dataset', () => {
     expect(naText.includes('"Ontario"')).toBe(false)
   })
 
+  it('says the owner confirmed Canadian prices are in CAD, and asks nobody to check (2026-10-16)', () => {
+    const confirmed =
+      'The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). The owner confirmed on 2026-10-16 that Canadian prices are in CAD.'
+    const noted = naEvents.filter((event) => event.importNotes.includes(confirmed))
+
+    expect(noted).toHaveLength(7)
+    expect(noted.every((event) => event.venue.country === 'CA')).toBe(true)
+    expect(naText.includes('Check the currency with the organiser')).toBe(false)
+  })
+
   it('keeps sales states and calls to hurry out of everything public', () => {
     for (const event of naEvents) {
       const shown = [

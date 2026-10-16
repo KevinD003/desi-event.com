@@ -2,13 +2,18 @@
  * Platform staff administration: finding an account, changing its platform
  * role, and putting somebody into an organisation directly.
  *
- * Everything here is held by `platform:admin`, which only `SUPER_ADMIN` has —
- * the organisation search included. A narrower capability was considered and
- * rejected: whoever can grant `SUPER_ADMIN` effectively holds everything, so a
- * smaller name would be a false promise about how much this surface can do.
- * The platform administrator (`ADMIN`) holds none of it: it invites organisers
- * (`routes/organizer-invitations.js`, on `organizer:invite`) and reviews, and
- * cannot change roles, search accounts or put anybody into an organisation.
+ * Two capabilities, two holders (ADR 0018). Searching accounts and
+ * organisations and granting a membership are `platform:admin`, which the
+ * platform administrator (`ADMIN`) and `SUPER_ADMIN` both hold. Changing a
+ * platform role — making or revoking an administrator, a super administrator or
+ * any narrower platform role — is `platform:role_manage`, which only
+ * `SUPER_ADMIN` holds: the owner's one difference between the two ("Super Admin
+ * can create, revoke the admin and all other"). The handler re-reads the actor
+ * inside its transaction and refuses anybody who is not an unsuspended
+ * `SUPER_ADMIN`, so the capability is not the only guard. A direct grant
+ * changes an organisation role only, never a platform role, and a platform
+ * administrator may not use it on a super administrator's account, because the
+ * grant ends every session the account holds.
  *
  * `platform.setUserRole` takes any of the seven platform roles: ATTENDEE,
  * ORGANIZER, SUPPORT, MODERATOR, FINANCE_ADMIN, ADMIN and SUPER_ADMIN.
@@ -35,7 +40,7 @@
  * @module @desi-event/api/routes/platform
  */
 
-import { assertCanGrantOrgRole } from '@desi-event/permissions'
+import { CAPABILITIES, assertCanGrantOrgRole, can } from '@desi-event/permissions'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
@@ -290,6 +295,7 @@ export function registerPlatformRoutes(app, { prisma }) {
           suspended: Boolean(organization.suspendedAt),
           memberCount: memberCounts.get(organization.id) ?? 0,
           ownerCount: ownerCounts.get(organization.id) ?? 0,
+          platformHeld: Boolean(organization.platformHeldSource),
         })),
         pagination: buildPaginationMeta({ page, perPage, total }),
       }
@@ -308,18 +314,45 @@ export function registerPlatformRoutes(app, { prisma }) {
       assertNotSelf(
         request,
         userId,
-        'You cannot change your own membership here. Ask another super administrator.',
+        'You cannot change your own membership here. Ask another platform administrator.',
       )
 
       const user = await prisma.user.findUnique({ where: { id: userId } })
 
       if (!user) throw notFound('No such account.')
 
-      if (user.suspendedAt) {
-        throw unprocessable(
-          'That account is suspended. Lift the suspension before granting it a role.',
-        )
+      /**
+       * Refuse an account this caller may not grant to, as it reads now.
+       *
+       * Asked before the transaction, so a refusal costs no locks, and again
+       * inside it with the account's row locked, because the first read is
+       * not a decision: a promotion to SUPER_ADMIN, or a suspension, that
+       * commits between the two is what the second one sees.
+       *
+       * @param {object} account The account's `User` row.
+       * @returns {void} Nothing, when the grant may go ahead.
+       */
+      const assertGrantable = (account) => {
+        // A grant ends every session of the account. A platform administrator
+        // is below a super administrator (ADR 0018), so it may not sign one
+        // out this way; a super administrator may.
+        if (
+          account.role === SUPER_ADMIN &&
+          !can(request.actor, CAPABILITIES.PLATFORM_ROLE_MANAGE)
+        ) {
+          throw forbidden(
+            'Only a super administrator can change the memberships of a super administrator.',
+          )
+        }
+
+        if (account.suspendedAt) {
+          throw unprocessable(
+            'That account is suspended. Lift the suspension before granting it a role.',
+          )
+        }
       }
+
+      assertGrantable(user)
 
       // The permissions package's own rule, as well as the contract's
       // capability: a grant goes through the one place that decides who may
@@ -335,6 +368,20 @@ export function registerPlatformRoutes(app, { prisma }) {
        * @returns {Promise<{membership: object, previousRole: string|null, sessionsRevoked: number}>} What changed.
        */
       const grant = async (tx) => {
+        // The account first, held `FOR SHARE` so a role change or suspension
+        // waits for this grant, and its role and suspension read again under
+        // that lock (ADR 0018, decision 6).
+        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR SHARE`
+
+        const locked = await tx.user.findUnique({
+          where: { id: userId },
+          select: { role: true, suspendedAt: true },
+        })
+
+        if (!locked) throw notFound('No such account.')
+
+        assertGrantable(locked)
+
         // The owners, then this account's membership, locked and read as they
         // are now: a removal, transfer or role change that committed a moment
         // ago is what this decides from, never a read taken before it.

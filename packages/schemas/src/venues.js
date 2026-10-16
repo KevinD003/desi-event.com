@@ -28,6 +28,7 @@ import { z } from 'zod'
 
 import {
   countSchema,
+  countrySchema,
   cuidSchema,
   latitudeSchema,
   longitudeSchema,
@@ -37,6 +38,7 @@ import {
   timezoneSchema,
   withoutControlCharacters,
 } from './primitives.js'
+import { venueRegionCode } from './subdivisions.js'
 
 /**
  * Accessibility facts a venue can assert.
@@ -86,9 +88,15 @@ const venueWritableFields = {
   addressLine1: nonEmptyStringSchema,
   addressLine2: nonEmptyStringSchema.nullish(),
   city: nonEmptyStringSchema,
-  region: nonEmptyStringSchema,
+  /**
+   * The state or province. Stored as its subdivision code wherever one can be
+   * told (`Texas`, `tx` → `TX`), so the listing's State/Province filter finds
+   * it; any other text is kept as typed (ADR 0020).
+   */
+  region: z.preprocess(venueRegionCode, nonEmptyStringSchema),
   postalCode: z.string().trim().min(1).max(16),
-  country: z.string().trim().length(2).optional(),
+  /** ISO 3166-1 alpha-2, stored in capitals whatever case it was typed in. */
+  country: countrySchema.optional(),
   latitude: latitudeSchema.nullish(),
   longitude: longitudeSchema.nullish(),
   capacity: countSchema.nullish(),

@@ -65,6 +65,29 @@ function queryFrom(options, keys) {
   return text ? `?${text}` : ''
 }
 
+/** The web address the platform-held organisation is given, or begins with when made unique. */
+const PLATFORM_HELD_SLUG = 'the-desi-events'
+
+/**
+ * The platform-held organisation that holds imported events ("The Desi
+ * Events"), for a platform administrator to run its door team (ADR 0019).
+ *
+ * `GET /v1/platform/organizations?q=the-desi-events`, which only a session
+ * holding `platform:admin` may ask, and the one result the API marks
+ * `platformHeld`. Its web address is `the-desi-events`, or that address made
+ * unique when another organisation already had it, so the search finds it
+ * either way. Null when there is none: no import has been applied.
+ *
+ * @returns {Promise<{organizationId: string, organizationName: string, platformHeld: true}|null>} The organisation, or null.
+ */
+export async function getPlatformHeldOrganization() {
+  const query = new URLSearchParams({ q: PLATFORM_HELD_SLUG, perPage: '20' })
+  const body = await callApi(`/v1/platform/organizations?${query.toString()}`)
+  const held = (body.data ?? []).find((organization) => organization.platformHeld === true)
+
+  return held ? { organizationId: held.id, organizationName: held.name, platformHeld: true } : null
+}
+
 /**
  * The team of one organisation: members, open invitations, and the roles the
  * caller may grant.
@@ -144,8 +167,9 @@ export async function getVerificationReview(organizationId) {
 }
 
 /**
- * One organisation's events for the door-scope picker: the hundred that start
- * latest, in date order.
+ * One organisation's events for a member's door-scope picker: the hundred
+ * that start latest, in date order. (The invite form asks for the soonest
+ * instead: {@link listUpcomingOrganizationEvents}.)
  *
  * `GET /v1/events?organizationId=…&perPage=100&sort=startsAt:desc`, the API's
  * largest page, turned back into date order before it is returned.
@@ -172,6 +196,42 @@ export async function listOrganizationEvents(organizationId) {
   const body = await callApi(`/v1/events?${query.toString()}`)
 
   return { events: [...(body.data ?? [])].reverse(), pagination: body.pagination ?? null }
+}
+
+/**
+ * How far back the invite picker's list starts, in days: an event that began
+ * this long ago and is still running (a festival, a residency) is offered,
+ * and one that ended is dropped by the page.
+ */
+export const DOOR_PICKER_LOOKBACK_DAYS = 31
+
+/**
+ * One organisation's soonest events, for inviting a door role: the hundred
+ * that start soonest from {@link DOOR_PICKER_LOOKBACK_DAYS} days ago, in
+ * date order.
+ *
+ * `GET /v1/events?organizationId=…&startsAfter=…&sort=startsAt:asc&perPage=100`.
+ * A door scope is given for the doors about to open, so the soonest come
+ * first: an organisation with more than a hundred events to come (The Desi
+ * Events holds hundreds of imported ones) is offered tonight's door, not the
+ * hundred that start latest. What is left out starts later than the last one
+ * listed, and `pagination.total` says how many start after the look-back in
+ * all, so the form can say so.
+ *
+ * @param {string} organizationId Whose events.
+ * @param {Date} [now] The moment the look-back is counted from.
+ * @returns {Promise<{events: object[], pagination: object|null}>} The events, soonest first, and the API's counters.
+ */
+export async function listUpcomingOrganizationEvents(organizationId, now = new Date()) {
+  const query = new URLSearchParams({
+    organizationId,
+    startsAfter: new Date(now.getTime() - DOOR_PICKER_LOOKBACK_DAYS * 86_400_000).toISOString(),
+    sort: 'startsAt:asc',
+    perPage: String(EVENT_PICKER_SIZE),
+  })
+  const body = await callApi(`/v1/events?${query.toString()}`)
+
+  return { events: [...(body.data ?? [])], pagination: body.pagination ?? null }
 }
 
 /**

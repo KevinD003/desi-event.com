@@ -24,6 +24,10 @@
  *   - **Imports.** No member or team invitation in a platform-held
  *     organisation, one such organisation per source, one record per listing,
  *     https picture addresses, a digest-shaped plan and an array of prices.
+ *   - **Door scopes on a moved event.** An event does not move to another
+ *     organisation while a door scope of its old one names it, and no seeded
+ *     scope crosses organisations. Seeded venues store codes for their state
+ *     and country.
  *
  * Every probe runs inside a transaction that is always rolled back, against a
  * disposable database `verify-fresh-database.mjs` created and will destroy. A
@@ -738,7 +742,7 @@ export async function runEventControlProbes(prisma, { probe, record }) {
     async (tx) => {
       const held = await platformHeld(tx)
       const membership = await tx.membership.findFirst({
-        where: { organizationId: organization.id },
+        where: { organizationId: organization.id, role: { not: 'SCANNER' } },
       })
 
       if (!membership) throw new Error('the seed left the first organisation without members')
@@ -768,6 +772,241 @@ export async function runEventControlProbes(prisma, { probe, record }) {
       })
     },
   )
+  // ADR 0019: door scanners, and nothing else, for imported events.
+
+  /**
+   * A team invitation, written directly.
+   *
+   * @param {object} tx A transaction client.
+   * @param {string} organizationId Where.
+   * @param {string} role Its role.
+   * @returns {Promise<object>} The invitation.
+   */
+  const invitationTo = (tx, organizationId, role) =>
+    tx.invitation.create({
+      data: {
+        organizationId,
+        email: `${unique('invitee')}@example.test`,
+        role,
+        tokenHash: digest(),
+        invitedById: user.id,
+        deliveryMode: 'MANUAL',
+        expiresAt: new Date(Date.now() + DAY_MS),
+      },
+    })
+
+  await check(
+    'a door scanner may join the platform-held organisation (ADR 0019)',
+    null,
+    async (tx) => {
+      const held = await platformHeld(tx)
+
+      await tx.membership.create({
+        data: { userId: user.id, organizationId: held.id, role: 'SCANNER' },
+      })
+    },
+  )
+  await check(
+    'a SCANNER team invitation into the platform-held organisation is accepted (ADR 0019)',
+    null,
+    async (tx) => {
+      const held = await platformHeld(tx)
+
+      await invitationTo(tx, held.id, 'SCANNER')
+    },
+  )
+  for (const role of ['ADMIN', 'MANAGER', 'STAFF']) {
+    await check(
+      `${role === 'ADMIN' ? 'an' : 'a'} ${role} membership in a platform-held organisation is refused`,
+      noMembers,
+      async (tx) => {
+        const held = await platformHeld(tx)
+
+        await tx.membership.create({ data: { userId: user.id, organizationId: held.id, role } })
+      },
+    )
+    await check(
+      `${role === 'ADMIN' ? 'an' : 'a'} ${role} team invitation into a platform-held organisation is refused`,
+      noMembers,
+      async (tx) => {
+        const held = await platformHeld(tx)
+
+        await invitationTo(tx, held.id, role)
+      },
+    )
+  }
+  await check(
+    'a scanner of the platform-held organisation cannot be moved to another role',
+    noMembers,
+    async (tx) => {
+      const held = await platformHeld(tx)
+      const scanner = await tx.membership.create({
+        data: { userId: user.id, organizationId: held.id, role: 'SCANNER' },
+      })
+
+      await tx.membership.update({ where: { id: scanner.id }, data: { role: 'STAFF' } })
+    },
+  )
+  await check(
+    'an invitation scope naming its own organisation’s event, for a scanner, is accepted',
+    null,
+    async (tx) => {
+      const event = await probeEvent(tx, organization.id)
+      const invitation = await invitationTo(tx, organization.id, 'SCANNER')
+
+      await tx.invitationScope.create({ data: { invitationId: invitation.id, eventId: event.id } })
+    },
+  )
+  await check(
+    'an invitation scope naming another organisation’s event is refused',
+    /invitation_scope_same_organization/,
+    async (tx) => {
+      const other = await tx.organization.create({
+        data: {
+          name: 'Probe other organisation',
+          slug: unique('other-org'),
+          contactEmail: `${unique('other')}@example.test`,
+        },
+      })
+      const event = await probeEvent(tx, other.id)
+      const invitation = await invitationTo(tx, organization.id, 'SCANNER')
+
+      await tx.invitationScope.create({ data: { invitationId: invitation.id, eventId: event.id } })
+    },
+  )
+  await check(
+    'an invitation scope on a role that does not admit by event is refused',
+    /invitation_scope_door_role/,
+    async (tx) => {
+      const event = await probeEvent(tx, organization.id)
+      const invitation = await invitationTo(tx, organization.id, 'VIEWER')
+
+      await tx.invitationScope.create({ data: { invitationId: invitation.id, eventId: event.id } })
+    },
+  )
+  // An event that moves takes no door scope of its old organisation with it
+  // (20261016150000_event_move_leaves_no_door_scope).
+  const moveRefused = /event_move_leaves_no_door_scope/
+
+  /**
+   * Another organisation, made inside the probe.
+   *
+   * @param {object} tx A transaction client.
+   * @returns {Promise<object>} The organisation.
+   */
+  const otherOrganisation = (tx) =>
+    tx.organization.create({
+      data: {
+        name: 'Probe receiving organisation',
+        slug: unique('receiving-org'),
+        contactEmail: `${unique('receiving')}@example.test`,
+      },
+    })
+
+  /**
+   * A door scanner of the first organisation, scoped to one of its events.
+   *
+   * @param {object} tx A transaction client.
+   * @param {string} eventId The event.
+   * @returns {Promise<object>} The `ScannerScope` row.
+   */
+  const scannerScopedTo = async (tx, eventId) => {
+    const scanner = await tx.user.create({
+      data: {
+        email: `${unique('scanner')}@example.test`,
+        passwordHash: 'x'.repeat(60),
+        displayName: 'Probe scanner',
+        role: 'ATTENDEE',
+      },
+    })
+    const membership = await tx.membership.create({
+      data: { userId: scanner.id, organizationId: organization.id, role: 'SCANNER' },
+    })
+
+    return tx.scannerScope.create({ data: { membershipId: membership.id, eventId } })
+  }
+
+  await check(
+    'moving an event while a member of its old organisation is scoped to it is refused',
+    moveRefused,
+    async (tx) => {
+      const event = await probeEvent(tx, organization.id)
+      const other = await otherOrganisation(tx)
+
+      await scannerScopedTo(tx, event.id)
+      await tx.event.update({ where: { id: event.id }, data: { organizationId: other.id } })
+    },
+  )
+  await check(
+    'moving an event while a waiting invitation of its old organisation names it is refused',
+    moveRefused,
+    async (tx) => {
+      const event = await probeEvent(tx, organization.id)
+      const other = await otherOrganisation(tx)
+      const invitation = await invitationTo(tx, organization.id, 'SCANNER')
+
+      await tx.invitationScope.create({ data: { invitationId: invitation.id, eventId: event.id } })
+      await tx.event.update({ where: { id: event.id }, data: { organizationId: other.id } })
+    },
+  )
+  await check(
+    'moving an event once its old organisation’s door scopes are removed is accepted',
+    null,
+    async (tx) => {
+      const event = await probeEvent(tx, organization.id)
+      const other = await otherOrganisation(tx)
+      const scope = await scannerScopedTo(tx, event.id)
+      const invitation = await invitationTo(tx, organization.id, 'SCANNER')
+
+      await tx.invitationScope.create({ data: { invitationId: invitation.id, eventId: event.id } })
+      await tx.scannerScope.delete({ where: { id: scope.id } })
+      await tx.invitationScope.deleteMany({ where: { eventId: event.id } })
+      await tx.event.update({ where: { id: event.id }, data: { organizationId: other.id } })
+    },
+  )
+  await check('an event edited without moving keeps its door scopes', null, async (tx) => {
+    const event = await probeEvent(tx, organization.id)
+
+    await scannerScopedTo(tx, event.id)
+    await tx.event.update({
+      where: { id: event.id },
+      data: { organizationId: organization.id, title: 'Probe event, renamed' },
+    })
+  })
+
+  const [crossing] = await prisma.$queryRawUnsafe(
+    'SELECT ' +
+      '(SELECT count(*)::int FROM "ScannerScope" s JOIN "Membership" m ON m."id" = s."membershipId" ' +
+      'JOIN "Event" e ON e."id" = s."eventId" WHERE m."organizationId" <> e."organizationId") AS members, ' +
+      '(SELECT count(*)::int FROM "InvitationScope" s JOIN "Invitation" i ON i."id" = s."invitationId" ' +
+      'JOIN "Event" e ON e."id" = s."eventId" WHERE i."organizationId" <> e."organizationId") AS invitations',
+  )
+  results.push(
+    record(
+      'no door scope in the seeded database names another organisation’s event',
+      crossing.members === 0 && crossing.invitations === 0,
+      { note: `${crossing.members} member scopes, ${crossing.invitations} invitation scopes` },
+    ),
+  )
+
+  // Venue states and countries as codes (20261016140000_venue_region_codes,
+  // ADR 0020): every seeded United States or Canadian venue can be found by
+  // the listing's State/Province filter.
+  const [uncoded] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM "Venue" WHERE "country" IN (\'US\', \'CA\') ' +
+      'AND "region" !~ \'^[A-Z0-9]{1,3}$\'',
+  )
+  const [lowerCountries] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM "Venue" WHERE "country" !~ \'^[A-Z]{2}$\'',
+  )
+  results.push(
+    record(
+      'every seeded venue stores its country in capitals, and a US or Canadian state or province as its code',
+      uncoded.n === 0 && lowerCountries.n === 0,
+      { note: `${uncoded.n} uncoded regions, ${lowerCountries.n} countries not in capitals` },
+    ),
+  )
+
   await check(
     'a second organisation with the same platformHeldSource is refused',
     /Organization_platformHeldSource_key/,

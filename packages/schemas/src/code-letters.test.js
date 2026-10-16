@@ -176,6 +176,28 @@ describe('teamInvitationLetter', () => {
     )
   })
 
+  it('names the events a door role is invited to check tickets at, one to a line (ADR 0019)', () => {
+    const { text } = teamInvitationLetter({
+      ...TEAM,
+      role: 'SCANNER',
+      events: [{ title: 'Navratri Garba Night' }, { title: 'Diwali\nMela' }],
+    })
+
+    expect(text).toContain(
+      'You are invited to check tickets at these 2 events:\n  - "Navratri Garba Night"\n  - "Diwali Mela"\n',
+    )
+
+    const one = teamInvitationLetter({ ...TEAM, events: [{ title: 'Holi Fest' }] }).text
+
+    expect(one).toContain('You are invited to check tickets at this event:\n  - "Holi Fest"\n')
+  })
+
+  it('says nothing about events when the invitation names none', () => {
+    for (const events of [undefined, []]) {
+      expect(teamInvitationLetter({ ...TEAM, events }).text).not.toContain('check tickets')
+    }
+  })
+
   it('has a phrase for every organisation role', () => {
     expect(Object.keys(TEAM_ROLE_PHRASES).sort()).toEqual([
       'ADMIN',

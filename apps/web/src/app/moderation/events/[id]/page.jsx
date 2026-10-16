@@ -151,11 +151,13 @@ export default async function ReviewEventPage({ params }) {
   // A member of the organisation does not review its events; the API refuses
   // them too (`CONFLICT_OF_INTEREST`), so the controls are not offered.
   const session = await readSession()
-  const memberHere = belongsTo(session, event.organizationId ?? event.organization?.id ?? null)
   // An import the platform-held organisation holds has nobody to make changes
   // (SPEC2-XI O16): "request changes" is not offered, and the reason goes to
-  // nobody.
+  // nobody. A door scanner there is no conflict of interest (ADR 0019).
   const noEditor = Boolean(event.importedFrom)
+  const memberHere = belongsTo(session, event.organizationId ?? event.organization?.id ?? null, {
+    platformHeld: noEditor,
+  })
 
   const reading = statusReading(event.status)
   const address = formatVenueAddress(event.venue)
@@ -620,7 +622,7 @@ export default async function ReviewEventPage({ params }) {
 
             <p className="mt-3 text-sm text-ink-muted">
               {noEditor
-                ? 'Your reason is kept on the event’s record. The organisation holding this event has no members, so it goes to nobody.'
+                ? 'Your reason is kept on the event’s record. The organisation holding this event has no members but door scanners, so it goes to nobody.'
                 : 'Your reason goes to the organiser. Your name does not: they are negotiating with the platform, not with you.'}
             </p>
           </section>

@@ -36,6 +36,7 @@ const {
   listHref,
   listNotifications,
   listOrganizationEvents,
+  listUpcomingOrganizationEvents,
   listReconciliationTasks,
   listReferralCodes,
   listRefunds,
@@ -115,6 +116,30 @@ describe('query encoding', () => {
     expect(answer).toEqual({
       events: [{ id: 'e-sooner' }, { id: 'e-later' }],
       pagination: { total: 240, hasNextPage: true },
+    })
+  })
+
+  it('asks the invite picker for the hundred soonest events from a month back, soonest first', async () => {
+    fetch.mockResolvedValueOnce(
+      ok({
+        data: [{ id: 'e-tonight' }, { id: 'e-tomorrow' }],
+        pagination: { total: 319, hasNextPage: true },
+      }),
+    )
+
+    const now = new Date('2026-10-16T12:00:00.000Z')
+    const answer = await listUpcomingOrganizationEvents('org&x=1', now)
+    const url = requested()
+
+    expect(url.pathname).toBe('/v1/events')
+    expect(url.searchParams.get('organizationId')).toBe('org&x=1')
+    expect(url.searchParams.get('perPage')).toBe('100')
+    expect(url.searchParams.get('sort')).toBe('startsAt:asc')
+    expect(url.searchParams.get('startsAfter')).toBe('2026-09-15T12:00:00.000Z')
+    expect(url.searchParams.has('x')).toBe(false)
+    expect(answer).toEqual({
+      events: [{ id: 'e-tonight' }, { id: 'e-tomorrow' }],
+      pagination: { total: 319, hasNextPage: true },
     })
   })
 

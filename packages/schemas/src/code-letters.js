@@ -295,6 +295,9 @@ export function organizerInvitationLetter(fields) {
  * @param {string} fields.role The role offered.
  * @param {Date|string} fields.expiresAt When the code stops working.
  * @param {string} fields.joinUrl The join page, without the code.
+ * @param {Array<{title: string}>} [fields.events] The events a door role is
+ *   invited to check tickets at (ADR 0019), named one to a line; none for any
+ *   other role, and then the letter says nothing about events.
  * @returns {{subject: string, text: string}} The letter.
  * @throws {TypeError} When a required field is missing or unusable.
  */
@@ -324,6 +327,18 @@ export function teamInvitationLetter(fields) {
 
   if (!organizationVerified) {
     lines.push('This organisation has not been verified by the team at The Desi Events.')
+  }
+
+  const events = Array.isArray(fields.events) ? fields.events : []
+
+  if (events.length > 0) {
+    lines.push(
+      '',
+      events.length === 1
+        ? 'You are invited to check tickets at this event:'
+        : `You are invited to check tickets at these ${events.length} events:`,
+      ...events.map((event) => `  - "${oneLine(event.title)}"`),
+    )
   }
 
   lines.push(

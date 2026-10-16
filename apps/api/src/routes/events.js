@@ -59,6 +59,7 @@ import {
 import { eventFeeConfig } from '../lib/checkout-pricing.js'
 import { eventPaymentTerms } from '../lib/payment-terms.js'
 import { loadEventFacets } from '../lib/facets.js'
+import { localDateCondition } from '../lib/local-dates.js'
 import {
   WEBSITE_REDIRECT_INCLUDE,
   applyWebsiteChange,
@@ -408,6 +409,81 @@ function searchCondition(term, resolved) {
   }
 }
 
+/** A tier anybody can see and book: not a hidden guest list. */
+const PUBLIC_TIER = Object.freeze({ visibility: { not: 'HIDDEN' } })
+
+/**
+ * "Free": the event's "from" price is $0, by the rule its card's price uses
+ * (`toEventSummary`). The cheapest public tier on sale is free, or, when no
+ * public tier is on sale, the cheapest public tier is.
+ *
+ * @type {object}
+ */
+const FREE_CONDITION = Object.freeze({
+  OR: [
+    { ticketTypes: { some: { ...PUBLIC_TIER, status: 'ON_SALE', priceCents: 0 } } },
+    {
+      AND: [
+        { ticketTypes: { none: { ...PUBLIC_TIER, status: 'ON_SALE' } } },
+        { ticketTypes: { some: { ...PUBLIC_TIER, priceCents: 0 } } },
+      ],
+    },
+  ],
+})
+
+/**
+ * The condition a language filter adds.
+ *
+ * `languages` is an array column, which Prisma matches only exactly, so the
+ * route first looks up the spellings stored for the language in any case
+ * ({@link resolveLanguageSpellings}) and the event must hold one of them.
+ *
+ * @param {string} language The language asked for.
+ * @param {string[]|undefined} spellings The stored spellings, when resolved; otherwise the value is matched as given.
+ * @returns {object} A Prisma `where` fragment.
+ */
+function languageCondition(language, spellings) {
+  if (!spellings) return { languages: { has: language } }
+
+  return spellings.length > 0 ? { languages: { hasSome: spellings } } : { id: { in: [] } }
+}
+
+/**
+ * Every spelling of a language the catalogue stores, whatever its case:
+ * `hindi` finds the events listed as `Hindi`.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {string|undefined} language The validated, trimmed language.
+ * @returns {Promise<string[]|undefined>} The stored spellings, or undefined when no language was asked for.
+ */
+export async function resolveLanguageSpellings(prisma, language) {
+  if (!language) return undefined
+
+  const rows = await prisma.$queryRaw`
+    SELECT DISTINCT language AS value
+    FROM "Event" e, unnest(e."languages") AS language
+    WHERE lower(language) = lower(${language})
+  `
+
+  return rows.map((row) => String(row.value))
+}
+
+/**
+ * Every timezone an event uses, for a day filter read in each event's own
+ * zone (`localDateCondition`).
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} query The parsed `listEventsQuerySchema` value.
+ * @returns {Promise<string[]>} The zones; empty when no date filter was asked for.
+ */
+export async function resolveEventZones(prisma, query) {
+  if (!query.fromDate && !query.toDate && !query.when) return []
+
+  const rows = await prisma.event.groupBy({ by: ['timezone'] })
+
+  return rows.map((row) => row.timezone)
+}
+
 /**
  * Translate a validated list query into Prisma arguments.
  *
@@ -415,9 +491,16 @@ function searchCondition(term, resolved) {
  * @param {object|null} actor The request actor.
  * @param {object} [options] Options.
  * @param {ResolvedTerm[]} [options.search] The search words already resolved to venues and organisers; any word missing here filters through the relation instead.
+ * @param {string[]} [options.languages] The stored spellings of `query.language` ({@link resolveLanguageSpellings}); absent, the value is matched exactly.
+ * @param {string[]} [options.zones] Every timezone an event uses ({@link resolveEventZones}); a date filter finds nothing outside them.
+ * @param {Date} [options.now] The moment `when` (today, this weekend…) is read at.
  * @returns {{where: object, orderBy: object[], skip: number, take: number}} Prisma query arguments.
  */
-export function buildEventQuery(query, actor, { search = [] } = {}) {
+export function buildEventQuery(
+  query,
+  actor,
+  { search = [], languages, zones = [], now = new Date() } = {},
+) {
   /** @type {object[]} */
   const conditions = [visibilityFilter(actor)]
 
@@ -428,8 +511,21 @@ export function buildEventQuery(query, actor, { search = [] } = {}) {
   if (query.category) conditions.push({ category: query.category })
   if (query.organizationId) conditions.push({ organizationId: query.organizationId })
   if (query.isOnline !== undefined) conditions.push({ isOnline: query.isOnline })
-  // Case-insensitive equality runs as ILIKE, so the city is escaped first.
-  if (query.city) conditions.push({ venue: { city: equalsIgnoringCase(query.city) } })
+
+  // Where it is: one venue condition, so a city asked for with a state is
+  // that city *in* that state — Springfield, IL is not Springfield, MO.
+  // Case-insensitive equality runs as ILIKE, so each value is escaped first.
+  const venue = {}
+  // In any case, as the facets count it: a venue written before country
+  // codes were stored in capitals may say `us`.
+  if (query.country) venue.country = equalsIgnoringCase(query.country)
+  if (query.region) venue.region = equalsIgnoringCase(query.region)
+  if (query.city) venue.city = equalsIgnoringCase(query.city)
+  if (Object.keys(venue).length > 0) conditions.push({ venue })
+
+  if (query.language) conditions.push(languageCondition(query.language, languages))
+  if (query.free) conditions.push(FREE_CONDITION)
+  if (query.onSale) conditions.push({ status: 'ON_SALE' })
 
   // Every word has to turn up somewhere a visitor would describe the event
   // by: its own text, its venue, the venue's city or its organiser. So
@@ -446,6 +542,10 @@ export function buildEventQuery(query, actor, { search = [] } = {}) {
   if (query.startsAfter) startsAt.gte = new Date(query.startsAfter)
   if (query.startsBefore) startsAt.lte = new Date(query.startsBefore)
   if (Object.keys(startsAt).length > 0) conditions.push({ startsAt })
+
+  if (query.fromDate || query.toDate || query.when) {
+    conditions.push(localDateCondition(query, zones, now))
+  }
 
   return {
     where: { AND: conditions },
@@ -761,9 +861,15 @@ export function registerEventRoutes(app, { prisma, env }) {
 
   defineRoute(app, 'events.list', {
     handler: async (request) => {
-      const search = await resolveSearchTerms(prisma, request.query.q)
+      const [search, languages, zones] = await Promise.all([
+        resolveSearchTerms(prisma, request.query.q),
+        resolveLanguageSpellings(prisma, request.query.language),
+        resolveEventZones(prisma, request.query),
+      ])
       const { where, orderBy, skip, take } = buildEventQuery(request.query, request.actor, {
         search,
+        languages,
+        zones,
       })
 
       // The page's ids first, then the cards for those ids only: Prisma sends

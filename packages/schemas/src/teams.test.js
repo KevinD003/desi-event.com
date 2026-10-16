@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import {
   EMAIL_VISIBILITIES,
   acceptedInvitationResponseSchema,
+  inviteMemberRequestSchema,
   assignableOrgRoleSchema,
   invitationResponseSchema,
   memberListResponseSchema,
@@ -40,6 +41,8 @@ const INVITATION = {
   expiresAt: '2026-02-01T00:00:00.000Z',
   createdAt: '2026-01-01T00:00:00.000Z',
   deliveryMode: 'MANUAL',
+  // The events a door role invited here will admit at (ADR 0019).
+  events: [{ id: 'ckl1a2b3c4d5e6f7g8h9i0jd', title: 'Garba Night' }],
 }
 
 /** A code shaped exactly as `issueToken` mints one: 43 url-safe characters. */
@@ -343,6 +346,8 @@ describe('accepting an invitation', () => {
         organizationName: 'Rangoli Collective',
         role: 'ADMIN',
         joined: true,
+        events: [],
+        withdrawnEventCount: 0,
         session: { mfaRequired: true, mfaEnrolled: false },
       },
     })
@@ -356,12 +361,83 @@ describe('accepting an invitation', () => {
       organizationId: 'ckl1a2b3c4d5e6f7g8h9i0ja',
       organizationName: 'Rangoli Collective',
       role: 'STAFF',
+      events: [],
+      withdrawnEventCount: 0,
       session: { mfaRequired: false, mfaEnrolled: false },
     }
 
     expect(acceptedInvitationResponseSchema.safeParse({ data: base }).success).toBe(false)
     expect(
       acceptedInvitationResponseSchema.parse({ data: { ...base, joined: false } }).data.joined,
+    ).toBe(false)
+  })
+})
+
+describe('door events on an invitation (ADR 0019)', () => {
+  it('names the events an accepted door role admits at, by id and title, and needs the list', () => {
+    const base = {
+      organizationId: 'ckl1a2b3c4d5e6f7g8h9i0ja',
+      organizationName: 'Rangoli Collective',
+      role: 'SCANNER',
+      joined: true,
+      withdrawnEventCount: 0,
+      session: { mfaRequired: false, mfaEnrolled: false },
+    }
+    const events = [{ id: 'ckl1a2b3c4d5e6f7g8h9i0jd', title: 'Garba Night' }]
+
+    expect(acceptedInvitationResponseSchema.safeParse({ data: base }).success).toBe(false)
+    expect(
+      acceptedInvitationResponseSchema.parse({ data: { ...base, events } }).data.events,
+    ).toEqual(events)
+    expect(
+      acceptedInvitationResponseSchema.safeParse({
+        data: { ...base, events: [{ id: 'not-an-id', title: 'Garba Night' }] },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('says how many named events an acceptance no longer opens, as a whole count it needs', () => {
+    const base = {
+      organizationId: 'ckl1a2b3c4d5e6f7g8h9i0ja',
+      organizationName: 'Rangoli Collective',
+      role: 'SCANNER',
+      joined: true,
+      events: [],
+      session: { mfaRequired: false, mfaEnrolled: false },
+    }
+
+    expect(acceptedInvitationResponseSchema.safeParse({ data: base }).success).toBe(false)
+    expect(
+      acceptedInvitationResponseSchema.parse({ data: { ...base, withdrawnEventCount: 2 } }).data
+        .withdrawnEventCount,
+    ).toBe(2)
+
+    for (const wrong of [-1, 1.5, 201, '2']) {
+      expect(
+        acceptedInvitationResponseSchema.safeParse({
+          data: { ...base, withdrawnEventCount: wrong },
+        }).success,
+        String(wrong),
+      ).toBe(false)
+    }
+  })
+
+  it('keeps an invitation request’s events to at most two hundred ids', () => {
+    const many = Array.from({ length: 201 }, () => 'ckl1a2b3c4d5e6f7g8h9i0jd')
+
+    expect(
+      inviteMemberRequestSchema.safeParse({
+        email: 'door@example.com',
+        role: 'SCANNER',
+        eventIds: many.slice(0, 200),
+      }).success,
+    ).toBe(true)
+    expect(
+      inviteMemberRequestSchema.safeParse({
+        email: 'door@example.com',
+        role: 'SCANNER',
+        eventIds: many,
+      }).success,
     ).toBe(false)
   })
 })

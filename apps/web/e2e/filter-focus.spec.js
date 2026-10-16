@@ -55,6 +55,26 @@ for (const { name, viewport } of WIDTHS) {
       expect(after.tag).not.toBe('body')
     })
 
+    test('the state select keeps focus while its cities change under it', async ({ page }) => {
+      await page.goto('/events')
+      await expect(page.locator('form[aria-label="Filter events"]')).toHaveAttribute(
+        'data-enhanced',
+        'true',
+      )
+
+      const region = page.locator('select[name="region"]')
+      await region.focus()
+      await region.selectOption('US-NJ')
+      await page.waitForURL(/region=US-NJ/)
+
+      // The City select's options were replaced and its value cleared; focus
+      // stayed on the control the visitor was using.
+      const after = await activeElement(page)
+      expect(after.tag).toBe('select')
+      expect(after.name).toBe('region')
+      await expect(page.locator('select[name="city"]')).toHaveValue('')
+    })
+
     test('the search box keeps focus and its caret after submitting', async ({ page }) => {
       await page.goto('/events')
 

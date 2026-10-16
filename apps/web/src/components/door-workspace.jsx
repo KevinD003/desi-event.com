@@ -60,7 +60,8 @@
  *
  * ## A platform administrator
  *
- * A platform super administrator admits at any event on its own authority.
+ * A platform administrator or super administrator admits at any event on its
+ * own authority (ADR 0007, ADR 0018).
  * The screen says so, persistently, above the event picker: every lookup and
  * admission is recorded against their account on the event's own record.
  *
@@ -190,7 +191,7 @@ async function send(path, body) {
 /**
  * @typedef {object} DoorWorkspaceProps
  * @property {Array<object>} events Entries from `GET /v1/tickets/admission/events`.
- * @property {boolean} [platform] Whether the list is a platform super administrator's.
+ * @property {boolean} [platform] Whether the list is a platform administrator's (ADMIN or SUPER_ADMIN).
  * @property {string[]} [venuePaymentsFor] The events whose "Payments at the venue" page this
  *   reader is offered, as the server page decided (SPEC3 §12.9): their ids, nothing else.
  */

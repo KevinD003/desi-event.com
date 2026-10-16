@@ -157,7 +157,8 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  * invite form filled in, the panel a new invitation's code is shown in with
  * the message to send and its controls walked by keyboard, the page where the
  * invitation is accepted, and People and roles as a platform administrator
- * sees it — refused. The invitation the panel case issues goes to an address
+ * sees it — the search, without the platform-role change (ADR 0018). The
+ * invitation the panel case issues goes to an address
  * nobody signs in as, and the block's teardown removes it.
  *
  * ## The website link and the visit counts
@@ -365,8 +366,8 @@ let unverifiedSignIn = null
 let unverifiedContext
 /**
  * The platform administrator's sign-in, made the first time a case asks for
- * the window: an ADMIN, which no other window here is, for the page a platform
- * administrator is refused (People and roles). Memoised as a promise for the
+ * the window: an ADMIN, which no other window here is, for People and roles as
+ * a platform administrator sees it (ADR 0018). Memoised as a promise for the
  * reason {@link platformReader} gives.
  *
  * @type {(Promise<object>|null)}
@@ -1734,17 +1735,15 @@ const PHASE_4_SURFACES = Object.freeze([
     name: 'people and roles, as a platform administrator',
     window: 'administrator',
     path: () => '/admin/users',
-    heading: () => 'Not for you',
+    heading: () => 'People and roles',
     title: () => 'People and roles',
     async arrived(page) {
-      // Admitted to the area, refused this page: who can do what across the
-      // platform is the super administrators' alone.
+      // ADR 0018: the page is the platform administrator's too, with the one
+      // thing it may not do — change a platform role — said, not offered.
       await expect(
-        page.getByText(
-          'Changing platform roles and putting people into organisations directly are held by platform super administrators alone. Your role, platform administrator, does not include them, and nothing on this page can grant them.',
-          { exact: true },
-        ),
+        page.getByText(/Changing a platform role is for super administrators\./u),
       ).toBeVisible()
+      await expect(page.getByRole('form', { name: 'Find an account', exact: true })).toBeVisible()
     },
   },
   {

@@ -24,7 +24,8 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  * whose rows come back:
  *
  *   - the workspace rail offers each account exactly the doors its session
- *     opens — Team to an organisation's members and not to a platform reader,
+ *     opens — Team to an organisation's members, and to a platform reader for
+ *     the imported events' door team (ADR 0019),
  *     Notifications to the platform and not to an organisation's owner — and
  *     following Team opens the alpha team;
  *   - the team list carries the four alpha members, their roles and door
@@ -174,10 +175,12 @@ const OWNER_RAIL = Object.freeze([
 
 /**
  * What the platform reader's rail offers: a SUPER_ADMIN with no membership, so
- * nothing that needs one — Organisation, Team, Promo codes — and every
+ * nothing that needs one — Organisation, Promo codes — and every
  * platform door. Check-in is one of those: a super administrator may admit at
  * any door by platform role (ADR 0007), and the rail offers what the API would
- * answer. Analytics is one too, now that the platform's list of every event's
+ * answer. Team is one too (ADR 0019): the platform administrators run the door
+ * team of the organisation that holds imported events, which nobody is a
+ * member of. Analytics is one too, now that the platform's list of every event's
  * visits (`analytics:view_all`) is held without a membership; so are the
  * pages for the team at The Desi Events: the pictures and website links
  * waiting for a decision, inviting organisers, every organisation's events, imports, and
@@ -193,6 +196,9 @@ const PLATFORM_RAIL = Object.freeze([
   'Events',
   'Venues',
   'Check-in',
+  // ADR 0019: the door team of the platform-held organisation that holds
+  // imported events, which nobody is a member of.
+  'Team',
   'Analytics',
   'Every event’s visits',
   'Finance',
@@ -214,20 +220,28 @@ const PLATFORM_RAIL = Object.freeze([
 ])
 
 /**
- * What a platform administrator's rail offers (SPEC2 P, SPEC2-XI O1): the
- * pages for the team at The Desi Events — every event's visits, review, organisation
- * checks, pictures and website links waiting, inviting organisers, every
- * organisation's events and imports — and none that needs a membership,
- * money, a door, personal data or the power to change who can do what.
- * People and roles is the super administrators' alone, so it is not offered,
- * though the admin area that holds it is.
+ * What a platform administrator's rail offers (ADR 0018): everything a super
+ * administrator's does — the workspace's platform doors, Check-in and the
+ * imported events' door team among them, the money, review, the pages for the
+ * team at The Desi Events and People and roles — though not the platform-role
+ * change on that page, which is drawn for super administrators alone.
  *
  * @type {ReadonlyArray<string>}
  */
 const ADMIN_RAIL = Object.freeze([
+  'Overview',
+  'Events',
+  'Venues',
+  'Check-in',
+  'Team',
   'Analytics',
   'Every event’s visits',
+  'Finance',
+  'Operations',
+  'Notifications',
   'Moderation',
+  'Privacy',
+  'Retention',
   'Organisation checks',
   'Pictures waiting',
   'Website links',
@@ -237,6 +251,7 @@ const ADMIN_RAIL = Object.freeze([
   'Referral codes',
   'Booking fee refunds',
   'Imports',
+  'People and roles',
 ])
 
 /**
@@ -442,27 +457,24 @@ test.describe('the workspace rail', () => {
     )
   })
 
-  test('offers the platform reader the platform’s doors and no Team, which it cannot open', async ({
+  test('offers the platform reader the platform’s doors, Team among them for the imported events’ door team', async ({
     platform,
   }) => {
     await platform.goto('/operations')
     await expect(pageHeading(platform, 'Operations')).toBeVisible()
 
     await expect(rail(platform).getByRole('link')).toHaveText([...PLATFORM_RAIL])
-    await expect(rail(platform).getByRole('link', { name: 'Team', exact: true })).toHaveCount(0)
 
-    // Not offered, and not a door that opens when typed either: a platform
-    // role is not a team, and the page asks the memberships the rail asks.
-    await platform.goto('/organizer/team')
+    // A platform role is not a team; the one team it runs is the door team of
+    // the organisation that holds imported events (ADR 0019), or, before any
+    // import, it is told there is none to run. Never "Not for you".
+    await rail(platform).getByRole('link', { name: 'Team', exact: true }).click()
 
-    await expect(pageHeading(platform, 'Not for you')).toBeVisible()
-    await expect(
-      platform.getByText(/^Team is not something this account can open\./u),
-    ).toBeVisible()
-    await expect(pageHeading(platform, 'Team and roles')).toHaveCount(0)
+    await expect(pageHeading(platform, 'Team and roles')).toBeVisible()
+    await expect(pageHeading(platform, 'Not for you')).toHaveCount(0)
   })
 
-  test('offers a platform administrator the pages for the team at The Desi Events, and not People and roles', async ({
+  test('offers a platform administrator every page a super administrator has, People and roles included (ADR 0018)', async ({
     browser,
   }) => {
     // An account of this spec's own, so the onboarding story's administrator
@@ -480,10 +492,16 @@ test.describe('the workspace rail', () => {
       await page.goto('/moderation/events')
       await expect(pageHeading(page, 'Review queue')).toBeVisible()
 
-      // Exactly these, in this order: nothing an organisation's member, the
-      // money, the doors or personal data would need.
+      // Exactly these, in this order.
       await expect(rail(page).getByRole('link')).toHaveText([...ADMIN_RAIL])
-      await expect(rail(page).getByRole('link', { name: 'People and roles' })).toHaveCount(0)
+
+      // People and roles opens, with the search and without the platform-role
+      // change, which is the super administrators' alone.
+      await rail(page).getByRole('link', { name: 'People and roles', exact: true }).click()
+      await expect(pageHeading(page, 'People and roles')).toBeVisible()
+      await expect(
+        page.getByText(/Changing a platform role is for super administrators\./u),
+      ).toBeVisible()
     } finally {
       await context.close()
 

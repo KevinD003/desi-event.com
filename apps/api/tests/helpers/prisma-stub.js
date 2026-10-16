@@ -309,6 +309,16 @@ const RELATIONS = {
   invitation: {
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
     invitedBy: { kind: 'one', model: 'user', from: 'invitedById', to: 'id' },
+    // The events a door role invited here will admit at (ADR 0019).
+    scopes: { kind: 'many', model: 'invitationScope', from: 'id', to: 'invitationId' },
+  },
+  invitationScope: {
+    invitation: { kind: 'one', model: 'invitation', from: 'invitationId', to: 'id' },
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+  },
+  scannerScope: {
+    membership: { kind: 'one', model: 'membership', from: 'membershipId', to: 'id' },
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
   },
   organization: {
     // Provenance for a self-service organisation, and the per-account
@@ -821,6 +831,7 @@ const DEFAULTS = {
   trafficSalt: {},
   trafficRollupState: { leaseOwner: null, leaseExpiresAt: null, lastCompletedAt: null },
   scannerScope: {},
+  invitationScope: {},
   venueMap: { notes: null, archivedAt: null },
   venueMapVersion: { publishedAt: null, seatCount: 0, revision: 0 },
   section: { kind: 'SEATED', sortOrder: 0, standingCapacity: null },
@@ -1157,6 +1168,7 @@ const COMPOUND_UNIQUE = {
   venueMapVersion: [['venueMapId', 'version']],
   membership: [['userId', 'organizationId']],
   scannerScope: [['membershipId', 'eventId']],
+  invitationScope: [['invitationId', 'eventId']],
   exportArtifactSubject: [['exportArtifactId', 'subjectUserId']],
   // A code is unique within its organisation; two organisations may both
   // offer SAVE10.
@@ -1389,6 +1401,7 @@ const CREATED_ONLY = new Set([
   'organizerInvitation',
   'trafficSalt',
   'scannerScope',
+  'invitationScope',
   'venueMap',
   'venueMapVersion',
   'eventSession',
@@ -1535,6 +1548,13 @@ function matchesCondition(value, condition) {
         break
       case 'lte':
         if (!(toComparable(value) <= toComparable(operand))) return false
+        break
+      // A scalar list holding one value, or any of several, exactly.
+      case 'has':
+        if (!Array.isArray(value) || !value.includes(operand)) return false
+        break
+      case 'hasSome':
+        if (!Array.isArray(value) || !operand.some((item) => value.includes(item))) return false
         break
       // A scalar list's emptiness, as PostgreSQL's `cardinality(...) = 0`.
       case 'isEmpty':
@@ -2586,6 +2606,19 @@ export function createPrismaStub(seed = {}) {
       const code = tables.referralCode.find((row) => row.id === values[0])
 
       return code ? [{ useCount: code.useCount }] : []
+    }
+
+    // The listing's language filter looks up every stored spelling of the
+    // language first (`resolveLanguageSpellings`).
+    if (text.includes('unnest(e."languages")') && text.includes('lower(language) = lower(?)')) {
+      const wanted = String(values[0]).toLowerCase()
+      const spellings = new Set(
+        tables.event.flatMap((event) =>
+          (event.languages ?? []).filter((language) => language.toLowerCase() === wanted),
+        ),
+      )
+
+      return [...spellings].map((value) => ({ value }))
     }
 
     if (text.includes('referral-order-ended')) {
