@@ -370,6 +370,90 @@ describe('listEventsQuerySchema', () => {
     expect(listEventsQuerySchema.safeParse({ category: 'DISCO' }).success).toBe(false)
     expect(listEventsQuerySchema.safeParse({ sort: 'price:asc' }).success).toBe(false)
   })
+
+  it('still refuses every price sort, with the new filters beside it', () => {
+    for (const sort of ['price:asc', 'price:desc', 'minPriceCents:asc']) {
+      expect(issuePaths(listEventsQuerySchema.safeParse({ sort, free: 'true' }))).toEqual(['sort'])
+    }
+  })
+
+  it('accepts where, what and when filters as a URL carries them', () => {
+    const parsed = listEventsQuerySchema.parse({
+      country: 'US',
+      region: '  tx ',
+      city: 'Frisco',
+      language: ' Hindi ',
+      free: 'true',
+      onSale: 'false',
+      fromDate: '2026-10-17',
+      toDate: '2026-10-18',
+    })
+
+    expect(parsed).toMatchObject({
+      country: 'US',
+      region: 'tx',
+      city: 'Frisco',
+      language: 'Hindi',
+      free: true,
+      onSale: false,
+      fromDate: '2026-10-17',
+      toDate: '2026-10-18',
+    })
+  })
+
+  it('takes a country only as two capital letters', () => {
+    expect(listEventsQuerySchema.safeParse({ country: 'CA' }).success).toBe(true)
+    for (const country of ['ca', 'USA', 'U', 'C1', '']) {
+      expect(issuePaths(listEventsQuerySchema.safeParse({ country }))).toEqual(['country'])
+    }
+  })
+
+  it('refuses an empty or control-character region or language', () => {
+    expect(issuePaths(listEventsQuerySchema.safeParse({ region: '   ' }))).toEqual(['region'])
+    expect(issuePaths(listEventsQuerySchema.safeParse({ region: 'T\u0000X' }))).toEqual(['region'])
+    expect(issuePaths(listEventsQuerySchema.safeParse({ language: '' }))).toEqual(['language'])
+    expect(issuePaths(listEventsQuerySchema.safeParse({ language: 'Hin\u0007di' }))).toEqual([
+      'language',
+    ])
+  })
+
+  it('reads free and onSale as booleans and refuses anything else', () => {
+    expect(listEventsQuerySchema.parse({ free: 'false', onSale: 'true' })).toMatchObject({
+      free: false,
+      onSale: true,
+    })
+    expect(issuePaths(listEventsQuerySchema.safeParse({ free: 'cheap' }))).toEqual(['free'])
+    expect(issuePaths(listEventsQuerySchema.safeParse({ onSale: 'now' }))).toEqual(['onSale'])
+  })
+
+  it('takes calendar days that exist, and one day as the same day twice', () => {
+    expect(
+      listEventsQuerySchema.safeParse({ fromDate: '2026-10-17', toDate: '2026-10-17' }).success,
+    ).toBe(true)
+    expect(listEventsQuerySchema.safeParse({ fromDate: '2028-02-29' }).success).toBe(true)
+    for (const date of [
+      '2026-02-30',
+      '2026-13-01',
+      '17/10/2026',
+      '2026-10-17T00:00:00Z',
+      '1969-12-31',
+    ]) {
+      expect(issuePaths(listEventsQuerySchema.safeParse({ fromDate: date }))).toEqual(['fromDate'])
+    }
+  })
+
+  it('takes a named span of days, and only the four it knows', () => {
+    for (const when of ['today', 'weekend', 'week', 'month']) {
+      expect(listEventsQuerySchema.parse({ when }).when).toBe(when)
+    }
+    expect(issuePaths(listEventsQuerySchema.safeParse({ when: 'tonight' }))).toEqual(['when'])
+  })
+
+  it('refuses a last day before the first', () => {
+    expect(
+      issuePaths(listEventsQuerySchema.safeParse({ fromDate: '2026-10-18', toDate: '2026-10-17' })),
+    ).toEqual(['toDate'])
+  })
 })
 
 describe('createVenueRequestSchema', () => {

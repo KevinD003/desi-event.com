@@ -259,6 +259,16 @@ export const eventSummarySchema = z.object({
   timezone: timezoneSchema.default('Asia/Kolkata'),
   isOnline: z.boolean().default(false),
   city: nonEmptyStringSchema.nullish(),
+  /**
+   * The venue's state or province code (`TX`, `ON`), so a card can say
+   * "Frisco, TX". Nullish for an online event, which has no venue.
+   */
+  region: nonEmptyStringSchema.nullish(),
+  /** The venue's country, ISO 3166-1 alpha-2; nullish with no venue. */
+  country: z
+    .string()
+    .regex(/^[A-Z]{2}$/u)
+    .nullish(),
   venueName: nonEmptyStringSchema.nullish(),
   organizationName: nonEmptyStringSchema.nullish(),
   /**

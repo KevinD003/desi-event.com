@@ -4,6 +4,7 @@ import {
   DEFAULT_API_URL,
   getApiBaseUrl,
   getApiClient,
+  loadCatalogueFacets,
   loadCatalogueOverview,
   loadEventBySlug,
   loadEventList,
@@ -24,6 +25,7 @@ function stubClient(handlers = {}) {
     events: {
       list: handlers.list ?? vi.fn(),
       get: handlers.get ?? vi.fn(),
+      facets: handlers.facets ?? vi.fn(),
     },
   }
 }
@@ -132,6 +134,71 @@ describe('loadEventList', () => {
     expect(query).not.toHaveProperty('q')
   })
 
+  it('sends the state as country and region, the format as isOnline, and When as the API reads it', async () => {
+    const list = vi.fn().mockResolvedValue(liveListing)
+
+    await loadEventList(
+      {
+        region: 'CA-ON',
+        city: 'Toronto',
+        language: 'Hindi',
+        when: 'weekend',
+        from: '2026-10-17',
+        format: 'in_person',
+        free: true,
+        onSale: true,
+      },
+      { client: stubClient({ list }) },
+    )
+
+    const [query] = list.mock.calls[0]
+
+    expect(query).toMatchObject({
+      country: 'CA',
+      region: 'ON',
+      city: 'Toronto',
+      language: 'Hindi',
+      when: 'weekend',
+      isOnline: false,
+      free: true,
+      onSale: true,
+    })
+    // A named span wins over days left beside it.
+    expect(query).not.toHaveProperty('fromDate')
+    expect(query).not.toHaveProperty('sort', 'price:asc')
+  })
+
+  it('sends chosen days as fromDate and toDate, and nothing for switches left off', async () => {
+    const list = vi.fn().mockResolvedValue(liveListing)
+
+    await loadEventList(
+      { when: 'dates', from: '2026-10-17', to: '2026-10-18', format: 'online', free: false },
+      { client: stubClient({ list }) },
+    )
+
+    const [query] = list.mock.calls[0]
+
+    expect(query).toMatchObject({ fromDate: '2026-10-17', toDate: '2026-10-18', isOnline: true })
+    expect(query).not.toHaveProperty('when')
+    expect(query).not.toHaveProperty('free')
+    expect(query).not.toHaveProperty('onSale')
+    expect(query).not.toHaveProperty('country')
+  })
+
+  it('narrows the fallback catalogue by state as it asks the API to', async () => {
+    const list = vi.fn().mockRejectedValue(new Error('down'))
+
+    const result = await loadEventList(
+      { region: 'US-NJ', perPage: 48 },
+      { client: stubClient({ list }) },
+    )
+
+    expect(result.events.length).toBeGreaterThan(0)
+    expect(result.events.every((event) => event.region === 'NJ' && event.country === 'US')).toBe(
+      true,
+    )
+  })
+
   it('falls back to the curated catalogue when the API is unreachable', async () => {
     const list = vi.fn().mockRejectedValue(new Error('fetch failed'))
 
@@ -192,6 +259,57 @@ describe('loadEventList', () => {
 
     expect(console.warn).toHaveBeenCalledTimes(1)
     expect(console.warn.mock.calls[0][0]).toContain('events.list')
+  })
+})
+
+describe('loadCatalogueFacets', () => {
+  it('passes the API’s facets through, regions and all', async () => {
+    const data = {
+      scope: { status: 'LISTED', total: 1 },
+      categories: [],
+      cities: [{ value: 'Frisco', count: 1 }],
+      regions: [
+        {
+          country: 'US',
+          region: 'TX',
+          name: 'Texas',
+          count: 1,
+          cities: [{ value: 'Frisco', count: 1 }],
+        },
+      ],
+      languages: [],
+      formats: [],
+    }
+    const facets = vi.fn().mockResolvedValue({ data })
+
+    expect(await loadCatalogueFacets({ client: stubClient({ facets }) })).toEqual({
+      facets: data,
+      usedFallback: false,
+    })
+  })
+
+  it('derives states with their cities, languages and formats from the sample catalogue', async () => {
+    const facets = vi.fn().mockRejectedValue(new Error('down'))
+
+    const result = await loadCatalogueFacets({ client: stubClient({ facets }) })
+    const summaries = sampleEventSummaries()
+
+    expect(result.usedFallback).toBe(true)
+
+    const jersey = result.facets.regions.find((entry) => entry.region === 'NJ')
+    expect(jersey).toMatchObject({ country: 'US', name: 'New Jersey' })
+    expect(jersey.cities.map((city) => city.value).sort()).toEqual(
+      [
+        ...new Set(summaries.filter((event) => event.region === 'NJ').map((event) => event.city)),
+      ].sort(),
+    )
+    expect(result.facets.regions.reduce((sum, entry) => sum + entry.count, 0)).toBe(
+      summaries.filter((event) => event.city).length,
+    )
+    expect(result.facets.languages.length).toBeGreaterThan(0)
+    expect(result.facets.formats.reduce((sum, entry) => sum + entry.count, 0)).toBe(
+      summaries.length,
+    )
   })
 })
 

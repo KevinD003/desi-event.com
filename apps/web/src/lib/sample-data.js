@@ -1459,6 +1459,8 @@ export function toEventSummary(event) {
     timezone: event.timezone,
     isOnline: event.isOnline ?? false,
     city: event.venue?.city ?? null,
+    region: event.venue?.region ?? null,
+    country: event.venue ? (event.venue.country ?? null) : null,
     venueName: event.venue?.name ?? null,
     organizationName: event.organization?.name ?? null,
     organizationSlug: event.organization?.slug ?? null,

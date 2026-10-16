@@ -945,6 +945,22 @@ export const eventFacetsResponseSchema = z.object({
     }),
     categories: z.array(z.object({ value: eventCategorySchema, count: countSchema })),
     cities: z.array(z.object({ value: z.string(), count: countSchema })),
+    /**
+     * Each state or province with listed events, and its cities. Keyed by
+     * country and region, so a city name two states share is two entries.
+     */
+    regions: z.array(
+      z.object({
+        /** ISO 3166-1 alpha-2, as the venue stores it. */
+        country: z.string(),
+        /** The state or province code, trimmed and in capitals: `TX`, `ON`. */
+        region: z.string(),
+        /** "Texas", "Ontario"; the code itself when it is not a known one. */
+        name: z.string(),
+        count: countSchema,
+        cities: z.array(z.object({ value: z.string(), count: countSchema })),
+      }),
+    ),
     languages: z.array(z.object({ value: z.string(), count: countSchema })),
     formats: z.array(z.object({ value: z.enum(['online', 'in_person']), count: countSchema })),
   }),

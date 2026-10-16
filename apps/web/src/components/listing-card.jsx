@@ -10,8 +10,9 @@
  * ## What a card says
  *
  * The poster, wearing its category; the start in the event's own zone with the
- * zone's letters ("Sat, Oct 17 · 7:30 PM EDT"); the title; the venue and city,
- * or "Online"; who is putting it on; the price one ticket starts at; and
+ * zone's letters ("Sat, Oct 17 · 7:30 PM EDT"); the title; the venue, and the
+ * city with its state or province ("Frisco, TX"), or "Online"; who is putting
+ * it on; the price one ticket starts at; and
  * whether tickets can be bought now. The price is all-in when the API sends it
  * all-in — the same figure checkout would charge for one ticket of the
  * cheapest tier — and is said to be before fees when it is not. Nothing is said
@@ -23,10 +24,10 @@
  * shows: the organiser the listing names, rather than the organisation of the
  * team at The Desi Events that holds it.
  *
- * Two things the design shows are not on a card, because a listing summary
- * does not carry them: the venue's state after the city, and the organiser's
- * verified badge. The event's own page shows both, from the full record. A
- * badge inferred here would be an endorsement nobody made.
+ * One thing the design shows is not on a card, because a listing summary
+ * does not carry it: the organiser's verified badge. The event's own page
+ * shows it, from the full record. A badge inferred here would be an
+ * endorsement nobody made.
  *
  * ## Motion
  *
@@ -103,16 +104,19 @@ export function AvailabilityChip({ availability }) {
 }
 
 /**
- * Where an event is, as a card says it: the venue and the city, "Online" for a
- * streamed event, or that the venue is still to come.
+ * Where an event is, as a card says it: the venue and the city with its state
+ * or province ("Lamplight Expo Hall · Edison, NJ"), "Online" for a streamed
+ * event, or that the venue is still to come.
  *
  * @param {object} event An event summary.
  * @returns {string} The place.
  */
-function placeOf(event) {
+export function placeOf(event) {
   if (event?.isOnline) return 'Online'
 
-  return [event?.venueName, event?.city].filter(Boolean).join(' · ') || 'Venue to be announced'
+  const town = event?.city && event?.region ? `${event.city}, ${event.region}` : event?.city
+
+  return [event?.venueName, town].filter(Boolean).join(' · ') || 'Venue to be announced'
 }
 
 /**

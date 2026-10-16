@@ -62,6 +62,30 @@ const TRANSFERRED = 'TRANSFERRED'
 const HIDDEN = 'HIDDEN'
 
 /**
+ * A venue's region as a summary carries it: trimmed and upper-cased.
+ *
+ * @param {unknown} region The stored `Venue.region`.
+ * @returns {string|null} The code, or null when there is none.
+ */
+function regionCode(region) {
+  const code = typeof region === 'string' ? region.trim().toUpperCase() : ''
+
+  return code === '' ? null : code
+}
+
+/**
+ * A venue's country as a summary carries it.
+ *
+ * @param {unknown} country The stored `Venue.country`.
+ * @returns {string|null} The two capital letters, or null.
+ */
+function countryCode(country) {
+  const code = typeof country === 'string' ? country.trim().toUpperCase() : ''
+
+  return /^[A-Z]{2}$/u.test(code) ? code : null
+}
+
+/**
  * Whether the public may see a tier at all.
  *
  * A hidden tier is a guest list or a team allocation: it is left off the page,
@@ -458,6 +482,11 @@ export function toEventSummary(event, { feeConfigFor = null, now = new Date() } 
     timezone: event.timezone,
     isOnline: event.isOnline,
     city: event.venue?.city ?? null,
+    // Trimmed and in capitals, the form the filter and the facets use; an
+    // organiser's venue may say `tx`. A country that is not two letters (none
+    // should be) is left out rather than failing the whole listing.
+    region: regionCode(event.venue?.region),
+    country: countryCode(event.venue?.country),
     venueName: event.venue?.name ?? null,
     organizationName: event.organization?.name ?? null,
     organizationSlug: event.organization?.slug ?? null,

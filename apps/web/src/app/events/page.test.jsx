@@ -35,9 +35,10 @@ const { default: EventsPage, metadata } = await import('./page.jsx')
  * @param {object[]} [options.events] The page of results.
  * @param {object} [options.pagination] Its counters.
  * @param {boolean} [options.usedFallback] Whether the sample catalogue answered.
+ * @param {object} [options.facets] Facet lists to add to (or replace) the default ones.
  * @returns {Promise<HTMLElement>} The render container.
  */
-async function draw({ query = {}, events, pagination, usedFallback = false } = {}) {
+async function draw({ query = {}, events, pagination, usedFallback = false, facets = {} } = {}) {
   const page = events ?? sampleEventSummaries().slice(0, 12)
 
   loadEventList.mockResolvedValue({
@@ -62,6 +63,7 @@ async function draw({ query = {}, events, pagination, usedFallback = false } = {
         { value: 'Edison', count: 4 },
         { value: 'Houston', count: 3 },
       ],
+      ...facets,
     },
     usedFallback,
   })
@@ -191,6 +193,141 @@ describe('the listing', () => {
   it('describes the catalogue as it is now', () => {
     expect(metadata.title).toBe('All events')
     expect(metadata.description).toMatch(/garba/i)
+  })
+})
+
+/** States with their cities, Springfield in two of them. */
+const PLACES = Object.freeze({
+  cities: [
+    { value: 'Springfield', count: 5 },
+    { value: 'Frisco', count: 3 },
+    { value: 'Toronto', count: 1 },
+  ],
+  regions: [
+    {
+      country: 'US',
+      region: 'TX',
+      name: 'Texas',
+      count: 3,
+      cities: [{ value: 'Frisco', count: 3 }],
+    },
+    {
+      country: 'US',
+      region: 'IL',
+      name: 'Illinois',
+      count: 3,
+      cities: [{ value: 'Springfield', count: 3 }],
+    },
+    {
+      country: 'US',
+      region: 'MO',
+      name: 'Missouri',
+      count: 2,
+      cities: [{ value: 'Springfield', count: 2 }],
+    },
+    {
+      country: 'CA',
+      region: 'ON',
+      name: 'Ontario',
+      count: 1,
+      cities: [{ value: 'Toronto', count: 1 }],
+    },
+  ],
+  languages: [{ value: 'Hindi', count: 4 }],
+})
+
+describe('state, then city', () => {
+  it('offers every state under its country, with how many events each has', async () => {
+    await draw({ facets: PLACES })
+
+    const select = screen.getByLabelText('State or province')
+
+    expect(within(select).getByRole('group', { name: 'United States' })).toBeInTheDocument()
+    expect(within(select).getByRole('group', { name: 'Canada' })).toBeInTheDocument()
+    expect(within(select).getByRole('option', { name: 'Texas (3)' })).toHaveValue('US-TX')
+    expect(within(select).getByRole('option', { name: 'Ontario (1)' })).toHaveValue('CA-ON')
+  })
+
+  it('lists only the chosen state’s cities, and asks for the city in that state', async () => {
+    await draw({ facets: PLACES, query: { region: 'us-il', city: 'springfield' } })
+
+    const city = screen.getByLabelText('City')
+
+    expect(
+      within(city)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Every city in this state', 'Springfield'])
+    expect(city).toHaveValue('Springfield')
+    expect(screen.getByLabelText('State or province')).toHaveValue('US-IL')
+    expect(loadEventList).toHaveBeenLastCalledWith(
+      expect.objectContaining({ region: 'US-IL', city: 'Springfield' }),
+    )
+  })
+
+  it('drops a city that is not in the chosen state, and lists the state', async () => {
+    await draw({
+      facets: PLACES,
+      query: { region: 'CA-ON', city: 'Frisco' },
+      events: sampleEventSummaries().slice(0, 1),
+    })
+
+    expect(screen.getByLabelText('City')).toHaveValue('')
+    expect(loadEventList).toHaveBeenLastCalledWith(
+      expect.objectContaining({ region: 'CA-ON', city: '' }),
+    )
+    expect(screen.getByTestId('result-count')).toHaveTextContent(/^1 event in Ontario$/)
+  })
+
+  it('drops a state the catalogue does not list', async () => {
+    await draw({ facets: PLACES, query: { region: 'US-AK' } })
+
+    expect(screen.getByLabelText('State or province')).toHaveValue('')
+    expect(loadEventList).toHaveBeenLastCalledWith(expect.objectContaining({ region: '' }))
+  })
+
+  it('lists every city when no state is chosen', async () => {
+    await draw({ facets: PLACES })
+
+    expect(
+      within(screen.getByLabelText('City'))
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Every city', 'Frisco', 'Springfield', 'Toronto'])
+  })
+})
+
+describe('what the sentence says', () => {
+  it('names the city with its state, and the other filters chosen', async () => {
+    await draw({
+      facets: PLACES,
+      query: { region: 'US-TX', city: 'Frisco', when: 'weekend', free: 'true', onSale: 'true' },
+      events: sampleEventSummaries().slice(0, 2),
+    })
+
+    expect(screen.getByTestId('result-count')).toHaveTextContent(
+      /^2 free events in Frisco, TX this weekend on sale now$/,
+    )
+  })
+
+  it('says the chosen days and the language', async () => {
+    await draw({
+      facets: PLACES,
+      query: { from: '2026-10-17', to: '2026-10-18', language: 'hindi', format: 'online' },
+      events: sampleEventSummaries().slice(0, 2),
+    })
+
+    expect(screen.getByTestId('result-count')).toHaveTextContent(
+      /^2 online events from Oct 17, 2026 to Oct 18, 2026 in Hindi$/,
+    )
+  })
+
+  it('opens More filters when one of them is chosen, and offers to clear them', async () => {
+    const container = await draw({ facets: PLACES, query: { onSale: 'true' } })
+
+    expect(container.querySelector('details')).toHaveAttribute('open')
+    expect(screen.getByRole('button', { name: 'Clear filters' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Tickets on sale now')).toBeChecked()
   })
 })
 

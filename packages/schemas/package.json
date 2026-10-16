@@ -20,6 +20,8 @@
     "./event-control": "./src/event-control.js",
     "./imports": "./src/imports.js",
     "./payment-terms": "./src/payment-terms.js",
+    "./subdivisions": "./src/subdivisions.js",
+    "./calendar-days": "./src/calendar-days.js",
     "./package.json": "./package.json"
   },
   "files": [

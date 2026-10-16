@@ -116,6 +116,19 @@ describe('EventCard', () => {
     expect(screen.queryByText(/Lamplight Expo Hall/)).not.toBeInTheDocument()
   })
 
+  it('puts the state or province after the city when the summary carries it', () => {
+    const { rerender } = render(<EventCard event={{ ...garba, region: 'NJ', country: 'US' }} />)
+
+    expect(screen.getByText('Lamplight Expo Hall · Edison, NJ')).toBeInTheDocument()
+
+    rerender(
+      <EventCard
+        event={{ ...garba, venueName: null, city: 'Toronto', region: 'ON', country: 'CA' }}
+      />,
+    )
+    expect(screen.getByText('Toronto, ON')).toBeInTheDocument()
+  })
+
   it('prices in US dollars', () => {
     render(<EventCard event={garba} />)
 
