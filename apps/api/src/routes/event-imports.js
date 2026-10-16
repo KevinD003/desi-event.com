@@ -4,11 +4,13 @@
  * sale), and moving an imported event to an organiser's own organisation.
  * Nothing here fetches anything: an import makes no outbound request.
  *
- * Every route is held by `event:import` (ADMIN and SUPER_ADMIN); approving also
- * needs `moderation:review`, checked here because the contract names one
+ * Every route is held by `event:import` (ADMIN and SUPER_ADMIN); approving, and
+ * the list of every pending imported event across runs, also need
+ * `moderation:review`, checked here because the contract names one
  * capability. Applying needs a second factor within the MODERATION window,
- * approving and moving one within the EVENT_PUBLISH window. Previews and
- * applies share one budget per administrator. Nothing here is cached.
+ * approving (one run's or every pending one) and moving one within the
+ * EVENT_PUBLISH window. Previews, applies and approving every pending event
+ * share one budget per administrator. Nothing here is cached.
  *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc
  * namepath.
@@ -23,9 +25,11 @@ import { IMPORT_LIMITS } from '@desi-event/schemas/imports'
 import {
   applyImport,
   approveImported,
+  approvePendingImports,
   importTargets,
   listRuns,
   loadRun,
+  pendingImports,
   previewImport,
   reassignImportedEvent,
   toRunView,
@@ -188,6 +192,47 @@ export function registerEventImportRoutes(app, { prisma, env, eventImportLimit }
       )
 
       return { data: { results } }
+    },
+  })
+
+  defineRoute(app, 'eventImports.pending', {
+    handler: async (request, reply) => {
+      reply.header('cache-control', 'no-store')
+
+      // What approving would do is a review decision's preview: the same
+      // capability the approval needs.
+      assertCan(request.actor, CAPABILITIES.MODERATION_REVIEW)
+
+      return { data: await pendingImports(prisma, { now: new Date() }) }
+    },
+  })
+
+  defineRoute(app, 'eventImports.approvePending', {
+    preHandler: [budget],
+    handler: async (request, reply) => {
+      reply.header('cache-control', 'no-store')
+
+      assertCan(request.actor, CAPABILITIES.MODERATION_REVIEW)
+
+      const outcome = await approvePendingImports(prisma, {
+        digest: request.body.digest,
+        actor: request.actor,
+        now: new Date(),
+      })
+
+      request.log.info(
+        {
+          total: outcome.total,
+          onSale: outcome.onSale,
+          publishedNothingToSell: outcome.publishedNothingToSell,
+          refused: outcome.refused,
+          skippedPast: outcome.skippedPast,
+          actorId: request.actor.id,
+        },
+        'pending imported events approved',
+      )
+
+      return { data: outcome }
     },
   })
 

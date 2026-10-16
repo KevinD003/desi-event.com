@@ -47779,11 +47779,18 @@
                                             "type": "integer",
                                             "minimum": 0,
                                             "maximum": 10000000
+                                          },
+                                          "waiting": {
+                                            "default": 0,
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 10000000
                                           }
                                         },
                                         "required": [
                                           "imported",
-                                          "onSale"
+                                          "onSale",
+                                          "waiting"
                                         ],
                                         "additionalProperties": false
                                       }
@@ -48292,11 +48299,18 @@
                                             "type": "integer",
                                             "minimum": 0,
                                             "maximum": 10000000
+                                          },
+                                          "waiting": {
+                                            "default": 0,
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 10000000
                                           }
                                         },
                                         "required": [
                                           "imported",
-                                          "onSale"
+                                          "onSale",
+                                          "waiting"
                                         ],
                                         "additionalProperties": false
                                       }
@@ -48764,11 +48778,18 @@
                                             "type": "integer",
                                             "minimum": 0,
                                             "maximum": 10000000
+                                          },
+                                          "waiting": {
+                                            "default": 0,
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 10000000
                                           }
                                         },
                                         "required": [
                                           "imported",
-                                          "onSale"
+                                          "onSale",
+                                          "waiting"
                                         ],
                                         "additionalProperties": false
                                       }
@@ -49213,6 +49234,476 @@
                 },
                 "required": [
                   "items"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/platform/imports/pending": {
+      "get": {
+        "operationId": "eventImports.pending",
+        "summary": "Every imported event waiting for approval, across runs",
+        "description": "Each imported event “Approve and publish all pending imported events” would act on, from whichever run last wrote it: still in the platform-held organisation and not moved to an organiser’s, its run applied, and REVIEW_PENDING or APPROVED, or PUBLISHED with an imported ticket type still waiting to go on sale (an event whose every imported ticket type is closed, sold out on its listing, is not one). Only events that start more than a minute from now are listed; `past` counts the ones left out for having started. `willGoOnSale` and `publishedNothingToSell` say what approving them does: an event with no prices, or every price sold out, is published with nothing to sell. `digest` is over each event’s id, revision and last run, and is what `approve-pending` must name. Held by `event:import` and `moderation:review`. Never cached.\n\nRequires the `event:import` capability.",
+        "tags": [
+          "imports"
+        ],
+        "responses": {
+          "200": {
+            "description": "Every imported event waiting for approval, across runs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "digest": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "willGoOnSale": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "publishedNothingToSell": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "past": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "eventId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "REVIEW_PENDING",
+                                  "APPROVED",
+                                  "PUBLISHED"
+                                ]
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "runId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "sourceId": {
+                                "type": "string",
+                                "pattern": "^[0-9]{1,12}$"
+                              },
+                              "city": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 200
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "region": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 120
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "willGoOnSale": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "eventId",
+                              "title",
+                              "startsAt",
+                              "status",
+                              "revision",
+                              "runId",
+                              "sourceId",
+                              "city",
+                              "region",
+                              "willGoOnSale"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "digest",
+                        "total",
+                        "willGoOnSale",
+                        "publishedNothingToSell",
+                        "past",
+                        "items"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/platform/imports/approve-pending": {
+      "post": {
+        "operationId": "eventImports.approvePending",
+        "summary": "Approve and publish every pending imported event",
+        "description": "Works the pending list out again and refuses 409 `IMPORT_PENDING_CHANGED` unless it gives the `digest` the administrator read, so what is approved is what they were shown. Then each event on it is approved exactly as `POST /v1/platform/imports/:runId/approve` approves one, from the run that last wrote it and at the revision the list held: its own transaction, the lifecycle’s gates and the reviewer-independence exemption; approved, published and put on sale, or published with nothing to sell. A refusal is that event’s alone, reported with its code, and the rest go on. A second call names a list that has changed and approves nothing. Held by `event:import` and `moderation:review`, with a second factor within the EVENT_PUBLISH window; it shares the twenty-an-hour budget of previews and applies. Audited `event.approved` and `event.published` per event, and `event_import.bulk_approved` once, with the counts, the runs, each refusal’s event and code, and the digest.\n\nRequires the `event:import` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "imports"
+        ],
+        "responses": {
+          "200": {
+            "description": "Approve and publish every pending imported event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "onSale": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "publishedNothingToSell": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "refused": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "skippedPast": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "results": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "eventId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "outcome": {
+                                "type": "string",
+                                "enum": [
+                                  "PUBLISHED",
+                                  "SALES_OPENED",
+                                  "REFUSED"
+                                ]
+                              },
+                              "status": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "DRAFT",
+                                      "REVIEW_PENDING",
+                                      "CHANGES_REQUIRED",
+                                      "APPROVED",
+                                      "PUBLISHED",
+                                      "ON_SALE",
+                                      "SALES_PAUSED",
+                                      "SOLD_OUT",
+                                      "COMPLETED",
+                                      "POSTPONED",
+                                      "CANCELLED",
+                                      "REJECTED",
+                                      "ARCHIVED",
+                                      "DELETED"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "revision": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "ticketTypesOnSale": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "code": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 100
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "message": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "eventId",
+                              "outcome",
+                              "status",
+                              "revision",
+                              "ticketTypesOnSale",
+                              "code",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "refusals": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "eventId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "code": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 100
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "message": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "eventId",
+                              "code",
+                              "message"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "onSale",
+                        "publishedNothingToSell",
+                        "refused",
+                        "skippedPast",
+                        "results",
+                        "refusals"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable, or the change waited too long behind another one saved at the same moment and nothing of it was kept. Try again after the interval in the `Retry-After` header when one is sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "digest"
                 ],
                 "additionalProperties": false
               }

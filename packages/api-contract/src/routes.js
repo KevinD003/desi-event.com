@@ -255,8 +255,11 @@ import {
   restoreEventRequestSchema,
   sessionCancellationPreviewResponseSchema,
   eventImportApplyRequestSchema,
+  eventImportApprovePendingRequestSchema,
+  eventImportApprovePendingResponseSchema,
   eventImportApproveRequestSchema,
   eventImportApproveResponseSchema,
+  eventImportPendingResponseSchema,
   eventImportEventParamSchema,
   eventImportListQuerySchema,
   eventImportPreviewRequestSchema,
@@ -2632,6 +2635,51 @@ export const apiRoutes = Object.freeze(
         // Each event is its own budgeted transaction (one that cannot wait is
         // refused `TRY_AGAIN` in its result); only a step outside them running
         // out answers this (`Retry-After`).
+        API_ERRORS.unavailable,
+      ],
+    },
+    {
+      id: 'eventImports.pending',
+      method: 'GET',
+      path: '/v1/platform/imports/pending',
+      summary: 'Every imported event waiting for approval, across runs',
+      description:
+        'Each imported event “Approve and publish all pending imported events” would act on, from whichever run last wrote it: still in the platform-held organisation and not moved to an organiser’s, its run applied, and REVIEW_PENDING or APPROVED, or PUBLISHED with an imported ticket type still waiting to go on sale (an event whose every imported ticket type is closed, sold out on its listing, is not one). Only events that start more than a minute from now are listed; `past` counts the ones left out for having started. `willGoOnSale` and `publishedNothingToSell` say what approving them does: an event with no prices, or every price sold out, is published with nothing to sell. `digest` is over each event’s id, revision and last run, and is what `approve-pending` must name. Held by `event:import` and `moderation:review`. Never cached.',
+      tags: ['imports'],
+      auth: 'session',
+      capability: 'event:import',
+      params: null,
+      query: null,
+      body: null,
+      response: eventImportPendingResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.unauthorized, API_ERRORS.forbidden],
+    },
+    {
+      id: 'eventImports.approvePending',
+      method: 'POST',
+      path: '/v1/platform/imports/approve-pending',
+      summary: 'Approve and publish every pending imported event',
+      description:
+        'Works the pending list out again and refuses 409 `IMPORT_PENDING_CHANGED` unless it gives the `digest` the administrator read, so what is approved is what they were shown. Then each event on it is approved exactly as `POST /v1/platform/imports/:runId/approve` approves one, from the run that last wrote it and at the revision the list held: its own transaction, the lifecycle’s gates and the reviewer-independence exemption; approved, published and put on sale, or published with nothing to sell. A refusal is that event’s alone, reported with its code, and the rest go on. A second call names a list that has changed and approves nothing. Held by `event:import` and `moderation:review`, with a second factor within the EVENT_PUBLISH window; it shares the twenty-an-hour budget of previews and applies. Audited `event.approved` and `event.published` per event, and `event_import.bulk_approved` once, with the counts, the runs, each refusal’s event and code, and the digest.',
+      tags: ['imports'],
+      auth: 'session',
+      capability: 'event:import',
+      stepUp: 'EVENT_PUBLISH',
+      params: null,
+      query: null,
+      body: eventImportApprovePendingRequestSchema,
+      response: eventImportApprovePendingResponseSchema,
+      successStatus: 200,
+      errors: [
+        API_ERRORS.validation,
+        API_ERRORS.unauthorized,
+        API_ERRORS.stepUpRequired,
+        API_ERRORS.conflict,
+        API_ERRORS.rateLimited,
+        // Each event is its own budgeted transaction (one that cannot wait is
+        // refused `TRY_AGAIN` in its result); only the summary row running out
+        // answers this (`Retry-After`).
         API_ERRORS.unavailable,
       ],
     },

@@ -244,6 +244,15 @@ export const AUDIT_ACTIONS = Object.freeze({
   EVENT_IMPORTED: 'event.imported',
   /** "Approve and publish" put a posted import's waiting ticket types on sale. */
   EVENT_IMPORT_SALES_OPENED: 'event_import.sales_opened',
+  /**
+   * "Approve and publish all pending imported events": one row for the whole
+   * request, beside each event's own `event.approved` and `event.published`
+   * rows. Its metadata holds the digest the administrator confirmed, how many
+   * went on sale, were published with nothing to sell or were refused, the
+   * runs the events came from, and each refusal's event and code. Nothing
+   * secret: no session, no second factor, no address.
+   */
+  EVENT_IMPORT_BULK_APPROVED: 'event_import.bulk_approved',
   EVENT_IMPORT_REASSIGNED: 'event.import_reassigned',
   ORGANIZATION_PLATFORM_HELD_CREATED: 'organization.platform_held_created',
   /**

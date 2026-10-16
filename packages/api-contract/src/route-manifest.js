@@ -792,6 +792,22 @@ export const apiRouteManifest = Object.freeze([
     query: false,
   },
   {
+    id: 'eventImports.pending',
+    method: 'GET',
+    path: '/v1/platform/imports/pending',
+    auth: 'session',
+    body: false,
+    query: false,
+  },
+  {
+    id: 'eventImports.approvePending',
+    method: 'POST',
+    path: '/v1/platform/imports/approve-pending',
+    auth: 'session',
+    body: true,
+    query: false,
+  },
+  {
     id: 'eventImports.targets',
     method: 'GET',
     path: '/v1/platform/import-targets',

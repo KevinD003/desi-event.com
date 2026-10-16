@@ -2284,8 +2284,16 @@ export const eventImportRowEventSchema = z.object({
   importedByName: z.string().max(200).nullable(),
   approvedAt: timestampSchema.nullable(),
   approvedByName: z.string().max(200).nullable(),
-  /** How many of its ticket types the import made, and how many of those are on sale now. */
-  ticketTypes: z.object({ imported: countSchema, onSale: countSchema }),
+  /**
+   * How many of its ticket types the import made, how many of those are on
+   * sale now, and how many are still waiting to go on sale (a DRAFT; one
+   * closed as sold out on the listing is not waiting).
+   */
+  ticketTypes: z.object({
+    imported: countSchema,
+    onSale: countSchema,
+    waiting: countSchema.default(0),
+  }),
 })
 
 /** One listing of a run: what the plan says, and, once applied, what it wrote. */
