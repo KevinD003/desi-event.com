@@ -12,10 +12,13 @@ vi.mock('framer-motion', async () => {
 
 const {
   DURATION,
+  DURATION_EXPRESSIVE,
   EASE,
+  EASES,
   FadeIn,
   HoverLift,
   HoverZoom,
+  MotionProvider,
   Reveal,
   RevealOnScroll,
   STAGGER_STEP,
@@ -69,13 +72,6 @@ describe.each([
     expect(screen.getByText('Nine nights of garba')).toBeInTheDocument()
   })
 
-  it('consults the platform preference rather than animating unconditionally', () => {
-    useReducedMotion.mockReturnValue(true)
-    render(<Component>Content</Component>)
-
-    expect(useReducedMotion).toHaveBeenCalled()
-  })
-
   it('renders the element the caller asked for', () => {
     useReducedMotion.mockReturnValue(false)
     render(
@@ -123,31 +119,120 @@ describe.each([
   })
 })
 
-describe('entrances', () => {
-  it.each([
-    ['FadeIn', FadeIn],
-    ['Reveal', Reveal],
-  ])('%s starts 12px low and transparent, and no further', (_name, Component) => {
-    useReducedMotion.mockReturnValue(false)
-    const markup = renderToStaticMarkup(<Component>Rising</Component>)
+describe.each([
+  ['HoverLift', HoverLift],
+  ['HoverZoom', HoverZoom],
+])('%s, a gesture', (_name, Component) => {
+  it('consults the platform preference rather than animating unconditionally', () => {
+    useReducedMotion.mockReturnValue(true)
+    render(<Component>Content</Component>)
 
-    expect(markup).toContain('data-motion=""')
-    expect(markup).toMatch(/opacity:0/)
-    expect(markup).toMatch(/translateY\(12px\)/)
+    expect(useReducedMotion).toHaveBeenCalled()
+  })
+})
+
+describe.each([
+  ['FadeIn', FadeIn],
+  ['Reveal', Reveal],
+  ['RevealOnScroll', RevealOnScroll],
+  ['Stagger', Stagger],
+  ['StaggerItem', StaggerItem],
+])('%s, drawn by the stylesheet', (_name, Component) => {
+  it('renders the same markup whatever the preference, so the server and the client agree', () => {
+    useReducedMotion.mockReturnValue(false)
+    const moving = renderToStaticMarkup(<Component>Same</Component>)
+
+    useReducedMotion.mockReturnValue(true)
+    const still = renderToStaticMarkup(<Component>Same</Component>)
+
+    expect(still).toBe(moving)
+    // The preference is the stylesheet's to read, in a media query.
+    expect(useReducedMotion).not.toHaveBeenCalled()
   })
 
-  it('renders a staggered group’s items hidden until their turn, and marked', () => {
-    useReducedMotion.mockReturnValue(false)
+  it('server-renders its content visible: no inline style at all, and marked', () => {
+    const markup = renderToStaticMarkup(<Component>Visible from the first frame</Component>)
+
+    expect(markup).not.toContain('style=')
+    expect(markup).toMatch(/data-motion="(enter|reveal|)"/)
+  })
+})
+
+describe('entrances', () => {
+  it('marks a mount entrance for the stylesheet, so the hero heading paints before hydration', () => {
+    // The hero h1 is the page's largest text. It used to be inlined at
+    // opacity 0 until Framer Motion hydrated; now it is in the server's
+    // markup as plain text, and only the theme's CSS animates it.
     const markup = renderToStaticMarkup(
-      <Stagger trigger="mount">
-        <StaggerItem>One</StaggerItem>
-        <StaggerItem>Two</StaggerItem>
+      <h1>
+        <Stagger as="span" trigger="mount" delay={0.04}>
+          <StaggerItem as="span">Every</StaggerItem> <StaggerItem as="span">moment</StaggerItem>
+        </Stagger>
+      </h1>,
+    )
+
+    expect(markup).toBe(
+      '<h1><span data-motion="enter" data-motion-delay="1"><span data-motion="">Every</span> ' +
+        '<span data-motion="">moment</span></span></h1>',
+    )
+  })
+
+  it('steps a delay to the theme’s 40 ms grid, and caps it at 480 ms', () => {
+    const delayOf = (props) =>
+      /data-motion-delay="(\d+)"/.exec(renderToStaticMarkup(<FadeIn {...props}>x</FadeIn>))?.[1]
+
+    expect(delayOf({})).toBeUndefined()
+    expect(delayOf({ delay: 0.08 })).toBe('2')
+    expect(delayOf({ delay: 0.46 })).toBe('12')
+    expect(delayOf({ delay: 3 })).toBe('12')
+    // A position in a group adds 50 ms a step.
+    expect(delayOf({ index: 2 })).toBe('3')
+  })
+
+  it('fades without rising when asked for no distance', () => {
+    expect(renderToStaticMarkup(<FadeIn distance={0}>Art</FadeIn>)).toContain(
+      'data-motion-rise="none"',
+    )
+  })
+
+  it('rises 12px over the slowest duration, only where motion is welcome, in the theme', async () => {
+    const css = await themeCss()
+    const welcome = css.slice(css.indexOf('@media (prefers-reduced-motion: no-preference)'))
+    const block = welcome.slice(0, welcome.indexOf('/* Respect users who ask'))
+
+    expect(block).toMatch(
+      /@keyframes motion-enter\s*\{\s*from\s*\{\s*opacity: 0;\s*transform: translateY\(12px\);/,
+    )
+    expect(block).toMatch(
+      /\[data-motion='enter'\]\s*\{\s*animation: motion-enter var\(--duration-slow\) var\(--ease-out\) both;/,
+    )
+    expect(block).toMatch(/\[data-motion='reveal'\]\[data-reveal='pending'\]\s*\{\s*opacity: 0;/)
+    // Nothing outside that block hides a motion element.
+    const outside = css.replace(block, '')
+
+    expect(outside).not.toMatch(/data-motion='(enter|reveal)'/)
+  })
+
+  it('stops every view transition for a reader who asked for less motion', async () => {
+    const css = await themeCss()
+    const reduce = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'))
+
+    expect(reduce).toMatch(
+      /::view-transition-group\(\*\),\s*::view-transition-old\(\*\),\s*::view-transition-new\(\*\)\s*\{\s*animation: none !important;/,
+    )
+  })
+
+  it('renders a staggered group in view as one reveal, its items plain', () => {
+    const markup = renderToStaticMarkup(
+      <Stagger as="ul">
+        <StaggerItem as="li">One</StaggerItem>
+        <StaggerItem as="li">Two</StaggerItem>
       </Stagger>,
     )
 
-    expect(
-      markup.match(/data-motion=""[^>]*style="opacity:0;transform:translateY\(12px\)/g),
-    ).toHaveLength(2)
+    expect(markup).toBe(
+      '<ul data-motion="reveal"><li data-motion="">One</li><li data-motion="">Two</li></ul>',
+    )
   })
 
   it('renders a staggered group plainly under reduced motion', () => {
@@ -166,6 +251,24 @@ describe('entrances', () => {
 })
 
 describe('HoverLift', () => {
+  it('does not lift: no rise, only the engaged mark the poster zoom answers', () => {
+    useReducedMotion.mockReturnValue(false)
+    render(
+      <MotionProvider>
+        <HoverLift data-testid="card">
+          <a href="#one">One event</a>
+        </HoverLift>
+      </MotionProvider>,
+    )
+
+    act(() => screen.getByRole('link').focus())
+
+    const card = screen.getByTestId('card')
+
+    expect(card).toHaveAttribute('data-lifted')
+    expect(card.getAttribute('style') ?? '').not.toMatch(/translate/)
+  })
+
   it('lifts while something inside it has keyboard focus, as it would on hover', () => {
     useReducedMotion.mockReturnValue(false)
     render(
@@ -330,6 +433,72 @@ describe('DURATION', () => {
       expect(seconds * 1000, name).toBeGreaterThanOrEqual(120)
       expect(seconds * 1000, name).toBeLessThanOrEqual(250)
     }
+  })
+})
+
+describe('DURATION_EXPRESSIVE', () => {
+  it('matches the sheet and page tokens, each longer than interface feedback and at most 500 ms', async () => {
+    const css = await themeCss()
+
+    expect(Object.keys(DURATION_EXPRESSIVE).sort()).toEqual(['page', 'sheet'])
+
+    for (const [name, seconds] of Object.entries(DURATION_EXPRESSIVE)) {
+      const declared = css.match(new RegExp(`--duration-${name}:\\s*([0-9]+)ms`, 'u'))?.[1]
+
+      expect(Number(declared), name).toBe(Math.round(seconds * 1000))
+      expect(seconds * 1000, name).toBeGreaterThan(250)
+      expect(seconds * 1000, name).toBeLessThanOrEqual(500)
+    }
+  })
+})
+
+describe('EASES', () => {
+  it.each([
+    ['out', 'ease-out'],
+    ['inOut', 'ease-in-out'],
+    ['drawer', 'ease-drawer'],
+  ])('%s is the theme’s --%s', async (name, token) => {
+    const css = await themeCss()
+    const declared = css
+      .match(new RegExp(`--${token}:\\s*cubic-bezier\\(([^)]+)\\)`, 'u'))?.[1]
+      .split(',')
+      .map(Number)
+
+    expect([...EASES[name]]).toEqual(declared)
+  })
+})
+
+describe('MotionProvider', () => {
+  it('lets a gesture component render inside it, loading the features lazily and strictly', () => {
+    useReducedMotion.mockReturnValue(false)
+    render(
+      <MotionProvider>
+        <HoverZoom>Poster</HoverZoom>
+      </MotionProvider>,
+    )
+
+    expect(screen.getByText('Poster')).toHaveAttribute('data-motion')
+  })
+
+  it('is the only way motion.jsx reaches Framer Motion: m components, never the full motion', async () => {
+    const { readFileSync } = await import('node:fs')
+    const path = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const source = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), 'motion.jsx'),
+      'utf8',
+    )
+    const imported = /import \{([^}]+)\} from 'framer-motion'/.exec(source)[1]
+
+    expect(imported.split(',').map((name) => name.trim())).toEqual([
+      'LazyMotion',
+      'MotionConfig',
+      'domAnimation',
+      'm',
+      'useReducedMotion',
+    ])
+    expect(source).toMatch(/<LazyMotion features=\{domAnimation\} strict>/)
+    expect(source).toMatch(/<MotionConfig reducedMotion="user">/)
   })
 })
 

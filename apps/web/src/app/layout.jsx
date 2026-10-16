@@ -6,6 +6,7 @@
 
 import './globals.css'
 
+import { MotionProvider } from '../components/motion.jsx'
 import { SiteFooter } from '../components/site-footer.jsx'
 import { SiteHeader } from '../components/site-header.jsx'
 import { SHARE_IMAGE } from '../lib/brand.js'
@@ -102,14 +103,16 @@ export default async function RootLayout({ children }) {
         className="flex min-h-dvh flex-col"
         data-register={register === 'courtyard' ? 'courtyard' : undefined}
       >
-        <a className="skip-link" href="#main-content">
-          Skip to main content
-        </a>
-        <SiteHeader />
-        <main id="main-content" tabIndex={-1} className="flex-1">
-          {children}
-        </main>
-        <SiteFooter />
+        <MotionProvider>
+          <a className="skip-link" href="#main-content">
+            Skip to main content
+          </a>
+          <SiteHeader />
+          <main id="main-content" tabIndex={-1} className="flex-1">
+            {children}
+          </main>
+          <SiteFooter />
+        </MotionProvider>
       </body>
     </html>
   )

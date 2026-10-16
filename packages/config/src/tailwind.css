@@ -478,6 +478,26 @@
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
   /*
+   * The motion grammar is mechanical and print-like: things slot into place
+   * on one axis. Three more curves, each with one job, and never `ease-in` on
+   * anything the reader is waiting for. `ease-out` is for entering and
+   * leaving (and replaces Tailwind's own `ease-out` utility), `ease-in-out`
+   * for something moving or morphing on screen, and `ease-drawer` for a sheet
+   * that slides in from an edge.
+   */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /*
+   * Two longer durations for things larger than a control, named apart so
+   * the 250 ms ceiling above stays a ceiling: a sheet (400 ms) and a page's
+   * view transition (300 ms). Both are bounded at 500 ms by test.
+   */
+  --duration-sheet: 400ms;
+  --duration-page: 300ms;
+
+  /*
    * The one ambient animation: festival bulbs that twinkle three times and
    * then stop. It is not an entrance, so it is not held to the three
    * durations above; it is held to WCAG 2.2.2 instead — it finishes inside
@@ -627,6 +647,106 @@
   color-scheme: dark;
 }
 
+/*
+ * Entrances, drawn by CSS (components/motion.jsx).
+ *
+ * `data-motion="enter"` rises 12px and fades in over 250 ms from the first
+ * frame it is painted, with no JavaScript and nothing inlined by the server,
+ * so the hero heading is never hidden waiting for hydration.
+ * `data-motion="reveal"` is visible as sent; the motion component marks it
+ * `data-reveal="pending"` only after hydration and only when it is below the
+ * fold, and `shown` when it first scrolls into view. Delays come in 40 ms
+ * steps (`data-motion-delay="1"` … `"12"`), so no element needs a `style`
+ * attribute.
+ *
+ * All of it lives inside `prefers-reduced-motion: no-preference`: for a
+ * reader who asked for less, the rules below do not exist, and the elements
+ * are simply there.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes motion-enter {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+  }
+
+  @keyframes motion-fade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  [data-motion='enter'] {
+    animation: motion-enter var(--duration-slow) var(--ease-out) both;
+    animation-delay: calc(var(--motion-delay-step, 0) * 40ms);
+  }
+
+  [data-motion='enter'][data-motion-rise='none'] {
+    animation-name: motion-fade;
+  }
+
+  [data-motion='reveal'] {
+    transition-property: opacity, transform;
+    transition-duration: var(--duration-slow);
+    transition-timing-function: var(--ease-out);
+    transition-delay: calc(var(--motion-delay-step, 0) * 40ms);
+  }
+
+  [data-motion='reveal'][data-reveal='pending'] {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  [data-motion-delay='1'] {
+    --motion-delay-step: 1;
+  }
+
+  [data-motion-delay='2'] {
+    --motion-delay-step: 2;
+  }
+
+  [data-motion-delay='3'] {
+    --motion-delay-step: 3;
+  }
+
+  [data-motion-delay='4'] {
+    --motion-delay-step: 4;
+  }
+
+  [data-motion-delay='5'] {
+    --motion-delay-step: 5;
+  }
+
+  [data-motion-delay='6'] {
+    --motion-delay-step: 6;
+  }
+
+  [data-motion-delay='7'] {
+    --motion-delay-step: 7;
+  }
+
+  [data-motion-delay='8'] {
+    --motion-delay-step: 8;
+  }
+
+  [data-motion-delay='9'] {
+    --motion-delay-step: 9;
+  }
+
+  [data-motion-delay='10'] {
+    --motion-delay-step: 10;
+  }
+
+  [data-motion-delay='11'] {
+    --motion-delay-step: 11;
+  }
+
+  [data-motion-delay='12'] {
+    --motion-delay-step: 12;
+  }
+}
+
 /* Respect users who ask the platform for reduced motion. Framer Motion reads
    the same preference, but plain CSS transitions need this too. */
 @media (prefers-reduced-motion: reduce) {
@@ -650,11 +770,29 @@
     opacity: 1 !important;
     transform: none !important;
   }
+
+  /* A view transition's snapshots are pseudo-elements, which the `*` rule
+     above does not reach, and their animations are real animations a page
+     reports as running. A reader who asked for less gets the new page at
+     once. */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }
 
 /* Without JavaScript the entrance animations never run, so anything the server
-   rendered at `opacity: 0` would stay hidden. Show it instead. */
+   rendered at `opacity: 0` would stay hidden. Show it instead. Print is the
+   same: a page on paper has no scrolling to reveal anything. */
 @media (scripting: none) {
+  [data-motion] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+@media print {
   [data-motion] {
     opacity: 1 !important;
     transform: none !important;
