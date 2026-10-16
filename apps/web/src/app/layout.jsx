@@ -7,6 +7,7 @@
 import './globals.css'
 
 import { MotionProvider } from '../components/motion.jsx'
+import { RegisterSync } from '../components/register-sync.jsx'
 import { SiteFooter } from '../components/site-footer.jsx'
 import { SiteHeader } from '../components/site-header.jsx'
 import { SHARE_IMAGE } from '../lib/brand.js'
@@ -89,7 +90,9 @@ export const viewport = {
  * skip link that leaves focus in the header skips nothing for a keyboard user.
  *
  * `data-register` puts a signed-in area in the Quiet Courtyard register (see
- * `lib/register.js`); a public page carries none and stays editorial.
+ * `lib/register.js`); a public page carries none and stays editorial. This
+ * layout is not rendered again on a soft navigation, so {@link RegisterSync}
+ * keeps the attribute in step with the route after the first paint.
  *
  * @param {RootLayoutProps} props Component props.
  * @returns {Promise<JSX.Element>} The rendered document.
@@ -103,6 +106,7 @@ export default async function RootLayout({ children }) {
         className="flex min-h-dvh flex-col"
         data-register={register === 'courtyard' ? 'courtyard' : undefined}
       >
+        <RegisterSync />
         <MotionProvider>
           <a className="skip-link" href="#main-content">
             Skip to main content

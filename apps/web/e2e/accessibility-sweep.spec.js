@@ -3056,6 +3056,46 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     await context.close()
   })
 
+  test('the colour register follows a soft navigation, both ways', async ({ browser }) => {
+    // The root layout sets `data-register` from the request path and is not
+    // rendered again on a client navigation, so a `<Link>` between a public
+    // page and a signed-in area used to leave <body> in the register it was
+    // loaded in. `components/register-sync.jsx` now moves it.
+    const context = await browser.newContext()
+    const page = await context.newPage()
+
+    await signIn(page, seeded.betaOwnerEmail)
+    await expect(page.locator('body')).toHaveAttribute('data-register', 'courtyard')
+
+    // Out: the brand link to the home page is a soft navigation.
+    const loads = []
+    page.on('load', () => loads.push(page.url()))
+    await page
+      .getByRole('banner')
+      .getByRole('link', { name: 'The Desi Events', exact: true })
+      .click()
+    await expect(page).toHaveURL(/\/$/)
+    await expect(page.locator('body')).not.toHaveAttribute('data-register')
+
+    // And back in, through the account menu's link to the wallet.
+    await page.getByRole('button', { name: /, account$/ }).click()
+    await page.getByRole('link', { name: 'My tickets', exact: true }).click()
+    await expect(page).toHaveURL(/\/tickets$/)
+    await expect(page.locator('body')).toHaveAttribute('data-register', 'courtyard')
+
+    // Neither move was a full page load, or this would prove nothing.
+    expect(loads).toEqual([])
+    // And the ground really changed: the courtyard paints its own page colour.
+    const ground = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
+    await page.goBack()
+    await expect(page.locator('body')).not.toHaveAttribute('data-register')
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).not.toBe(
+      ground,
+    )
+
+    await context.close()
+  })
+
   test('the editor can be reached and operated by keyboard alone', async () => {
     const page = organiser
 
