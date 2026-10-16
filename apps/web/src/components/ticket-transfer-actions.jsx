@@ -361,7 +361,7 @@ export function TicketTransferActions({
                 ? 'Withdraw the offer'
                 : 'Withdraw this ticket'
           }
-          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           {error ? (
             <div className="mb-3">

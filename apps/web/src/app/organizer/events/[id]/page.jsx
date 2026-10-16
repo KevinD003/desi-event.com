@@ -145,7 +145,7 @@ export default async function EditEventPage({ params }) {
         <li>
           <Link
             href="/organizer/events"
-            className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             Your events
           </Link>
@@ -186,7 +186,7 @@ export default async function EditEventPage({ params }) {
           <p>
             <Link
               href={elsewhere}
-              className="inline-flex min-h-11 items-center rounded-sm font-semibold underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="inline-flex min-h-11 items-center rounded-sm font-semibold underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
             >
               Open it in the editor for the team at The Desi Events
             </Link>
@@ -303,7 +303,7 @@ export default async function EditEventPage({ params }) {
               organizationId: event.organizationId,
               eventId: event.id,
             }).toString()}`}
-            className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             Visits and sales for this event
           </Link>

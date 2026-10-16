@@ -338,7 +338,7 @@ export function MapEditor({ version, initialLayout, readOnly }) {
                   {issue.key ? (
                     <button
                       type="button"
-                      className="rounded-sm text-left underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                      className="rounded-sm text-left underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                       onClick={() => {
                         setSelected(issue.key)
                         document.getElementById(`seat-${issue.key}`)?.focus()
@@ -713,7 +713,7 @@ function SeatButton({ seat, section, row, selected, tabIndex, onSelect, onKeyDow
       onKeyDown={onKeyDown}
       className={[
         'h-9 min-w-9 rounded border px-1 text-xs font-medium transition-colors',
-        'focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1 focus-visible:outline-none',
+        'focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-1',
         selected
           ? 'border-accent bg-accent-soft text-ink'
           : 'border-line-strong bg-surface-raised text-ink-muted hover:bg-surface-subtle',

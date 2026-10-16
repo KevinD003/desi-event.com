@@ -817,7 +817,7 @@ export function CheckoutBasket({
             id="order-summary"
             ref={summaryHeadingRef}
             tabIndex={-1}
-            className="rounded-sm text-h3 font-semibold text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="rounded-sm text-h3 font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             Order summary
           </h2>

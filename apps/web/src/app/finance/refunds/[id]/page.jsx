@@ -353,7 +353,7 @@ export default async function RefundDetailPage({ params }) {
       <p className="mt-8 text-sm">
         <Link
           href="/operations"
-          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           Back to operations
         </Link>

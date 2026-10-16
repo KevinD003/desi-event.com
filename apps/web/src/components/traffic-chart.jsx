@@ -94,7 +94,7 @@ export function TrafficChart({ id, caption, days }) {
         role="region"
         aria-label={`${caption}, scrolls sideways`}
         tabIndex={0}
-        className="mt-3 overflow-x-auto rounded-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+        className="mt-3 overflow-x-auto rounded-card focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
       >
         <svg
           viewBox={`0 0 ${width} ${height}`}

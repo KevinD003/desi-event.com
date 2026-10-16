@@ -328,7 +328,7 @@ export default async function AdminEventsPage({ searchParams } = {}) {
                 <Link
                   href={listHref(PATH, hrefParams(filters, { deleted: each.value, page: 1 }))}
                   aria-current={current ? 'page' : undefined}
-                  className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                  className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus ${
                     current
                       ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
                       : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
@@ -352,7 +352,7 @@ export default async function AdminEventsPage({ searchParams } = {}) {
                 <Link
                   href={listHref(PATH, hrefParams(filters, { imported: each.value, page: 1 }))}
                   aria-current={current ? 'page' : undefined}
-                  className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                  className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus ${
                     current
                       ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
                       : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
@@ -397,7 +397,7 @@ export default async function AdminEventsPage({ searchParams } = {}) {
             maxLength={SEARCH_MAX}
             autoComplete="off"
             aria-describedby={filters.searchDropped ? 'admin-events-search-note' : undefined}
-            className="min-h-11 w-72 max-w-full rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="min-h-11 w-72 max-w-full rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           />
         </div>
         <div className="flex min-w-0 flex-col gap-1.5">
@@ -408,7 +408,7 @@ export default async function AdminEventsPage({ searchParams } = {}) {
             id="admin-events-status"
             name="status"
             defaultValue={filters.status ?? ''}
-            className="min-h-11 rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="min-h-11 rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             <option value="">Any status</option>
             {STATUSES.map((status) => (
@@ -426,7 +426,7 @@ export default async function AdminEventsPage({ searchParams } = {}) {
             id="admin-events-sort"
             name="sort"
             defaultValue={filters.sort}
-            className="min-h-11 rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="min-h-11 rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             {SORTS.map((each) => (
               <option key={each.value} value={each.value}>

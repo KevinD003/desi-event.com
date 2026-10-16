@@ -132,7 +132,7 @@ export function AccountShell({ session, children }) {
           header={<SignedInAs session={session} />}
           footer={
             <div className="mt-3 border-t border-opsnav-line pt-3">
-              <SignOutButton className="flex min-h-11 w-full items-center rounded-control px-2.5 text-left text-sm font-medium text-opsnav-ink transition-colors duration-(--duration-fast) hover:bg-opsnav-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:pointer-fine:min-h-10" />
+              <SignOutButton className="flex min-h-11 w-full items-center rounded-control px-2.5 text-left text-sm font-medium text-opsnav-ink transition-colors duration-(--duration-fast) hover:bg-opsnav-hover hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus lg:pointer-fine:min-h-10" />
             </div>
           }
         />

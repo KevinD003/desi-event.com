@@ -307,7 +307,7 @@ export function ImportRunPlan({ run, canApprove, approveLimit = 100 }) {
         role="region"
         aria-label={`The plan for ${run.fileName}, scrolls sideways`}
         tabIndex={0}
-        className="relative mt-4 overflow-x-auto rounded-card border border-line bg-surface-raised shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+        className="relative mt-4 overflow-x-auto rounded-card border border-line bg-surface-raised shadow-card focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
       >
         <table className="w-full min-w-[64rem] border-collapse text-left text-sm">
           <caption className="sr-only">

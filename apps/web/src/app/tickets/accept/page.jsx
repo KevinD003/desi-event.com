@@ -71,7 +71,7 @@ export default async function AcceptTransferPage() {
         Sign in with the address the ticket was offered to, then paste the code below.{' '}
         <Link
           href="/limitations"
-          className="rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           What this site does not do
         </Link>

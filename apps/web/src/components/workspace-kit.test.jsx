@@ -140,11 +140,16 @@ describe('class sets', () => {
     ['SECONDARY_LINK', SECONDARY_LINK],
   ])('%s is a 44px target with a visible focus ring', (_name, classes) => {
     expect(classes).toContain('min-h-11')
-    expect(classes).toContain('focus-visible:ring-focus')
+    // An outline, which forced-colours mode keeps; a box-shadow ring it drops.
+    expect(classes).toContain('focus-visible:outline-2')
+    expect(classes).toContain('focus-visible:outline-focus')
+    expect(classes).not.toMatch(/focus-visible:(ring-|outline-none)/)
   })
 
-  it('draws a focus ring round a destination card', () => {
-    expect(LINK_PANEL).toContain('focus-visible:ring-focus')
+  it('draws a focus outline round a destination card', () => {
+    expect(LINK_PANEL).toContain('focus-visible:outline-2')
+    expect(LINK_PANEL).toContain('focus-visible:outline-focus')
+    expect(LINK_PANEL).not.toMatch(/focus-visible:(ring-|outline-none)/)
   })
 
   it('lets a framed table scroll inside itself rather than widen the page', () => {

@@ -178,7 +178,7 @@ export function OneTimeCodePanel({
         id={`${id}-heading`}
         ref={headingRef}
         tabIndex={-1}
-        className="font-semibold text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+        className="font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
       >
         {heading}
       </h3>
@@ -199,7 +199,7 @@ export function OneTimeCodePanel({
           spellCheck={false}
           aria-describedby={`${id}-how`}
           onFocus={(focused) => focused.currentTarget.select()}
-          className="mt-1 block min-h-11 w-full rounded-control border border-line-strong bg-surface-subtle px-3 font-mono text-sm break-all text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-1 block min-h-11 w-full rounded-control border border-line-strong bg-surface-subtle px-3 font-mono text-sm break-all text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         />
       </div>
 
@@ -237,7 +237,7 @@ export function OneTimeCodePanel({
             autoCapitalize="off"
             spellCheck={false}
             aria-describedby={`${id}-subject`}
-            className="mt-2 block w-full rounded-control border border-line-strong bg-surface-subtle px-3 py-2 font-mono text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="mt-2 block w-full rounded-control border border-line-strong bg-surface-subtle px-3 py-2 font-mono text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           />
         </div>
       ) : null}

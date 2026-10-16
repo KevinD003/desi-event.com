@@ -291,7 +291,7 @@ export function GroupPass({ reference, admits }) {
                 id={`${titleId}-replace`}
                 ref={confirmHeading}
                 tabIndex={-1}
-                className="font-semibold text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
               >
                 Replace the group pass?
               </h3>

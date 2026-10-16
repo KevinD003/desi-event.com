@@ -197,7 +197,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
               type="button"
               ref={confirmRef}
               onClick={() => open('confirm')}
-              className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-danger px-4 text-sm font-semibold text-action-danger-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-danger-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-danger px-4 text-sm font-semibold text-action-danger-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-danger-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
             >
               Confirm erasure
             </button>
@@ -207,7 +207,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
               type="button"
               ref={cancelRef}
               onClick={() => open('cancel')}
-              className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
             >
               Withdraw request
             </button>
@@ -221,7 +221,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
           tabIndex={-1}
           role="group"
           aria-labelledby="pending-heading"
-          className="mt-4 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-4 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           <h3 id="pending-heading" className="font-semibold text-ink">
             {pending === 'confirm' ? 'Confirm this erasure' : 'Withdraw this request'}
@@ -255,7 +255,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
                   spellCheck="false"
                   value={phrase}
                   onChange={(event) => setPhrase(event.target.value)}
-                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 font-mono text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 font-mono text-base text-ink shadow-control sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                 />
               </div>
             </>
@@ -274,7 +274,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
                   name="reasonCode"
                   value={reasonCode}
                   onChange={(event) => setReasonCode(event.target.value)}
-                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                 >
                   {REQUEST_CANCEL_REASONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -303,7 +303,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
                 type="button"
                 onClick={send}
                 disabled={busy || (pending === 'confirm' && phrase.trim() === '')}
-                className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? 'Working…' : pending === 'confirm' ? 'Erase' : 'Withdraw'}
               </button>
@@ -311,7 +311,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
                 type="button"
                 onClick={dismiss}
                 disabled={busy}
-                className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+                className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
               >
                 Back
               </button>

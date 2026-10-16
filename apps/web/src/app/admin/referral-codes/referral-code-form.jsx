@@ -68,7 +68,7 @@ import {
 
 /** The classes of a text box. */
 const CONTROL =
-  'min-h-11 w-full rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none aria-invalid:border-status-danger'
+  'min-h-11 w-full rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus aria-invalid:border-status-danger'
 
 /** The API's field names, as the form's. */
 const FIELD_OF = Object.freeze({

@@ -83,7 +83,7 @@ export function VerificationDecision({
       tabIndex={-1}
       role="status"
       aria-live="polite"
-      className="rounded-sm text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+      className="rounded-sm text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
     >
       {announcement}
     </p>
@@ -219,7 +219,7 @@ export function VerificationDecision({
           tabIndex={-1}
           role="group"
           aria-labelledby={`${id}-heading`}
-          className="mt-4 max-w-xl rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-4 max-w-xl rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           <h3 id={`${id}-heading`} className="font-semibold text-ink">
             {DECISIONS[decision].label}: {organizationName}

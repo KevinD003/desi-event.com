@@ -64,7 +64,7 @@ export function DoorEventFilter({ organizations, organizationId = '', q = '' }) 
         <Button type="submit">Show events</Button>
         <Link
           href="/organizer/check-in"
-          className="inline-flex min-h-11 items-center rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="inline-flex min-h-11 items-center rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           Clear
         </Link>

@@ -43,11 +43,11 @@ import { StepUpForRead } from './step-up-for-read.jsx'
 
 /** Classes for the one link a notice offers. */
 const ACTION =
-  'mt-3 inline-flex min-h-11 items-center rounded-lg bg-action-primary px-4 text-sm font-medium text-action-primary-ink hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
+  'mt-3 inline-flex min-h-11 items-center rounded-lg bg-action-primary px-4 text-sm font-medium text-action-primary-ink hover:bg-action-primary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2'
 
 /** Classes for a quieter link. */
 const QUIET =
-  'mt-3 inline-block rounded-sm text-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus'
+  'mt-3 inline-block rounded-sm text-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /** The box for each tone. */
 const TONES = Object.freeze({

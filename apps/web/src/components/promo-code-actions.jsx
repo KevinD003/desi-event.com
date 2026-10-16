@@ -178,7 +178,7 @@ export function PromoCodeActions({ organizationId, code, now }) {
           <p
             ref={questionRef}
             tabIndex={-1}
-            className="rounded-sm text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="rounded-sm text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             Delete {code.code}? Nobody has used it. Once deleted, buyers who type it are told it
             does not exist.

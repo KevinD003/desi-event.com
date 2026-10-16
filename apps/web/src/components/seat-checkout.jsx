@@ -677,7 +677,7 @@ export function SeatCheckout({
           </h2>
           <a
             href="#your-selection"
-            className="rounded-sm text-sm font-bold text-accent-strong underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="rounded-sm text-sm font-bold text-accent-strong underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             Skip to your selection
           </a>
@@ -702,14 +702,14 @@ export function SeatCheckout({
         id="your-selection"
         aria-labelledby="selection-heading"
         tabIndex={-1}
-        className="overflow-hidden rounded-card bg-surface-raised shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none lg:sticky lg:top-28"
+        className="overflow-hidden rounded-card bg-surface-raised shadow-card focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus lg:sticky lg:top-28"
       >
         <div className="px-5 pt-6 pb-5 sm:px-8">
           <h2
             id="selection-heading"
             ref={summaryHeadingRef}
             tabIndex={-1}
-            className="rounded-sm text-h3 font-semibold text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="rounded-sm text-h3 font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             Your selection
           </h2>

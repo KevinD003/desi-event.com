@@ -129,7 +129,7 @@ export const PANEL = 'rounded-card border border-line bg-surface-raised shadow-c
  *
  * @type {string}
  */
-export const LINK_PANEL = `${PANEL} block h-full p-5 transition-shadow duration-(--duration-base) ease-standard hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2`
+export const LINK_PANEL = `${PANEL} block h-full p-5 transition-shadow duration-(--duration-base) ease-standard hover:shadow-card-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2`
 
 /**
  * The classes for a link drawn as the page's primary button.
@@ -140,7 +140,7 @@ export const LINK_PANEL = `${PANEL} block h-full p-5 transition-shadow duration-
  * @type {string}
  */
 export const PRIMARY_LINK =
-  'inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
+  'inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2'
 
 /**
  * The classes for a link drawn as a secondary button.
@@ -148,7 +148,7 @@ export const PRIMARY_LINK =
  * @type {string}
  */
 export const SECONDARY_LINK =
-  'inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
+  'inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2'
 
 /**
  * The classes for a link in running text or a list.
@@ -159,7 +159,7 @@ export const SECONDARY_LINK =
  * @type {string}
  */
 export const TEXT_LINK =
-  'rounded-sm font-medium text-ink underline decoration-accent-line decoration-2 underline-offset-4 transition-colors duration-(--duration-fast) hover:text-accent-strong hover:decoration-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus'
+  'rounded-sm font-medium text-ink underline decoration-accent-line decoration-2 underline-offset-4 transition-colors duration-(--duration-fast) hover:text-accent-strong hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /**
  * The classes for the panel a data table sits in.

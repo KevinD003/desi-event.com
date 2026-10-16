@@ -180,7 +180,9 @@ describe('a new plan', () => {
 
     expect(region).toHaveAttribute('tabindex', '0')
     expect(region).toContainElement(screen.getByRole('table'))
-    expect(region.className).toContain('focus-visible:ring-2')
+    expect(region.className).toContain('focus-visible:outline-2')
+    expect(region.className).toContain('focus-visible:outline-focus')
+    expect(region.className).not.toMatch(/focus-visible:(ring-|outline-none)/)
   })
 
   it('imports the plan as shown, with only the published events ticked for updating', async () => {

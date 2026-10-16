@@ -133,7 +133,7 @@ function QueueSection({ id, title, description, failure, count, more = null, chi
         <p className="mt-3 text-sm">
           <Link
             href={more.href}
-            className="inline-flex min-h-11 items-center rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="inline-flex min-h-11 items-center rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             {more.label}
           </Link>
@@ -239,13 +239,13 @@ export default async function OperationsPage() {
               {reconciliation.value.tasks.map((task) => (
                 <li
                   key={task.id}
-                  className="rounded-card border border-line bg-surface-raised shadow-card p-4 focus-within:ring-2 focus-within:ring-focus"
+                  className="rounded-card border border-line bg-surface-raised shadow-card p-4 focus-within:outline-2 focus-within:outline-offset-0 focus-within:outline-focus"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <p className="font-medium text-ink">
                       <Link
                         href={`/operations/reconciliation/${task.id}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                       >
                         {task.kind.replace(/_/gu, ' ').toLowerCase()}
                       </Link>
@@ -340,7 +340,7 @@ export default async function OperationsPage() {
                     <p className="font-medium text-ink">
                       <Link
                         href={`/finance/refunds/${refund.id}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                       >
                         {formatPrice(refund.amountCents, refund.currency)}
                       </Link>

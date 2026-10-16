@@ -263,7 +263,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
               than the request, so placing or releasing one appears on the{' '}
               <Link
                 href="/privacy/holds"
-                className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
               >
                 holds screen
               </Link>{' '}

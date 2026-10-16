@@ -163,7 +163,7 @@ export function TrafficByDay({ days, open }) {
 
   return (
     <details open={open} className="mt-4">
-      <summary className="inline-flex min-h-11 cursor-pointer items-center rounded-sm text-sm font-semibold text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none">
+      <summary className="inline-flex min-h-11 cursor-pointer items-center rounded-sm text-sm font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus">
         {TABLE_SUMMARY}
       </summary>
       <ScrollableTable label={caption}>

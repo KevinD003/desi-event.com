@@ -461,7 +461,7 @@ export function EventFilters({
         suppressHydrationWarning
         className="mt-4 rounded-control border border-line px-4 py-2"
       >
-        <summary className="flex min-h-11 cursor-pointer items-center rounded-sm font-bold text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none">
+        <summary className="flex min-h-11 cursor-pointer items-center rounded-sm font-bold text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus">
           More filters
           {moreChosen > 0 ? (
             <span className="ml-2 font-semibold text-ink-muted">· {moreChosen} chosen</span>

@@ -120,7 +120,7 @@ export function ReferralCodeList({ codes, caption }) {
             setFind(changed.target.value)
             setCopied((last) => ({ words: '', said: last.said }))
           }}
-          className="min-h-11 w-72 max-w-full rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="min-h-11 w-72 max-w-full rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         />
       </div>
 

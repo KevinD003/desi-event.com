@@ -1207,7 +1207,7 @@ export function EventEditor({
                   type="button"
                   onClick={() => setStep(entry.id)}
                   aria-current={step === entry.id ? 'step' : undefined}
-                  className={`flex min-h-11 w-full items-center rounded-control px-3 text-left text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                  className={`flex min-h-11 w-full items-center rounded-control px-3 text-left text-sm transition-colors duration-(--duration-fast) focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus ${
                     step === entry.id
                       ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
                       : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'

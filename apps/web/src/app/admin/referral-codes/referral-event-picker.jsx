@@ -37,7 +37,7 @@ const SEARCH_MAX = 120
 
 /** The classes of the search box. */
 const CONTROL =
-  'min-h-11 w-full rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'min-h-11 w-full rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /**
  * @typedef {object} PickedEvent
@@ -188,7 +188,7 @@ export function ReferralEventPicker({
                 onClick={() => remove(event)}
                 disabled={disabled}
                 aria-label={`Remove ${event.title}`}
-                className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full px-2 text-xs font-semibold text-ink-muted hover:bg-surface-raised hover:text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none disabled:opacity-60"
+                className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full px-2 text-xs font-semibold text-ink-muted hover:bg-surface-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus disabled:opacity-60"
               >
                 Remove
               </button>

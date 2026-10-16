@@ -148,7 +148,7 @@ function TicketCard({ ticket }) {
   const doorNotes = venuePaymentNotes(ticket)
 
   return (
-    <li className="flex flex-col overflow-hidden rounded-card border border-line bg-surface-raised shadow-card transition-shadow duration-(--duration-base) ease-standard focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 hover:shadow-card-hover sm:flex-row">
+    <li className="flex flex-col overflow-hidden rounded-card border border-line bg-surface-raised shadow-card transition-shadow duration-(--duration-base) ease-standard focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2 hover:shadow-card-hover sm:flex-row">
       {/* The same poster as the event's own page: the slug picks the colours
           and arrangement, the category the scene. */}
       <PosterThumb

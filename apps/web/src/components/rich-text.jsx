@@ -46,7 +46,7 @@ function renderInline(nodes, options = {}) {
         key={index}
         href={node.href}
         rel={LINK_REL}
-        className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+        className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
       >
         {renderInline(node.children, options)}
       </a>

@@ -127,7 +127,7 @@ export function ScrollableTable({ label, children }) {
       role="region"
       aria-label={label}
       tabIndex={0}
-      className={`mt-4 ${TABLE_FRAME} focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none`}
+      className={`mt-4 ${TABLE_FRAME} focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2`}
     >
       {children}
     </div>

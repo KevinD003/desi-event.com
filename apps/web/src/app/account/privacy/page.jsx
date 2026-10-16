@@ -44,7 +44,7 @@ export const metadata = { title: 'Privacy', robots: { index: false, follow: fals
 
 /** Classes for an in-text link. */
 const LINK =
-  'font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus rounded-sm'
+  'font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus rounded-sm'
 
 /**
  * A titled block of the page.

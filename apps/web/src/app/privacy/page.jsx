@@ -160,7 +160,7 @@ export default async function PrivacyRequestsPage({ searchParams }) {
                     <td className="py-3 pr-4">
                       <Link
                         href={`/privacy/requests/${request.id}?organizationId=${selected.organizationId}`}
-                        className="rounded-sm font-mono text-xs break-all underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                        className="rounded-sm font-mono text-xs break-all underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                       >
                         {request.subjectId}
                       </Link>

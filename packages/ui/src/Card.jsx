@@ -31,7 +31,7 @@ export function Card({ as: Component = 'div', interactive = false, className, ch
       className={cn(
         'rounded-card border border-line bg-surface-raised text-ink shadow-card',
         interactive &&
-          'transition-shadow duration-(--duration-base) ease-standard hover:shadow-card-hover focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2',
+          'transition-shadow duration-(--duration-base) ease-standard hover:shadow-card-hover focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2',
         className,
       )}
       {...rest}

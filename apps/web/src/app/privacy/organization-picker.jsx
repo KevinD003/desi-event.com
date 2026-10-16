@@ -92,7 +92,7 @@ export function OrganizationPicker({
             id="organizationId"
             name="organizationId"
             defaultValue={selectedId}
-            className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             {organizations.map((organization) => (
               <option key={organization.organizationId} value={organization.organizationId}>
@@ -122,7 +122,7 @@ export function OrganizationPicker({
           id="state"
           name="state"
           defaultValue={state}
-          className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           <option value="">Every state</option>
           {states.map((member) => (
@@ -135,7 +135,7 @@ export function OrganizationPicker({
 
       <button
         type="submit"
-        className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+        className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
       >
         Apply
       </button>

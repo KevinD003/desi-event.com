@@ -108,15 +108,15 @@ const TD = 'border-b border-line px-3 py-3 align-top text-ink'
 
 /** A filter control. */
 const CONTROL =
-  'min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /** A quiet text link. */
 const LINK =
-  'rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /** "Clear the filters": a quiet link, with a 44-pixel target. */
 const CLEAR_LINK =
-  'inline-flex min-h-11 items-center rounded-lg px-3 py-2 text-sm text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'inline-flex min-h-11 items-center rounded-lg px-3 py-2 text-sm text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /**
  * A count with its noun, singular or plural.
@@ -362,7 +362,7 @@ export default async function RefundListPage({ searchParams }) {
         </div>
         <button
           type="submit"
-          className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+          className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
         >
           Apply
         </button>

@@ -46,7 +46,7 @@ export function EventGallery({ images = [], headingId = 'event-gallery-heading' 
           <li key={image.id}>
             <a
               href={src}
-              className="group relative block aspect-square overflow-hidden rounded-card bg-surface-subtle focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="group relative block aspect-square overflow-hidden rounded-card bg-surface-subtle focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
             >
               <Image
                 src={src}

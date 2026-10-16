@@ -63,7 +63,7 @@ function RailLink({ item, current, onNavigate }) {
       href={item.href}
       aria-current={current ? 'page' : undefined}
       onClick={onNavigate}
-      className={`flex min-h-11 items-center gap-2.5 rounded-control px-2.5 text-sm transition-colors duration-(--duration-fast) ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:pointer-fine:min-h-10 ${
+      className={`flex min-h-11 items-center gap-2.5 rounded-control px-2.5 text-sm transition-colors duration-(--duration-fast) ease-standard focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus lg:pointer-fine:min-h-10 ${
         current
           ? 'bg-opsnav-active font-semibold text-opsnav-active-ink'
           : 'font-medium text-opsnav-ink hover:bg-opsnav-hover hover:text-ink'
@@ -136,7 +136,7 @@ export function ShellRail({ label, toggleLabel, groups, header = null, footer = 
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => (open ? close() : setOpen(true))}
-        className="inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-control border border-opsnav-line bg-opsnav px-4 text-sm font-semibold text-ink shadow-card transition-colors duration-(--duration-fast) hover:bg-opsnav-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:hidden"
+        className="inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-control border border-opsnav-line bg-opsnav px-4 text-sm font-semibold text-ink shadow-card transition-colors duration-(--duration-fast) hover:bg-opsnav-hover focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus lg:hidden"
       >
         {toggleLabel}
         <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
@@ -216,7 +216,7 @@ export function AreaTabs({ label, items }) {
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
-                className={`-mb-px inline-flex min-h-11 items-center border-b-2 px-3 text-sm transition-colors duration-(--duration-fast) ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
+                className={`-mb-px inline-flex min-h-11 items-center border-b-2 px-3 text-sm transition-colors duration-(--duration-fast) ease-standard focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus ${
                   active
                     ? 'border-accent font-semibold text-accent-strong'
                     : 'border-transparent font-medium text-ink-muted hover:border-line-strong hover:text-ink'

@@ -84,11 +84,11 @@ export const metadata = { title: 'Transfers', robots: { index: false, follow: fa
 
 /** Classes for a text link. */
 const LINK =
-  'rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus'
+  'rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /** Classes for the one action on an offer card. */
 const ACTION =
-  'inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
+  'inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2'
 
 /** What "Handed on" holds, in words true for a ticket bought or received. */
 const HANDED_ON_DESCRIPTION =
@@ -216,7 +216,7 @@ function OfferCard({ ticket, now }) {
  */
 function TicketCard({ ticket }) {
   return (
-    <li className="flex flex-col overflow-hidden rounded-card border border-line bg-surface-raised shadow-card transition-shadow duration-(--duration-base) ease-standard focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 hover:shadow-card-hover sm:flex-row">
+    <li className="flex flex-col overflow-hidden rounded-card border border-line bg-surface-raised shadow-card transition-shadow duration-(--duration-base) ease-standard focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2 hover:shadow-card-hover sm:flex-row">
       <PosterThumb event={ticket.event} className="h-24 sm:h-auto sm:w-36" />
       <div className="min-w-0 flex-1 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">

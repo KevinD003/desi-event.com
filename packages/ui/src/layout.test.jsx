@@ -43,7 +43,12 @@ describe('Card', () => {
     )
 
     expect(screen.getByTestId('card')).toHaveClass('mt-4')
-    expect(screen.getByTestId('card').className).toContain('focus-within:ring-2')
+    expect(screen.getByTestId('card')).toHaveClass(
+      'focus-within:outline-2',
+      'focus-within:outline-offset-2',
+      'focus-within:outline-focus',
+    )
+    expect(screen.getByTestId('card').className).not.toMatch(/focus-within:ring-/)
 
     await user.click(screen.getByRole('link', { name: 'Tickets' }))
     expect(onClick).toHaveBeenCalledTimes(1)

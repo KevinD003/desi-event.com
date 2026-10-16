@@ -205,7 +205,7 @@ export function EventFaq({ items = [] }) {
       <div className="divide-y divide-line rounded-card border border-line">
         {items.map((item, index) => (
           <details key={`${item.question}-${index}`} className="group px-4 py-3">
-            <summary className="cursor-pointer rounded-sm font-semibold text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none">
+            <summary className="cursor-pointer rounded-sm font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus">
               {item.question}
             </summary>
             <p className="mt-2 whitespace-pre-line text-ink-muted">{item.answer}</p>

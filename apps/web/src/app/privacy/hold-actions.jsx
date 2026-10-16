@@ -164,8 +164,8 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
           onClick={start}
           className={
             releaseOnly
-              ? 'inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-3 text-xs font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none'
-              : 'inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none'
+              ? 'inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-3 text-xs font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2'
+              : 'inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2'
           }
         >
           {releaseOnly ? 'Release' : 'Place a hold'}
@@ -178,7 +178,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
           tabIndex={-1}
           role="group"
           aria-labelledby={`hold-heading-${hold?.id ?? 'new'}`}
-          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           <h3 id={`hold-heading-${hold?.id ?? 'new'}`} className="font-semibold text-ink">
             {releaseOnly ? 'Release this hold' : 'Place a hold'}
@@ -202,7 +202,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
                 id={`release-reason-${hold.id}`}
                 value={releaseReasonCode}
                 onChange={(event) => setReleaseReasonCode(event.target.value)}
-                className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
               >
                 {HOLD_RELEASE_REASONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -224,7 +224,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
                   spellCheck="false"
                   value={subjectId}
                   onChange={(event) => setSubjectId(event.target.value)}
-                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 font-mono text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 font-mono text-base text-ink shadow-control sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                 />
               </div>
 
@@ -236,7 +236,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
                   id="hold-kind"
                   value={kind}
                   onChange={(event) => setKind(event.target.value)}
-                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                 >
                   {HOLD_KINDS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -263,7 +263,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
                   aria-describedby="hold-matter-hint"
                   value={matterReference}
                   onChange={(event) => setMatterReference(event.target.value)}
-                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                  className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                 />
               </div>
             </>
@@ -286,7 +286,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
                 type="button"
                 onClick={send}
                 disabled={busy || !complete}
-                className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? 'Working…' : releaseOnly ? 'Release' : 'Place'}
               </button>
@@ -294,7 +294,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
                 type="button"
                 onClick={dismiss}
                 disabled={busy}
-                className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+                className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
               >
                 Back
               </button>

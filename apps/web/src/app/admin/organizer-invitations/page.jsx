@@ -187,7 +187,7 @@ export default async function OrganizerInvitationsPage({ searchParams }) {
                   <Link
                     href={filterHref(each.value)}
                     aria-current={current ? 'page' : undefined}
-                    className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                    className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus ${
                       current
                         ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
                         : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
@@ -220,7 +220,7 @@ export default async function OrganizerInvitationsPage({ searchParams }) {
               minLength={2}
               maxLength={120}
               autoComplete="off"
-              className="min-h-11 w-72 max-w-full rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="min-h-11 w-72 max-w-full rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
             />
           </div>
           <button type="submit" className={PAGER_LINK_CLASSES}>

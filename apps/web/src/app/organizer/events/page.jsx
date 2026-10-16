@@ -269,7 +269,7 @@ export default async function OrganizerEventsPage({ searchParams } = {}) {
             return (
               <li
                 key={event.id}
-                className={`flex overflow-hidden transition-shadow duration-(--duration-base) ease-standard focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 hover:shadow-card-hover ${PANEL}`}
+                className={`flex overflow-hidden transition-shadow duration-(--duration-base) ease-standard focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2 hover:shadow-card-hover ${PANEL}`}
               >
                 {/* The same poster the public card will wear, as a thumbnail. */}
                 <PosterThumb event={event} className="hidden w-32 sm:block" />

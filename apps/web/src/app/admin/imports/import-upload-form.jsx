@@ -211,7 +211,7 @@ export function ImportUploadForm({ maxBytes }) {
             setFile(changed.target.files?.[0] ?? null)
             setFieldError(null)
           }}
-          className="block min-h-11 w-full max-w-full text-sm text-ink file:mr-3 file:min-h-11 file:rounded-control file:border file:border-line-strong file:bg-surface-raised file:px-4 file:text-sm file:font-semibold file:text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="block min-h-11 w-full max-w-full text-sm text-ink file:mr-3 file:min-h-11 file:rounded-control file:border file:border-line-strong file:bg-surface-raised file:px-4 file:text-sm file:font-semibold file:text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         />
       </FormField>
 

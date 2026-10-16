@@ -170,7 +170,7 @@ export function SessionsPanel({ sessions, devices }) {
                     </p>
                   </div>
                   {session.current ? (
-                    <SignOutButton className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-3 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2" />
+                    <SignOutButton className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-3 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2" />
                   ) : (
                     <Button
                       type="button"
@@ -245,7 +245,7 @@ export function SessionsPanel({ sessions, devices }) {
           <SignOutButton
             everywhere
             label="Sign out everywhere"
-            className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-danger px-4 text-sm font-semibold text-action-danger-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-danger-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
+            className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-danger px-4 text-sm font-semibold text-action-danger-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-danger-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
           />
         </div>
       </div>

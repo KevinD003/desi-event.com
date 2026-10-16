@@ -49,7 +49,7 @@ export const INTRO =
 
 /** A link's classes: a 44px target, underlined, with a visible focus ring. */
 const LINK =
-  'inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /**
  * @typedef {object} AdminVenueBookingsPageProps

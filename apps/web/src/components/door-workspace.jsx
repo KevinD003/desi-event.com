@@ -691,7 +691,7 @@ export function DoorWorkspace({ events, platform = false, venuePaymentsFor = [] 
           <p className="mt-2 text-sm">
             <Link
               href={`/organizer/events/${encodeURIComponent(selected.event.id)}/venue-payments`}
-              className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
             >
               Payments at the venue
             </Link>
@@ -1308,7 +1308,7 @@ function GroupPreviewCard({
                     checked={chosen.includes(ticket.ticketId)}
                     onChange={() => onToggle(ticket.ticketId)}
                     disabled={stage === 'confirming'}
-                    className="mt-0.5 size-5 shrink-0 rounded border-line-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    className="mt-0.5 size-5 shrink-0 rounded border-line-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                   />
                   <label htmlFor={id} className="min-w-0 break-words text-ink">
                     {groupTicketWords(ticket, night)}

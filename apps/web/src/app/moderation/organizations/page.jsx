@@ -162,7 +162,7 @@ export default async function VerificationQueuePage({ searchParams }) {
                 <Link
                   href={href}
                   aria-current={current ? 'page' : undefined}
-                  className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                  className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus ${
                     current
                       ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
                       : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
@@ -221,7 +221,7 @@ export default async function VerificationQueuePage({ searchParams }) {
             return (
               <li
                 key={organization.organizationId}
-                className={`p-4 transition-shadow duration-(--duration-base) ease-standard focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 hover:shadow-card-hover sm:p-5 ${PANEL}`}
+                className={`p-4 transition-shadow duration-(--duration-base) ease-standard focus-within:outline-2 focus-within:outline-focus focus-within:outline-offset-2 hover:shadow-card-hover sm:p-5 ${PANEL}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">

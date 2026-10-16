@@ -88,7 +88,7 @@ export default async function OrganizerVenuesPage() {
                     <h2 className="font-display text-lg font-semibold text-ink">
                       <Link
                         href={`/organizer/venues/${venue.id}/maps`}
-                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                       >
                         {venue.name}
                       </Link>
@@ -111,13 +111,13 @@ export default async function OrganizerVenuesPage() {
                   <p className="mt-4 flex flex-wrap gap-3 text-sm">
                     <Link
                       href={`/organizer/venues/${venue.id}/maps`}
-                      className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                      className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                     >
                       Seating maps
                     </Link>
                     <Link
                       href={`/organizer/venues/${venue.id}/edit`}
-                      className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                      className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                     >
                       Edit details
                     </Link>

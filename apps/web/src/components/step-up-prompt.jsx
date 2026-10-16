@@ -122,7 +122,7 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
               <p className="mt-2">
                 <Link
                   href="/account/security"
-                  className="font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none rounded-sm"
+                  className="font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus rounded-sm"
                 >
                   Set up two-step sign-in
                 </Link>

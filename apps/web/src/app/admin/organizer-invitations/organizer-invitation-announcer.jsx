@@ -72,7 +72,7 @@ export function InvitationAnnouncer({ children }) {
           tabIndex={-1}
           aria-live="polite"
           role="status"
-          className="mt-4 rounded-sm text-sm font-medium text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-4 rounded-sm text-sm font-medium text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           {message}
         </p>

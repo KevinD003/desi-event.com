@@ -440,7 +440,7 @@ export function EventRescheduleForm({
           <div
             ref={errorRef}
             tabIndex={-1}
-            className="rounded-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="rounded-card focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             <Alert variant="error" title="The new date was not saved">
               <p>{error}</p>
@@ -448,7 +448,7 @@ export function EventRescheduleForm({
                 <p className="mt-2">
                   <Link
                     href="/account/security"
-                    className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                   >
                     Set up two-step sign-in
                   </Link>

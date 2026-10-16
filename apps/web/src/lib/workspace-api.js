@@ -518,7 +518,7 @@ export function isPastTheEnd(shown, pagination, page) {
  * @type {string}
  */
 export const PAGER_LINK_CLASSES =
-  'inline-flex min-h-11 items-center rounded-lg border border-line-strong bg-surface-raised px-4 py-2 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none'
+  'inline-flex min-h-11 items-center rounded-lg border border-line-strong bg-surface-raised px-4 py-2 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2'
 
 /**
  * An instant as a person reads it, in UTC and saying so — or, for a record an

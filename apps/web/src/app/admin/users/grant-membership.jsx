@@ -44,7 +44,7 @@ const QUERY_MIN = 2
 
 /** The frame of the open panel. */
 const PANEL =
-  'mt-3 rounded-card border border-line-strong bg-surface p-4 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'mt-3 rounded-card border border-line-strong bg-surface p-4 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /**
  * What a refused request should say.
@@ -389,7 +389,7 @@ export function GrantMembership({ account, onChanged }) {
                   <p className="mt-2">
                     <Link
                       href="/account/security"
-                      className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                      className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                     >
                       Set up two-step sign-in
                     </Link>

@@ -177,7 +177,7 @@ export default async function ReviewEventPage({ params }) {
           <li>
             <Link
               href="/moderation/events"
-              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
             >
               Review queue
             </Link>
@@ -203,7 +203,7 @@ export default async function ReviewEventPage({ params }) {
         <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
           <Link
             href={`/admin/events/${encodeURIComponent(event.id)}`}
-            className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           >
             {event.status === 'DELETED'
               ? 'Open its record as the team at The Desi Events'
@@ -212,7 +212,7 @@ export default async function ReviewEventPage({ params }) {
           {event.status !== 'DELETED' ? (
             <Link
               href={`/admin/events/${encodeURIComponent(event.id)}#delete-event`}
-              className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
             >
               Delete…
             </Link>

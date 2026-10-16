@@ -622,7 +622,7 @@ export function PaymentTermsPanel({
                       onChange={(change) => setPercent(change.target.value)}
                       aria-invalid={feeErrors.percentage ? 'true' : undefined}
                       aria-describedby={`${id}-percentage-hint${feeErrors.percentage ? ` ${id}-percentage-error` : ''}`}
-                      className="min-h-11 w-28 rounded-control border border-line-strong bg-surface-raised px-3 text-ink tabular-nums focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                      className="min-h-11 w-28 rounded-control border border-line-strong bg-surface-raised px-3 text-ink tabular-nums focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                     />
                     <span aria-hidden="true" className="text-ink">
                       %
@@ -658,7 +658,7 @@ export function PaymentTermsPanel({
                       onChange={(change) => setAmount(change.target.value)}
                       aria-invalid={feeErrors.amount ? 'true' : undefined}
                       aria-describedby={`${id}-amount-hint${feeErrors.amount ? ` ${id}-amount-error` : ''}`}
-                      className="min-h-11 w-32 rounded-control border border-line-strong bg-surface-raised px-3 text-ink tabular-nums focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                      className="min-h-11 w-32 rounded-control border border-line-strong bg-surface-raised px-3 text-ink tabular-nums focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                     />
                   </div>
                   <p id={`${id}-amount-hint`} className="mt-1 text-xs text-ink-muted">
@@ -778,7 +778,7 @@ export function PaymentTermsPanel({
                   onChange={(change) => setLimit(change.target.value)}
                   aria-invalid={venueErrors.limit ? 'true' : undefined}
                   aria-describedby={`${id}-limit-hint${venueErrors.limit ? ` ${id}-limit-error` : ''}`}
-                  className="mt-1 min-h-11 w-36 rounded-control border border-line-strong bg-surface-raised px-3 text-ink tabular-nums focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                  className="mt-1 min-h-11 w-36 rounded-control border border-line-strong bg-surface-raised px-3 text-ink tabular-nums focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                 />
                 <p id={`${id}-limit-hint`} className="mt-1 text-xs text-ink-muted">
                   {VENUE_LIMIT_HINT}

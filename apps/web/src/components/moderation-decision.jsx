@@ -445,7 +445,7 @@ export function ModerationDecision({
                                 return next
                               })
                             }
-                            className="rounded-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                            className="rounded-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                           >
                             Remove
                           </button>

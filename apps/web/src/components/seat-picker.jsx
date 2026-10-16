@@ -337,7 +337,7 @@ export function SeatPicker({ map, selected, onToggle, disabled = false }) {
               onChange={(changed) =>
                 setFilters((current) => ({ ...current, zoneId: changed.target.value }))
               }
-              className="mt-1 min-h-11 rounded-control border border-line-strong bg-surface-raised px-3 text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="mt-1 min-h-11 rounded-control border border-line-strong bg-surface-raised px-3 text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
             >
               <option value="">Every zone</option>
               {map.zones.map((zone) => (

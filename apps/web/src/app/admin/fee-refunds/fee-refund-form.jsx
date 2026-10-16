@@ -288,7 +288,7 @@ export function FeeRefundForm({ canReadRefunds = false }) {
             spellCheck={false}
             aria-invalid={referenceError ? 'true' : undefined}
             aria-describedby={referenceError ? `${id}-reference-error` : undefined}
-            className="min-h-11 w-72 max-w-full rounded-control border border-line-strong bg-surface-raised px-3 font-mono text-sm text-ink uppercase focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="min-h-11 w-72 max-w-full rounded-control border border-line-strong bg-surface-raised px-3 font-mono text-sm text-ink uppercase focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
           />
         </div>
         <Button type="submit" variant="secondary" loading={finding} disabled={finding}>

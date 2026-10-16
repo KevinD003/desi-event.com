@@ -115,7 +115,7 @@ export const FUNNEL_TITLE = 'From visit to payment'
 
 /** The classes of a period or organisation chip, current or not. */
 const CHIP =
-  'inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 const CHIP_CURRENT = `${CHIP} bg-action-primary font-semibold text-action-primary-ink shadow-control`
 const CHIP_OTHER = `${CHIP} border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink`
 
@@ -632,7 +632,7 @@ export default async function AnalyticsPage({ searchParams }) {
                   <p className="mt-3 text-sm">
                     <Link
                       href={`/sign-in?next=${encodeURIComponent(`/analytics?organizationId=${view.organizationId}`)}`}
-                      className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                      className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                     >
                       Confirm your identity
                     </Link>
@@ -1006,7 +1006,7 @@ export default async function AnalyticsPage({ searchParams }) {
                   to,
                 }).filter(([, value]) => Boolean(value)),
               ).toString()}`}
-              className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
             >
               Download as CSV
             </a>

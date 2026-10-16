@@ -56,7 +56,7 @@ export function OutcomeAnnouncer({ children, className = '' }) {
         aria-live="polite"
         role="status"
         data-testid="outcome-announcer"
-        className={`rounded-sm text-sm font-medium text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${className}`}
+        className={`rounded-sm text-sm font-medium text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus ${className}`}
       >
         {message}
       </p>

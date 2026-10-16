@@ -39,7 +39,7 @@ const CURRENCIES = Object.freeze(['USD', 'CAD', 'GBP', 'EUR', 'INR'])
 
 /** The shared input look. */
 const INPUT =
-  'mt-1 min-h-11 w-full rounded-control border border-line-strong bg-surface-raised px-3 text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none aria-invalid:border-status-danger'
+  'mt-1 min-h-11 w-full rounded-control border border-line-strong bg-surface-raised px-3 text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus aria-invalid:border-status-danger'
 
 /**
  * What is wrong with the form, field by field, before anything is sent.
@@ -446,7 +446,7 @@ export function PromoCodeForm({ organizationId, events, defaultEventId = null, t
           <div
             ref={errorRef}
             tabIndex={-1}
-            className="rounded-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:col-span-2"
+            className="rounded-card focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus sm:col-span-2"
           >
             <Alert variant="error" title="Not made">
               {error}

@@ -139,7 +139,7 @@ export default async function OrganizationPage({ searchParams }) {
                   <Link
                     href={`/organizer/organization?organizationId=${encodeURIComponent(organization.organizationId)}`}
                     aria-current={current ? 'page' : undefined}
-                    className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                    className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus ${
                       current
                         ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
                         : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'

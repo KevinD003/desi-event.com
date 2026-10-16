@@ -555,7 +555,7 @@ export function CancelUnpaidTicketsDialog({ eventId, orderReference, onClose, on
                     checked={allTicked}
                     disabled={busy}
                     onChange={toggleAll}
-                    className="size-6 shrink-0 rounded border-line-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                    className="size-6 shrink-0 rounded border-line-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                   />
                   {`Select all ${cancellable.length} unpaid ${tickets(cancellable.length)}`}
                 </label>
@@ -584,7 +584,7 @@ export function CancelUnpaidTicketsDialog({ eventId, orderReference, onClose, on
                         disabled={busy || !ticket.cancellable}
                         aria-describedby={hintId}
                         onChange={() => toggle(ticket.ticketId)}
-                        className="mt-0.5 size-6 shrink-0 rounded border-line-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                        className="mt-0.5 size-6 shrink-0 rounded border-line-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                       />
                       <div className="min-w-0">
                         <label htmlFor={boxId} className="text-sm break-words text-ink">

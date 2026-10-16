@@ -121,11 +121,11 @@ export const INVITATION_DELIVERY_COPY = Object.freeze({
 
 /** The frame of an open panel. */
 const PANEL =
-  'mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /** The frame of the removal panel: danger, because it is. */
 const DANGER_PANEL =
-  'mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /**
  * @typedef {object} Refused
@@ -186,7 +186,7 @@ function RefusalAlert({ refused }) {
           <p className="mt-2">
             <Link
               href="/account/security"
-              className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
             >
               Set up two-step sign-in
             </Link>
@@ -508,7 +508,7 @@ export function MemberActions({
                           type="checkbox"
                           checked={chosen.has(event.id)}
                           onChange={(changed) => toggle(event.id, changed.target.checked)}
-                          className="size-5 accent-action-primary focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+                          className="size-5 accent-action-primary focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
                         />
                         <span>
                           {event.title}

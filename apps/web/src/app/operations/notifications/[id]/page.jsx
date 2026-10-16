@@ -60,7 +60,7 @@ const CARD = 'rounded-card border border-line bg-surface-raised shadow-card p-4'
 
 /** A quiet text link. */
 const LINK =
-  'rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /**
  * Whether a claimed message's lease had lapsed when this page was drawn.

@@ -132,7 +132,7 @@ export function AttendeeNames({ slots, values, onChange, buyerName = null, disab
                 disabled={disabled}
                 aria-invalid={problem ? 'true' : undefined}
                 aria-describedby={problem ? `${id}-hint ${problemId}` : `${id}-hint`}
-                className="mt-1 min-h-11 w-full rounded-control border border-line-strong bg-surface-raised px-3 text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none disabled:opacity-60 aria-invalid:border-status-danger"
+                className="mt-1 min-h-11 w-full rounded-control border border-line-strong bg-surface-raised px-3 text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus disabled:opacity-60 aria-invalid:border-status-danger"
               />
               {problem ? (
                 <p id={problemId} className="mt-1 text-sm text-status-danger">

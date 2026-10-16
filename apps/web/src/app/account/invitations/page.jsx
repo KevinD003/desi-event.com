@@ -32,7 +32,7 @@ import { InvitationAcceptForm } from './invitation-accept-form.jsx'
 
 /** A link that reads as a link. */
 const LINK =
-  'rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /**
  * How a team code reaches the person typing it, per delivery mode.

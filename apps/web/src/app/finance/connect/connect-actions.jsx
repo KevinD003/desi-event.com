@@ -177,7 +177,7 @@ export function ConnectActions({ organizationId, state }) {
                 else triggerRefs.current.delete(button.action)
               }}
               onClick={() => open(button.action)}
-              className={`rounded-sm px-4 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none ${
+              className={`rounded-sm px-4 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2 ${
                 button.destructive
                   ? 'bg-action-danger text-action-danger-ink hover:bg-action-danger-hover'
                   : 'border border-line-strong bg-surface-raised text-ink hover:bg-surface-subtle'
@@ -195,7 +195,7 @@ export function ConnectActions({ organizationId, state }) {
           tabIndex={-1}
           role="group"
           aria-labelledby="connect-pending-heading"
-          className="mt-4 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-4 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           <h3 id="connect-pending-heading" className="font-semibold text-ink">
             {open_.label}
@@ -229,7 +229,7 @@ export function ConnectActions({ organizationId, state }) {
                 type="button"
                 onClick={send}
                 disabled={busy}
-                className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? 'Working…' : 'Record it'}
               </button>
@@ -237,7 +237,7 @@ export function ConnectActions({ organizationId, state }) {
                 type="button"
                 onClick={dismiss}
                 disabled={busy}
-                className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+                className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-2 focus-visible:outline-focus focus-visible:outline-offset-2"
               >
                 Back
               </button>

@@ -206,7 +206,7 @@ export function RichTextField({
       </div>
 
       <details className="text-sm text-ink-muted">
-        <summary className="cursor-pointer rounded-sm font-medium text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none">
+        <summary className="cursor-pointer rounded-sm font-medium text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus">
           How formatting works
         </summary>
         <ul className="mt-2 list-disc space-y-1 ps-6">

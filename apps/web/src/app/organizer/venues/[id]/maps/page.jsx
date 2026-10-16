@@ -105,7 +105,7 @@ export default async function VenueMapsPage({ params }) {
       <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
         <Link
           href="/organizer/venues"
-          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
         >
           Your venues
         </Link>
@@ -159,7 +159,7 @@ export default async function VenueMapsPage({ params }) {
                               <>
                                 <Link
                                   href={`/organizer/map-versions/${version.id}`}
-                                  className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                                  className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                                 >
                                   View layout
                                 </Link>
@@ -168,7 +168,7 @@ export default async function VenueMapsPage({ params }) {
                             ) : (
                               <Link
                                 href={`/organizer/map-versions/${version.id}`}
-                                className="rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                                className="rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus"
                               >
                                 Edit layout
                               </Link>

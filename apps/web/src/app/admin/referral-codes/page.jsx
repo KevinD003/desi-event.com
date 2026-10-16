@@ -57,7 +57,7 @@ export const metadata = { title: 'Referral codes', robots: { index: false, follo
 
 /** The classes of the filter form's selects. */
 const SELECT =
-  'min-h-11 rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'min-h-11 rounded-control border border-line-strong bg-surface-raised px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus'
 
 /**
  * The heading every state of the page shares.

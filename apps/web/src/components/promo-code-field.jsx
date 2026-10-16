@@ -119,7 +119,7 @@ export function PromoCodeField({
             readOnly={chosen}
             disabled={disabled}
             aria-describedby={statusId}
-            className="min-h-11 w-full rounded-control border border-line-strong bg-surface-raised px-3 font-mono text-ink uppercase focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none disabled:opacity-60"
+            className="min-h-11 w-full rounded-control border border-line-strong bg-surface-raised px-3 font-mono text-ink uppercase focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus disabled:opacity-60"
           />
         </div>
         {chosen ? (
