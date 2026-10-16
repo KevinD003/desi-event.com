@@ -183,7 +183,8 @@ export const AREAS = Object.freeze({
   admin: {
     key: 'admin',
     label: 'Platform administration',
-    href: '/admin/organizer-invitations',
+    // The area's overview: what is waiting for the team, queue by queue.
+    href: '/admin',
     // Platform-held and unscoped: no organisation role carries either. A
     // platform administrator (`organizer:invite`) comes in to invite
     // organisers; a super administrator (`platform:admin`, and every other

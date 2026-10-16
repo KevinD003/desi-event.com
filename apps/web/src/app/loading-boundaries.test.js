@@ -56,6 +56,7 @@ describe('loading boundaries', () => {
     expect(areas).toEqual(
       expect.arrayContaining([
         'account',
+        'admin',
         'analytics',
         'finance',
         'moderation',

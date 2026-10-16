@@ -124,8 +124,10 @@ describe('the admin area', () => {
     expect(admits(claimed, 'admin')).toBe(false)
   })
 
-  it('begins at organiser invitations, says who it is for, and says nothing can grant it', () => {
-    expect(AREAS.admin.href).toBe('/admin/organizer-invitations')
+  it('begins at its overview, says who it is for, and says nothing can grant it', () => {
+    // The overview lists what is waiting for the team; it used to be a
+    // redirect to the first section, so the area began at invitations.
+    expect(AREAS.admin.href).toBe('/admin')
     expect(AREAS.admin.refusal).toBe(
       'This area is for the platform administrators at The Desi Events: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
     )

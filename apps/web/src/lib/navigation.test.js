@@ -19,11 +19,13 @@ import { adminTabs } from './area-tabs.js'
 import { AREAS, admits } from './areas.js'
 import {
   PUBLIC_ITEMS,
+  WORKSPACE_AREA_KEYS,
   WORKSPACE_GROUPS,
   accountItems,
   canInAnyOrganization,
   isActivePath,
   navigationGroups,
+  workspaceAreas,
   workspaceGroups,
   workspaceHome,
   workspaceItems,
@@ -532,9 +534,10 @@ describe('the rail offers exactly what the layouts admit', () => {
         if (!Object.values(AREA_OF).includes(key)) continue
         if (!admits(person, key)) continue
 
-        // The admin area's index sends a session to the first tab it is
-        // offered, which for a finance administrator is Booking fee refunds,
-        // its one tab (SPEC3 §12.11): that tab is its front door.
+        // The admin area's overview is reached from the bar's area switcher
+        // (`workspaceAreas`, below); in the rail its front door is the first
+        // section it is offered, which for a finance administrator is Booking
+        // fee refunds, its one section (SPEC3 §12.11).
         const home =
           key === 'organizer'
             ? '/organizer'
@@ -546,6 +549,37 @@ describe('the rail offers exactly what the layouts admit', () => {
       }
     },
   )
+})
+
+describe('workspaceAreas', () => {
+  it('offers nothing without a session, and nothing to an attendee', () => {
+    expect(workspaceAreas(null)).toEqual([])
+    expect(workspaceAreas(session())).toEqual([])
+  })
+
+  it('lists exactly the workspace areas a session is admitted to, in the switcher’s order, with each area’s own front door', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      const person = platform(role)
+      const expected = WORKSPACE_AREA_KEYS.filter((key) => admits(person, key)).map((key) => ({
+        key,
+        href: AREAS[key].href,
+        label: AREAS[key].label,
+      }))
+
+      expect(workspaceAreas(person), role).toEqual(expected)
+    }
+  })
+
+  it('leads a platform administrator to the administration overview', () => {
+    const admin = workspaceAreas(platform('ADMIN')).find((area) => area.key === 'admin')
+
+    expect(admin).toEqual({ key: 'admin', href: '/admin', label: 'Platform administration' })
+  })
+
+  it('never lists the attendee’s own pages, which the account menu offers', () => {
+    expect(WORKSPACE_AREA_KEYS).not.toContain('account')
+    expect(WORKSPACE_AREA_KEYS).not.toContain('tickets')
+  })
 })
 
 describe('canInAnyOrganization', () => {
