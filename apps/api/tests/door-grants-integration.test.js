@@ -35,6 +35,7 @@ import { startSession } from '../src/lib/sessions.js'
 import { TICKET_STATES } from '../src/lib/tickets.js'
 import { connectTestDatabase } from './helpers/database.js'
 import { testEnv } from './helpers/app.js'
+import { untilWaiting } from './helpers/row-locks.js'
 
 const { prisma, reachable, when } = await connectTestDatabase('the door grants suite')
 
@@ -760,5 +761,364 @@ describeWhen('a platform administrator at the door (ADR 0018)', () => {
       }),
     ).rejects.toMatchObject({ statusCode: 403 })
     expect(await admissions(fresh.ticket)).toBe(0)
+  })
+})
+
+/**
+ * An import record for an event, so it can be moved as an imported one.
+ *
+ * @param {object} event The event, in the platform-held organisation.
+ * @returns {Promise<object>} The `EventImportItem` row.
+ */
+function importRecordFor(event) {
+  return prisma.eventImportItem.create({
+    data: {
+      id: id('import-item'),
+      source: 'SULEKHA',
+      // Digits only (`event_import_item_shape`), and unique per source.
+      sourceId: `9${String(Math.floor(Math.random() * 1e11)).padStart(11, '0')}`,
+      eventId: event.id,
+      importedById: world.admin.id,
+      scrapedAt: new Date('2026-10-01T00:00:00Z'),
+      presentedBy: 'Door Suite Presenters',
+    },
+  })
+}
+
+describeWhen('an imported event moved to an organiser (review of 2026-10-16)', () => {
+  it('takes the platform-held scanners’ and waiting invitations’ door scopes on it with it, so they can still be rescoped and reissued', async () => {
+    const heldHome = { organization: world.held, venue: await venueOf(world.held.id, 'Moving') }
+    const moving = await eventWithTicket(heldHome, world.holder, 'Moving Garba')
+    const staying = await eventWithTicket(heldHome, world.holder, 'Staying Garba')
+    const target = await organisation('Target')
+
+    await prisma.organization.update({
+      where: { id: target.organization.id },
+      data: { verified: true, verificationStatus: 'VERIFIED' },
+    })
+    await importRecordFor(moving.event)
+
+    const member = await user('moving-scanner', 'ATTENDEE')
+    const waiting = await user('moving-invitee', 'ATTENDEE')
+
+    made.push(member, waiting)
+
+    const both = [moving.event.id, staying.event.id]
+    const issued = await invite(world.admin, world.held.id, {
+      email: member.email,
+      role: 'SCANNER',
+      eventIds: both,
+    })
+
+    expect(issued.statusCode, issued.body).toBe(201)
+    expect((await accept(member, issued.json().data.delivery.invitationCode)).statusCode).toBe(200)
+
+    const pending = await invite(world.admin, world.held.id, {
+      email: waiting.email,
+      role: 'SCANNER',
+      eventIds: both,
+    })
+
+    expect(pending.statusCode, pending.body).toBe(201)
+
+    const current = await prisma.event.findUnique({ where: { id: moving.event.id } })
+    const moved = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/imports/events/${moving.event.id}/reassign`,
+      headers: await headersFor(world.admin),
+      payload: {
+        organizationId: target.organization.id,
+        reason: 'The organiser runs this event themselves.',
+        revision: current.revision,
+      },
+    })
+
+    expect(moved.statusCode, moved.body).toBe(200)
+
+    // The platform-held organisation keeps its scanner and its invitation,
+    // scoped now only to the event it still holds.
+    const membership = await prisma.membership.findUnique({
+      where: { userId_organizationId: { userId: member.id, organizationId: world.held.id } },
+      include: { scannerScopes: { select: { eventId: true } } },
+    })
+
+    expect(membership.scannerScopes).toEqual([{ eventId: staying.event.id }])
+    expect(
+      await prisma.invitationScope.findMany({
+        where: { invitationId: pending.json().data.id },
+        select: { eventId: true },
+      }),
+    ).toEqual([{ eventId: staying.event.id }])
+
+    const [audit] = await prisma.auditLog.findMany({
+      where: { action: 'event.import_reassigned', entityId: moving.event.id },
+    })
+
+    // One member's scope; two invitations' (the accepted one keeps its rows
+    // as a record of what it offered, and the waiting one).
+    expect(audit.metadata).toMatchObject({ scannerScopesRemoved: 1, invitationScopesRemoved: 2 })
+
+    // No door scope anywhere names another organisation's event.
+    const [crossing] = await prisma.$queryRaw`
+      SELECT
+        (SELECT count(*)::int FROM "ScannerScope" s
+           JOIN "Membership" m ON m."id" = s."membershipId"
+           JOIN "Event" e ON e."id" = s."eventId"
+          WHERE m."organizationId" <> e."organizationId") AS members,
+        (SELECT count(*)::int FROM "InvitationScope" s
+           JOIN "Invitation" i ON i."id" = s."invitationId"
+           JOIN "Event" e ON e."id" = s."eventId"
+          WHERE i."organizationId" <> e."organizationId") AS invitations`
+
+    expect(crossing).toEqual({ members: 0, invitations: 0 })
+
+    // The team page sends the scanner's scopes back on every rescope, and a
+    // new code for the invitation carries its events over: both work.
+    const rescoped = await app.inject({
+      method: 'PATCH',
+      url: `/v1/organizations/${world.held.id}/members/${membership.id}`,
+      headers: await headersFor(world.admin),
+      payload: {
+        role: 'SCANNER',
+        eventIds: membership.scannerScopes.map((scope) => scope.eventId),
+      },
+    })
+
+    expect(rescoped.statusCode, rescoped.body).toBe(200)
+
+    const reissued = await app.inject({
+      method: 'POST',
+      url: `/v1/organizations/${world.held.id}/invitations/${pending.json().data.id}/reissue`,
+      headers: await headersFor(world.admin),
+    })
+
+    expect(reissued.statusCode, reissued.body).toBe(201)
+    expect(reissued.json().data.events.map((event) => event.id)).toEqual([staying.event.id])
+
+    // And the moved event's door is the new organiser's to give: the
+    // platform-held scanner admits there no more.
+    expect((await admitAs(member, moving.ticket)).status).not.toBe(200)
+    expect(await admissions(moving.ticket)).toBe(0)
+  })
+
+  it('refuses at the database to move an event a door scope of its old organisation still names', async () => {
+    const heldHome = { organization: world.held, venue: await venueOf(world.held.id, 'Guarded') }
+    const guarded = await eventWithTicket(heldHome, world.holder, 'Guarded Garba')
+    const scanner = await user('guarded-scanner', 'ATTENDEE')
+
+    made.push(scanner)
+
+    const membership = await prisma.membership.create({
+      data: { userId: scanner.id, organizationId: world.held.id, role: 'SCANNER' },
+    })
+
+    await prisma.scannerScope.create({
+      data: { membershipId: membership.id, eventId: guarded.event.id },
+    })
+
+    await expect(
+      prisma.event.update({
+        where: { id: guarded.event.id },
+        data: { organizationId: world.home.organization.id },
+      }),
+    ).rejects.toThrow(/event_move_leaves_no_door_scope/u)
+  })
+})
+
+describeWhen('a manager’s door invitation once the manager has lost the door (ADR 0019)', () => {
+  /**
+   * A manager of the home organisation, scoped to the events given.
+   *
+   * @param {string} label Who.
+   * @param {string[]} eventIds Its door scope.
+   * @returns {Promise<{manager: object, membership: object}>} The rows.
+   */
+  async function scopedManager(label, eventIds) {
+    const manager = await user(label)
+    const membership = await prisma.membership.create({
+      data: { userId: manager.id, organizationId: world.home.organization.id, role: 'MANAGER' },
+    })
+
+    for (const eventId of eventIds) {
+      await prisma.scannerScope.create({ data: { membershipId: membership.id, eventId } })
+    }
+
+    made.push(manager)
+
+    return { manager, membership }
+  }
+
+  it('opens at acceptance only the events its manager is still scoped to', async () => {
+    const { manager, membership } = await scopedManager('narrowed-manager', [
+      world.x.event.id,
+      world.y.event.id,
+    ])
+    const invitee = await user('narrowed-invitee', 'ATTENDEE')
+
+    made.push(invitee)
+
+    const issued = await invite(manager, world.home.organization.id, {
+      email: invitee.email,
+      role: 'SCANNER',
+      eventIds: [world.x.event.id, world.y.event.id],
+    })
+
+    expect(issued.statusCode, issued.body).toBe(201)
+
+    // The owner takes Y away from the manager before the code is used.
+    const narrowed = await app.inject({
+      method: 'PATCH',
+      url: `/v1/organizations/${world.home.organization.id}/members/${membership.id}`,
+      headers: await headersFor(world.owner),
+      payload: { role: 'MANAGER', eventIds: [world.x.event.id] },
+    })
+
+    expect(narrowed.statusCode, narrowed.body).toBe(200)
+
+    const accepted = await accept(invitee, issued.json().data.delivery.invitationCode)
+
+    expect(accepted.statusCode, accepted.body).toBe(200)
+    expect(accepted.json().data).toMatchObject({
+      joined: true,
+      events: [{ id: world.x.event.id, title: world.x.event.title }],
+      withdrawnEventCount: 1,
+    })
+
+    const joined = await prisma.membership.findUnique({
+      where: {
+        userId_organizationId: { userId: invitee.id, organizationId: world.home.organization.id },
+      },
+      include: { scannerScopes: { select: { eventId: true } } },
+    })
+
+    expect(joined.scannerScopes).toEqual([{ eventId: world.x.event.id }])
+
+    const recorded = await prisma.auditLog.findFirst({
+      where: { action: 'team.invitation_accepted', entityId: joined.id },
+    })
+
+    expect(recorded.metadata).toMatchObject({
+      scopedEventIds: [world.x.event.id],
+      withdrawnEventIds: [world.y.event.id],
+    })
+  })
+
+  it('opens no door at acceptance once its manager was removed', async () => {
+    const { manager, membership } = await scopedManager('removed-manager', [world.x.event.id])
+    const invitee = await user('removed-invitee', 'ATTENDEE')
+
+    made.push(invitee)
+
+    const issued = await invite(manager, world.home.organization.id, {
+      email: invitee.email,
+      role: 'SCANNER',
+      eventIds: [world.x.event.id],
+    })
+
+    expect(issued.statusCode, issued.body).toBe(201)
+
+    const removed = await app.inject({
+      method: 'POST',
+      url: `/v1/organizations/${world.home.organization.id}/members/${membership.id}/remove`,
+      headers: await headersFor(world.owner),
+      payload: {},
+    })
+
+    expect(removed.statusCode, removed.body).toBe(200)
+
+    const accepted = await accept(invitee, issued.json().data.delivery.invitationCode)
+
+    expect(accepted.statusCode, accepted.body).toBe(200)
+    expect(accepted.json().data).toMatchObject({ events: [], withdrawnEventCount: 1 })
+
+    const before = await admissions(world.x.ticket)
+
+    expect((await admitAs(invitee, world.x.ticket)).status).not.toBe(200)
+    expect(await admissions(world.x.ticket)).toBe(before)
+  })
+
+  it('keeps every event an owner named, who may give any door', async () => {
+    const invitee = await user('owner-invitee', 'ATTENDEE')
+
+    made.push(invitee)
+
+    const issued = await invite(world.owner, world.home.organization.id, {
+      email: invitee.email,
+      role: 'STAFF',
+      eventIds: [world.x.event.id, world.y.event.id],
+    })
+
+    expect(issued.statusCode, issued.body).toBe(201)
+
+    const accepted = await accept(invitee, issued.json().data.delivery.invitationCode)
+
+    expect(accepted.statusCode, accepted.body).toBe(200)
+    expect(
+      accepted
+        .json()
+        .data.events.map((event) => event.id)
+        .sort(),
+    ).toEqual([world.x.event.id, world.y.event.id].sort())
+    expect(accepted.json().data.withdrawnEventCount).toBe(0)
+  })
+})
+
+describeWhen('a direct grant decides from a locked read (ADR 0018)', () => {
+  it('refuses a platform administrator once the account is promoted to super administrator while the grant waits', async () => {
+    const target = await user('promoted-target', 'ATTENDEE')
+    const headers = await headersFor(world.admin)
+
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    let held
+    const heldPid = new Promise((resolve) => {
+      held = resolve
+    })
+
+    // A promotion, written and not yet committed, holding the account's row.
+    const promotion = prisma.$transaction(
+      async (tx) => {
+        const [{ pid }] = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`
+
+        await tx.user.update({ where: { id: target.id }, data: { role: 'SUPER_ADMIN' } })
+        held(pid)
+        await gate
+      },
+      { timeout: 20_000, maxWait: 10_000 },
+    )
+    const pid = await heldPid
+
+    const granting = app.inject({
+      method: 'POST',
+      url: `/v1/platform/organizations/${world.home.organization.id}/members`,
+      headers,
+      payload: {
+        userId: target.id,
+        role: 'VIEWER',
+        reason: 'Granting a role while the account is being promoted.',
+      },
+    })
+
+    try {
+      await untilWaiting(prisma, () => [pid], 1, 'the grant')
+    } finally {
+      release()
+      await promotion
+    }
+
+    const response = await granting
+
+    expect(response.statusCode, response.body).toBe(403)
+    expect(response.json().error.message).toMatch(/Only a super administrator/u)
+    expect(
+      await prisma.membership.count({
+        where: { userId: target.id, organizationId: world.home.organization.id },
+      }),
+    ).toBe(0)
+
+    // Not left a super administrator for any other suite to count.
+    await prisma.user.update({ where: { id: target.id }, data: { role: 'ATTENDEE' } })
   })
 })

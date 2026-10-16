@@ -1095,7 +1095,9 @@ describe('buildEventQuery', () => {
     expect(extra({ country: 'US', region: 'IL', city: 'Springfield' })).toEqual([
       {
         venue: {
-          country: 'US',
+          // In any case, so a venue stored as `us` before codes were stored
+          // in capitals is still found under United States.
+          country: { equals: 'US', mode: 'insensitive' },
           region: { equals: 'IL', mode: 'insensitive' },
           city: { equals: 'Springfield', mode: 'insensitive' },
         },

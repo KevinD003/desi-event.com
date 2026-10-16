@@ -126,6 +126,76 @@ export function normaliseRegionCode(region) {
 }
 
 /**
+ * A short subdivision code as a person might type one: one to three letters
+ * or digits (`TX`, `on`, `QC`).
+ */
+const CODE_LIKE = /^[A-Za-z0-9]{1,3}$/u
+
+/**
+ * A name folded for comparison: no accents, no case, single spaces.
+ *
+ * @param {string} name The name.
+ * @returns {string} `quebec` for `Québec`, `new jersey` for ` New  Jersey`.
+ */
+function foldName(name) {
+  return name
+    .normalize('NFD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+/** Every state, province and territory name, folded, to its code. */
+const CODE_BY_NAME = new Map(
+  Object.values(SUBDIVISIONS_BY_COUNTRY).flatMap((country) =>
+    Object.entries(country.subdivisions).map(([code, name]) => [foldName(name), code]),
+  ),
+)
+
+/**
+ * A venue's region as it is stored: its subdivision code wherever one can be
+ * told.
+ *
+ * Venues are written by organisers as well as imports, and an organiser's
+ * "Region" field is free text. So `Texas`, `texas` and ` tx ` are all stored
+ * as `TX`, and `Québec` as `QC`, and the listing's State/Province filter
+ * offers one Texas rather than three entries of which two match nothing. A
+ * name this table does not know (an Indian state, say) is kept as typed,
+ * trimmed: it is still the venue's address, it is just not a filter option.
+ *
+ * @param {unknown} region The region as sent.
+ * @returns {unknown} The code, or the trimmed text; a non-string unchanged, so the wrapping schema reports it.
+ */
+export function venueRegionCode(region) {
+  if (typeof region !== 'string') return region
+
+  const text = region.trim()
+
+  if (CODE_LIKE.test(text)) return text.toUpperCase()
+
+  return CODE_BY_NAME.get(foldName(text)) ?? text
+}
+
+/**
+ * Whether a region and country, as stored, make a code the listing's
+ * State/Province filter can offer: a two-letter country and a code of one to
+ * three capitals or digits, so `US-TX` reads back as itself.
+ *
+ * @param {unknown} country The venue's country.
+ * @param {unknown} region The venue's region.
+ * @returns {boolean} True when the pair is a filterable code.
+ */
+export function isFilterableRegion(country, region) {
+  return (
+    typeof country === 'string' &&
+    typeof region === 'string' &&
+    /^[A-Z]{2}$/u.test(country) &&
+    /^[A-Z0-9]{1,3}$/u.test(region)
+  )
+}
+
+/**
  * The name of a state, province or territory, or its code when it is not one
  * the table knows.
  *

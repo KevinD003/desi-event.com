@@ -33,8 +33,10 @@
 
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 
+import { CAPABILITIES, can } from '@desi-event/permissions'
+
 import { AUDIT_ACTIONS } from './audit.js'
-import { conflict, notFound, unprocessable } from './errors.js'
+import { conflict, forbidden, notFound, unprocessable } from './errors.js'
 import {
   PRIVACY_OUTCOMES,
   PRIVACY_POLICY_VERSION,
@@ -125,6 +127,78 @@ function outcomeForDecision(decision) {
 }
 
 /**
+ * The reason code recorded when the subject outranks the caller.
+ *
+ * @type {string}
+ */
+export const SUPER_ADMIN_SUBJECT = 'SUPER_ADMIN_SUBJECT'
+
+/**
+ * Is the subject a super administrator this caller may not redact?
+ *
+ * A redaction that reaches account identity replaces the sign-in address and
+ * ends every session and token, which is a revocation in all but name. Only a
+ * super administrator may revoke a super administrator (ADR 0018, decision
+ * 6), so a caller without `platform:role_manage` — a platform
+ * administrator, or an organiser whose organisation the super administrator
+ * once bought from — may not redact one at all. Read from the database, never
+ * from the request.
+ *
+ * @param {object} tx A Prisma client or transaction client.
+ * @param {object} params Parameters.
+ * @param {string} params.subjectUserId The data subject.
+ * @param {object} params.actor The authenticated caller.
+ * @param {boolean} [params.lock] Lock the subject's row `FOR SHARE` first, so a
+ *   promotion that commits while the redaction runs waits for it.
+ * @returns {Promise<boolean>} Whether the subject is out of this caller's reach.
+ */
+export async function subjectOutranksActor(tx, { subjectUserId, actor, lock = false }) {
+  if (can(actor, CAPABILITIES.PLATFORM_ROLE_MANAGE)) return false
+
+  if (lock) {
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${subjectUserId} FOR SHARE`
+  }
+
+  const subject = await tx.user.findUnique({
+    where: { id: subjectUserId },
+    select: { role: true },
+  })
+
+  return subject?.role === 'SUPER_ADMIN'
+}
+
+/**
+ * The refusal for a subject who outranks the caller, recorded first.
+ *
+ * @param {object} prisma A Prisma client.
+ * @param {object} params Parameters.
+ * @param {object} params.actor The caller.
+ * @param {string} params.organizationId The organisation.
+ * @param {string} params.subjectUserId The data subject.
+ * @param {string|null} [params.privacyRequestId] The request, when there is one.
+ * @param {string} params.holdDecision A `HOLD_DECISIONS` value.
+ * @param {string} params.correlationId Ties one attempt's events together.
+ * @returns {Promise<Error>} The 403 to throw.
+ */
+async function refuseOutrankedSubject(prisma, params) {
+  const { actor, organizationId, subjectUserId, privacyRequestId = null } = params
+
+  await recordPrivacyAudit(prisma, {
+    action: AUDIT_ACTIONS.PRIVACY_REQUEST_REFUSED,
+    actorId: actor.id,
+    organizationId,
+    privacyRequestId,
+    targetId: subjectUserId,
+    reasonCode: SUPER_ADMIN_SUBJECT,
+    holdDecision: params.holdDecision,
+    result: 'REFUSED_AUTHORIZATION',
+    correlationId: params.correlationId,
+  })
+
+  return forbidden('Only a super administrator can redact a super administrator’s data.')
+}
+
+/**
  * Write one privacy audit event.
  *
  * `PrivacyAuditEvent` is append-only at the database
@@ -204,7 +278,7 @@ export async function recordPrivacyAudit(tx, params) {
  * @param {string} params.reason A `PRIVACY_REASONS` value.
  * @param {Date} params.now The instant.
  * @returns {Promise<{request: object, confirmationPhrase: string}>} The request and its phrase.
- * @throws {Error} 404 for an unknown organisation or an out-of-scope subject; 409 when blocked or already in flight.
+ * @throws {Error} 404 for an unknown organisation or an out-of-scope subject; 403 for a super administrator the caller may not redact; 409 when blocked or already in flight.
  */
 export async function raisePrivacyRequest(prisma, params) {
   const { organizationId, subjectUserId, actor, reason, now } = params
@@ -213,6 +287,16 @@ export async function raisePrivacyRequest(prisma, params) {
   await assertSubjectBelongsToOrganization(prisma, { organizationId, subjectUserId })
 
   const correlationId = randomUUID()
+
+  if (await subjectOutranksActor(prisma, { subjectUserId, actor })) {
+    throw await refuseOutrankedSubject(prisma, {
+      actor,
+      organizationId,
+      subjectUserId,
+      holdDecision: HOLD_DECISIONS.NONE_ACTIVE,
+      correlationId,
+    })
+  }
 
   // The address goes into the evaluation because one of the refusal grounds is
   // matched on it rather than on an id: an invitation sent to somebody who had
@@ -350,7 +434,7 @@ export async function loadPrivacyRequest(prisma, { organizationId, requestId }) 
  * @param {object} params.actor The authenticated caller.
  * @param {Date} params.now The instant.
  * @returns {Promise<object>} The request in its final state.
- * @throws {Error} 404, 409 or 422 as described above.
+ * @throws {Error} 404, 409 or 422 as described above; 403 for a super administrator the caller may not redact.
  */
 export async function confirmPrivacyRequest(prisma, params) {
   const { organizationId, requestId, confirmationPhrase, actor, now } = params
@@ -502,11 +586,25 @@ async function refuseOnHold(prisma, { request, evaluation, actor, now }) {
  * @param {object} params.actor The caller.
  * @param {Date} params.now The instant.
  * @returns {Promise<object>} The completed request.
- * @throws {Error} Rethrows after recording a safe failure.
+ * @throws {Error} 403, recorded as a refusal, for a super administrator the caller may not redact; otherwise rethrows after recording a safe failure.
  */
 async function executeRedaction(prisma, { request, actor, now }) {
+  let outranked = false
+
   try {
     return await prisma.$transaction(async (tx) => {
+      // Asked again here, with the subject's row locked, rather than trusting
+      // the answer from when the request was raised: a promotion to
+      // SUPER_ADMIN between the two is exactly the case this refuses. Before
+      // any write, so the rollback leaves the request awaiting confirmation.
+      if (
+        await subjectOutranksActor(tx, { subjectUserId: request.subjectUserId, actor, lock: true })
+      ) {
+        outranked = true
+
+        throw new Error('outranked')
+      }
+
       await tx.privacyRequest.update({
         where: { id: request.id },
         data: { state: 'QUEUED', confirmedAt: now, holdDecision: HOLD_DECISIONS.NONE_ACTIVE },
@@ -572,6 +670,18 @@ async function executeRedaction(prisma, { request, actor, now }) {
       return completed
     })
   } catch (error) {
+    // Nothing was written, so this is a refusal to record, not a failure.
+    if (outranked) {
+      throw await refuseOutrankedSubject(prisma, {
+        actor,
+        organizationId: request.organizationId,
+        subjectUserId: request.subjectUserId,
+        privacyRequestId: request.id,
+        holdDecision: request.holdDecision,
+        correlationId: request.correlationId,
+      })
+    }
+
     await recordSafeFailure(prisma, { request, actor, now })
 
     throw error

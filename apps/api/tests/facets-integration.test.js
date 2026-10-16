@@ -9,7 +9,8 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { createPrismaClient } from '@desi-event/db'
+import { Prisma, createPrismaClient } from '@desi-event/db'
+import { INDEXABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { requireDatabaseOrWarn } from './helpers/database.js'
 
@@ -54,6 +55,16 @@ const SHARED_CITY = `${TAG}Springfield`
 
 /** Events at the Illinois and the Missouri venue: unequal, so the counts tell them apart. */
 const SPRINGFIELD_EVENTS = Object.freeze({ IL: 3, MO: 2 })
+
+/**
+ * Venues written before venue writes stored codes in capitals (ADR 0020), as
+ * an organiser might have typed them: a state by name, which is no code the
+ * listing can filter by, and a country and state in lower case, which are.
+ */
+const TYPED_VENUES = Object.freeze([
+  { key: 'NJ', city: `${TAG}Edison`, region: 'New Jersey', country: 'US', events: 2 },
+  { key: 'TX', city: `${TAG}Frisco`, region: 'tx', country: 'us', events: 3 },
+])
 
 let prisma = null
 let reachable = false
@@ -156,6 +167,24 @@ beforeAll(async () => {
     ),
   )
 
+  const typed = await Promise.all(
+    TYPED_VENUES.map(({ key, city, region, country }) =>
+      prisma.venue.upsert({
+        where: { id: `${TAG}venuetyped${key}0000000000000` },
+        update: {},
+        create: {
+          id: `${TAG}venuetyped${key}0000000000000`,
+          name: `Typed Hall ${key}`,
+          addressLine1: '7 Typed Road',
+          city,
+          region,
+          postalCode: '08817',
+          country,
+        },
+      }),
+    ),
+  )
+
   const base = new Date('2030-01-01T00:00:00.000Z').getTime()
 
   for (let index = 0; index < EVENT_COUNT; index += 1) {
@@ -224,6 +253,33 @@ beforeAll(async () => {
           slug: `${TAG}-event-spring-${key}-${index}`,
           summary: 'Fixture',
           description: 'Fixture event for a city name two states share.',
+          category: 'COMEDY',
+          status: 'PUBLISHED',
+          startsAt: new Date(base + day * 86_400_000),
+          endsAt: new Date(base + day * 86_400_000 + 7_200_000),
+          languages: ['Hindi'],
+          publishedAt: new Date(base),
+        },
+      })
+    }
+  }
+
+  for (const [venueIndex, venue] of typed.entries()) {
+    const { key, events } = TYPED_VENUES[venueIndex]
+
+    for (let index = 0; index < events; index += 1) {
+      const day = EVENT_COUNT + 40 + venueIndex * 5 + index
+
+      await prisma.event.upsert({
+        where: { slug: `${TAG}-event-typed-${key}-${index}` },
+        update: {},
+        create: {
+          organizationId,
+          venueId: venue.id,
+          title: `Facet Typed Event ${key}-${index}`,
+          slug: `${TAG}-event-typed-${key}-${index}`,
+          summary: 'Fixture',
+          description: 'Fixture event at a venue whose state was typed by hand.',
           category: 'COMEDY',
           status: 'PUBLISHED',
           startsAt: new Date(base + day * 86_400_000),
@@ -451,10 +507,46 @@ describe('facets by state or province, each with its cities', () => {
         (a, b) => b.count - a.count || byBytes(a.country, b.country) || byBytes(a.region, b.region),
       ),
     )
-    // And every event with a venue is in exactly one region.
+    // And every event at a venue whose state is a code is in exactly one
+    // region; one whose state is not a code is in none (ADR 0020).
     const inRegions = facets.regions.reduce((sum, entry) => sum + entry.count, 0)
     const inCities = facets.cities.reduce((sum, city) => sum + city.count, 0)
-    expect(inRegions).toBe(inCities)
+    const [{ uncoded }] = await prisma.$queryRaw`
+      SELECT count(*)::int AS uncoded
+      FROM "Event" e JOIN "Venue" v ON v."id" = e."venueId"
+      WHERE e."status"::text IN (${Prisma.join([...INDEXABLE_STATUSES])})
+        AND NOT (upper(btrim(v."country")) ~ '^[A-Z]{2}$'
+                 AND upper(btrim(v."region")) ~ '^[A-Z0-9]{1,3}$')`
+    expect(uncoded).toBeGreaterThanOrEqual(TYPED_VENUES[0].events)
+    expect(inRegions + uncoded).toBe(inCities)
+  })
+
+  it('offers no State/Province that the listing could not filter by (ADR 0020)', async () => {
+    if (!reachable) return
+
+    const facets = await loadEventFacets(prisma)
+
+    for (const entry of facets.regions) {
+      expect(`${entry.country}-${entry.region}`, entry.name).toMatch(/^[A-Z]{2}-[A-Z0-9]{1,3}$/u)
+    }
+
+    // The state typed by name is no option, and its city is still counted.
+    expect(
+      facets.regions.some((entry) => entry.cities.some((city) => city.value === `${TAG}Edison`)),
+    ).toBe(false)
+    expect(facets.cities.find((city) => city.value === `${TAG}Edison`)?.count).toBe(
+      TYPED_VENUES[0].events,
+    )
+
+    // The lower-case country and state count under US, TX.
+    const texas = facets.regions.find((entry) => entry.country === 'US' && entry.region === 'TX')
+
+    expect(texas?.name).toBe('Texas')
+    expect(texas.cities.find((city) => city.value === `${TAG}Frisco`)).toEqual({
+      value: `${TAG}Frisco`,
+      count: TYPED_VENUES[1].events,
+    })
+    expect(facets.regions.some((entry) => entry.country === 'us')).toBe(false)
   })
 })
 

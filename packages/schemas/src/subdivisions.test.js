@@ -6,9 +6,11 @@ import {
   CANADIAN_PROVINCES,
   SUBDIVISIONS_BY_COUNTRY,
   US_STATES,
+  isFilterableRegion,
   normaliseRegionCode,
   subdivisionCountryName,
   subdivisionName,
+  venueRegionCode,
 } from './subdivisions.js'
 import * as barrel from './index.js'
 
@@ -78,5 +80,53 @@ describe('normaliseRegionCode and subdivisionCountryName', () => {
     expect(subdivisionCountryName('US')).toBe('United States')
     expect(subdivisionCountryName('ca')).toBe('Canada')
     expect(subdivisionCountryName('IN')).toBe('IN')
+  })
+})
+
+describe('venueRegionCode: a venue region as stored (ADR 0020)', () => {
+  it('stores a typed state or province name as its code, whatever its case, spacing or accents', () => {
+    expect(venueRegionCode('Texas')).toBe('TX')
+    expect(venueRegionCode('  new   JERSEY ')).toBe('NJ')
+    expect(venueRegionCode('Ontario')).toBe('ON')
+    expect(venueRegionCode('Québec')).toBe('QC')
+    expect(venueRegionCode('District of Columbia')).toBe('DC')
+  })
+
+  it('capitalises a typed code and trims it', () => {
+    expect(venueRegionCode(' tx ')).toBe('TX')
+    expect(venueRegionCode('on')).toBe('ON')
+    expect(venueRegionCode('MH')).toBe('MH')
+  })
+
+  it('keeps any other text as typed, trimmed, and leaves a non-string for the schema to refuse', () => {
+    expect(venueRegionCode(' Maharashtra ')).toBe('Maharashtra')
+    expect(venueRegionCode('Tex.')).toBe('Tex.')
+    expect(venueRegionCode(42)).toBe(42)
+  })
+
+  it('maps every name in the table back to its own code', () => {
+    for (const { subdivisions } of Object.values(SUBDIVISIONS_BY_COUNTRY)) {
+      for (const [code, name] of Object.entries(subdivisions)) {
+        expect(venueRegionCode(name), name).toBe(code)
+        expect(venueRegionCode(name.toUpperCase()), name).toBe(code)
+      }
+    }
+  })
+})
+
+describe('isFilterableRegion', () => {
+  it('accepts a capitalised country with a short capitalised code', () => {
+    expect(isFilterableRegion('US', 'TX')).toBe(true)
+    expect(isFilterableRegion('CA', 'ON')).toBe(true)
+    expect(isFilterableRegion('IN', 'MH')).toBe(true)
+  })
+
+  it('refuses what the State/Province filter could not read back', () => {
+    expect(isFilterableRegion('US', 'TEXAS')).toBe(false)
+    expect(isFilterableRegion('US', 'NEW JERSEY')).toBe(false)
+    expect(isFilterableRegion('us', 'TX')).toBe(false)
+    expect(isFilterableRegion('US', 'tx')).toBe(false)
+    expect(isFilterableRegion('US', '')).toBe(false)
+    expect(isFilterableRegion(null, 'TX')).toBe(false)
   })
 })

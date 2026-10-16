@@ -586,8 +586,12 @@ The full table of moves, including the ones only the system makes (`SOLD_OUT`,
 cities: [{value, count}]}`. The name comes from the US state and Canadian
 province table in `@desi-event/schemas/subdivisions` (`TX` is Texas, `ON` is
 Ontario; a code the table does not know is shown as the code). A city name two
-states share is one entry in each state. Ties on a count are broken by value in
-byte order (`COLLATE "C"`).
+states share is one entry in each state. A venue whose region is not a
+subdivision code (a name typed before venues stored codes) is left out of
+`regions`, and still counted in `cities`. Ties on a count are broken by value in
+byte order (`COLLATE "C"`). Venues are written with their region as its code
+wherever one can be told (`Texas` and `tx` are stored as `TX`) and their country
+in capitals.
 
 ### Ticket types
 
@@ -1083,7 +1087,9 @@ invitation per address, so two invitations issued at once give one invitation
 and one 409. Invitations lapse after 14 days. Accepting needs the caller to be
 signed in as the invited address, ends their other sessions and, for a
 privileged role, shortens the current one; `data.joined` is false when the
-account already belonged to the organisation.
+account already belonged to the organisation. A door role's events are applied
+only while whoever invited still gives their doors, read again as the code is
+used; `data.withdrawnEventCount` says how many named events were dropped.
 
 **Ownership moves as one swap.** The named member becomes OWNER and the caller
 ADMIN, with the owners locked, so there is never a moment with no owner or a

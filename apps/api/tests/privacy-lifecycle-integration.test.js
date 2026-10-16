@@ -746,6 +746,131 @@ when()('two operators at once', () => {
   })
 })
 
+when()('a super administrator as the subject (ADR 0018)', () => {
+  /**
+   * The scenario with the subject promoted and a platform administrator acting.
+   *
+   * The subject's only data here is one ticket, as a super administrator who
+   * bought a ticket for an imported event has. Redacting it would replace the
+   * sign-in address and end every session: a revocation an ADMIN may not make.
+   *
+   * @returns {Promise<object>} The graph, with `admin` set.
+   */
+  async function outranked() {
+    const graph = await scenario()
+
+    await prisma.user.update({ where: { id: graph.subject.id }, data: { role: 'SUPER_ADMIN' } })
+
+    const admin = await prisma.user.update({
+      where: { id: graph.actor.id },
+      data: { role: 'ADMIN' },
+    })
+
+    return { ...graph, actor: admin }
+  }
+
+  it('refuses a platform administrator with 403, records it, and leaves the account alone', async () => {
+    const graph = await outranked()
+
+    await expect(raise(graph)).rejects.toMatchObject({
+      statusCode: 403,
+      message: expect.stringMatching(/only a super administrator/i),
+    })
+
+    expect(await prisma.privacyRequest.count({ where: { subjectUserId: graph.subject.id } })).toBe(
+      0,
+    )
+
+    const subject = await prisma.user.findUnique({ where: { id: graph.subject.id } })
+
+    expect(subject.email).toBe(graph.subject.email)
+    expect(subject.role).toBe('SUPER_ADMIN')
+
+    const events = await prisma.privacyAuditEvent.findMany({
+      where: { targetId: graph.subject.id },
+    })
+
+    expect(events.map((row) => [row.result, row.reasonCode])).toEqual([
+      ['REFUSED_AUTHORIZATION', 'SUPER_ADMIN_SUBJECT'],
+    ])
+  })
+
+  it('refuses at confirmation when the subject was promoted after the request was raised', async () => {
+    const graph = await scenario()
+    const admin = await prisma.user.update({
+      where: { id: graph.actor.id },
+      data: { role: 'ADMIN' },
+    })
+    const { request, confirmationPhrase } = await raise({ ...graph, actor: admin })
+
+    await prisma.user.update({ where: { id: graph.subject.id }, data: { role: 'SUPER_ADMIN' } })
+
+    await expect(
+      confirmPrivacyRequest(prisma, {
+        organizationId: graph.org.id,
+        requestId: request.id,
+        confirmationPhrase,
+        actor: admin,
+        now: new Date(),
+      }),
+    ).rejects.toMatchObject({ statusCode: 403 })
+
+    // Nothing ran: the address, the session-bearing account and the request
+    // are all as they were, and the refusal is evidence rather than a failure.
+    const subject = await prisma.user.findUnique({ where: { id: graph.subject.id } })
+
+    expect(subject.email).toBe(graph.subject.email)
+
+    const stored = await prisma.privacyRequest.findUnique({ where: { id: request.id } })
+
+    expect(stored.state).toBe('REQUESTED')
+    expect(stored.confirmedAt).toBe(null)
+
+    const results = (
+      await prisma.privacyAuditEvent.findMany({
+        where: { privacyRequestId: request.id },
+        orderBy: { occurredAt: 'asc' },
+      })
+    ).map((row) => [row.result, row.reasonCode])
+
+    expect(results).toEqual([
+      ['REQUESTED', 'SUBJECT_REQUEST'],
+      ['REFUSED_AUTHORIZATION', 'SUPER_ADMIN_SUBJECT'],
+    ])
+  })
+
+  it('refuses an organiser too, who sits further below', async () => {
+    const graph = await scenario()
+
+    await prisma.user.update({ where: { id: graph.subject.id }, data: { role: 'SUPER_ADMIN' } })
+
+    await expect(raise(graph)).rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it('lets another super administrator redact one', async () => {
+    const graph = await outranked()
+    const superAdmin = await prisma.user.update({
+      where: { id: graph.actor.id },
+      data: { role: 'SUPER_ADMIN' },
+    })
+    const { request, confirmationPhrase } = await raise({ ...graph, actor: superAdmin })
+
+    const completed = await confirmPrivacyRequest(prisma, {
+      organizationId: graph.org.id,
+      requestId: request.id,
+      confirmationPhrase,
+      actor: superAdmin,
+      now: new Date(),
+    })
+
+    expect(completed.state).toBe('COMPLETED')
+
+    const subject = await prisma.user.findUnique({ where: { id: graph.subject.id } })
+
+    expect(isRedactedValue(subject.email)).toBe(true)
+  })
+})
+
 when()('the hold decision the database insists on', () => {
   it('agrees with the service about what "clear" means', async () => {
     const graph = await scenario()

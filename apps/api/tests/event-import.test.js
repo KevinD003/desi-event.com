@@ -1731,6 +1731,8 @@ describe('POST /v1/platform/imports/events/:eventId/reassign', () => {
       reason: 'They run this event themselves.',
       websiteLinkTurnedOff: true,
       venue: 'MOVED',
+      scannerScopesRemoved: 0,
+      invitationScopesRemoved: 0,
     })
     expect(audits(prisma, 'event.website_redirect_changed')).toHaveLength(2)
 

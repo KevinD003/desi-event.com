@@ -347,6 +347,7 @@ describe('accepting an invitation', () => {
         role: 'ADMIN',
         joined: true,
         events: [],
+        withdrawnEventCount: 0,
         session: { mfaRequired: true, mfaEnrolled: false },
       },
     })
@@ -361,6 +362,7 @@ describe('accepting an invitation', () => {
       organizationName: 'Rangoli Collective',
       role: 'STAFF',
       events: [],
+      withdrawnEventCount: 0,
       session: { mfaRequired: false, mfaEnrolled: false },
     }
 
@@ -378,6 +380,7 @@ describe('door events on an invitation (ADR 0019)', () => {
       organizationName: 'Rangoli Collective',
       role: 'SCANNER',
       joined: true,
+      withdrawnEventCount: 0,
       session: { mfaRequired: false, mfaEnrolled: false },
     }
     const events = [{ id: 'ckl1a2b3c4d5e6f7g8h9i0jd', title: 'Garba Night' }]
@@ -391,6 +394,32 @@ describe('door events on an invitation (ADR 0019)', () => {
         data: { ...base, events: [{ id: 'not-an-id', title: 'Garba Night' }] },
       }).success,
     ).toBe(false)
+  })
+
+  it('says how many named events an acceptance no longer opens, as a whole count it needs', () => {
+    const base = {
+      organizationId: 'ckl1a2b3c4d5e6f7g8h9i0ja',
+      organizationName: 'Rangoli Collective',
+      role: 'SCANNER',
+      joined: true,
+      events: [],
+      session: { mfaRequired: false, mfaEnrolled: false },
+    }
+
+    expect(acceptedInvitationResponseSchema.safeParse({ data: base }).success).toBe(false)
+    expect(
+      acceptedInvitationResponseSchema.parse({ data: { ...base, withdrawnEventCount: 2 } }).data
+        .withdrawnEventCount,
+    ).toBe(2)
+
+    for (const wrong of [-1, 1.5, 201, '2']) {
+      expect(
+        acceptedInvitationResponseSchema.safeParse({
+          data: { ...base, withdrawnEventCount: wrong },
+        }).success,
+        String(wrong),
+      ).toBe(false)
+    }
   })
 
   it('keeps an invitation request’s events to at most two hundred ids', () => {

@@ -56,6 +56,8 @@ function joined(session, gained = true) {
       organizationName: 'Rangoli Collective',
       role: 'STAFF',
       joined: gained,
+      events: [],
+      withdrawnEventCount: 0,
       session,
     },
   }
@@ -171,6 +173,45 @@ describe('the invitation accept form', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open the workspace' })).toBeInTheDocument()
+  })
+
+  it('says how many named events are no longer offered, when the inviter lost their doors', async () => {
+    const user = userEvent.setup()
+    const body = joined({ mfaRequired: false, mfaEnrolled: false })
+
+    body.data.role = 'SCANNER'
+    body.data.events = [{ id: 'evt00000000000000000001', title: 'Diwali Mela' }]
+    body.data.withdrawnEventCount = 2
+    apiFetch.mockResolvedValue(answer(200, body))
+
+    render(<InvitationAcceptForm />)
+
+    await user.type(screen.getByLabelText(/Invitation code/u), CODE)
+    await user.click(screen.getByRole('button', { name: 'Join the organisation' }))
+
+    expect(
+      await screen.findByText(
+        '2 events this invitation named are no longer offered, because whoever invited you no longer gives their doors. Ask an owner or administrator if you should admit there.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual(['Diwali Mela'])
+  })
+
+  it('says nothing about withdrawn events when none were', async () => {
+    const user = userEvent.setup()
+    const body = joined({ mfaRequired: false, mfaEnrolled: false })
+
+    body.data.role = 'SCANNER'
+    body.data.events = [{ id: 'evt00000000000000000001', title: 'Diwali Mela' }]
+    apiFetch.mockResolvedValue(answer(200, body))
+
+    render(<InvitationAcceptForm />)
+
+    await user.type(screen.getByLabelText(/Invitation code/u), CODE)
+    await user.click(screen.getByRole('button', { name: 'Join the organisation' }))
+
+    expect(await screen.findByText('You may admit people at:')).toBeInTheDocument()
+    expect(screen.queryByText(/no longer offered/u)).toBe(null)
   })
 
   it('sends a newly privileged account to set up two-step sign-in', async () => {

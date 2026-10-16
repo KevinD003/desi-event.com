@@ -321,20 +321,38 @@ export function registerPlatformRoutes(app, { prisma }) {
 
       if (!user) throw notFound('No such account.')
 
-      // A grant ends every session of the account. A platform administrator
-      // is below a super administrator (ADR 0018), so it may not sign one out
-      // this way; a super administrator may.
-      if (user.role === SUPER_ADMIN && !can(request.actor, CAPABILITIES.PLATFORM_ROLE_MANAGE)) {
-        throw forbidden(
-          'Only a super administrator can change the memberships of a super administrator.',
-        )
+      /**
+       * Refuse an account this caller may not grant to, as it reads now.
+       *
+       * Asked before the transaction, so a refusal costs no locks, and again
+       * inside it with the account's row locked, because the first read is
+       * not a decision: a promotion to SUPER_ADMIN, or a suspension, that
+       * commits between the two is what the second one sees.
+       *
+       * @param {object} account The account's `User` row.
+       * @returns {void} Nothing, when the grant may go ahead.
+       */
+      const assertGrantable = (account) => {
+        // A grant ends every session of the account. A platform administrator
+        // is below a super administrator (ADR 0018), so it may not sign one
+        // out this way; a super administrator may.
+        if (
+          account.role === SUPER_ADMIN &&
+          !can(request.actor, CAPABILITIES.PLATFORM_ROLE_MANAGE)
+        ) {
+          throw forbidden(
+            'Only a super administrator can change the memberships of a super administrator.',
+          )
+        }
+
+        if (account.suspendedAt) {
+          throw unprocessable(
+            'That account is suspended. Lift the suspension before granting it a role.',
+          )
+        }
       }
 
-      if (user.suspendedAt) {
-        throw unprocessable(
-          'That account is suspended. Lift the suspension before granting it a role.',
-        )
-      }
+      assertGrantable(user)
 
       // The permissions package's own rule, as well as the contract's
       // capability: a grant goes through the one place that decides who may
@@ -350,6 +368,20 @@ export function registerPlatformRoutes(app, { prisma }) {
        * @returns {Promise<{membership: object, previousRole: string|null, sessionsRevoked: number}>} What changed.
        */
       const grant = async (tx) => {
+        // The account first, held `FOR SHARE` so a role change or suspension
+        // waits for this grant, and its role and suspension read again under
+        // that lock (ADR 0018, decision 6).
+        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR SHARE`
+
+        const locked = await tx.user.findUnique({
+          where: { id: userId },
+          select: { role: true, suspendedAt: true },
+        })
+
+        if (!locked) throw notFound('No such account.')
+
+        assertGrantable(locked)
+
         // The owners, then this account's membership, locked and read as they
         // are now: a removal, transfer or role change that committed a moment
         // ago is what this decides from, never a read taken before it.

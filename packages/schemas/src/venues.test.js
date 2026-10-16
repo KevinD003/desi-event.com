@@ -58,6 +58,30 @@ const detail = {
 }
 
 describe('createVenueRequestSchema', () => {
+  it('stores a state typed by name as its code, and the country in capitals (ADR 0020)', () => {
+    const parsed = createVenueRequestSchema.parse({
+      ...minimal,
+      city: 'Frisco',
+      region: 'Texas',
+      postalCode: '75034',
+      country: ' us ',
+    })
+
+    expect(parsed.region).toBe('TX')
+    expect(parsed.country).toBe('US')
+    expect(createVenueRequestSchema.parse({ ...minimal, region: 'tx' }).region).toBe('TX')
+    expect(createVenueRequestSchema.parse(minimal).region).toBe('Gujarat')
+    expect(createVenueRequestSchema.safeParse({ ...minimal, country: 'u1' }).success).toBe(false)
+    expect(createVenueRequestSchema.safeParse({ ...minimal, region: '  ' }).success).toBe(false)
+  })
+
+  it('normalises an edit the same way', () => {
+    expect(updateVenueRequestSchema.parse({ region: 'New Jersey', country: 'us' })).toEqual({
+      region: 'NJ',
+      country: 'US',
+    })
+  })
+
   it('accepts an address and nothing else', () => {
     expect(createVenueRequestSchema.parse(minimal).name).toBe('GMDC Ground')
   })

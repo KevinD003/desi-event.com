@@ -2077,8 +2077,10 @@ export function reassignLinkReason(name) {
  * Move an imported event to an organiser's own organisation (SPEC2-XI I-F),
  * in one transaction that locks the event first: the event and its venue move
  * (the venue is copied when another event uses it), the move is stamped on the
- * import record, the website link is switched off when it is on, and it is
- * audited. Its status, ticket types, sales, pictures and slug are unchanged.
+ * import record, the website link is switched off when it is on, the
+ * platform-held door scanners' and waiting scanner invitations' scopes on it
+ * are removed (they stay that organisation's), and it is audited. Its status,
+ * ticket types, sales, pictures and slug are unchanged.
  *
  * @param {object} prisma The Prisma client.
  * @param {object} options Inputs.
@@ -2191,6 +2193,19 @@ export async function reassignImportedEvent(prisma, options) {
       }
     }
 
+    // The platform-held organisation's door scanners, and its waiting scanner
+    // invitations, named this event (ADR 0019). They stay that
+    // organisation's, so their scope on an event that is no longer its own
+    // goes with the move, before it: a scope names an event of its own
+    // organisation, which `desi_event_move_leaves_no_door_scope` holds at the
+    // database. The new organiser gives its own door access.
+    const scannerScopes = await tx.scannerScope.deleteMany({
+      where: { eventId: event.id, membership: { organizationId: event.organizationId } },
+    })
+    const invitationScopes = await tx.invitationScope.deleteMany({
+      where: { eventId: event.id, invitation: { organizationId: event.organizationId } },
+    })
+
     await tx.event.update({
       where: { id: event.id },
       data: { organizationId: target.id, venueId, revision: { increment: 1 } },
@@ -2230,6 +2245,8 @@ export async function reassignImportedEvent(prisma, options) {
         reason,
         websiteLinkTurnedOff: linkOn,
         venue: event.venueId ? (venueMoved ? 'MOVED' : 'COPIED') : null,
+        scannerScopesRemoved: scannerScopes.count,
+        invitationScopesRemoved: invitationScopes.count,
       },
     })
 

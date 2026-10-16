@@ -47,7 +47,9 @@
  * holds `team:role_manage` here (OWNER, ADMIN) may name any of the
  * organisation's events; a MANAGER, who invites but does not manage roles, may
  * name only events it is itself scoped to, so inviting is never a way to reach
- * a door it cannot open. The platform-held organisation that holds imported
+ * a door it cannot open — checked when the invitation is issued and again, from
+ * the database, when it is accepted, so a manager who lost a scope or its
+ * membership in between gives no door it no longer has. The platform-held organisation that holds imported
  * events takes door scanners only, invited by a platform administrator
  * (`platform:admin`), who is not a member of it.
  *
@@ -76,6 +78,7 @@ import {
 } from '@desi-event/permissions'
 import { withoutAddresses } from '@desi-event/schemas'
 
+import { loadActor } from '../lib/actor.js'
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import {
   DELIVERY_MODES,
@@ -453,14 +456,45 @@ export const EVENTS_NEED_DOOR_ROLE_SENTENCE =
   'Only a door role (staff or scanner) is invited for chosen events. Choose that role, or invite without events.'
 
 /**
+ * Which of these events' doors an inviter may give.
+ *
+ * Whoever manages roles here through its own membership (`team:role_manage`:
+ * OWNER, ADMIN), or a platform administrator (`platform:admin`), may give any
+ * of them; anybody else who may invite — a MANAGER — only those its own
+ * membership is scoped to, so an invitation never opens a door its inviter
+ * cannot. The caller has already checked the ids are this organisation's.
+ *
+ * @param {object} db A Prisma client or transaction client.
+ * @param {object} options Options.
+ * @param {object} options.actor The inviter, as an actor.
+ * @param {string} options.organizationId The organisation.
+ * @param {string[]} options.eventIds The events.
+ * @returns {Promise<Set<string>>} The ids, of those given, within its reach.
+ */
+async function doorEventsWithinReach(db, { actor, organizationId, eventIds }) {
+  const anyEvent =
+    orgCapabilitiesFor(actor, organizationId).includes(CAPABILITIES.TEAM_ROLE_MANAGE) ||
+    can(actor, CAPABILITIES.PLATFORM_ADMIN)
+
+  if (anyEvent) return new Set(eventIds)
+
+  const own = await db.scannerScope.findMany({
+    where: {
+      eventId: { in: eventIds },
+      membership: { userId: actor.id, organizationId },
+    },
+    select: { eventId: true },
+  })
+
+  return new Set(own.map((scope) => scope.eventId))
+}
+
+/**
  * The events an invitation may scope its door role to, read and checked.
  *
  * Every id must be one of this organisation's events (422 otherwise), and the
- * role must admit by event (422 otherwise). A caller who manages roles here
- * through its own membership (`team:role_manage`: OWNER, ADMIN), or a platform
- * administrator (`platform:admin`), may name any of them; anybody else who may
- * invite — a MANAGER — only events its own membership is scoped to (403
- * otherwise), so an invitation never opens a door its inviter cannot.
+ * role must admit by event (422 otherwise). Then every one must be within the
+ * caller's reach ({@link doorEventsWithinReach}; 403 otherwise).
  *
  * @param {object} db A Prisma client or transaction client.
  * @param {object} options Options.
@@ -490,28 +524,57 @@ async function invitationEventsFor(db, { actor, organization, role, eventIds }) 
     )
   }
 
-  const anyEvent =
-    orgCapabilitiesFor(actor, organization.id).includes(CAPABILITIES.TEAM_ROLE_MANAGE) ||
-    can(actor, CAPABILITIES.PLATFORM_ADMIN)
+  const reach = await doorEventsWithinReach(db, {
+    actor,
+    organizationId: organization.id,
+    eventIds: wanted,
+  })
 
-  if (!anyEvent) {
-    const own = await db.scannerScope.findMany({
-      where: {
-        eventId: { in: wanted },
-        membership: { userId: actor.id, organizationId: organization.id },
-      },
-      select: { eventId: true },
-    })
-    const mine = new Set(own.map((scope) => scope.eventId))
-
-    if (wanted.some((eventId) => !mine.has(eventId))) {
-      throw forbidden(
-        'You can give door access only for the events you are scoped to yourself. Ask an owner or administrator for the others.',
-      )
-    }
+  if (wanted.some((eventId) => !reach.has(eventId))) {
+    throw forbidden(
+      'You can give door access only for the events you are scoped to yourself. Ask an owner or administrator for the others.',
+    )
   }
 
   return toDoorEvents(events)
+}
+
+/**
+ * The events a waiting invitation still opens, decided as it is accepted.
+ *
+ * Its inviter's reach is checked when it is issued, and again here, from the
+ * database: a MANAGER whose scope on an event was taken away, or who was
+ * removed or moved to a role that does not invite, between issuing and
+ * acceptance, no longer gives that door, so an invitation never opens a door
+ * its inviter cannot (ADR 0019). The inviter's membership row is held
+ * `FOR SHARE`, so a removal or rescope of it waits for this acceptance, or
+ * this acceptance for it. A platform administrator's reach is its platform
+ * role, read from its own `User` row.
+ *
+ * @param {object} tx The transaction client.
+ * @param {object} options Options.
+ * @param {object} options.invitation The invitation row.
+ * @param {Array<{id: string, title: string}>} options.events The events it names that are still the organisation's.
+ * @returns {Promise<{events: Array<{id: string, title: string}>, withdrawn: string[]}>} What it still opens, and the ids it no longer does.
+ */
+async function eventsStillOffered(tx, { invitation, events }) {
+  if (events.length === 0) return { events, withdrawn: [] }
+
+  await tx.$queryRaw`SELECT "id" FROM "Membership" WHERE "userId" = ${invitation.invitedById} AND "organizationId" = ${invitation.organizationId} FOR SHARE`
+
+  const inviter = await loadActor(tx, invitation.invitedById)
+  const reach = inviter
+    ? await doorEventsWithinReach(tx, {
+        actor: inviter.actor,
+        organizationId: invitation.organizationId,
+        eventIds: events.map((event) => event.id),
+      })
+    : new Set()
+
+  return {
+    events: events.filter((event) => reach.has(event.id)),
+    withdrawn: events.filter((event) => !reach.has(event.id)).map((event) => event.id),
+  }
 }
 
 /**
@@ -1024,7 +1087,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
        * scopes it carries.
        *
        * @param {object} tx The transaction client.
-       * @returns {Promise<{membership: object, created: boolean, siblingsRevoked: number, events: Array<{id: string, title: string}>}>} What happened.
+       * @returns {Promise<{membership: object, created: boolean, siblingsRevoked: number, events: Array<{id: string, title: string}>, withdrawnEventCount: number}>} What happened.
        */
       const join = async (tx) => {
         // Conditional on PENDING: two simultaneous acceptances both read a
@@ -1067,8 +1130,9 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
 
         // The events the invitation named become the new member's door
         // scopes, in the transaction that creates the membership (ADR 0019).
-        // Read here, inside it, and only those still the organisation's. An
-        // existing membership is left alone, scopes included.
+        // Read here, inside it, and only those still the organisation's and
+        // still within the inviter's reach. An existing membership is left
+        // alone, scopes included.
         const scoped =
           !already && requiresAdmissionScope(joined.role)
             ? await tx.invitationScope.findMany({
@@ -1079,7 +1143,10 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
                 select: { event: { select: { id: true, title: true } } },
               })
             : []
-        const events = toDoorEvents(scoped.map((scope) => scope.event))
+        const { events, withdrawn } = await eventsStillOffered(tx, {
+          invitation,
+          events: toDoorEvents(scoped.map((scope) => scope.event)),
+        })
 
         if (events.length > 0) {
           await setScannerScopes(tx, {
@@ -1102,18 +1169,25 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
             organizationId: invitation.organizationId,
             role: joined.role,
             scopedEventIds: events.map((event) => event.id),
+            withdrawnEventIds: withdrawn,
             siblingsRevoked: revoked,
           },
         })
 
-        return { membership: joined, created: !already, siblingsRevoked: revoked, events }
+        return {
+          membership: joined,
+          created: !already,
+          siblingsRevoked: revoked,
+          events,
+          withdrawnEventCount: withdrawn.length,
+        }
       }
 
       // A platform administrator's direct grant can add this account to the same
       // organisation at the same moment. The database refuses the second
       // membership; the whole acceptance rolls back — the code stays usable —
       // and the caller is told why rather than handed a server error.
-      const { membership, created, siblingsRevoked, events } = await prisma
+      const { membership, created, siblingsRevoked, events, withdrawnEventCount } = await prisma
         .$transaction(join)
         .catch((error) => {
           if (isUniqueViolation(error)) {
@@ -1148,6 +1222,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
           role: membership.role,
           joined: created,
           events,
+          withdrawnEventCount,
           session: { mfaRequired: session.mfaRequired, mfaEnrolled: session.mfaEnrolled },
         },
       }

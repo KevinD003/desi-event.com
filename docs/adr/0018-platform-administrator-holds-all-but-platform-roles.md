@@ -66,7 +66,24 @@ SUPER_ADMIN_ONLY_CAPABILITIES`. `assertPlatformAdministratorBounds` stays an
    an ADMIN may not use it on a SUPER_ADMIN's account.** The grant ends every
    session the account holds; a platform administrator, below a super
    administrator in the owner's hierarchy, may not sign one out that way.
-5. **The web follows the capability, the API decides.** People and roles
+5. **Nobody below a super administrator may redact one.** A privacy redaction
+   that reaches account identity replaces the sign-in address and ends every
+   session and token, which revokes the account in all but name. So raising
+   and confirming a privacy request refuses with 403, recorded as
+   `REFUSED_AUTHORIZATION` / `SUPER_ADMIN_SUBJECT`, when the subject's
+   `User.role` is `SUPER_ADMIN` and the caller does not hold
+   `platform:role_manage` — a platform administrator and an organiser alike.
+   The role is read from the database when the request is raised and again,
+   with the subject's row locked `FOR SHARE`, inside the redaction transaction
+   before anything is written, so a promotion between the two is refused too
+   and the request stays awaiting confirmation. A super administrator may
+   still redact another.
+6. **A direct grant decides from a locked read.** `platform.grantMembership`
+   locks the account's `User` row `FOR SHARE` inside its transaction and
+   re-reads the role and the suspension there, so a promotion to
+   `SUPER_ADMIN` that commits between the handler's first read and the grant
+   is still refused to a platform administrator.
+7. **The web follows the capability, the API decides.** People and roles
    (`/admin/users`) opens to `platform:admin`; the platform-role control is drawn
    only for a session holding `platform:role_manage`, decided on the server and
    handed to the client as a boolean. `sessionCan` never lets `platform:admin`

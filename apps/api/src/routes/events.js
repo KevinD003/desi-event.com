@@ -516,7 +516,9 @@ export function buildEventQuery(
   // that city *in* that state — Springfield, IL is not Springfield, MO.
   // Case-insensitive equality runs as ILIKE, so each value is escaped first.
   const venue = {}
-  if (query.country) venue.country = query.country
+  // In any case, as the facets count it: a venue written before country
+  // codes were stored in capitals may say `us`.
+  if (query.country) venue.country = equalsIgnoringCase(query.country)
   if (query.region) venue.region = equalsIgnoringCase(query.region)
   if (query.city) venue.city = equalsIgnoringCase(query.city)
   if (Object.keys(venue).length > 0) conditions.push({ venue })

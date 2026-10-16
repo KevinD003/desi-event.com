@@ -17,7 +17,7 @@
 
 import { Prisma } from '@desi-event/db'
 import { INDEXABLE_STATUSES } from '@desi-event/schemas/lifecycle'
-import { subdivisionName } from '@desi-event/schemas/subdivisions'
+import { isFilterableRegion, subdivisionName } from '@desi-event/schemas/subdivisions'
 
 /**
  * The statuses every facet is counted over: exactly the ones a listing shows.
@@ -90,10 +90,12 @@ export async function loadEventFacets(prisma) {
       ORDER BY count DESC, value ASC
     `),
 
-    // By country, region and city together. The region is read trimmed and in
-    // capitals, so a venue an organiser typed as `tx` counts with Texas.
+    // By country, region and city together. The country and region are read
+    // trimmed and in capitals, so a venue an organiser typed as `us` / `tx`
+    // counts with Texas (venue writes store both that way since 2026-10-16,
+    // and 20261016140000_venue_region_codes rewrote the rows before then).
     prisma.$queryRaw(Prisma.sql`
-      SELECT v."country" COLLATE "C" AS country,
+      SELECT upper(btrim(v."country")) COLLATE "C" AS country,
              upper(btrim(v."region")) COLLATE "C" AS region,
              v."city" COLLATE "C" AS city,
              count(*)::int AS count
@@ -168,7 +170,8 @@ function byteOrder(a, b) {
  *
  * The rows arrive ordered by count, then city in byte order, and each region
  * keeps its cities in that order. Regions are ordered the same way: by their
- * total, then by country and region code in byte order.
+ * total, then by country and region code in byte order. A region that is not a
+ * subdivision code ({@link isFilterableRegion}) is left out.
  *
  * @param {unknown} rows Raw query rows: `{country, region, city, count}`.
  * @returns {Array<{country: string, region: string, name: string, count: number, cities: Array<{value: string, count: number}>}>} One entry per state or province.
@@ -184,6 +187,13 @@ function nestRegions(rows) {
 
     const country = String(row.country ?? '')
     const region = String(row.region ?? '')
+
+    // A region that is not a code (`NEW JERSEY`, typed before venue writes
+    // stored codes) would be a State/Province option that filters nothing:
+    // the listing reads a state back only as `US-NJ`. It is left out of the
+    // regions; its city is still in `cities`, and its events still list.
+    if (!isFilterableRegion(country, region)) continue
+
     const key = `${country}\u0000${region}`
     let entry = regions.get(key)
 

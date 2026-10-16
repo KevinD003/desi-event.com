@@ -30,6 +30,7 @@ import {
   revisionPreconditionSchema,
   timezoneSchema,
 } from './primitives.js'
+import { venueRegionCode } from './subdivisions.js'
 
 /** The format every import file declares, and the only one this build reads. */
 export const IMPORT_DATASET_FORMAT = 'desi-event-import/1'
@@ -166,7 +167,9 @@ export const importEventSchema = z
         name: text(200),
         addressLine1: text(200),
         city: text(100),
-        region: text(100),
+        // Its subdivision code wherever one can be told, as a venue an
+        // organiser writes (`venueRegionCode`).
+        region: z.preprocess(venueRegionCode, text(100)),
         postalCode: text(20),
         country: z.string().regex(/^[A-Z]{2}$/u, 'A two-letter country code.'),
       })

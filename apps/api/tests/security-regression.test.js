@@ -4218,6 +4218,9 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
       'Membership UPDATE',
     ],
     'apps/api/src/lib/payment-terms.js': ['Event NO KEY UPDATE'],
+    // The subject's row, held while a redaction decides it is not a super
+    // administrator the caller may not reach (ADR 0018, decision 5).
+    'apps/api/src/lib/privacy-requests.js': ['User SHARE'],
     'apps/api/src/lib/referral-codes.js': [
       'ReferralCode NO KEY UPDATE',
       'ReferralCode NO KEY UPDATE',
@@ -4247,7 +4250,11 @@ describe('booking fees, referral codes and paying at the venue (SPEC3 §13, SPEC
     ],
     'apps/api/src/lib/website-redirect.js': ['Event UPDATE'],
     'apps/api/src/routes/platform-fees.js': ['Order UPDATE'],
-    'apps/api/src/routes/platform.js': ['User UPDATE'],
+    // A role change's, then a direct grant's account (ADR 0018, decision 6).
+    'apps/api/src/routes/platform.js': ['User UPDATE', 'User SHARE'],
+    // The inviter's membership, held while an acceptance decides which of the
+    // invitation's doors it still gives (ADR 0019, decision 6).
+    'apps/api/src/routes/teams.js': ['Membership SHARE'],
     'apps/api/src/routes/tickets.js': ['Order UPDATE'],
     'apps/worker/src/processors/issue-tickets.js': ['Order UPDATE'],
   }

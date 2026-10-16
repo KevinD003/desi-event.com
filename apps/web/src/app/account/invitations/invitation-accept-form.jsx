@@ -196,6 +196,10 @@ export function InvitationAcceptForm() {
     // The events a door role now admits at: the ones the invitation named,
     // made this membership's door scope in the same step (ADR 0019).
     const doorEvents = Array.isArray(joined.events) ? joined.events : []
+    // Events the invitation named that it no longer opens: whoever invited
+    // lost the door to them before the code was used.
+    const withdrawn =
+      gained && Number.isInteger(joined.withdrawnEventCount) ? joined.withdrawnEventCount : 0
 
     return (
       <div ref={joinedRef} tabIndex={-1} className="mt-6 max-w-xl focus-visible:outline-none">
@@ -220,6 +224,13 @@ export function InvitationAcceptForm() {
                 ))}
               </ul>
             </div>
+          ) : null}
+          {withdrawn > 0 ? (
+            <p className="mt-2">
+              {withdrawn === 1
+                ? 'One event this invitation named is no longer offered, because whoever invited you no longer gives its door. Ask an owner or administrator if you should admit there.'
+                : `${withdrawn} events this invitation named are no longer offered, because whoever invited you no longer gives their doors. Ask an owner or administrator if you should admit there.`}
+            </p>
           ) : null}
           {gained && doorEvents.length === 0 && isEventScoped(joined.role) ? (
             <p className="mt-2">

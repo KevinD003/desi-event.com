@@ -326,6 +326,12 @@ export const acceptedInvitationResponseSchema = z.object({
      * role that does not admit by event, and when `joined` is false.
      */
     events: z.array(doorEventSummarySchema).max(200),
+    /**
+     * How many events the invitation named that it no longer opens, because
+     * whoever invited lost the door to them (a manager's scope or membership
+     * taken away) before it was accepted. Zero when nothing was withdrawn.
+     */
+    withdrawnEventCount: z.number().int().min(0).max(200),
     session: privilegeSessionSchema,
   }),
 })

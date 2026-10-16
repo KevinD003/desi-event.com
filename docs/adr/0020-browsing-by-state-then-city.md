@@ -73,6 +73,25 @@ state or province (`Venue.region`) and country, and the event its languages.
    clears every field.
 6. **Cards say "City, ST".** The event summary carries `region` and `country`,
    and a card reads "Lamplight Expo Hall · Edison, NJ".
+7. **Venues store codes** (review of 2026-10-16, answering the open question
+   below). A venue's `region` is written as its subdivision code wherever one
+   can be told (`venueRegionCode`: a US or Canadian name in any case, spacing
+   or accents, or a typed code of one to three letters or digits, in
+   capitals) and its `country` in capitals (`countrySchema`), on venue create
+   and update and on import. Any other region is kept as typed. Migration
+   `20261016140000_venue_region_codes` rewrites the venues written before. The
+   facets count the country in capitals too, and leave out of `regions` any
+   region that is still no code (`isFilterableRegion`), so the State/Province
+   select never offers an option that filters nothing; such a venue's city is
+   still in `cities` and its events still list. `country` is matched in any
+   case.
+8. **A shared link keeps its filters when only the facets fail.** When the
+   facets fall back to the sample catalogue and the listing does not, the
+   URL's state, city and language stand and are added to the selects'
+   options, uncounted (`withChosenOptions`).
+9. **The City select names the place.** Its first option reads "Every city in
+   Ontario" (the chosen state's or province's name), or "Every city in this
+   state or province" when the facets have no name for it.
 
 ## Consequences
 
@@ -84,15 +103,13 @@ state or province (`Venue.region`) and country, and the event its languages.
   serves.
 - The URL carries a state as its whole ISO 3166-2 code (`region=US-TX`),
   because one select submits one value; the web sends the API the two halves.
-- Venue regions are not rewritten: matching and counting ignore case and
-  surrounding space, and every bundled listing already uses the code. A venue
-  whose region is a name ("Texas") is its own facet entry until somebody
-  corrects it.
+- Venue regions are rewritten to codes (decision 7). A region that is no
+  code even so (an Indian state typed by name) is not a State/Province
+  option; its events are found by city, search and the other filters.
 
 ## Open questions
 
 - "This weekend" is Friday to Sunday. If the owner means Saturday and Sunday,
   it is one line in `presetDays`.
-- Should a venue's region be normalised to its ISO code when it is written
-  (venue create/update and import), with a data migration for rows that hold
-  a name? Not done here; the filter and facets tolerate case and spacing only.
+- Answered by decision 7: a venue's region is stored as its code when it is
+  written, and a data migration rewrote the rows that held a name.

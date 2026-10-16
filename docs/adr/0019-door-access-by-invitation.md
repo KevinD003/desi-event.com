@@ -67,6 +67,32 @@ organisation "The Desi Events", which a trigger kept free of every member
    the importer's review exemption stands, and a door scanner's membership of
    the platform-held organisation is not a conflict of interest for a reviewer.
 
+6. **An invitation opens only the doors its inviter still gives.** Its
+   inviter's reach is checked when it is issued and again, from the database,
+   when it is accepted: the inviter's membership row is held `FOR SHARE`, and
+   an event is applied only while the inviter still holds `team:role_manage`
+   there, or `platform:admin` on its own `User` row, or a door scope on that
+   event. A manager whose scope on an event was taken away, or who was
+   removed, between the two gives that door no more. The acceptance says how
+   many named events were dropped (`withdrawnEventCount`), and its audit row
+   lists them (`withdrawnEventIds`).
+7. **A moved event takes no door scope with it.** Moving an imported event to
+   an organiser (`reassignImportedEvent`) deletes, in the same transaction and
+   before the move, the platform-held scanners' scopes on it and its
+   invitations' scopes (counted in `event.import_reassigned` as
+   `scannerScopesRemoved` and `invitationScopesRemoved`): they stay the
+   platform-held organisation's, and the new organiser gives its own door
+   access. Migration `20261016150000_event_move_leaves_no_door_scope` deletes
+   any such scope already left behind, and its trigger
+   `desi_event_move_leaves_no_door_scope` refuses to change an event's
+   `organizationId` while a door scope of another organisation names it. So
+   rescoping such a scanner and reissuing such an invitation work again.
+8. **The invite form offers the soonest doors.** It reads its own list, the
+   hundred events that start soonest from 31 days back
+   (`listUpcomingOrganizationEvents`), so an organisation with hundreds of
+   events to come — The Desi Events holds over three hundred — is offered
+   tonight's door, and says how many that start later are not listed.
+
 ## Consequences
 
 - The probes in `packages/db/scripts/event-control-probes.mjs` and the
