@@ -53,12 +53,18 @@ vi.mock('../../../lib/workspace-api.js', async () => {
     ...actual,
     getTeam: vi.fn(),
     listOrganizationEvents: vi.fn(),
+    listUpcomingOrganizationEvents: vi.fn(),
     getPlatformHeldOrganization: vi.fn(),
   }
 })
 
-const { getPlatformHeldOrganization, getTeam, listOrganizationEvents } =
-  await import('../../../lib/workspace-api.js')
+const {
+  getPlatformHeldOrganization,
+  getTeam,
+  listOrganizationEvents,
+  listUpcomingOrganizationEvents,
+} = await import('../../../lib/workspace-api.js')
+const { laterEventsSentence } = await import('./invite-form.jsx')
 const {
   HEIR_SENTENCE,
   INVITE_DELIVERY_SENTENCES,
@@ -221,10 +227,11 @@ function team(emailVisibility, overrides = {}) {
  * @param {object} [options.as] The session.
  * @param {object|Error} options.answer The team payload, or an error to throw.
  * @param {object} [options.events] The events payload.
+ * @param {object} [options.upcoming] The invite form's soonest-first events payload; the same as `events` unless given.
  * @param {object} [options.query] The query string.
  * @returns {Promise<object>} The render result.
  */
-async function renderPage({ as = admin(), answer, events, query = {} }) {
+async function renderPage({ as = admin(), answer, events, upcoming = events, query = {} }) {
   readSession.mockResolvedValue(as)
 
   if (answer instanceof Error) getTeam.mockRejectedValue(answer)
@@ -232,6 +239,10 @@ async function renderPage({ as = admin(), answer, events, query = {} }) {
 
   if (events instanceof Error) listOrganizationEvents.mockRejectedValue(events)
   else listOrganizationEvents.mockResolvedValue(events ?? { events: [], pagination: null })
+
+  if (upcoming instanceof Error) listUpcomingOrganizationEvents.mockRejectedValue(upcoming)
+  else
+    listUpcomingOrganizationEvents.mockResolvedValue(upcoming ?? { events: [], pagination: null })
 
   return render(await TeamPage({ searchParams: Promise.resolve(query) }))
 }
@@ -249,6 +260,7 @@ function refused(fields) {
 beforeEach(() => {
   getTeam.mockReset()
   listOrganizationEvents.mockReset()
+  listUpcomingOrganizationEvents.mockReset()
 })
 
 describe('addresses are drawn exactly as the server decided', () => {
@@ -827,6 +839,78 @@ describe('door scopes', () => {
         'Only the 1 latest-starting of this organisation’s 240 events are listed; the 239 that start earliest are left out.',
       ),
     ).toBeInTheDocument()
+  })
+
+  it('offers the soonest events in the invite form when more are to come than one page holds', async () => {
+    const user = userEvent.setup()
+    // 319 events to come, as The Desi Events holds: the member picker's list
+    // is the hundred that start latest, the invite form's the hundred that
+    // start soonest, tonight's included.
+    const day = (index) => new Date(Date.UTC(2099, 0, 1) + index * 86_400_000).toISOString()
+    const future = Array.from({ length: 319 }, (_, index) => ({
+      id: `e${String(index).padStart(3, '0')}`,
+      title: `Night ${index}`,
+      status: 'ON_SALE',
+      startsAt: day(index),
+      endsAt: day(index + 0.2),
+      timezone: 'America/Toronto',
+    }))
+    const page = (rows) => ({
+      events: rows,
+      pagination: { page: 1, perPage: 100, total: 319, totalPages: 4, hasNextPage: true },
+    })
+
+    await renderPage({
+      answer: team('HIDDEN'),
+      events: page(future.slice(-100)),
+      upcoming: page(future.slice(0, 100)),
+    })
+
+    expect(listUpcomingOrganizationEvents).toHaveBeenCalledWith(ORG)
+
+    const invite = within(screen.getByRole('form', { name: 'Invite somebody' }))
+
+    await user.selectOptions(invite.getByLabelText(/Role/u), 'SCANNER')
+    expect(invite.getByRole('checkbox', { name: /^Night 0\b/u })).toBeInTheDocument()
+    expect(invite.getByRole('checkbox', { name: /^Night 99\b/u })).toBeInTheDocument()
+    expect(invite.queryByRole('checkbox', { name: /^Night 100\b/u })).toBeNull()
+    expect(invite.queryByRole('checkbox', { name: /^Night 318\b/u })).toBeNull()
+    expect(invite.getAllByRole('checkbox')).toHaveLength(100)
+
+    // And it says how many start later than the last one listed.
+    const note = invite.getByText(laterEventsSentence(219))
+
+    expect(note).toBeInTheDocument()
+    expect(
+      invite.getByRole('group', { name: 'Which events they may admit people to' }),
+    ).toHaveAttribute('aria-describedby', expect.stringContaining(note.id))
+  })
+
+  it('says nothing is left out when every event to come fits', async () => {
+    const user = userEvent.setup()
+
+    await renderPage({
+      answer: team('HIDDEN'),
+      events: {
+        events: [
+          {
+            id: 'e1',
+            title: 'Garba Night',
+            status: 'ON_SALE',
+            startsAt: '2099-10-11T14:00:00.000Z',
+            endsAt: '2099-10-11T18:00:00.000Z',
+            timezone: 'Asia/Kolkata',
+          },
+        ],
+        pagination: { page: 1, perPage: 100, total: 1, totalPages: 1, hasNextPage: false },
+      },
+    })
+
+    const invite = within(screen.getByRole('form', { name: 'Invite somebody' }))
+
+    await user.selectOptions(invite.getByLabelText(/Role/u), 'SCANNER')
+    expect(invite.getByRole('checkbox', { name: /Garba Night/u })).toBeInTheDocument()
+    expect(invite.queryByText(/are not listed|is not listed/u)).toBeNull()
   })
 
   it('shows a scope as a count when the events could not be read', async () => {

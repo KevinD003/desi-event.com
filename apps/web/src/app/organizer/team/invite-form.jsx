@@ -58,8 +58,21 @@ import {
  * @property {string[]} assignableRoles The roles the API says this caller may grant.
  * @property {'MANUAL'|'EMAIL'|null} [deliveryMode] How codes go out here, as the session says.
  * @property {Array<{id: string, title: string, when?: string|null}>|null} [events] The events a door role may be invited for, or null when they could not be read.
+ * @property {number|null} [laterEventCount] How many events start after the last one listed, when the list could not hold them all.
  * @property {boolean} [limitedToOwnScope] Whether the events are only the ones this caller is scoped to (a manager).
  */
+
+/**
+ * What the form says under its events when more start later than it lists.
+ *
+ * @param {number} count How many are left out.
+ * @returns {string} The sentence.
+ */
+export function laterEventsSentence(count) {
+  return count === 1
+    ? 'One event that starts after the last one here is not listed: this list holds the hundred events that start soonest.'
+    : `${count} events that start after the last one here are not listed: this list holds the hundred events that start soonest.`
+}
 
 /**
  * The invite form.
@@ -72,6 +85,7 @@ export function InviteForm({
   assignableRoles,
   deliveryMode = null,
   events = null,
+  laterEventCount = null,
   limitedToOwnScope = false,
 }) {
   const router = useRouter()
@@ -266,7 +280,12 @@ export function InviteForm({
       </div>
 
       {scoped && events ? (
-        <fieldset className="mt-4" aria-describedby={`${id}-events-note`}>
+        <fieldset
+          className="mt-4"
+          aria-describedby={
+            laterEventCount > 0 ? `${id}-events-note ${id}-events-later` : `${id}-events-note`
+          }
+        >
           <legend className="text-sm font-medium text-ink">
             Which events they may admit people to
           </legend>
@@ -303,6 +322,11 @@ export function InviteForm({
               ))}
             </ul>
           )}
+          {laterEventCount > 0 ? (
+            <p id={`${id}-events-later`} className="mt-2 text-sm text-ink-muted">
+              {laterEventsSentence(laterEventCount)}
+            </p>
+          ) : null}
         </fieldset>
       ) : null}
 

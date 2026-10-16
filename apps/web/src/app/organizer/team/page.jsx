@@ -88,6 +88,7 @@ import {
   getPlatformHeldOrganization,
   getTeam,
   listOrganizationEvents,
+  listUpcomingOrganizationEvents,
 } from '../../../lib/workspace-api.js'
 import { InviteForm } from './invite-form.jsx'
 import { InvitationActions, MemberActions, TransferOwnership } from './member-actions.jsx'
@@ -328,9 +329,12 @@ export default async function TeamPage({ searchParams }) {
   const organizationId = selected.organizationId
   const isPlatformHeld = selected.platformHeld === true
 
-  const [team, eventList] = await Promise.all([
+  const [team, eventList, upcomingList] = await Promise.all([
     attempt(() => getTeam(organizationId)),
     attempt(() => listOrganizationEvents(organizationId)),
+    // The invite form's own list, soonest first, so tonight's door is among
+    // the hundred it offers however many events are still to come.
+    attempt(() => listUpcomingOrganizationEvents(organizationId)),
   ])
 
   // Asked in this organisation, never unscoped: holding a capability in one
@@ -412,8 +416,8 @@ export default async function TeamPage({ searchParams }) {
   const ownScope = new Set(
     (data?.members ?? []).find((member) => member.self)?.scopedEventIds ?? [],
   )
-  const doorEvents = events
-    ? upcomingDoorEvents(eventList.value.events, now)
+  const doorEvents = upcomingList.value
+    ? upcomingDoorEvents(upcomingList.value.events, now)
         .filter((event) => !limitedToOwnScope || ownScope.has(event.id))
         .map((event) => ({
           id: event.id,
@@ -421,6 +425,13 @@ export default async function TeamPage({ searchParams }) {
           when: formatEventDate(event.startsAt, event.timezone ?? 'Asia/Kolkata'),
         }))
     : null
+  // How many events start later than the last one the invite form lists,
+  // when its one page could not hold them all.
+  const upcomingPagination = upcomingList.value?.pagination ?? null
+  const laterEventCount =
+    upcomingPagination?.hasNextPage && Number.isInteger(upcomingPagination.total)
+      ? Math.max(upcomingPagination.total - upcomingList.value.events.length, 0)
+      : null
 
   return (
     <div>
@@ -615,6 +626,7 @@ export default async function TeamPage({ searchParams }) {
                 assignableRoles={assignable}
                 deliveryMode={deliveryMode}
                 events={doorEvents}
+                laterEventCount={laterEventCount}
                 limitedToOwnScope={limitedToOwnScope}
               />
             </section>
