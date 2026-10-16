@@ -294,10 +294,29 @@ page sideways. That is the `ScrollableTable` component, and it is why the
 
 ## Reduced motion
 
-`prefers-reduced-motion: reduce` removes transitions. It does **not** remove
-content: a case asserts that nothing animated is left permanently invisible,
-because the usual mistake is an entry animation whose end state is the visible
-one and whose start state is `opacity: 0`.
+`prefers-reduced-motion: reduce` removes transitions, animations and view
+transitions. It does **not** remove content: a case asserts that nothing
+animated is left permanently invisible, because the usual mistake is an entry
+animation whose end state is the visible one and whose start state is
+`opacity: 0`.
+
+Since the Poster House+ redesign the mistake is designed out rather than only
+caught. Entrances are drawn by CSS inside `prefers-reduced-motion:
+no-preference` (`data-motion="enter"`), so the server never inlines `opacity:
+0` and the hero heading paints before hydration. Reveals on scroll are visible
+as sent and are held back only after hydration, only below the fold, and never
+under reduced motion, without an IntersectionObserver, without scripting or in
+print; with motion allowed the home page is no longer blank below the hero in a
+full-page capture. The motion grammar, the tokens and the guards are in
+`docs/DESIGN.md` section 5.
+
+## Focus
+
+One focus indicator everywhere: a 2px outline in the focus colour, offset 2px.
+It survives Windows' forced-colours mode, which removes the box-shadow rings
+the app's link and button kits used to draw. The seat on the seat map is the
+one exception, drawn as a ring on purpose and pinned by the sweep;
+`apps/web/src/focus-outline.test.js` fails on any other ring.
 
 ---
 

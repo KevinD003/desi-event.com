@@ -12,11 +12,17 @@ serves, each file derived from one kit file and sized for where it is drawn.
   and a concert crowd.
 - **Tagline:** "EVERY MOMENT, ONE PLACE." The site writes it in sentence case,
   "Every moment, one place.", where it is text (`lib/brand.js`).
-- **Colours (approximate, from the kit's README):** Gold `#D4A529`, Magenta
-  `#B0004A`, Royal Purple `#32105E`, Celebration Orange `#F47A1F`, White
-  `#FFFFFF`. These describe the artwork. They are not the site's colour tokens,
-  which this change did not touch; the interface is still drawn only in the
-  semantic tokens of `packages/config/src/tailwind.css`.
+- **Colours (from the kit's README):** Gold `#D4A529`, Magenta `#B0004A`,
+  Royal Purple `#32105E`, Celebration Orange `#F47A1F`, White `#FFFFFF`. Since
+  the Poster House+ redesign these **are** the anchors of the site's colour
+  tokens: each is declared, converted to oklch, as the named step of a ramp in
+  `packages/config/src/tailwind.css` (`brand-magenta-600`, `brand-purple-900`,
+  `brand-gold-500`, `brand-orange-500`), and the semantic tokens are built
+  around them — the purple plate is the kit purple exactly, the primary action
+  is the kit magenta, the foil is the gold, "tonight" is the orange, and the
+  page is white. `token-contrast.test.js` pins the four anchors. Components
+  still draw only in the semantic tokens, never in the ramps; the roles are in
+  `docs/DESIGN.md`.
 
 ## What is derived from what
 
@@ -32,7 +38,7 @@ WebP files are lossy with a full-quality alpha channel (`quality: 90`,
 | ---------------------------------- | ---------- | ------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `public/brand/logo-light-1x.webp`  | 162 × 40   | 6,314   | `02_Website/header_logo_light_1200x400.png`       | Trimmed to 926 × 229, resized to 40px tall. Header (always a white surface).                                                         |
 | `public/brand/logo-light-2x.webp`  | 323 × 80   | 15,890  | same                                              | Same trim, 80px tall: the 2x copy.                                                                                                   |
-| `public/brand/logo-dark-1x.webp`   | 186 × 56   | 8,274   | `02_Website/header_logo_dark_1200x400.png`        | Trimmed to 848 × 256, resized to 56px tall. Footer (the night band).                                                                 |
+| `public/brand/logo-dark-1x.webp`   | 186 × 56   | 8,274   | `02_Website/header_logo_dark_1200x400.png`        | Trimmed to 848 × 256, resized to 56px tall. Footer (the purple plate).                                                               |
 | `public/brand/logo-dark-2x.webp`   | 371 × 112  | 22,524  | same                                              | Same trim, 112px tall: the 2x copy.                                                                                                  |
 | `public/brand/d-icon-1x.webp`      | 42 × 40    | 2,262   | `01_Master_Logos/official_D_icon_transparent.png` | Trimmed to 1007 × 956, resized to 40px tall. The decorative D on the sign-in and register card.                                      |
 | `public/brand/d-icon-2x.webp`      | 84 × 80    | 5,488   | same                                              | Same trim, 80px tall: the 2x copy.                                                                                                   |
@@ -59,7 +65,7 @@ the words drawn in it.
   (`fetchpriority="high"`), drawn 40px tall from 640px and smaller on a phone so
   the row stays one 64px line; the module comment records the measurements.
 - **Footer** (`components/site-footer.jsx`): the dark logo, 56px tall, on the
-  night band.
+  purple plate.
 - **Sign-in and register card** (`components/auth-frame.jsx`): the D alone,
   40px tall, `alt=""` — the header's logo link already names the brand.
 - **Icons**: `favicon.ico`, `icon.png` and `apple-icon.png` in `src/app/` are

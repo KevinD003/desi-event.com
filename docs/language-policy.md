@@ -39,23 +39,26 @@ source we write, not the internals of packages we install.
 
 ## 3. Language of each surface
 
-| Surface            | Technology                                |
-| ------------------ | ----------------------------------------- |
-| Backend runtime    | Node.js                                   |
-| Backend framework  | Fastify                                   |
-| Frontend           | React with Next.js App Router, JSX        |
-| Mobile (Phase 3)   | React Native with Expo, JSX               |
-| Database           | PostgreSQL                                |
-| ORM                | Prisma                                    |
-| Cache and queues   | Redis with BullMQ                         |
-| Package manager    | pnpm                                      |
-| Monorepo           | Turborepo                                 |
-| Styling            | Tailwind CSS                              |
-| Animation          | Framer Motion                             |
-| Validation         | Zod                                       |
-| Testing            | Vitest, React Testing Library, Playwright |
-| API style          | REST described by OpenAPI                 |
-| Deployment runtime | Node.js                                   |
+| Surface            | Technology                                                     |
+| ------------------ | -------------------------------------------------------------- |
+| Backend runtime    | Node.js                                                        |
+| Backend framework  | Fastify                                                        |
+| Frontend           | React with Next.js App Router, JSX                             |
+| Mobile (Phase 3)   | React Native with Expo, JSX                                    |
+| Database           | PostgreSQL                                                     |
+| ORM                | Prisma                                                         |
+| Cache and queues   | Redis with BullMQ                                              |
+| Package manager    | pnpm                                                           |
+| Monorepo           | Turborepo                                                      |
+| Styling            | Tailwind CSS                                                   |
+| Class merging      | tailwind-merge (behind `cn` in `@desi-event/ui`)               |
+| UI primitives      | Base UI (`@base-ui/react`) and Sonner, behind `@desi-event/ui` |
+| Fonts              | Fontsource packages, self-hosted (Anek Latin, Mukta)           |
+| Animation          | Framer Motion                                                  |
+| Validation         | Zod                                                            |
+| Testing            | Vitest, React Testing Library, Playwright                      |
+| API style          | REST described by OpenAPI                                      |
+| Deployment runtime | Node.js                                                        |
 
 The supported Node.js version is pinned in `.nvmrc` and in the `engines` field
 of the root `package.json`. `.npmrc` sets `engine-strict=true`, so an
