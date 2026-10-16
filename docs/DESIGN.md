@@ -194,6 +194,9 @@ separate bounds.
   inside `prefers-reduced-motion: no-preference`. Nothing is inlined by the
   server, so the hero heading (the LCP text) paints with the first frame.
   Delays come in 40ms steps (`data-motion-delay`), never as inline styles.
+  Once its time has passed an entrance is marked `data-motion-done` and its
+  animation is taken off, so one that sat inside something hidden is at rest
+  when shown.
 - **Reveals never leave a blank band.** `Reveal` is visible as sent; only
   after hydration, and only when below the fold, does it hold itself 12px low
   and transparent until an IntersectionObserver (threshold 0) sees it.
