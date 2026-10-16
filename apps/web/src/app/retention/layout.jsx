@@ -28,6 +28,7 @@
  * @module app/retention/layout
  */
 
+import { PublicShell } from '../../components/public-shell.jsx'
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
 
@@ -49,7 +50,13 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function RetentionLayout({ children }) {
   const { session, admitted } = await enterArea('retention')
 
-  if (!admitted) return <AreaRefusal area="retention" />
+  if (!admitted) {
+    return (
+      <PublicShell>
+        <AreaRefusal area="retention" />
+      </PublicShell>
+    )
+  }
 
   return (
     <WorkspaceShell session={session} area="retention">

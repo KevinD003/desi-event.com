@@ -32,6 +32,7 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Icon } from '@desi-event/ui/icons'
 
 import { initialOf } from '../lib/initial.js'
 import { registerHref, signInHref } from '../lib/next-path.js'
@@ -125,7 +126,14 @@ export function SignUpLink() {
  * @property {string} displayName Who is signed in.
  * @property {Array<{href: string, label: string}>} items The account's own pages.
  * @property {string|null} workspaceHref Where the workspace begins, when there is one.
+ * @property {'light'|'inverse'} [tone] The ground it sits on: the white public header (the default) or the workspace's purple bar.
  */
+
+/** The trigger's colours on each ground it is drawn on. */
+const TRIGGER_TONES = Object.freeze({
+  light: 'border-ink bg-surface text-ink hover:bg-surface-subtle',
+  inverse: 'border-ink-inverse/40 bg-transparent text-ink-inverse hover:bg-ink-inverse/10',
+})
 
 /** Classes for an entry in the open menu. */
 const ENTRY =
@@ -137,7 +145,7 @@ const ENTRY =
  * @param {AccountMenuProps} props Component props.
  * @returns {JSX.Element} The control.
  */
-export function AccountMenu({ displayName, items, workspaceHref }) {
+export function AccountMenu({ displayName, items, workspaceHref, tone = 'light' }) {
   const [open, setOpen] = useState(false)
   const triggerRef = useRef(null)
   const panelRef = useRef(null)
@@ -196,32 +204,31 @@ export function AccountMenu({ displayName, items, workspaceHref }) {
         aria-controls={panelId}
         aria-label={`${displayName}, account`}
         onClick={() => (open ? close() : setOpen(true))}
-        className="inline-flex min-h-11 max-w-[9rem] items-center gap-2 rounded-control border-[1.5px] border-ink bg-surface px-3 text-sm font-bold text-ink transition duration-(--duration-fast) ease-standard hover:bg-surface-subtle sm:max-w-[14rem] sm:px-4"
+        className={`inline-flex min-h-11 max-w-[9rem] items-center gap-2 rounded-control border-[1.5px] px-2.5 text-sm font-bold transition duration-(--duration-fast) ease-standard sm:max-w-[14rem] sm:px-4 ${TRIGGER_TONES[tone] ?? TRIGGER_TONES.light}`}
       >
         <span
           aria-hidden="true"
-          className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-sm font-bold text-accent-strong sm:flex"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-sm font-bold text-accent-strong"
         >
           {initialOf(displayName)}
         </span>
-        <span className="truncate">{displayName}</span>
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 20 20"
-          className="h-4 w-4 shrink-0"
-          fill="currentColor"
-        >
-          <path d="M5.3 7.3a1 1 0 0 1 1.4 0L10 10.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4Z" />
-        </svg>
+        {/* A phone shows the initial alone, so the logo, this and Menu (or the
+            workspace's area name) share one line at 320px; the button's name
+            still says who, in words. */}
+        <span className="truncate max-sm:sr-only">{displayName}</span>
+        <Icon
+          name="chevron-down"
+          className={`h-4 w-4 transition-transform duration-(--duration-base) ease-out ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {open ? (
         <div
           id={panelId}
           ref={panelRef}
-          className="absolute right-0 z-50 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-card border border-line bg-surface-raised p-2 shadow-dialog"
+          className="absolute right-0 z-50 mt-2 w-64 max-w-[calc(100vw-2rem)] origin-top-right rounded-card border border-line bg-surface-raised p-2 text-ink shadow-floating transition-[opacity,scale] duration-(--duration-base) ease-out starting:scale-95 starting:opacity-0"
         >
-          <p className="px-3 pt-1.5 pb-2 text-xs text-ink-subtle">
+          <p className="px-3 pt-1.5 pb-2 text-caption text-ink-subtle">
             Signed in as <span className="font-bold text-ink">{displayName}</span>
           </p>
           <nav aria-label="Account">

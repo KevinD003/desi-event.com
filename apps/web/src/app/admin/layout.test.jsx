@@ -29,6 +29,12 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(''),
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
 }))
+// The refusal is drawn in the public shell, whose header asks the API who is
+// signed in; here it is a marked box, so what is asserted is that the refusal
+// sits inside it and the workspace shell is not drawn at all.
+vi.mock('../../components/public-shell.jsx', () => ({
+  PublicShell: ({ children }) => <div data-testid="public-shell">{children}</div>,
+}))
 vi.mock('next/headers', () => ({
   headers: async () => new Headers({ 'x-desi-request-path': '/admin/users' }),
   cookies: async () => ({ getAll: () => [] }),
@@ -64,21 +70,45 @@ async function renderShell(value) {
 }
 
 describe('who the administration shell admits', () => {
-  it('admits a super administrator, and offers both sections as tabs', async () => {
+  it('admits a platform administrator, with both sections in the rail and no second row of tabs', async () => {
     await renderShell(
       session({
-        user: { displayName: 'Root', role: 'SUPER_ADMIN' },
+        user: { displayName: 'Root', role: 'ADMIN' },
         capabilities: ['platform:admin', 'organizer:invite', 'moderation:review'],
       }),
     )
 
     expect(screen.getByText('inside')).toBeInTheDocument()
 
-    const tabs = screen.getByRole('navigation', { name: 'Platform administration' })
+    const rail = screen.getByRole('navigation', { name: 'Workspace' })
+    const hrefs = Array.from(rail.querySelectorAll('a')).map((link) => link.getAttribute('href'))
 
-    expect(Array.from(tabs.querySelectorAll('a')).map((link) => link.getAttribute('href'))).toEqual(
-      ['/admin/organizer-invitations', '/admin/users'],
+    expect(hrefs).toContain('/admin/organizer-invitations')
+    expect(hrefs).toContain('/admin/users')
+    // One navigation system: the rail already lists every section, so the
+    // area draws no tabs repeating it.
+    expect(
+      screen.queryByRole('navigation', { name: 'Platform administration' }),
+    ).not.toBeInTheDocument()
+    // Its reach is said in the bar, and the public shell is not drawn.
+    expect(screen.getByText('Platform administrator', { selector: 'span' })).toBeInTheDocument()
+    expect(screen.queryByTestId('public-shell')).not.toBeInTheDocument()
+  })
+
+  it('marks a super administrator in gold, as the one role that changes platform roles', async () => {
+    await renderShell(
+      session({
+        user: { displayName: 'Root', role: 'SUPER_ADMIN' },
+        capabilities: ['platform:admin', 'platform:role_manage', 'organizer:invite'],
+      }),
     )
+
+    const marker = screen.getByText('Super administrator', { selector: 'span' }).parentElement
+
+    expect(marker.getAttribute('data-authority')).toBe('super')
+    expect(marker.className).toContain('bg-highlight')
+    expect(marker.className).toContain('text-highlight-ink')
+    expect(screen.queryByText('Platform administrator', { selector: 'span' })).toBeNull()
   })
 
   it('admits a platform administrator, and offers organiser invitations alone', async () => {
@@ -111,8 +141,11 @@ describe('who the administration shell admits', () => {
       }),
     )
 
-    expect(screen.getByRole('heading', { name: 'Not for you' })).toBeInTheDocument()
+    expect(screen.getByTestId('public-shell')).toContainElement(
+      screen.getByRole('heading', { name: 'Not for you' }),
+    )
     expect(screen.queryByText('inside')).not.toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Workspace' })).not.toBeInTheDocument()
     expect(
       screen.getByText(
         'This area is for the platform administrators at The Desi Events: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',

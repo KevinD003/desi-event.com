@@ -49,6 +49,23 @@ describe('PageHeader', () => {
     expect(screen.getByRole('link', { name: 'Download' })).toBeTruthy()
   })
 
+  it('keeps the title and its actions in view in the workspace, and nowhere else', () => {
+    render(<PageHeader title="Your events" actions={<a href="/new">Create an event</a>} />)
+
+    const row = screen.getByRole('heading', { level: 1 }).closest('[data-slot="page-header-row"]')
+
+    // Sticky under the workspace's bar from lg, on the page's own ground; the
+    // attendee's pages are not marked `workspace`, so nothing sticks there.
+    expect(row.className).toContain('lg:in-data-[page-content=workspace]:sticky')
+    expect(row.className).toContain('lg:in-data-[page-content=workspace]:top-(--chrome-top)')
+    expect(row.className).toContain('lg:in-data-[page-content=workspace]:bg-page')
+    expect(row.className).not.toMatch(/(^|\s)sticky(\s|$)/u)
+    expect(row).toContainElement(screen.getByRole('link', { name: 'Create an event' }))
+    // The block itself is `display: contents`, so the row sticks within the page.
+    expect(row.parentElement.getAttribute('data-slot')).toBe('page-header')
+    expect(row.parentElement.className).toBe('contents')
+  })
+
   it('draws no eyebrow and no empty description when none is given', () => {
     const { container } = render(<PageHeader title="Your account" />)
 

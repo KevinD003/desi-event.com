@@ -25,7 +25,6 @@ import {
   regionValue,
   withChosenOptions,
 } from '../../lib/search-params.js'
-import { MirrorDivider } from '../../components/festive-decor.jsx'
 import { ArrowLeftIcon, ArrowRightIcon, InfoIcon, SearchIcon } from '../../components/icons.jsx'
 import { PRIMARY_LINK_SMALL, SECONDARY_LINK } from '../../components/link-classes.js'
 import { EventFilters } from '../../components/listing-filters.jsx'
@@ -288,7 +287,6 @@ export default async function EventsPage({ searchParams }) {
 
         {pagination.totalPages > 1 ? (
           <>
-            <MirrorDivider className="mt-14" />
             <nav
               aria-label="Listing pages"
               className="mt-8 flex items-center justify-between gap-4 sm:justify-center sm:gap-8"

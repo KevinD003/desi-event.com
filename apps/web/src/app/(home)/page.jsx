@@ -27,20 +27,13 @@
  * toran's bulbs twinkle three times and stop, and the sections below rise into
  * view as they are scrolled to. Under reduced motion all of it is simply there.
  *
- * @module app/page
+ * @module app/home/page
  */
 
 import Link from 'next/link'
 import { Fragment } from 'react'
 
-import { CategoryGrid } from '../components/category-grid.jsx'
-import {
-  Diamond,
-  GarbaRings,
-  MirrorDivider,
-  ScallopHem,
-  Toran,
-} from '../components/festive-decor.jsx'
+import { CategoryGrid } from '../../components/category-grid.jsx'
 import {
   ArrowRightIcon,
   CalendarIcon,
@@ -48,32 +41,32 @@ import {
   SearchIcon,
   ShieldIcon,
   TicketIcon,
-} from '../components/icons.jsx'
+} from '../../components/icons.jsx'
 import {
   INVERSE_TEXT_LINK,
   PRIMARY_LINK,
   SECONDARY_LINK,
   TEXT_LINK,
-} from '../components/link-classes.js'
-import { EventGrid } from '../components/listing-card.jsx'
-import { FadeIn, Reveal, Stagger, StaggerItem } from '../components/motion.jsx'
-import { EventArt } from '../components/event-art.jsx'
-import { JsonLd } from '../components/json-ld.jsx'
-import { SampleDataNotice } from '../components/sample-data-notice.jsx'
-import { TrafficScope } from '../components/traffic-scope.jsx'
-import { Input, Select } from '../components/ui.jsx'
-import { loadCatalogueFacets, loadCatalogueOverview } from '../lib/api.js'
-import { describeCategories } from '../lib/catalog.js'
-import { organizationJsonLd } from '../lib/contact.js'
-import { formatEventStart, toDateTimeAttribute } from '../lib/format.js'
+} from '../../components/link-classes.js'
+import { EventGrid } from '../../components/listing-card.jsx'
+import { FadeIn, Reveal, Stagger, StaggerItem } from '../../components/motion.jsx'
+import { EventArt } from '../../components/event-art.jsx'
+import { JsonLd } from '../../components/json-ld.jsx'
+import { SampleDataNotice } from '../../components/sample-data-notice.jsx'
+import { TrafficScope } from '../../components/traffic-scope.jsx'
+import { Input, Select } from '../../components/ui.jsx'
+import { loadCatalogueFacets, loadCatalogueOverview } from '../../lib/api.js'
+import { describeCategories } from '../../lib/catalog.js'
+import { organizationJsonLd } from '../../lib/contact.js'
+import { formatEventStart, toDateTimeAttribute } from '../../lib/format.js'
 import {
   calendarLeaf,
   groupCitiesByZone,
   notYetOver,
   organisersWithNext,
-} from '../lib/home-sections.js'
-import { buildEventsHref } from '../lib/search-params.js'
-import { trafficAttributes } from '../lib/traffic-client.js'
+} from '../../lib/home-sections.js'
+import { buildEventsHref } from '../../lib/search-params.js'
+import { trafficAttributes } from '../../lib/traffic-client.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -114,7 +107,7 @@ const STEPS = Object.freeze([
   },
   {
     title: 'Pay (simulated)',
-    lead: 'Payments on this site are simulated — no card, no money moves.',
+    lead: 'Payments on this site are simulated. No card is charged and no money moves.',
     body: 'Your tickets then appear in My tickets.',
     Icon: ShieldIcon,
   },
@@ -305,16 +298,10 @@ function Hero({ cities, listed, lead, counted = false }) {
       aria-labelledby="hero-heading"
       className="relative isolate overflow-hidden bg-surface-inverse text-ink-inverse"
     >
-      <Toran />
-      {lead ? (
-        <GarbaRings className="absolute top-1/2 right-[-14rem] hidden h-[50rem] w-[50rem] -translate-y-[45%] lg:block xl:right-[-8rem]" />
-      ) : null}
-
       <div className="relative mx-auto grid max-w-bleed grid-cols-1 items-center gap-12 px-4 pt-20 pb-20 sm:px-6 sm:pt-24 lg:grid-cols-[minmax(0,38rem)_minmax(0,1fr)] lg:gap-16 lg:px-10 lg:pt-28 lg:pb-24 xl:px-16">
         <div>
           <FadeIn>
             <p className="mb-5 flex items-center gap-2.5 text-micro font-bold tracking-eyebrow text-accent-inverse uppercase">
-              <Diamond />
               Garba &amp; dandiya nights · across the USA and Canada
             </p>
           </FadeIn>
@@ -347,8 +334,6 @@ function Hero({ cities, listed, lead, counted = false }) {
           </FadeIn>
         ) : null}
       </div>
-
-      <ScallopHem />
     </section>
   )
 }
@@ -465,7 +450,6 @@ export default async function HomePage() {
           aria-labelledby="cities-heading"
           className="mx-auto max-w-content px-4 pb-16 sm:px-6"
         >
-          <MirrorDivider className="mb-12" />
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-14">
             <Reveal>
               <p className={`mb-2 ${EYEBROW}`}>Browse by city</p>
@@ -486,7 +470,6 @@ export default async function HomePage() {
                   className="grid grid-cols-1 gap-3 sm:grid-cols-[7rem_minmax(0,1fr)] sm:items-center sm:gap-4"
                 >
                   <p className="flex items-center gap-2">
-                    <Diamond className="h-2.5 w-2.5 fill-accent" />
                     <span className="flex flex-col">
                       <span className="text-sm font-bold text-ink">{group.name}</span>
                       {group.short ? (
@@ -612,10 +595,8 @@ export default async function HomePage() {
         className="mx-auto max-w-content px-4 pt-16 pb-6 sm:px-6"
       >
         <Reveal className="relative isolate grid grid-cols-1 items-center gap-10 overflow-hidden rounded-[1.75rem] bg-surface-inverse px-6 py-12 text-ink-inverse sm:px-10 lg:grid-cols-[minmax(0,1fr)_26rem] lg:gap-14 lg:px-16 lg:py-14">
-          <GarbaRings className="pointer-events-none absolute -top-72 -left-80 -z-10 h-[36rem] w-[36rem] opacity-60" />
           <div>
             <p className="mb-4 flex items-center gap-2.5 text-micro font-bold tracking-eyebrow text-accent-inverse uppercase">
-              <Diamond />
               For organisers
             </p>
             <h2 id="organisers-heading" className="text-h1 font-semibold text-ink-inverse">

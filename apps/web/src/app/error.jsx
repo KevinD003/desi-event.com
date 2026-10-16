@@ -9,12 +9,19 @@
  * that should not be rendered to the public. The detail goes to the console,
  * where a developer can find it.
  *
+ * It replaces everything below the root layout, the area's own shell
+ * included, so it draws a header and footer of its own (`bare-chrome.jsx`):
+ * the page still has its banner, its `main` (the skip link's target) and its
+ * `contentinfo`, and a way home.
+ *
  * @module app/error
  */
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { Diamond, ScallopHem, Toran } from '../components/festive-decor.jsx'
+import { Icon } from '@desi-event/ui/icons'
+
+import { BareFooter, BareHeader } from '../components/bare-chrome.jsx'
 import { OUTLINE_LINK } from '../components/link-classes.js'
 import { Button } from '../components/ui.jsx'
 
@@ -36,33 +43,27 @@ export default function RouteError({ error, reset }) {
   }, [error])
 
   return (
-    <div>
-      <section className="relative isolate overflow-hidden bg-surface-inverse text-ink-inverse">
-        <Toran />
-        <div className="relative mx-auto max-w-2xl px-4 pt-24 pb-20 text-center sm:px-6">
-          <p className="flex items-center justify-center gap-2.5 text-micro font-bold tracking-eyebrow text-accent-inverse uppercase">
-            <Diamond />
-            Something went wrong
-            <Diamond />
-          </p>
-          <h1 className="mt-5 text-h1 font-semibold text-ink-inverse">
-            Something went wrong at our end
-          </h1>
-          <p className="mt-4 text-body text-ink-inverse-muted">
+    <>
+      <BareHeader />
+      <main id="main-content" tabIndex={-1} className="flex flex-1 flex-col">
+        <div className="mx-auto w-full max-w-bleed px-4 py-16 sm:px-6 lg:px-10 lg:py-24">
+          <h1 className="max-w-[14ch] text-display text-ink">Something went wrong at our end</h1>
+          <p className="mt-6 max-w-[52ch] text-body text-ink-muted">
             The page could not be loaded. Nothing has been ordered and you have not been charged.
-            Try again — and if it keeps happening, the listings below are still reachable.
+            Try again. If it keeps happening, every event is still listed.
           </p>
+          <div className="mt-10 flex flex-wrap items-center gap-3">
+            <Button size="lg" onClick={reset}>
+              <Icon name="refresh" className="h-4.5 w-4.5" />
+              Try again
+            </Button>
+            <Link href="/events" className={`${OUTLINE_LINK} min-h-12 text-base`}>
+              Browse every event
+            </Link>
+          </div>
         </div>
-        <ScallopHem />
-      </section>
-      <div className="mx-auto flex max-w-2xl flex-wrap justify-center gap-3 px-4 pt-10 sm:px-6">
-        <Button size="lg" onClick={reset}>
-          Try again
-        </Button>
-        <Link href="/events" className={`${OUTLINE_LINK} min-h-12 text-base`}>
-          Browse every event
-        </Link>
-      </div>
-    </div>
+      </main>
+      <BareFooter />
+    </>
   )
 }

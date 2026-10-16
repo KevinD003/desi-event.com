@@ -34,7 +34,7 @@ describe('AuthFrame', () => {
     expect(panel).toHaveTextContent('receipts are not emailed')
     expect(panel).not.toHaveTextContent(/sends no email/i)
     expect(panel).toHaveTextContent(
-      'Payments on this site are simulated — no card, no money moves.',
+      'Payments on this site are simulated. No card is charged and no money moves.',
     )
   })
 

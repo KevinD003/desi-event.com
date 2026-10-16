@@ -496,26 +496,6 @@
    */
   --duration-sheet: 400ms;
   --duration-page: 300ms;
-
-  /*
-   * The one ambient animation: festival bulbs that twinkle three times and
-   * then stop. It is not an entrance, so it is not held to the three
-   * durations above; it is held to WCAG 2.2.2 instead — it finishes inside
-   * five seconds (3 × 1.2s) and nobody has to find a pause button. Use it as
-   * `motion-safe:animate-twinkle`; the reduced-motion rule below stops it too.
-   */
-  --animate-twinkle: twinkle 1.2s ease-in-out 3;
-
-  @keyframes twinkle {
-    0%,
-    100% {
-      opacity: 1;
-    }
-
-    50% {
-      opacity: 0.45;
-    }
-  }
 }
 
 /*

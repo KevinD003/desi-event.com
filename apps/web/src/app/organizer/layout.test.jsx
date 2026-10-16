@@ -9,6 +9,9 @@ vi.mock('next/navigation', () => ({ redirect }))
 vi.mock('../../lib/area-gate.js', () => ({ enterArea: vi.fn() }))
 vi.mock('../../lib/organizer-api.js', () => ({ getOrganizerEvent: vi.fn() }))
 vi.mock('../../lib/request-path.js', () => ({ requestPath: vi.fn() }))
+vi.mock('../../components/public-shell.jsx', () => ({
+  PublicShell: ({ children }) => <div data-testid="public-shell">{children}</div>,
+}))
 vi.mock('../../components/shells.jsx', () => ({
   AreaRefusal: ({ area }) => <p>refused {area}</p>,
   WorkspaceShell: ({ children }) => <main>{children}</main>,
@@ -66,7 +69,11 @@ describe('the organiser area’s layout', () => {
 
     render(await OrganizerLayout({ children: <p>editor</p> }))
 
-    expect(screen.getByText('refused organizer')).toBeInTheDocument()
+    // Refused in the public shell: an account the area does not admit has no
+    // workspace to be shown.
+    expect(screen.getByTestId('public-shell')).toContainElement(
+      screen.getByText('refused organizer'),
+    )
     expect(redirect).not.toHaveBeenCalled()
   })
 

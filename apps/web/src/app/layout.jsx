@@ -8,8 +8,6 @@ import './globals.css'
 
 import { MotionProvider } from '../components/motion.jsx'
 import { RegisterSync } from '../components/register-sync.jsx'
-import { SiteFooter } from '../components/site-footer.jsx'
-import { SiteHeader } from '../components/site-header.jsx'
 import { Toaster } from '../components/ui.jsx'
 import { SHARE_IMAGE } from '../lib/brand.js'
 import { registerFor } from '../lib/register.js'
@@ -84,16 +82,22 @@ export const viewport = {
  */
 
 /**
- * The application shell.
+ * The document: `<html>`, `<body>`, the skip link and the toaster.
  *
- * The skip link is first in the tab order and `main` carries `tabIndex={-1}`
- * so that following it actually moves focus rather than only scrolling — a
- * skip link that leaves focus in the header skips nothing for a keyboard user.
+ * The skip link is first in the tab order on every page. Its target, `main`
+ * with `tabIndex={-1}` so that following it actually moves focus rather than
+ * only scrolling, belongs to the shell each area's layout draws: the public
+ * shell (`components/public-shell.jsx`) for the site and the attendee's own
+ * pages, the workspace shell (`components/workspace-shell.jsx`) for the
+ * organiser and platform areas. Each draws exactly one `banner`, one `main`
+ * and one `contentinfo`; this layout draws none of them, so a working screen
+ * no longer sits inside the public header and footer.
  *
  * `data-register` puts a signed-in area in the Quiet Courtyard register (see
- * `lib/register.js`); a public page carries none and stays editorial. This
- * layout is not rendered again on a soft navigation, so {@link RegisterSync}
- * keeps the attribute in step with the route after the first paint.
+ * `lib/register.js`); a public page carries none and stays in the poster
+ * register. This layout is not rendered again on a soft navigation, so
+ * {@link RegisterSync} keeps the attribute in step with the route after the
+ * first paint.
  *
  * @param {RootLayoutProps} props Component props.
  * @returns {Promise<JSX.Element>} The rendered document.
@@ -112,11 +116,7 @@ export default async function RootLayout({ children }) {
           <a className="skip-link" href="#main-content">
             Skip to main content
           </a>
-          <SiteHeader />
-          <main id="main-content" tabIndex={-1} className="flex-1">
-            {children}
-          </main>
-          <SiteFooter />
+          {children}
           {/* Short, non-critical confirmations ("Copied"), announced politely;
               everything a reader must know stays in the page. */}
           <Toaster />

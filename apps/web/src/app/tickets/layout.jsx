@@ -12,6 +12,7 @@
  * @module app/tickets/layout
  */
 
+import { PublicShell } from '../../components/public-shell.jsx'
 import { AccountShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
 
@@ -33,5 +34,9 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function TicketsLayout({ children }) {
   const { session } = await enterArea('tickets')
 
-  return <AccountShell session={session}>{children}</AccountShell>
+  return (
+    <PublicShell>
+      <AccountShell session={session}>{children}</AccountShell>
+    </PublicShell>
+  )
 }

@@ -23,7 +23,6 @@ import { signInHref } from '../../../../../lib/next-path.js'
 import { readSession } from '../../../../../lib/session.js'
 import { loadTeamSeatMap, mayBookTeamTiers } from '../../../../../lib/team-booking.js'
 import { formatNightTime, sessionDisplayLabel } from '../../../../../lib/sessions.js'
-import { ScallopHem, Toran } from '../../../../../components/festive-decor.jsx'
 import { CalendarIcon, ClockIcon, PinIcon } from '../../../../../components/icons.jsx'
 import { FadeIn } from '../../../../../components/motion.jsx'
 import { NotFoundView } from '../../../../../components/not-found-view.jsx'
@@ -99,7 +98,6 @@ export default async function SeatPage({ params }) {
         aria-labelledby="seats-heading"
         className="relative isolate overflow-hidden bg-surface-inverse text-ink-inverse"
       >
-        <Toran />
         <div className="relative mx-auto max-w-content px-4 pt-16 pb-14 sm:px-6 md:pt-20">
           <Breadcrumbs
             tone="inverse"
@@ -143,7 +141,6 @@ export default async function SeatPage({ params }) {
             </p>
           </FadeIn>
         </div>
-        <ScallopHem />
       </section>
 
       <div className="mx-auto max-w-content px-4 pt-10 sm:px-6">

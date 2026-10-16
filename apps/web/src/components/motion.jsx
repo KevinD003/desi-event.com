@@ -51,9 +51,9 @@
  * Richness comes from order, not length. Nothing here moves for longer than
  * the theme's slowest duration (250 ms) or travels further than 12px, and
  * nothing lifts: a card does not rise on hover, its poster zooms to 1.04
- * inside its own frame ({@link HoverLift}, {@link HoverZoom}). The one
- * ambient effect, the twinkling bulbs, is CSS (`motion-safe:animate-twinkle`)
- * and stops by itself after three cycles.
+ * inside its own frame ({@link HoverLift}, {@link HoverZoom}). There is no
+ * ambient animation: the festival bulbs that used to twinkle on every hero
+ * went with the rest of the ornament (`festive-decor.jsx`).
  *
  * @module components/motion
  */

@@ -24,7 +24,6 @@ import {
   formatTimeZoneLabel,
 } from '../../../../lib/format.js'
 import { CheckoutBasket } from '../../../../components/checkout-basket.jsx'
-import { ScallopHem, Toran } from '../../../../components/festive-decor.jsx'
 import { CalendarIcon, PinIcon, TicketIcon } from '../../../../components/icons.jsx'
 import { PRIMARY_LINK_SMALL } from '../../../../components/link-classes.js'
 import { FadeIn } from '../../../../components/motion.jsx'
@@ -103,7 +102,6 @@ export default async function CheckoutPage({ params }) {
         aria-labelledby="checkout-heading"
         className="relative isolate overflow-hidden bg-surface-inverse text-ink-inverse"
       >
-        <Toran />
         <div className="relative mx-auto flex max-w-content flex-col gap-6 px-4 pt-16 pb-14 sm:px-6 md:flex-row md:items-center md:gap-8 md:pt-20">
           <FadeIn
             distance={0}
@@ -142,7 +140,6 @@ export default async function CheckoutPage({ params }) {
             </FadeIn>
           </div>
         </div>
-        <ScallopHem />
       </section>
 
       <div className="mx-auto max-w-content px-4 pt-10 sm:px-6">

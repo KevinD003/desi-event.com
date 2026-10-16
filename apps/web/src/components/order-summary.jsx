@@ -29,7 +29,6 @@ import {
   taxNameForPlace,
   taxNameInSentence,
 } from '../lib/pricing.js'
-import { MirrorDivider } from './festive-decor.jsx'
 
 /**
  * @typedef {object} SummaryLine
@@ -158,7 +157,7 @@ export function OrderSummary({
         )}
       </dl>
 
-      <MirrorDivider className="my-5" />
+      <div aria-hidden="true" className="my-5 h-px bg-line" />
 
       {atVenue ? (
         <div className="space-y-3">

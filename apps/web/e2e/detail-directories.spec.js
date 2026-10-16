@@ -110,7 +110,8 @@ const HEADER_ENTRIES = Object.freeze([
  *
  * `components/site-footer.jsx`, written out for the same reason as the header.
  */
-const FOOTER_PAYMENTS = 'Payments on this site are simulated — no card, no money moves.'
+const FOOTER_PAYMENTS =
+  'Payments on this site are simulated. No card is charged and no money moves.'
 
 /**
  * The footer's link to the limitations page. It sits under the heading "What

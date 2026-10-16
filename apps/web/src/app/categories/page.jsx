@@ -28,7 +28,6 @@
 
 import Link from 'next/link'
 
-import { GarbaRings } from '../../components/festive-decor.jsx'
 import { ArrowRightIcon, CategoryIcon } from '../../components/icons.jsx'
 import { SECONDARY_LINK } from '../../components/link-classes.js'
 import { HoverLift, Stagger, StaggerItem } from '../../components/motion.jsx'
@@ -61,7 +60,6 @@ export default async function CategoriesPage() {
         eyebrow="Categories"
         title="Browse by category"
         lead="From an open-floor garba night to a mela that takes a whole weekend. The number on each is how many events are listed in it."
-        art={<GarbaRings className="h-[30rem] w-[30rem]" />}
       />
 
       <div className="mx-auto max-w-content px-4 pt-10 sm:px-6">

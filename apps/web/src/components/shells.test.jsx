@@ -111,6 +111,164 @@ describe('WorkspaceShell', () => {
   })
 })
 
+describe('the workspace shell’s chrome', () => {
+  it('draws its own bar, page and footer: one banner, one main, one contentinfo, and no public header', () => {
+    render(
+      <WorkspaceShell session={FINANCE} area="finance">
+        <p>page</p>
+      </WorkspaceShell>,
+    )
+
+    const banner = screen.getByRole('banner')
+    const main = screen.getByRole('main')
+
+    expect(screen.getAllByRole('banner')).toHaveLength(1)
+    expect(screen.getAllByRole('main')).toHaveLength(1)
+    expect(screen.getAllByRole('contentinfo')).toHaveLength(1)
+    // The skip link's target.
+    expect(main.id).toBe('main-content')
+    expect(main.getAttribute('tabindex')).toBe('-1')
+    expect(within(main).getByText('page')).toBeTruthy()
+    // The bar: the D home, named by its picture, and none of the public
+    // header's discovery links.
+    expect(within(banner).getByRole('link', { name: 'The Desi Events' })).toHaveAttribute(
+      'href',
+      '/',
+    )
+    expect(within(banner).queryByRole('link', { name: 'Discover events' })).toBeNull()
+    expect(within(banner).getByRole('button', { name: 'Farah, account' })).toBeTruthy()
+    expect(within(banner).getByRole('button', { name: 'Find a page' })).toBeTruthy()
+    // The bar stays put while a page transition crossfades the content.
+    expect(banner.className).toContain('[view-transition-name:site-header]')
+  })
+
+  it('names the area in the bar, as words when it is the only one this account opens', () => {
+    render(
+      <WorkspaceShell session={FINANCE} area="finance">
+        <p>page</p>
+      </WorkspaceShell>,
+    )
+
+    // Finance, operations and analytics admit this member: a switcher.
+    expect(
+      within(screen.getByRole('banner')).getByRole('button', { name: 'Finance. Switch area' }),
+    ).toBeTruthy()
+  })
+
+  it('opens the rail as a sheet on a phone from the bar, and the rail is the one Workspace navigation', () => {
+    render(
+      <WorkspaceShell session={FINANCE} area="finance">
+        <p>page</p>
+      </WorkspaceShell>,
+    )
+
+    const toggle = screen.getByRole('button', { name: 'Workspace menu' })
+    const rail = document.getElementById(toggle.getAttribute('aria-controls'))
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(rail).toContainElement(screen.getByRole('navigation', { name: 'Workspace' }))
+    expect(screen.getAllByRole('navigation', { name: 'Workspace' })).toHaveLength(1)
+  })
+
+  it('ends on a slim footer with the ways back to the site, and no marketing', () => {
+    render(
+      <WorkspaceShell session={FINANCE} area="finance">
+        <p>page</p>
+      </WorkspaceShell>,
+    )
+
+    const footer = screen.getByRole('contentinfo')
+
+    expect(
+      within(footer)
+        .getAllByRole('link')
+        .map((link) => [link.textContent, link.getAttribute('href')]),
+    ).toEqual([
+      ['Back to the site', '/'],
+      ['What this site does not do', '/limitations'],
+      ['Contact', '/contact'],
+    ])
+    expect(footer.textContent).not.toMatch(/Garba|Every moment, one place/u)
+    for (const link of within(footer).getAllByRole('link')) {
+      expect(link.className).toContain('min-h-11')
+    }
+  })
+
+  it('says nothing about platform reach to somebody whose reach is their own organisation', () => {
+    const { container } = render(
+      <WorkspaceShell session={FINANCE} area="finance">
+        <p>page</p>
+      </WorkspaceShell>,
+    )
+
+    expect(container.querySelector('[data-authority]')).toBeNull()
+    expect(container.querySelector('[data-authority-line]')).toBeNull()
+  })
+
+  it('badges a platform administrator in the bar, and opens every page with what that means', () => {
+    const { container } = render(
+      <WorkspaceShell
+        session={{ ...FINANCE, capabilities: ['platform:admin', 'organizer:invite'] }}
+        area="admin"
+      >
+        <p>page</p>
+      </WorkspaceShell>,
+    )
+
+    const badge = container.querySelector('[data-authority]')
+    const line = container.querySelector('[data-authority-line]')
+
+    expect(screen.getByRole('banner')).toContainElement(badge)
+    expect(badge.getAttribute('data-authority')).toBe('admin')
+    expect(badge).toHaveTextContent('Platform administrator')
+    expect(badge.className).not.toContain('bg-highlight')
+    expect(screen.getByRole('main')).toContainElement(line)
+    expect(line).toHaveTextContent(
+      'Platform administrator. You can act on every organisation on the platform. Each change is recorded against your account.',
+    )
+    // Not a live region, and not the door's own notice.
+    expect(line.getAttribute('role')).toBeNull()
+    expect(line.textContent).not.toMatch(/Platform administrator authority/u)
+  })
+
+  it('marks a super administrator in gold foil', () => {
+    const { container } = render(
+      <WorkspaceShell
+        session={{
+          ...FINANCE,
+          capabilities: ['platform:admin', 'platform:role_manage', 'organizer:invite'],
+        }}
+        area="admin"
+      >
+        <p>page</p>
+      </WorkspaceShell>,
+    )
+
+    const badge = container.querySelector('[data-authority]')
+
+    expect(badge.getAttribute('data-authority')).toBe('super')
+    expect(badge).toHaveTextContent('Super administrator')
+    expect(badge.className).toContain('bg-highlight')
+    expect(badge.className).toContain('text-highlight-ink')
+    expect(container.querySelector('[data-authority-line]')).toHaveTextContent(
+      /change anybody’s platform role/u,
+    )
+  })
+
+  it('lets the door fill the space beside the rail, in its own register', () => {
+    render(
+      <WorkspaceShell session={FINANCE} area="organizer">
+        <div data-register="door">door</div>
+      </WorkspaceShell>,
+    )
+
+    const content = screen.getByText('door').closest('[data-page-content]')
+
+    expect(content.getAttribute('data-page-content')).toBe('workspace')
+    expect(content.className).toContain('has-[[data-register=door]]:p-0')
+  })
+})
+
 describe('monogram', () => {
   it.each([
     ['Farah', 'F'],
@@ -140,6 +298,39 @@ describe('AccountShell', () => {
     expect(within(rail).getByRole('link', { name: 'My tickets' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
   })
+
+  it('is one list laid out two ways: a row of segments on a phone, a rail on a desk, with no disclosure to open', () => {
+    render(
+      <AccountShell session={FINANCE}>
+        <p>page</p>
+      </AccountShell>,
+    )
+
+    const nav = screen.getByRole('navigation', { name: 'Your account' })
+    const list = within(nav).getByRole('list')
+
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .map((link) => link.textContent),
+    ).toEqual(['Overview', 'My tickets', 'Orders', 'Transfers', 'Security', 'Privacy'])
+    // A row that scrolls sideways inside itself on a phone, a column on a desk.
+    expect(nav.className).toContain('overflow-x-auto')
+    expect(list.className).toContain('lg:flex-col')
+    expect(screen.queryByRole('button', { name: 'Account menu' })).toBeNull()
+  })
+
+  it('draws no landmarks of its own: it sits inside the public shell’s main', () => {
+    render(
+      <AccountShell session={FINANCE}>
+        <p>page</p>
+      </AccountShell>,
+    )
+
+    expect(screen.queryByRole('banner')).toBeNull()
+    expect(screen.queryByRole('main')).toBeNull()
+    expect(screen.queryByRole('contentinfo')).toBeNull()
+  })
 })
 
 describe('AreaRefusal', () => {
@@ -149,6 +340,15 @@ describe('AreaRefusal', () => {
     expect(screen.getByRole('heading', { name: 'Not for you', level: 1 })).toBeTruthy()
     expect(screen.getByText(/ask whoever runs the organisation/i)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Back to the site' }).getAttribute('href')).toBe('/')
+  })
+
+  it('is a plain page, not a card inside a card', () => {
+    const { container } = render(<AreaRefusal area="finance" />)
+
+    expect(container.querySelector('.shadow-card')).toBeNull()
+    expect(screen.getByRole('heading', { level: 1, name: 'Not for you' }).className).toContain(
+      'text-h1',
+    )
   })
 
   it('names the area it refuses above the heading, without adding a heading', () => {

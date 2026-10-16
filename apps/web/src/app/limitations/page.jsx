@@ -24,7 +24,6 @@
 import Link from 'next/link'
 import { Fragment } from 'react'
 
-import { Diamond, MirrorDivider } from '../../components/festive-decor.jsx'
 import { TEXT_LINK } from '../../components/link-classes.js'
 import { PageHero } from '../../components/page-hero.jsx'
 import { LIMITATIONS, meaningParts } from '../../lib/limitations.js'
@@ -142,13 +141,14 @@ export default function LimitationsPage() {
           ))}
         </ul>
 
-        <MirrorDivider className="my-12" />
-
-        <h2 className="text-h2 font-semibold text-ink">Also in this build</h2>
+        <h2 className="mt-16 text-h2 font-semibold text-ink">Also in this build</h2>
         <ul className="mt-4 max-w-prose space-y-3 text-ink">
           {ALSO.map((item) => (
             <li key={item.key} className="flex items-start gap-3">
-              <Diamond className="mt-2 h-2.5 w-2.5 fill-accent" />
+              <span
+                aria-hidden="true"
+                className="mt-2.5 size-1.5 shrink-0 rounded-plate bg-accent"
+              />
               <span>{item.text}</span>
             </li>
           ))}

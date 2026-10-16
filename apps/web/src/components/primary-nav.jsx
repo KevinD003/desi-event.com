@@ -38,6 +38,8 @@
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { cn } from '@desi-event/ui/classes'
+import { Icon } from '@desi-event/ui/icons'
 
 import { currentHref } from '../lib/active-path.js'
 
@@ -69,11 +71,13 @@ function NavLink({ href, label, current, className = '', onNavigate }) {
       href={href}
       aria-current={active ? 'page' : undefined}
       onClick={onNavigate}
-      className={`inline-flex min-h-11 items-center rounded-control px-3.5 font-semibold transition-colors duration-(--duration-fast) ease-standard lg:px-4 ${
+      className={cn(
+        'inline-flex min-h-11 items-center rounded-control px-3 font-semibold underline-offset-[0.45em] transition-colors duration-(--duration-fast) ease-standard',
         active
-          ? 'bg-accent-soft text-accent-strong'
-          : 'text-ink hover:bg-surface-subtle hover:text-accent-strong'
-      } ${className}`}
+          ? 'text-accent-strong underline decoration-accent decoration-2'
+          : 'text-ink hover:text-accent-strong',
+        className,
+      )}
     >
       {label}
     </Link>
@@ -129,7 +133,7 @@ export function PrimaryNav({ groups, account = null }) {
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return undefined
 
-    const query = window.matchMedia('(min-width: 768px)')
+    const query = window.matchMedia('(min-width: 1024px)')
 
     /**
      * Collapse the sheet once the wide layout takes over.
@@ -155,8 +159,8 @@ export function PrimaryNav({ groups, account = null }) {
   return (
     <>
       {/* Wide viewports: one row, no disclosure, no JavaScript needed to use it. */}
-      <nav aria-label="Primary" className="hidden md:block">
-        <ul className="flex flex-wrap items-center gap-1 text-[0.9375rem]">
+      <nav aria-label="Primary" className="hidden lg:block">
+        <ul className="flex flex-wrap items-center gap-0.5 text-label lg:gap-1">
           {discover.map((item) => (
             <li key={item.href}>
               <NavLink href={item.href} label={item.label} current={currentWide} />
@@ -174,15 +178,9 @@ export function PrimaryNav({ groups, account = null }) {
         aria-expanded={open}
         aria-controls={sheetId}
         onClick={() => (open ? close() : setOpen(true))}
-        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-control px-2.5 text-sm font-bold text-ink transition-colors duration-(--duration-fast) ease-standard hover:bg-surface-subtle md:hidden"
+        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-control px-2.5 text-sm font-bold text-ink transition-colors duration-(--duration-fast) ease-standard hover:bg-surface-subtle lg:hidden"
       >
-        <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5" fill="currentColor">
-          {open ? (
-            <path d="M5.3 4.3a1 1 0 0 1 1.4 0L10 7.6l3.3-3.3a1 1 0 1 1 1.4 1.4L11.4 9l3.3 3.3a1 1 0 0 1-1.4 1.4L10 10.4l-3.3 3.3a1 1 0 0 1-1.4-1.4L8.6 9 5.3 5.7a1 1 0 0 1 0-1.4Z" />
-          ) : (
-            <path d="M3 5.5A1 1 0 0 1 4 4.5h12a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1Zm0 4.5a1 1 0 0 1 1-1h12a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1Zm1 3.5a1 1 0 1 0 0 2h12a1 1 0 1 0 0-2H4Z" />
-          )}
-        </svg>
+        <Icon name={open ? 'close' : 'menu'} className="h-5 w-5" />
         {/* Named "Menu" at every width; on the narrowest phones the word is
             read rather than drawn, so the button fits beside the brand. */}
         <span className="max-[359px]:sr-only">Menu</span>
@@ -193,18 +191,18 @@ export function PrimaryNav({ groups, account = null }) {
           id={sheetId}
           ref={sheetRef}
           tabIndex={-1}
-          className="w-full rounded-card border border-line bg-surface-raised p-3 shadow-card focus-visible:outline-none md:hidden"
+          className="-mx-4 w-[calc(100%+2rem)] border-t border-line bg-surface px-4 pt-4 pb-6 transition-[opacity,translate] duration-(--duration-sheet) ease-drawer starting:-translate-y-2 starting:opacity-0 focus-visible:outline-none sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:hidden"
         >
-          <nav aria-label="Primary" className="flex flex-col gap-4">
+          <nav aria-label="Primary" className="flex flex-col gap-6">
             {groups.map((group) => (
               <div key={group.id}>
                 <h2
                   id={`${sheetId}-${group.id}`}
-                  className="px-3.5 pb-1 font-sans text-micro font-bold tracking-eyebrow text-ink-subtle uppercase"
+                  className="pb-1 font-sans text-caption font-semibold text-ink-subtle"
                 >
                   {group.label}
                 </h2>
-                <ul aria-labelledby={`${sheetId}-${group.id}`} className="flex flex-col gap-0.5">
+                <ul aria-labelledby={`${sheetId}-${group.id}`} className="flex flex-col">
                   {group.items.map((item) => (
                     <li key={item.href}>
                       <NavLink
@@ -212,7 +210,11 @@ export function PrimaryNav({ groups, account = null }) {
                         label={item.label}
                         current={currentSheet}
                         onNavigate={close}
-                        className="w-full min-h-11"
+                        className={`min-h-11 w-full px-0 ${
+                          group.id === 'discover'
+                            ? 'font-display text-h3 font-bold [font-stretch:86%]'
+                            : 'text-body'
+                        }`}
                       />
                     </li>
                   ))}

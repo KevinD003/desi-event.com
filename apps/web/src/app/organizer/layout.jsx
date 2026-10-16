@@ -20,6 +20,7 @@
 
 import { redirect } from 'next/navigation'
 
+import { PublicShell } from '../../components/public-shell.jsx'
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
 import { getOrganizerEvent } from '../../lib/organizer-api.js'
@@ -64,7 +65,13 @@ export default async function OrganizerLayout({ children }) {
     if (elsewhere) redirect(elsewhere)
   }
 
-  if (!admitted) return <AreaRefusal area="organizer" />
+  if (!admitted) {
+    return (
+      <PublicShell>
+        <AreaRefusal area="organizer" />
+      </PublicShell>
+    )
+  }
 
   return (
     <WorkspaceShell session={session} area="organizer">

@@ -25,7 +25,6 @@
 import Link from 'next/link'
 
 import { Badge } from '../../../components/ui.jsx'
-import { GarbaRings, MirrorBand } from '../../../components/festive-decor.jsx'
 import { ArrowRightIcon, CheckIcon, ClockIcon, PinIcon } from '../../../components/icons.jsx'
 import { JsonLd } from '../../../components/json-ld.jsx'
 import { Reveal } from '../../../components/motion.jsx'
@@ -167,7 +166,6 @@ export default async function VenuePage({ params }) {
         eyebrow="Venue"
         title={venue.name}
         lead={locality}
-        art={<GarbaRings className="h-[28rem] w-[28rem]" />}
       >
         {venue.canonicalSlug ? (
           <p className="mt-6 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-sm text-ink">
@@ -315,7 +313,6 @@ export default async function VenuePage({ params }) {
 
           <section aria-labelledby="where-heading" className="lg:sticky lg:top-28 lg:self-start">
             <section className="overflow-hidden rounded-card bg-surface-raised shadow-card">
-              <MirrorBand />
               <div className="p-6">
                 <h2 id="where-heading" className="text-h3 font-semibold text-ink">
                   Where it is

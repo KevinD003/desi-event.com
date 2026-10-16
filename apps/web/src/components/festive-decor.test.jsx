@@ -1,27 +1,39 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
 
 import * as decor from './festive-decor.jsx'
-import {
-  Diamond,
-  GarbaRings,
-  MirrorBand,
-  MirrorDivider,
-  ScallopHem,
-  Toran,
-} from './festive-decor.jsx'
+import { BrandRule } from './festive-decor.jsx'
 
-/** Every ornament, rendered alone. */
+/** The ornament left, rendered alone and with a caller's classes. */
 const ORNAMENTS = [
-  ['Toran', <Toran key="toran" />],
-  ['GarbaRings', <GarbaRings key="rings" />],
-  ['ScallopHem', <ScallopHem key="hem" />],
-  ['MirrorDivider', <MirrorDivider key="divider" />],
-  ['MirrorBand', <MirrorBand key="band" />],
-  ['Diamond', <Diamond key="diamond" />],
+  ['BrandRule', <BrandRule key="rule" />],
+  ['BrandRule with classes', <BrandRule key="placed" className="mt-4" />],
 ]
 
-describe('the ornaments', () => {
+/** `apps/web/src`, the sources the decoration budget is held over. */
+const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+/**
+ * Every JavaScript source under a directory, tests excluded.
+ *
+ * @param {string} directory Where to start.
+ * @returns {string[]} Absolute paths.
+ */
+function sourcesUnder(directory) {
+  return readdirSync(directory).flatMap((name) => {
+    const path = join(directory, name)
+
+    if (statSync(path).isDirectory()) return sourcesUnder(path)
+
+    return /\.jsx?$/u.test(name) && !/\.test\.jsx?$/u.test(name) ? [path] : []
+  })
+}
+
+describe('the ornament', () => {
   it.each(ORNAMENTS)('%s is hidden from assistive technology and holds no words', (_, node) => {
     const { container } = render(node)
     const root = container.firstElementChild
@@ -33,53 +45,52 @@ describe('the ornaments', () => {
   it.each(ORNAMENTS)('%s cannot take keyboard focus', (_, node) => {
     const { container } = render(node)
 
-    for (const svg of container.querySelectorAll('svg')) {
-      expect(svg.getAttribute('focusable')).toBe('false')
-    }
     expect(container.querySelectorAll('a, button, input, [tabindex]')).toHaveLength(0)
   })
 
   it.each(ORNAMENTS)('%s is drawn in the theme’s tokens, never a literal colour', (_, node) => {
     const { container } = render(node)
+    const root = container.firstElementChild
 
-    for (const element of container.querySelectorAll('*')) {
-      const fill = element.getAttribute('fill')
-      const stroke = element.getAttribute('stroke')
+    // A 2px line the full width of its container, in the accent magenta.
+    expect(root.className.split(' ')).toEqual(
+      expect.arrayContaining(['block', 'h-0.5', 'w-full', 'bg-accent']),
+    )
+    expect(root.getAttribute('style')).toBeNull()
+  })
 
-      // `none` is the only colour written as an attribute; every paint is a
-      // `fill-*` or `stroke-*` class naming a token.
-      expect([null, 'none']).toContain(fill)
-      expect([null, 'none', 'currentColor']).toContain(stroke)
-    }
+  it('keeps a caller’s classes for its place in a layout', () => {
+    const { container } = render(<BrandRule className="mt-4" />)
+
+    expect(container.firstElementChild.className).toBe('block h-0.5 w-full bg-accent mt-4')
   })
 })
 
-describe('Toran', () => {
-  it('twinkles only for somebody who has not asked for reduced motion', () => {
-    const { container } = render(<Toran />)
-    const bulbs = [...container.querySelectorAll('circle')].filter((circle) =>
-      circle.getAttribute('class').includes('animate-twinkle'),
-    )
+describe('the decoration budget', () => {
+  it('is one rule: the bunting, rings, hems, bands, dividers and diamonds are gone', () => {
+    // Stacked on every page they made the brand wallpaper (docs/DESIGN.md,
+    // "Poster House+": one plate moment per page). Bringing one back is a
+    // decision to write down, not an import to add.
+    expect(Object.keys(decor)).toEqual(['BrandRule'])
 
-    expect(bulbs.length).toBeGreaterThan(0)
-
-    for (const bulb of bulbs) {
-      // `motion-safe:` and nothing unconditional: the animation class exists
-      // only behind the platform's preference.
-      expect(bulb.getAttribute('class')).toMatch(/(^|\s)motion-safe:animate-twinkle(\s|$)/)
-      expect(bulb.getAttribute('class')).not.toMatch(/(^|\s)animate-twinkle(\s|$)/)
+    for (const name of [
+      'Toran',
+      'GarbaRings',
+      'ScallopHem',
+      'MirrorBand',
+      'MirrorDivider',
+      'Diamond',
+    ]) {
+      expect(decor).not.toHaveProperty(name)
     }
   })
 
-  it('staggers the bulbs, so they do not flash in unison', () => {
-    const { container } = render(<Toran />)
-    const delays = new Set(
-      [...container.querySelectorAll('circle')]
-        .map((circle) => circle.style.animationDelay)
-        .filter(Boolean),
+  it('leaves no source drawing the mirror-work band or the twinkling bulbs', () => {
+    const offenders = sourcesUnder(SOURCE_ROOT).filter((path) =>
+      /\bmirror-band\b|animate-twinkle/u.test(readFileSync(path, 'utf8')),
     )
 
-    expect(delays.size).toBeGreaterThan(3)
+    expect(offenders).toEqual([])
   })
 })
 
@@ -91,17 +102,5 @@ describe('the brand', () => {
     // holds that link to being named "The Desi Events", once.
     expect(decor).not.toHaveProperty('Wordmark')
     expect(decor).not.toHaveProperty('BrandMark')
-  })
-})
-
-describe('MirrorBand', () => {
-  it('sits on sand by default, and on whatever ground it is given', () => {
-    const { container, rerender } = render(<MirrorBand />)
-
-    expect(container.firstElementChild.className).toBe('bg-surface-subtle')
-    expect(container.querySelector('.mirror-band')).toBeInTheDocument()
-
-    rerender(<MirrorBand className="bg-surface-inverse" />)
-    expect(container.firstElementChild.className).toBe('bg-surface-inverse')
   })
 })

@@ -28,6 +28,7 @@
  * @module app/privacy/layout
  */
 
+import { PublicShell } from '../../components/public-shell.jsx'
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
 
@@ -49,7 +50,13 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function PrivacyLayout({ children }) {
   const { session, admitted } = await enterArea('privacy')
 
-  if (!admitted) return <AreaRefusal area="privacy" />
+  if (!admitted) {
+    return (
+      <PublicShell>
+        <AreaRefusal area="privacy" />
+      </PublicShell>
+    )
+  }
 
   const tabs = [
     { href: '/privacy', label: 'Requests' },

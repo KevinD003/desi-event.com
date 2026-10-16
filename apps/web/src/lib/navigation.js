@@ -29,7 +29,7 @@
  */
 
 import { currentHref, isActivePath } from './active-path.js'
-import { admits, canInAnyOrganization } from './areas.js'
+import { AREAS, admits, canInAnyOrganization } from './areas.js'
 import { membershipsWith, sessionCan } from './capabilities.js'
 
 export { canInAnyOrganization, currentHref, isActivePath }
@@ -289,6 +289,42 @@ export function workspaceGroups(session) {
       .filter((destination) => destination.offered(session))
       .map(({ href, label }) => ({ href, label })),
   })).filter((group) => group.items.length > 0)
+}
+
+/**
+ * The workspace's areas, in the order the bar's switcher lists them: the work
+ * of running events first, then the money, then the platform's own.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const WORKSPACE_AREA_KEYS = Object.freeze([
+  'organizer',
+  'analytics',
+  'finance',
+  'operations',
+  'moderation',
+  'privacy',
+  'retention',
+  'admin',
+])
+
+/**
+ * The workspace areas this session is admitted to, for the bar's switcher.
+ *
+ * Asked of the same predicate each area's layout admits with
+ * (`lib/areas.js`), so the switcher never offers an area that then refuses.
+ *
+ * @param {object|null} session The session payload.
+ * @returns {Array<{key: string, href: string, label: string}>} The areas, in switcher order.
+ */
+export function workspaceAreas(session) {
+  if (!session) return []
+
+  return WORKSPACE_AREA_KEYS.filter((key) => admits(session, key)).map((key) => ({
+    key,
+    href: AREAS[key].href,
+    label: AREAS[key].label,
+  }))
 }
 
 /**

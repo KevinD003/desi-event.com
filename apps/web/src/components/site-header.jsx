@@ -18,15 +18,22 @@
  *
  * ## Layout
  *
- * One row, 72px tall on a wide screen: the logo, the four ways into the
- * catalogue, and the account control — signed out, "Sign in" and then "Sign
- * up". On a narrow one the row keeps the logo, the account control and a
- * Menu button, and the sheet the button opens wraps onto a row of its own
- * underneath. The account control is handed to `PrimaryNav`, which renders it
- * between the wide row and the Menu button, so the DOM — and with it the tab
- * order — runs in the order the eye reads at every width. Reordering with CSS
- * `order` instead left keyboard focus jumping back up the row after the sheet.
- * A band of mirror-work runs along the foot.
+ * One slim row, 64px tall: the logo, the four ways into the catalogue, a
+ * search trigger, and the account control — signed out, "Sign in" and then
+ * "Sign up". Under it runs the single 2px magenta brand rule, the only
+ * ornament the header carries (it used to carry a band of mirror-work). On a
+ * narrow screen the row keeps the logo, the account control and a Menu
+ * button, and the sheet the button opens wraps onto a row of its own
+ * underneath, inside the header. The account control is handed to
+ * `PrimaryNav`, which renders it between the wide row and the Menu button,
+ * so the DOM — and with it the tab order — runs in the order the eye reads at
+ * every width. Reordering with CSS `order` instead left keyboard focus
+ * jumping back up the row after the sheet.
+ *
+ * The search trigger joins the row from 1024px, where it fits beside the
+ * account control on one line; below that, "Discover events" is the way to
+ * the listing's own search, and at 320px the tab order is exactly what it
+ * was: the logo, "Sign in", "Sign up", Menu.
  *
  * ### The logo
  *
@@ -35,7 +42,7 @@
  * "The Desi Events", is the link's whole name. It is fetched first, as the
  * one picture on every page above the fold. The file is 162 × 40 at 1x with
  * a 2x copy, and it is drawn at 40px tall (162px wide) from 640px, inside the
- * 44px target of the link, in a 72px row.
+ * 44px target of the link, in a 64px row.
  *
  * ### Two links on a phone
  *
@@ -52,15 +59,16 @@
  * 320px, every target is still 44px tall, and "Sign up" is never hidden.
  *
  * Signed in, the account control is one button: the logo is 32px tall (129px)
- * below 440px and 36px from there to 640px. With a short display name the
- * row stays on one line from 320px; a display name long enough to fill the
- * button's 9rem wraps Menu below 416px.
+ * below 440px and 36px from there to 640px. Below 640px the button shows the
+ * name's initial alone (its accessible name is still "<name>, account"), so
+ * the row stays on one line from 320px whatever the name.
  *
- * Between 768px and 895px the four discovery links leave no room for the
- * account control (signed in, up to 809px; with a long name, 905px); it wraps
- * onto a second line, held to the right, under the navigation. These widths
- * were measured in Chromium with the site's own faces, at every pixel from
- * 320px to 1280px, when the logo replaced the text wordmark.
+ * The four discovery links join the row from 1024px, the width at which the
+ * logo, the links, the search trigger and the account control fit one line
+ * signed in or out; below it Menu carries them. At 768px they used to share
+ * the row with the account control and push it onto a second line, which is
+ * why the breakpoint moved up from 768px. Measured in Chromium with the
+ * site's own faces at 320, 360, 640, 768, 900, 1024 and 1280px.
  *
  * @module components/site-header
  */
@@ -72,6 +80,7 @@ import { readSession } from '../lib/session.js'
 import { AccountMenu, SignInLink, SignUpLink } from './account-menu.jsx'
 import { BrandLogo } from './brand-logo.jsx'
 import { HeaderFrame } from './header-frame.jsx'
+import { HeaderSearch } from './header-search.jsx'
 import { PrimaryNav } from './primary-nav.jsx'
 
 /**
@@ -80,25 +89,24 @@ import { PrimaryNav } from './primary-nav.jsx'
  * (see "Two links on a phone" above).
  */
 const SIGNED_IN = Object.freeze({
-  row: 'mx-auto flex min-h-16 max-w-content flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5 sm:min-h-18 sm:px-6 lg:gap-x-8',
+  row: 'mx-auto flex min-h-16 max-w-bleed flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 sm:px-6 lg:gap-x-4 lg:px-10 xl:gap-x-6',
   brand: 'flex min-h-11 shrink-0 items-center rounded-control',
   logo: 'h-8 w-auto min-[440px]:h-9 sm:h-10',
-  account: 'ml-auto flex items-center gap-2 md:ml-0',
+  account: 'ml-auto flex items-center gap-2',
 })
 
 /**
  * Signed out: the same, with the logo smaller still below 520px — 28px tall
  * from 380px and 23px below — so the two links and Menu share its line (see
  * "Two links on a phone" above); `site-header.test.jsx` holds these heights
- * in place. The account control stays pushed to the right up to `lg`, so when
- * it wraps onto a second line between 768px and 895px it sits under the
- * navigation rather than under the logo.
+ * in place. The account control is pushed to the right at every width, with
+ * the search trigger in front of it from `lg`.
  */
 const SIGNED_OUT = Object.freeze({
-  row: 'mx-auto flex min-h-16 max-w-content flex-wrap items-center justify-between gap-x-2 gap-y-2 px-4 py-2.5 min-[480px]:gap-x-3 sm:min-h-18 sm:px-6 lg:gap-x-8',
+  row: 'mx-auto flex min-h-16 max-w-bleed flex-wrap items-center gap-x-2 gap-y-2 px-4 py-2.5 min-[480px]:gap-x-3 sm:px-6 lg:gap-x-4 lg:px-10 xl:gap-x-6',
   brand: 'flex min-h-11 shrink-0 items-center rounded-control',
   logo: 'h-5.75 w-auto min-[380px]:h-7 min-[520px]:h-9 sm:h-10',
-  account: 'ml-auto flex items-center gap-1 min-[480px]:gap-2 lg:ml-0',
+  account: 'ml-auto flex items-center gap-1 min-[480px]:gap-2',
 })
 
 /**
@@ -129,6 +137,7 @@ export async function SiteHeader() {
           groups={groups}
           account={
             <div className={layout.account}>
+              <HeaderSearch />
               {session ? (
                 <AccountMenu
                   displayName={session.user?.displayName ?? 'Your account'}

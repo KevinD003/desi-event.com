@@ -16,7 +16,6 @@
  * @module components/page-hero
  */
 
-import { Diamond, ScallopHem, Toran } from './festive-decor.jsx'
 import { FadeIn } from './motion.jsx'
 
 /**
@@ -52,7 +51,6 @@ export function PageHero({
       aria-labelledby={headingId}
       className="relative isolate overflow-hidden bg-surface-inverse text-ink-inverse"
     >
-      <Toran />
       {art ? (
         <div
           aria-hidden="true"
@@ -68,7 +66,6 @@ export function PageHero({
           <FadeIn>
             {eyebrow ? (
               <p className="mb-3 flex items-center gap-2.5 text-micro font-bold tracking-eyebrow text-accent-inverse uppercase">
-                <Diamond />
                 {eyebrow}
               </p>
             ) : null}
@@ -84,8 +81,6 @@ export function PageHero({
           {children}
         </div>
       </div>
-
-      <ScallopHem />
     </section>
   )
 }

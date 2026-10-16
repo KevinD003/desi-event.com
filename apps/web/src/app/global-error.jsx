@@ -41,20 +41,50 @@ export default function GlobalError({ error, reset }) {
           margin: 0,
           minHeight: '100vh',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          flexDirection: 'column',
           // The page and ink tokens, as hex: this renders without the stylesheet.
-          // `semantic-classes.test.js` checks they still equal the tokens.
+          // `semantic-classes.test.js` checks every one still equals a token.
           backgroundColor: '#ffffff',
           color: '#29094a',
           fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
         }}
       >
-        <main style={{ maxWidth: '34rem', padding: '2rem', textAlign: 'center' }}>
-          <h1 style={{ fontSize: '1.875rem', fontWeight: 700, margin: 0 }}>
+        {/* The purple plate the site's footer is drawn on, with the name in
+            words: the logo is a file this page may not be able to fetch. */}
+        <header
+          style={{
+            backgroundColor: '#32105e',
+            color: '#ffffff',
+            padding: '1rem 1.5rem',
+            borderBottom: '2px solid #b60254',
+          }}
+        >
+          <p style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700, letterSpacing: '-0.01em' }}>
+            The Desi Events
+          </p>
+        </header>
+        <main
+          style={{ flex: 1, maxWidth: '40rem', padding: '4rem 1.5rem', boxSizing: 'border-box' }}
+        >
+          <h1
+            style={{
+              fontSize: 'clamp(2.25rem, 1.5rem + 3vw, 3.5rem)',
+              lineHeight: 1,
+              fontWeight: 800,
+              letterSpacing: '-0.02em',
+              margin: 0,
+            }}
+          >
             The Desi Events is temporarily unavailable
           </h1>
-          <p style={{ marginTop: '1rem', fontSize: '1.05rem', lineHeight: 1.6 }}>
+          <p
+            style={{
+              marginTop: '1.25rem',
+              fontSize: '1.0625rem',
+              lineHeight: 1.65,
+              color: '#5a4e72',
+            }}
+          >
             Something failed while loading the site. Nothing has been ordered and you have not been
             charged.
           </p>
@@ -62,8 +92,8 @@ export default function GlobalError({ error, reset }) {
             type="button"
             onClick={reset}
             style={{
-              marginTop: '1.75rem',
-              height: '3rem',
+              marginTop: '2rem',
+              minHeight: '3rem',
               padding: '0 1.5rem',
               fontSize: '1rem',
               fontWeight: 700,
@@ -78,6 +108,11 @@ export default function GlobalError({ error, reset }) {
             Reload the page
           </button>
         </main>
+        <footer style={{ backgroundColor: '#32105e', color: '#d2c8e8', padding: '1.5rem' }}>
+          <p style={{ margin: 0, fontSize: '0.9375rem' }}>
+            Payments on this site are simulated. No card is charged and no money moves.
+          </p>
+        </footer>
       </body>
     </html>
   )

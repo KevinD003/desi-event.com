@@ -16,9 +16,9 @@
  * @module app/moderation/layout
  */
 
+import { PublicShell } from '../../components/public-shell.jsx'
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
-import { moderationTabs } from '../../lib/area-tabs.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,10 +38,18 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function ModerationLayout({ children }) {
   const { session, admitted } = await enterArea('moderation')
 
-  if (!admitted) return <AreaRefusal area="moderation" />
+  if (!admitted) {
+    return (
+      <PublicShell>
+        <AreaRefusal area="moderation" />
+      </PublicShell>
+    )
+  }
 
   return (
-    <WorkspaceShell session={session} area="moderation" tabs={moderationTabs(session)}>
+    // No row of tabs: events, pictures, organisation checks and website links
+    // are each an entry in the workspace rail already.
+    <WorkspaceShell session={session} area="moderation">
       {children}
     </WorkspaceShell>
   )

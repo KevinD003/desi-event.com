@@ -11,6 +11,7 @@
  */
 
 import { NotFoundView } from '../components/not-found-view.jsx'
+import { PublicShell } from '../components/public-shell.jsx'
 
 export const metadata = {
   title: 'Page not found',
@@ -23,5 +24,9 @@ export const metadata = {
  * @returns {JSX.Element} The rendered page.
  */
 export default function NotFound() {
-  return <NotFoundView />
+  return (
+    <PublicShell>
+      <NotFoundView />
+    </PublicShell>
+  )
 }

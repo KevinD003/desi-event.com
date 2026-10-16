@@ -8,7 +8,7 @@
  */
 
 import { PLATFORM_ROLE_CAPABILITIES } from '@desi-event/permissions'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const readSession = vi.fn()
@@ -23,6 +23,12 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/analytics',
   useSearchParams: () => new URLSearchParams(''),
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
+}))
+// The refusal is drawn in the public shell, whose header asks the API who is
+// signed in; here it is a marked box, so what is asserted is that the refusal
+// sits inside it and the workspace shell is not drawn at all.
+vi.mock('../../components/public-shell.jsx', () => ({
+  PublicShell: ({ children }) => <div data-testid="public-shell">{children}</div>,
 }))
 vi.mock('next/headers', () => ({
   headers: async () => new Headers({ 'x-desi-request-path': '/analytics' }),
@@ -77,7 +83,7 @@ describe('who the analytics shell admits', () => {
     expect(screen.queryByRole('navigation', { name: 'Analytics' })).not.toBeInTheDocument()
   })
 
-  it('offers both sections to a platform administrator who also belongs to an organisation', async () => {
+  it('offers both sections to a platform administrator who also belongs to an organisation, in the rail alone', async () => {
     await renderShell(
       session({
         capabilities: [...PLATFORM_ROLE_CAPABILITIES.ADMIN],
@@ -85,15 +91,18 @@ describe('who the analytics shell admits', () => {
       }),
     )
 
-    const tabs = screen.getByRole('navigation', { name: 'Analytics' })
+    const rail = screen.getByRole('navigation', { name: 'Workspace' })
 
-    expect(Array.from(tabs.querySelectorAll('a')).map((link) => link.getAttribute('href'))).toEqual(
-      ['/analytics', '/analytics/events'],
+    expect(within(rail).getByRole('link', { name: 'Analytics' })).toHaveAttribute(
+      'href',
+      '/analytics',
     )
-    expect(Array.from(tabs.querySelectorAll('a')).map((link) => link.textContent)).toEqual([
-      'Your organisations',
-      'Every event',
-    ])
+    expect(within(rail).getByRole('link', { name: 'Every event’s visits' })).toHaveAttribute(
+      'href',
+      '/analytics/events',
+    )
+    // The two were also a row of tabs, the same two pages a second time.
+    expect(screen.queryByRole('navigation', { name: 'Analytics' })).not.toBeInTheDocument()
   })
 
   it('admits an organisation’s viewer, with no tab bar', async () => {
@@ -106,7 +115,9 @@ describe('who the analytics shell admits', () => {
   it('refuses a moderator, who holds neither', async () => {
     await renderShell(session({ capabilities: [...PLATFORM_ROLE_CAPABILITIES.MODERATOR] }))
 
-    expect(screen.getByRole('heading', { name: 'Not for you' })).toBeInTheDocument()
+    expect(screen.getByTestId('public-shell')).toContainElement(
+      screen.getByRole('heading', { name: 'Not for you' }),
+    )
     expect(screen.queryByText('inside')).not.toBeInTheDocument()
   })
 })

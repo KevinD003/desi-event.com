@@ -29,7 +29,6 @@
 
 import Link from 'next/link'
 
-import { GarbaRings } from '../../components/festive-decor.jsx'
 import { Stagger, StaggerItem } from '../../components/motion.jsx'
 import { Empty } from '../../components/page-state.jsx'
 import { PageHero } from '../../components/page-hero.jsx'
@@ -85,7 +84,6 @@ export default async function OrganizersPage() {
         eyebrow="Organisers"
         title="Who is putting on the nights"
         lead="These are the organisers with upcoming events listed on The Desi Events, and how many each has coming up. Open one to see what they have on and their refund policy."
-        art={<GarbaRings className="h-[30rem] w-[30rem]" />}
       />
 
       <div className="mx-auto max-w-content px-4 pt-10 sm:px-6">

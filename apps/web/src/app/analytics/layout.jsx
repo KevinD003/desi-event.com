@@ -20,9 +20,9 @@
  * @module app/analytics/layout
  */
 
+import { PublicShell } from '../../components/public-shell.jsx'
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
-import { analyticsTabs } from '../../lib/area-tabs.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -42,14 +42,19 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function AnalyticsLayout({ children }) {
   const { session, admitted } = await enterArea('analytics')
 
-  if (!admitted) return <AreaRefusal area="analytics" />
+  if (!admitted) {
+    return (
+      <PublicShell>
+        <AreaRefusal area="analytics" />
+      </PublicShell>
+    )
+  }
 
-  // "Your organisations" and "Every event", shown only to somebody who has
-  // both; `lib/area-tabs.js` says which.
-  const tabs = analyticsTabs(session)
-
+  // No row of tabs: "Analytics" and "Every event's visits" are both entries
+  // in the workspace rail already, offered to exactly the people the two
+  // pages serve.
   return (
-    <WorkspaceShell session={session} area="analytics" tabs={tabs}>
+    <WorkspaceShell session={session} area="analytics">
       {children}
     </WorkspaceShell>
   )

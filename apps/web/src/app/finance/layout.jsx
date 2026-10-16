@@ -16,6 +16,7 @@
  * @module app/finance/layout
  */
 
+import { PublicShell } from '../../components/public-shell.jsx'
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
 import { financeTabs } from '../../lib/area-tabs.js'
@@ -38,7 +39,13 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function FinanceLayout({ children }) {
   const { session, admitted } = await enterArea('finance')
 
-  if (!admitted) return <AreaRefusal area="finance" />
+  if (!admitted) {
+    return (
+      <PublicShell>
+        <AreaRefusal area="finance" />
+      </PublicShell>
+    )
+  }
 
   // Which sections this session is offered is `lib/area-tabs.js`'s to say.
   const tabs = financeTabs(session)

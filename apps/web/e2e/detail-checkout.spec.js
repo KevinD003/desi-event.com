@@ -429,7 +429,7 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
     // The only simulated-payment wording on the event page itself is the
     // footer's; checkout carries the full notice, asserted next.
     await expect(visitor.getByRole('contentinfo')).toContainText(
-      'Payments on this site are simulated — no card, no money moves.',
+      'Payments on this site are simulated. No card is charged and no money moves.',
     )
 
     expect(normalise(await visitor.getByRole('main').innerText())).not.toMatch(URGENCY)

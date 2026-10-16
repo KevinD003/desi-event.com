@@ -4,7 +4,7 @@ import { render, screen, within } from '@testing-library/react'
 import { SiteFooter } from './site-footer.jsx'
 
 describe('SiteFooter', () => {
-  it('leads home from the logo drawn for the night band, named once as the brand', () => {
+  it('leads home from the logo drawn for the purple plate, named once as the brand', () => {
     render(<SiteFooter />)
 
     const brand = screen.getByRole('link', { name: 'The Desi Events' })
@@ -14,7 +14,7 @@ describe('SiteFooter', () => {
     expect(images).toHaveLength(1)
     expect(images[0]).toHaveAccessibleName('The Desi Events')
     expect(brand.textContent).toBe('')
-    // The dark-surface variant: the light one's crimson would sink into the night.
+    // The dark-surface variant: the light one's crimson would sink into the plate.
     expect(images[0]).toHaveAttribute('data-logo', 'dark')
     expect(images[0]).toHaveAttribute('src', '/brand/logo-dark-1x.webp')
     expect(images[0]).toHaveAttribute('width', '186')
@@ -27,7 +27,11 @@ describe('SiteFooter', () => {
   it('says on every page that payments are simulated and the catalogue is fictional, apart from imported listings, without naming their site', () => {
     const { container } = render(<SiteFooter />)
 
-    expect(container.textContent).toMatch(/Payments on this site are simulated/)
+    expect(container.textContent).toContain(
+      'Payments on this site are simulated. No card is charged and no money moves.',
+    )
+    // Said in two plain sentences: no dash in the line every page carries.
+    expect(container.textContent).not.toMatch(/simulated —/u)
     expect(container.textContent).toMatch(
       /Events, organisers and prices on this site are fictional, except events imported from organisers’ public ticket listings, which name the organiser who presents them and are sold here at the prices the organiser listed\./,
     )
@@ -43,8 +47,10 @@ describe('SiteFooter', () => {
     const { container } = render(<SiteFooter />)
 
     expect(container.textContent).toMatch(
-      /Garba, dandiya and Navratri nights across the USA and Canada\. Tickets sold here are priced in US dollars, or Canadian dollars at a venue in Canada, alongside their booking fee\./,
+      /South Asian events across the USA and Canada, from concerts and comedy to garba, Durga Puja and Diwali melas\. Tickets sold here are priced in US dollars, or Canadian dollars at a venue in Canada, alongside their booking fee\./,
     )
+    // The whole calendar, not one festival's.
+    expect(container.textContent).not.toMatch(/Garba, dandiya and Navratri nights/u)
     // A Canadian imported event is sold here in CA$, not US dollars.
     expect(container.textContent).not.toMatch(/every price shown in US dollars/)
   })
@@ -73,7 +79,7 @@ describe('SiteFooter', () => {
   it('lists the US cities the catalogue covers, each leading to its filtered listing', () => {
     render(<SiteFooter />)
 
-    const cities = screen.getByRole('navigation', { name: 'Garba nights in' })
+    const cities = screen.getByRole('navigation', { name: 'Cities' })
     const links = within(cities).getAllByRole('link')
 
     expect(links.map((link) => link.textContent)).toContain('Edison')
@@ -85,15 +91,42 @@ describe('SiteFooter', () => {
     expect(cities.textContent).not.toMatch(/Mumbai|Ahmedabad|Toronto|Mississauga|London/)
   })
 
-  it('offers the garba season’s categories by their labels', () => {
+  it('offers categories from across the year by their labels, not one festival’s', () => {
     render(<SiteFooter />)
 
     const categories = screen.getByRole('navigation', { name: 'Categories' })
 
-    expect(within(categories).getByRole('link', { name: 'Garba & Dandiya' })).toHaveAttribute(
-      'href',
-      '/events?category=GARBA_DANDIYA',
-    )
+    expect(
+      within(categories)
+        .getAllByRole('link')
+        .map((link) => [link.textContent, link.getAttribute('href')]),
+    ).toEqual([
+      ['Live Music', '/events?category=MUSIC_CONCERT'],
+      ['Comedy', '/events?category=COMEDY'],
+      ['Garba & Dandiya', '/events?category=GARBA_DANDIYA'],
+      ['Bollywood Nights', '/events?category=BOLLYWOOD_NIGHT'],
+      ['Melas & Festivals', '/events?category=CULTURAL_FESTIVAL'],
+    ])
+  })
+
+  it('sets the kit’s tagline as words on the plate, not as a heading or a picture', () => {
+    render(<SiteFooter />)
+
+    const tagline = screen.getByText('Every moment, one place.')
+
+    expect(tagline.tagName).toBe('P')
+    expect(tagline.className).toContain('font-display')
+    expect(screen.queryByRole('heading', { name: 'Every moment, one place.' })).toBeNull()
+  })
+
+  it('is the purple plate, flat, with no mirror band along its edge', () => {
+    const { container } = render(<SiteFooter />)
+    const footer = container.querySelector('footer')
+
+    expect(footer.className).toContain('bg-surface-inverse')
+    expect(container.querySelector('.mirror-band')).toBeNull()
+    // It keeps its place while the page beneath it crossfades.
+    expect(footer.className).toContain('[view-transition-name:site-footer]')
   })
 
   it('promises nothing, and says organisers join by invitation and every event is reviewed', () => {

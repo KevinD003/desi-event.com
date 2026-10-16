@@ -14,9 +14,9 @@
  * @module app/admin/layout
  */
 
+import { PublicShell } from '../../components/public-shell.jsx'
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
-import { adminTabs } from '../../lib/area-tabs.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +28,8 @@ export const metadata = { robots: { index: false, follow: false } }
  */
 
 /**
- * The administration shell: the workspace rail around the page, or the refusal.
+ * The administration shell: the workspace rail around the page, or the refusal
+ * in the public shell.
  *
  * @param {AdminLayoutProps} props Component props.
  * @returns {Promise<JSX.Element>} The rendered shell.
@@ -36,10 +37,19 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function AdminLayout({ children }) {
   const { session, admitted } = await enterArea('admin')
 
-  if (!admitted) return <AreaRefusal area="admin" />
+  if (!admitted) {
+    return (
+      <PublicShell>
+        <AreaRefusal area="admin" />
+      </PublicShell>
+    )
+  }
 
   return (
-    <WorkspaceShell session={session} area="admin" tabs={adminTabs(session)}>
+    // No row of tabs: every section of this area is already an entry in the
+    // workspace rail, and the overview at /admin lists them with what each
+    // is waiting on. The same links in a third place was a navigation too many.
+    <WorkspaceShell session={session} area="admin">
       {children}
     </WorkspaceShell>
   )

@@ -9,7 +9,7 @@
  * works without JavaScript, honest copy about payments and fees, and no
  * figure it cannot back.
  *
- * @module app/page.test
+ * @module app/home/page.test
  */
 
 import { existsSync } from 'node:fs'
@@ -19,14 +19,14 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 
-vi.mock('../lib/api.js', () => ({
+vi.mock('../../lib/api.js', () => ({
   loadCatalogueOverview: vi.fn(),
   loadCatalogueFacets: vi.fn(),
 }))
 // The visit counting reads the session, which only a request has; it is
 // tested on its own (`components/traffic-scope.test.jsx`). Here it is a marker,
 // so the page can be checked for rendering it, once.
-vi.mock('../components/traffic-scope.jsx', () => ({
+vi.mock('../../components/traffic-scope.jsx', () => ({
   TrafficScope: ({ view = null }) => (
     <span data-testid="traffic-scope" data-view={JSON.stringify(view)} />
   ),
@@ -34,8 +34,8 @@ vi.mock('../components/traffic-scope.jsx', () => ({
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 
-const { loadCatalogueFacets, loadCatalogueOverview } = await import('../lib/api.js')
-const { sampleEventSummaries } = await import('../lib/sample-data.js')
+const { loadCatalogueFacets, loadCatalogueOverview } = await import('../../lib/api.js')
+const { sampleEventSummaries } = await import('../../lib/sample-data.js')
 const { default: HomePage } = await import('./page.jsx')
 
 /**
@@ -219,7 +219,7 @@ describe('the home page', () => {
     const container = await draw()
 
     expect(container.textContent).toMatch(
-      /Payments on this site are simulated — no card, no money moves\./,
+      /Payments on this site are simulated\. No card is charged and no money moves\./,
     )
     expect(container.textContent).toMatch(/US sales tax is not calculated in this demo/)
   })
@@ -379,6 +379,6 @@ describe('who runs the site, for search engines', () => {
     // Absolute, as schema.org asks: it parses without a base.
     expect(address.protocol).toMatch(/^https?:$/u)
     expect(address.pathname).toBe('/brand/logo-square-512.png')
-    expect(existsSync(path.join(HERE, '../../public', address.pathname))).toBe(true)
+    expect(existsSync(path.join(HERE, '../../../public', address.pathname))).toBe(true)
   })
 })

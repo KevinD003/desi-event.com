@@ -3706,7 +3706,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     }
 
     test('at 320 px the header’s way into the catalogue is reached, opened and walked by keyboard', async () => {
-      // `components/primary-nav.jsx`: below 768 px the four discovery links
+      // `components/primary-nav.jsx`: below 1024 px the four discovery links
       // are not drawn in the header row at all; a disclosure button reveals
       // them. So what a keyboard has to reach is that button, and then the
       // links it reveals — and the focus contract the component states:

@@ -35,6 +35,12 @@ vi.mock('next/navigation', () => ({
 
 // The gate reads the page's own path from the header `proxy.js` sets, so it
 // can send somebody back to exactly where they were going.
+// The refusal is drawn in the public shell, whose header asks the API who is
+// signed in; here it is a marked box, so what is asserted is that the refusal
+// sits inside it and the workspace shell is not drawn at all.
+vi.mock('../../components/public-shell.jsx', () => ({
+  PublicShell: ({ children }) => <div data-testid="public-shell">{children}</div>,
+}))
 vi.mock('next/headers', () => ({
   headers: async () => new Headers({ 'x-desi-request-path': '/retention?view=all' }),
   cookies: async () => ({ getAll: () => [] }),
@@ -82,7 +88,9 @@ describe('who the shell admits', () => {
   it('refuses a session with no capabilities at all', async () => {
     await renderShell(session())
 
-    expect(screen.getByRole('heading', { name: 'Not for you' })).toBeInTheDocument()
+    expect(screen.getByTestId('public-shell')).toContainElement(
+      screen.getByRole('heading', { name: 'Not for you' }),
+    )
     expect(screen.queryByText('inside')).not.toBeInTheDocument()
   })
 

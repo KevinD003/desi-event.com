@@ -139,7 +139,7 @@ describe('every script element the web app writes', () => {
     for (const page of [
       path.join('app', 'events', '[slug]', 'page.jsx'),
       path.join('app', 'venues', '[slug]', 'page.jsx'),
-      path.join('app', 'page.jsx'),
+      path.join('app', '(home)', 'page.jsx'),
     ]) {
       const { text } = files.find(({ file }) => file === page)
 

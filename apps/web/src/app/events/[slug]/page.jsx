@@ -79,13 +79,6 @@ import { readSession } from '../../../lib/session.js'
 import { trafficAttributes } from '../../../lib/traffic-client.js'
 import { excludesEvent, trafficExclusion } from '../../../lib/traffic.js'
 import {
-  Diamond,
-  MirrorBand,
-  MirrorDivider,
-  ScallopHem,
-  Toran,
-} from '../../../components/festive-decor.jsx'
-import {
   ArrowRightIcon,
   CalendarIcon,
   CategoryIcon,
@@ -399,7 +392,6 @@ export default async function EventDetailPage({ params }) {
             className="absolute inset-0 hidden bg-linear-to-t from-surface-inverse via-transparent via-45% to-surface-inverse/40 lg:block"
           />
         </div>
-        <Toran />
 
         <div className="relative mx-auto max-w-content px-4 pb-14 sm:px-6 lg:flex lg:min-h-[38rem] lg:items-end lg:pt-36 lg:pb-16">
           <div className="-mt-10 sm:-mt-16 lg:mt-0 lg:max-w-[50%]">
@@ -530,8 +522,6 @@ export default async function EventDetailPage({ params }) {
             </FadeIn>
           </div>
         </div>
-
-        <ScallopHem />
       </section>
 
       <div className="mx-auto max-w-content px-4 sm:px-6">
@@ -560,10 +550,7 @@ export default async function EventDetailPage({ params }) {
         <div className="mt-12 grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_25rem] lg:items-start lg:gap-16">
           <div className="min-w-0 space-y-14">
             <Reveal as="section" aria-labelledby="about-heading">
-              <p className={EYEBROW}>
-                <Diamond className="h-2.5 w-2.5 fill-accent" />
-                About this night
-              </p>
+              <p className={EYEBROW}>About this night</p>
               <h2 id="about-heading" className="mt-3 text-h2 font-semibold text-ink">
                 About this event
               </h2>
@@ -590,8 +577,6 @@ export default async function EventDetailPage({ params }) {
             {/* The organiser's approved pictures, in their order. Renders
                 nothing for an event with none. */}
             <EventGallery images={event.gallery} />
-
-            <MirrorDivider />
 
             <Reveal as="section" aria-labelledby="schedule-heading">
               <h2 id="schedule-heading" className="text-h2 font-semibold text-ink">
@@ -893,7 +878,6 @@ export default async function EventDetailPage({ params }) {
               delay={0.2}
               className="overflow-hidden rounded-card bg-surface-raised shadow-dialog"
             >
-              <MirrorBand />
               <div className="p-6">
                 <div className="flex items-center justify-between gap-3">
                   <h2 id="tickets-heading" className="text-h2 font-semibold text-ink">

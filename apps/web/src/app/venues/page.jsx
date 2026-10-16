@@ -45,7 +45,6 @@
 import Link from 'next/link'
 import { ACCESSIBILITY_FEATURES } from '@desi-event/schemas'
 
-import { GarbaRings } from '../../components/festive-decor.jsx'
 import { ArrowLeftIcon, ArrowRightIcon, PinIcon } from '../../components/icons.jsx'
 import { SECONDARY_LINK, TEXT_LINK } from '../../components/link-classes.js'
 import { FadeIn } from '../../components/motion.jsx'
@@ -311,7 +310,6 @@ export default async function VenuesPage({ searchParams }) {
         eyebrow="Halls & pavilions"
         title="Venues"
         lead="The halls and pavilions shared across The Desi Events, and what each one asserts about getting in. Open a venue for its address, how to reach it and what is on there."
-        art={<GarbaRings className="h-[30rem] w-[30rem]" />}
         className="pb-24 sm:pb-28"
       />
 

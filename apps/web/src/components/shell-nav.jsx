@@ -1,8 +1,8 @@
 'use client'
 
 /**
- * The navigation lists every signed-in shell shares: the workspace rail, the
- * account rail and an area's tabs.
+ * The navigation lists the signed-in shells share beside the workspace rail:
+ * the account's own pages and an area's tabs.
  *
  * Client components for one reason: which entry is current. A layout is not
  * re-rendered when somebody moves between two pages beneath it, so a server
@@ -15,21 +15,15 @@
 
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Icon } from '@desi-event/ui/icons'
 
 import { currentHref } from '../lib/active-path.js'
+import { navIcon } from '../lib/nav-icons.js'
 
 /**
  * @typedef {object} ShellItem
  * @property {string} href Where it goes.
  * @property {string} label What it says.
- */
-
-/**
- * @typedef {object} ShellGroup
- * @property {string} id A stable key.
- * @property {string} label The heading.
- * @property {ShellItem[]} items The entries.
  */
 
 /**
@@ -46,143 +40,58 @@ function useCurrent(items) {
 }
 
 /**
- * One rail entry.
+ * The account's own pages: a rail beside the page on a desk, a row of
+ * segments across the top on a phone.
  *
- * The current entry is marked three ways: `aria-current`, a tinted ground and
- * a marker bar. Colour is never the only carrier.
- *
- * @param {object} props Component props.
- * @param {ShellItem} props.item The entry.
- * @param {boolean} props.current Whether it is the current page.
- * @param {Function} [props.onNavigate] Called when it is followed.
- * @returns {JSX.Element} The entry.
- */
-function RailLink({ item, current, onNavigate }) {
-  return (
-    <Link
-      href={item.href}
-      aria-current={current ? 'page' : undefined}
-      onClick={onNavigate}
-      className={`flex min-h-11 items-center gap-2.5 rounded-control px-2.5 text-sm transition-colors duration-(--duration-fast) ease-standard focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus lg:pointer-fine:min-h-10 ${
-        current
-          ? 'bg-opsnav-active font-semibold text-opsnav-active-ink'
-          : 'font-medium text-opsnav-ink hover:bg-opsnav-hover hover:text-ink'
-      }`}
-    >
-      <span
-        aria-hidden="true"
-        className={`h-5 w-1 shrink-0 rounded-full transition-colors duration-(--duration-fast) ${current ? 'bg-opsnav-marker' : 'bg-transparent'}`}
-      />
-      <span className="min-w-0 break-words">{item.label}</span>
-    </Link>
-  )
-}
-
-/**
- * A rail: grouped entries, a sidebar on wide screens and a disclosure on
- * narrow ones.
- *
- * Below the `lg` breakpoint the rail would push the page's own content a
- * screen down, so it folds behind one button. The disclosure keeps the same
- * contract as the header's menu: the trigger says whether it is open, Escape
- * closes it and focus goes back to the trigger.
+ * One list, laid out two ways by CSS, so there is no disclosure to open
+ * before the attendee can see where they can go: on a phone the six entries
+ * sit in one row that scrolls sideways inside itself (never the page), with
+ * the current one filled.
  *
  * @param {object} props Component props.
  * @param {string} props.label The navigation's accessible name.
- * @param {string} props.toggleLabel What the narrow-screen button says.
- * @param {ShellGroup[]} props.groups The grouped entries.
- * @param {JSX.Element} [props.header] Drawn above the groups (who is signed in).
- * @param {JSX.Element} [props.footer] Drawn below the groups (sign out).
- * @returns {JSX.Element} The rail.
+ * @param {ShellItem[]} props.items The entries.
+ * @param {JSX.Element} [props.header] Drawn above the list on a desk (who is signed in).
+ * @param {JSX.Element} [props.footer] Drawn below the list on a desk (sign out).
+ * @returns {JSX.Element} The navigation.
  */
-export function ShellRail({ label, toggleLabel, groups, header = null, footer = null }) {
-  const items = groups.flatMap((group) => group.items)
+export function AccountNav({ label, items, header = null, footer = null }) {
   const current = useCurrent(items)
-  const [open, setOpen] = useState(false)
-  const triggerRef = useRef(null)
-  const panelId = useId()
-
-  const close = useCallback(() => {
-    setOpen(false)
-    triggerRef.current?.focus()
-  }, [])
-
-  useEffect(() => {
-    if (!open) return undefined
-
-    /**
-     * Close on Escape.
-     *
-     * @param {KeyboardEvent} event The key event.
-     * @returns {void}
-     */
-    function onKeyDown(event) {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        close()
-      }
-    }
-
-    document.addEventListener('keydown', onKeyDown)
-
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [open, close])
 
   return (
-    <div className="mb-6 lg:mb-0">
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={() => (open ? close() : setOpen(true))}
-        className="inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-control border border-opsnav-line bg-opsnav px-4 text-sm font-semibold text-ink shadow-card transition-colors duration-(--duration-fast) hover:bg-opsnav-hover focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus lg:hidden"
-      >
-        {toggleLabel}
-        <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
-          <path
-            d={
-              open
-                ? 'M5.3 12.7a1 1 0 0 1 0-1.4l4-4a1 1 0 0 1 1.4 0l4 4a1 1 0 0 1-1.4 1.4L10 9.4l-3.3 3.3a1 1 0 0 1-1.4 0Z'
-                : 'M5.3 7.3a1 1 0 0 1 1.4 0L10 10.6l3.3-3.3a1 1 0 1 1 1.4 1.4l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 0 1 0-1.4Z'
-            }
-          />
-        </svg>
-      </button>
+    <div className="-mx-4 border-b border-line sm:-mx-6 lg:sticky lg:top-(--chrome-top) lg:mx-0 lg:self-start lg:border-b-0 lg:pt-1">
+      {header}
+      <nav aria-label={label} className="overflow-x-auto overscroll-x-contain px-4 sm:px-6 lg:px-0">
+        <ul className="flex min-w-max gap-1 py-2 lg:min-w-0 lg:flex-col lg:gap-0.5 lg:py-0">
+          {items.map((item) => {
+            const active = item.href === current
 
-      <div
-        id={panelId}
-        className={`${open ? 'mt-2 block' : 'hidden'} rounded-card border border-opsnav-line bg-opsnav p-3 shadow-card lg:sticky lg:top-24 lg:mt-0 lg:block`}
-      >
-        {header}
-        <nav aria-label={label} className="flex flex-col gap-5">
-          {groups.map((group) => (
-            <div key={group.id}>
-              {/* A label, not a heading: the rail sits before the page's own
-                  h1, and headings here would put navigation at the top of a
-                  screen reader's list of the page's sections. */}
-              <p
-                id={`${panelId}-${group.id}`}
-                className="px-2.5 pb-1.5 text-micro font-semibold tracking-eyebrow text-ink-subtle uppercase"
-              >
-                {group.label}
-              </p>
-              <ul aria-labelledby={`${panelId}-${group.id}`} className="flex flex-col gap-0.5">
-                {group.items.map((item) => (
-                  <li key={item.href}>
-                    <RailLink
-                      item={item}
-                      current={item.href === current}
-                      onNavigate={open ? () => setOpen(false) : undefined}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </nav>
-        {footer}
-      </div>
+            return (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  aria-current={active ? 'page' : undefined}
+                  className={`relative flex min-h-11 items-center gap-2.5 rounded-full px-4 text-label whitespace-nowrap transition-colors duration-(--duration-fast) ease-standard focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus lg:rounded-control lg:px-3 lg:whitespace-normal lg:pointer-fine:min-h-10 ${
+                    active
+                      ? 'bg-action-primary font-semibold text-action-primary-ink lg:bg-opsnav-active lg:text-opsnav-active-ink'
+                      : 'font-medium text-opsnav-ink hover:bg-opsnav-hover hover:text-ink'
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`absolute inset-y-2 left-0 hidden w-0.75 rounded-full lg:block ${
+                      active ? 'bg-opsnav-marker' : 'bg-transparent'
+                    }`}
+                  />
+                  <Icon name={navIcon(item.href)} className="hidden h-5 w-5 lg:block" />
+                  {item.label}
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      </nav>
+      {footer}
     </div>
   )
 }
@@ -190,10 +99,12 @@ export function ShellRail({ label, toggleLabel, groups, header = null, footer = 
 /**
  * An area's own sections, as a row of tabs.
  *
- * Links, not ARIA tabs: each section is its own page with its own URL, and a
- * `tablist` would promise arrow-key behaviour a list of pages should not have.
- * Scrolls sideways inside itself on a narrow screen rather than widening the
- * page.
+ * Only for sections the rail does not already list: an area whose every
+ * section is a rail entry draws none, because the same links in two places
+ * is a second navigation, not a help. Links, not ARIA tabs: each section is
+ * its own page with its own URL, and a `tablist` would promise arrow-key
+ * behaviour a list of pages should not have. Scrolls sideways inside itself
+ * on a narrow screen rather than widening the page.
  *
  * @param {object} props Component props.
  * @param {string} props.label The navigation's accessible name, the area's name.
@@ -207,7 +118,7 @@ export function AreaTabs({ label, items }) {
 
   return (
     <nav aria-label={label} className="-mx-1 overflow-x-auto px-1">
-      <ul className="flex min-w-max gap-2 border-b border-line">
+      <ul className="flex min-w-max gap-1 border-b border-line">
         {items.map((item) => {
           const active = item.href === current
 
@@ -216,9 +127,9 @@ export function AreaTabs({ label, items }) {
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
-                className={`-mb-px inline-flex min-h-11 items-center border-b-2 px-3 text-sm transition-colors duration-(--duration-fast) ease-standard focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus ${
+                className={`-mb-px inline-flex min-h-11 items-center border-b-2 px-3 text-label transition-colors duration-(--duration-fast) ease-standard focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus ${
                   active
-                    ? 'border-accent font-semibold text-accent-strong'
+                    ? 'border-accent font-semibold text-ink'
                     : 'border-transparent font-medium text-ink-muted hover:border-line-strong hover:text-ink'
                 }`}
               >

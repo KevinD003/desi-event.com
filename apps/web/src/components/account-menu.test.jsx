@@ -161,6 +161,36 @@ describe('AccountMenu', () => {
     expect(document.activeElement).toBe(trigger)
   })
 
+  it('shows the name’s initial alone on a phone, keeping the whole name in the button’s name', () => {
+    render(<AccountMenu displayName="Meera" items={ITEMS} workspaceHref={null} />)
+
+    const trigger = screen.getByRole('button', { name: 'Meera, account' })
+    const name = within(trigger).getByText('Meera')
+    const initial = within(trigger).getByText('M')
+
+    expect(name.className).toContain('max-sm:sr-only')
+    expect(initial.getAttribute('aria-hidden')).toBe('true')
+    expect(initial.className).toContain('flex')
+  })
+
+  it('draws itself for the workspace’s purple bar when asked', () => {
+    const { rerender } = render(
+      <AccountMenu displayName="Meera" items={ITEMS} workspaceHref={null} />,
+    )
+    const light = screen.getByRole('button', { name: 'Meera, account' }).className
+
+    expect(light).toContain('border-ink')
+    expect(light).toContain('bg-surface')
+
+    rerender(<AccountMenu displayName="Meera" items={ITEMS} workspaceHref={null} tone="inverse" />)
+
+    const inverse = screen.getByRole('button', { name: 'Meera, account' }).className
+
+    expect(inverse).toContain('text-ink-inverse')
+    expect(inverse).not.toContain('bg-surface ')
+    expect(inverse).toContain('min-h-11')
+  })
+
   it('shows the display name and never an email address', () => {
     const { container } = render(
       <AccountMenu displayName="Meera" items={ITEMS} workspaceHref="/organizer" />,

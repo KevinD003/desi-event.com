@@ -36,9 +36,17 @@
   html {
     scroll-behavior: smooth;
     /*
-     * The public header is sticky and 72px tall. Without this, a link or
-     * control reached by Tab or by an in-page anchor can scroll to sit under
-     * it — hidden while focused, which WCAG 2.4.11 does not allow.
+     * How tall the sticky chrome at the top of the page is: the public
+     * header's 64px row and its 2px brand rule. The workspace shell sets its
+     * own (its bar is 56px) on its root. Sticky things below the chrome (a
+     * page header, the workspace rail, the account's own navigation) sit at
+     * this offset.
+     */
+    --chrome-top: 4.125rem;
+    /*
+     * The headers are sticky. Without this, a link or control reached by Tab
+     * or by an in-page anchor can scroll to sit under one — hidden while
+     * focused, which WCAG 2.4.11 does not allow.
      */
     scroll-padding-top: 5.5rem;
   }
@@ -186,32 +194,21 @@
   }
 
   /*
-   * Mirror-work: a chain of small diamonds, tip to tip, in the accent
-   * magenta, the gold highlight and the purple secondary — the divider under the header and between the
-   * night bands and the page.
-   *
-   * Drawn in CSS from the tokens rather than as an image. The colour is a
-   * stripe that changes every tile; the diamonds are cut out of it by a mask
-   * of four gradients, each clearing one corner of the tile, intersected. It
-   * is decoration: give the element `aria-hidden="true"` and no content.
+   * A ticket's tear line: two half-round notches cut from its edges, a third
+   * of the way down, the way a stub is punched before it is torn. A mask, so
+   * the ground behind shows through and the ticket keeps any fill. Decoration:
+   * put it on an element hidden from assistive technology.
    */
-  .mirror-band {
-    --mirror-tile: 0.875rem;
+  .stub-notches {
+    --notch: 1.25rem;
 
-    display: block;
-    block-size: 0.5rem;
-    background-image: repeating-linear-gradient(
-      90deg,
-      var(--color-accent) 0 var(--mirror-tile),
-      var(--color-highlight) var(--mirror-tile) calc(var(--mirror-tile) * 2),
-      var(--color-accent-secondary) calc(var(--mirror-tile) * 2) calc(var(--mirror-tile) * 3)
-    );
     mask-image:
-      linear-gradient(to top left, black 75%, transparent 75%),
-      linear-gradient(to top right, black 75%, transparent 75%),
-      linear-gradient(to bottom left, black 75%, transparent 75%),
-      linear-gradient(to bottom right, black 75%, transparent 75%);
-    mask-size: var(--mirror-tile) 100%;
+      radial-gradient(circle at 0 62%, transparent var(--notch), black calc(var(--notch) + 0.5px)),
+      radial-gradient(
+        circle at 100% 62%,
+        transparent var(--notch),
+        black calc(var(--notch) + 0.5px)
+      );
     mask-composite: intersect;
   }
 
@@ -228,4 +225,63 @@
       color-mix(in oklch, var(--color-seat-unavailable-ink) 35%, transparent) 5px 6px
     );
   }
+}
+
+/*
+ * Page transitions (components/page-transition.jsx).
+ *
+ * A navigation crossfades the page's content and nothing else: 180ms on the
+ * public site, 150ms in the workspace, on the theme's exit curve. The shell
+ * never moves. Its header (or the workspace's bar), the workspace rail and
+ * the footer each carry a `view-transition-name`, and their groups are drawn
+ * once, in place, with no animation: the old picture is not shown at all, so
+ * there is never a moment with two headers. The page's own root does not
+ * fade either, because the content box is what changes.
+ *
+ * The overlay lets clicks through to the live page, so a transition never
+ * eats a tap. Reduced motion stops every `::view-transition-*` animation in
+ * the theme (packages/config/src/tailwind.css), so the new page is simply
+ * there.
+ */
+::view-transition {
+  pointer-events: none;
+}
+
+::view-transition-group(root),
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-group(site-header),
+::view-transition-group(app-rail),
+::view-transition-group(site-footer) {
+  animation: none;
+  z-index: 10;
+}
+
+::view-transition-old(site-header),
+::view-transition-old(app-rail),
+::view-transition-old(site-footer) {
+  display: none;
+}
+
+::view-transition-new(site-header),
+::view-transition-new(app-rail),
+::view-transition-new(site-footer) {
+  animation: none;
+}
+
+::view-transition-group(.page-fade),
+::view-transition-old(.page-fade),
+::view-transition-new(.page-fade) {
+  animation-duration: 180ms;
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-group(.workspace-fade),
+::view-transition-old(.workspace-fade),
+::view-transition-new(.workspace-fade) {
+  animation-duration: 150ms;
+  animation-timing-function: var(--ease-out);
 }

@@ -46,30 +46,40 @@ import { EventArt } from './event-art.jsx'
  * The eyebrow is a paragraph, not a heading, so the outline a screen reader
  * lists starts with the title.
  *
+ * In the workspace, from `lg`, the title and its actions stay in view while
+ * the page scrolls: the row sticks under the bar, full width across the
+ * page's gutters on the page's own ground, so "Create an event" or "Download"
+ * is never a scroll away. The description and anything after it scroll
+ * normally. The block itself is `display: contents`, so the row sticks within
+ * the whole page rather than within the header block. Elsewhere (the
+ * attendee's pages) nothing sticks.
+ *
  * @param {PageHeaderProps} props Component props.
  * @returns {JSX.Element} The header block.
  */
 export function PageHeader({ eyebrow, title, description, actions, titleClassName, children }) {
   return (
-    <div
-      data-slot="page-header"
-      className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4"
-    >
-      <div className="max-w-3xl min-w-0">
-        {eyebrow ? (
-          <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
-            {eyebrow}
-          </p>
-        ) : null}
-        <h1
-          className={`text-h2 font-semibold text-ink ${eyebrow ? 'mt-2' : ''} ${titleClassName ?? ''}`}
-        >
-          {title}
-        </h1>
-        {description ? <p className="mt-2 text-ink-muted">{description}</p> : null}
-        {children}
+    <div data-slot="page-header" className="contents">
+      <div
+        data-slot="page-header-row"
+        className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 lg:in-data-[page-content=workspace]:sticky lg:in-data-[page-content=workspace]:top-(--chrome-top) lg:in-data-[page-content=workspace]:z-20 lg:in-data-[page-content=workspace]:-mx-10 lg:in-data-[page-content=workspace]:bg-page lg:in-data-[page-content=workspace]:px-10 lg:in-data-[page-content=workspace]:py-3"
+      >
+        <div className="max-w-3xl min-w-0">
+          {eyebrow ? (
+            <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+              {eyebrow}
+            </p>
+          ) : null}
+          <h1
+            className={`text-h2 font-semibold text-ink ${eyebrow ? 'mt-2' : ''} ${titleClassName ?? ''}`}
+          >
+            {title}
+          </h1>
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
+      {description ? <p className="mt-2 max-w-3xl text-ink-muted">{description}</p> : null}
+      {children}
     </div>
   )
 }

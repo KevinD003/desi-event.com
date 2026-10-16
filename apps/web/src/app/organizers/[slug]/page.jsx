@@ -25,7 +25,6 @@
 
 import Link from 'next/link'
 
-import { GarbaRings } from '../../../components/festive-decor.jsx'
 import { ArrowRightIcon, PolicyIcon, VerifiedIcon } from '../../../components/icons.jsx'
 import { INVERSE_TEXT_LINK } from '../../../components/link-classes.js'
 import { FadeIn, Reveal } from '../../../components/motion.jsx'
@@ -211,7 +210,6 @@ export default async function OrganizerPage({ params }) {
         }
         eyebrow="Organiser"
         title={organizer.name}
-        art={<GarbaRings className="h-[28rem] w-[28rem]" />}
       >
         {/*
           Rendered only when the organiser has actually been verified. There is

@@ -11,7 +11,6 @@
  */
 
 import { BrandLogo } from './brand-logo.jsx'
-import { GarbaRings, Toran } from './festive-decor.jsx'
 import { CheckIcon } from './icons.jsx'
 import { FadeIn } from './motion.jsx'
 
@@ -19,7 +18,7 @@ import { FadeIn } from './motion.jsx'
 const REASONS = Object.freeze([
   'Your tickets are kept in your account, with an entry pass for each.',
   'Orders and transfers are on your account pages; receipts are not emailed.',
-  'Payments on this site are simulated — no card, no money moves.',
+  'Payments on this site are simulated. No card is charged and no money moves.',
 ])
 
 /**
@@ -59,8 +58,6 @@ export function AuthFrame({ headingId, title, lead, children }) {
         aria-label="What an account is for"
         className="relative isolate order-2 hidden overflow-hidden rounded-card bg-surface-inverse px-10 pt-20 pb-12 text-ink-inverse lg:order-1 lg:flex lg:flex-col lg:justify-end"
       >
-        <Toran />
-        <GarbaRings className="absolute -top-32 -right-64 -z-10 h-[34rem] w-[34rem]" />
         <p className="font-display text-h1 font-semibold text-ink-inverse">
           Your nights out,
           <span className="block text-accent-inverse italic">all in one place.</span>

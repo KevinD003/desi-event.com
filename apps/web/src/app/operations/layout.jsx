@@ -13,6 +13,7 @@
  * @module app/operations/layout
  */
 
+import { PublicShell } from '../../components/public-shell.jsx'
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
 import { operationsTabs } from '../../lib/area-tabs.js'
@@ -35,7 +36,13 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function OperationsLayout({ children }) {
   const { session, admitted } = await enterArea('operations')
 
-  if (!admitted) return <AreaRefusal area="operations" />
+  if (!admitted) {
+    return (
+      <PublicShell>
+        <AreaRefusal area="operations" />
+      </PublicShell>
+    )
+  }
 
   return (
     <WorkspaceShell session={session} area="operations" tabs={operationsTabs(session)}>

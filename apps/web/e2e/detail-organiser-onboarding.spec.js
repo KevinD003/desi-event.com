@@ -996,11 +996,14 @@ test.describe.serial('organisers join by invitation, and events go public after 
     await expect(
       admin.getByText(/Changing a platform role is for super administrators\./u),
     ).toBeVisible()
+    // The area's sections are the workspace rail's entries: the row of tabs
+    // that repeated them was a second menu and is gone.
     await expect(
-      admin
-        .getByRole('navigation', { name: 'Platform administration', exact: true })
-        .getByRole('link', { name: 'People and roles', exact: true }),
+      rail(admin).getByRole('link', { name: 'People and roles', exact: true }),
     ).toBeVisible()
+    await expect(
+      admin.getByRole('navigation', { name: 'Platform administration', exact: true }),
+    ).toHaveCount(0)
 
     const search = admin.getByRole('form', { name: 'Find an account' })
 
@@ -1032,12 +1035,14 @@ test.describe.serial('organisers join by invitation, and events go public after 
     await platform.goto('/admin/organizer-invitations')
     await expect(pageHeading(platform, 'Organiser invitations')).toBeVisible()
 
-    const tabs = platform.getByRole('navigation', { name: 'Platform administration', exact: true })
+    const platformRail = rail(platform)
 
     await expect(
-      tabs.getByRole('link', { name: 'Organiser invitations', exact: true }),
+      platformRail.getByRole('link', { name: 'Organiser invitations', exact: true }),
     ).toBeVisible()
-    await expect(tabs.getByRole('link', { name: 'People and roles', exact: true })).toBeVisible()
+    await expect(
+      platformRail.getByRole('link', { name: 'People and roles', exact: true }),
+    ).toBeVisible()
 
     // A moderator reviews events and is not on the team that invites
     // organisers: the whole area is refused.

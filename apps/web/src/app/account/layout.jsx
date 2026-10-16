@@ -11,6 +11,7 @@
  * @module app/account/layout
  */
 
+import { PublicShell } from '../../components/public-shell.jsx'
 import { AccountShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
 
@@ -32,5 +33,9 @@ export const metadata = { robots: { index: false, follow: false } }
 export default async function AccountLayout({ children }) {
   const { session } = await enterArea('account')
 
-  return <AccountShell session={session}>{children}</AccountShell>
+  return (
+    <PublicShell>
+      <AccountShell session={session}>{children}</AccountShell>
+    </PublicShell>
+  )
 }
