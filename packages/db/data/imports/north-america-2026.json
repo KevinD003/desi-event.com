@@ -4312,7 +4312,7 @@
       "parking": null,
       "faq": [],
       "importNotes": [
-        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). Check the currency with the organiser."
+        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). The owner confirmed on 2026-10-16 that Canadian prices are in CAD."
       ]
     },
     {
@@ -5673,7 +5673,7 @@
       "faq": [],
       "importNotes": [
         "The page gives its times in EDT for a venue in Pacific time; they are imported as the same clock times in local time (start 6:30 PM). Check the time with the organiser.",
-        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). Check the currency with the organiser."
+        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). The owner confirmed on 2026-10-16 that Canadian prices are in CAD."
       ]
     },
     {
@@ -6198,7 +6198,7 @@
       "parking": null,
       "faq": [],
       "importNotes": [
-        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). Check the currency with the organiser."
+        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). The owner confirmed on 2026-10-16 that Canadian prices are in CAD."
       ]
     },
     {
@@ -6400,7 +6400,7 @@
       "faq": [],
       "importNotes": [
         "The source listing gives \"Free Admission\" as \"Free\" (imported as CA$0).",
-        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). Check the currency with the organiser."
+        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). The owner confirmed on 2026-10-16 that Canadian prices are in CAD."
       ]
     },
     {
@@ -11652,7 +11652,7 @@
         "The page says EDT, but the date falls in standard time, so the time is imported as Eastern Standard Time.",
         "A sentence about ticket availability was left out of the public description: \"Limited tables are offered.\"",
         "The source listing gives \"Table\" as \"$1,500 plus taxes\" (imported as CA$1,500).",
-        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). Check the currency with the organiser."
+        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). The owner confirmed on 2026-10-16 that Canadian prices are in CAD."
       ]
     },
     {
@@ -15376,7 +15376,7 @@
       "parking": null,
       "faq": [],
       "importNotes": [
-        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). Check the currency with the organiser."
+        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). The owner confirmed on 2026-10-16 that Canadian prices are in CAD."
       ]
     },
     {
@@ -15683,7 +15683,7 @@
       "parking": null,
       "faq": [],
       "importNotes": [
-        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). Check the currency with the organiser.",
+        "The source listing shows these prices with a plain $ sign and no currency; the venue is in Canada, so they are imported as Canadian dollars (CAD). The owner confirmed on 2026-10-16 that Canadian prices are in CAD.",
         "The source listing's export (curated 2026-10-15) shows this event as \"Selling Fast\". This is for the administrator only and is never shown publicly."
       ]
     },
