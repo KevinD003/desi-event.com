@@ -59,8 +59,9 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  *       events.
  *   J7. A posting role in an existing organisation comes from the super
  *       administrator; its owner may move a posting member only downwards.
- *   J8. What a platform administrator cannot do, and that a moderator is not
- *       admitted to the area at all.
+ *   J8. What a platform administrator cannot do — change a platform role, the
+ *       one power a super administrator keeps (ADR 0018) — and that a
+ *       moderator is not admitted to the area at all.
  *
  * ## Who is who
  *
@@ -118,10 +119,12 @@ const ids = () => world()
 const names = () => onboardingNames(ids().tag)
 
 /**
- * What a platform administrator's rail offers, in order: the platform's
- * moderation and visit pages, inviting organisers, every organisation's events
- * and imports, and nothing that needs a membership, money, privacy, retention
- * or the power to change roles.
+ * What a platform administrator's rail offers, in order (ADR 0018): everything
+ * a super administrator's does — the workspace's platform doors, Check-in and
+ * the imported events' door team among them, the money, privacy and retention,
+ * review, inviting organisers, every organisation's events, imports and People
+ * and roles — though not the platform-role change on that page, which is drawn
+ * for super administrators alone.
  *
  * Written out rather than imported: a test that read the navigation's own
  * table would agree with whatever the table said.
@@ -129,9 +132,19 @@ const names = () => onboardingNames(ids().tag)
  * @type {ReadonlyArray<string>}
  */
 const ADMIN_RAIL = Object.freeze([
+  'Overview',
+  'Events',
+  'Venues',
+  'Check-in',
+  'Team',
   'Analytics',
   'Every event’s visits',
+  'Finance',
+  'Operations',
+  'Notifications',
   'Moderation',
+  'Privacy',
+  'Retention',
   'Organisation checks',
   'Pictures waiting',
   'Website links',
@@ -141,6 +154,7 @@ const ADMIN_RAIL = Object.freeze([
   'Referral codes',
   'Booking fee refunds',
   'Imports',
+  'People and roles',
 ])
 
 /** The one sentence every unusable organiser code is refused with. */
@@ -167,9 +181,8 @@ const CONFLICT_NOTICE =
 const ADMIN_AREA_REFUSAL =
   'This area is for the platform administrators at The Desi Events: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.'
 
-/** What People and roles says to a platform administrator. */
-const PEOPLE_AND_ROLES_REFUSAL =
-  'Changing platform roles and putting people into organisations directly are held by platform super administrators alone. Your role, platform administrator, does not include them, and nothing on this page can grant them.'
+/** What People and roles says, on each account, to a platform administrator (ADR 0018). */
+const PLATFORM_ROLE_REFUSAL = 'Only a super administrator can change a platform role.'
 
 /**
  * A page's level-one heading.
@@ -382,8 +395,8 @@ test.describe.serial('organisers join by invitation, and events go public after 
     const { ownerEmail, studioName, studioDescription, studioWebsite, studioNote, adminName } =
       names()
 
-    // A platform administrator's rail: the pages for the team at The Desi Events, and none
-    // that needs a membership, money or the power to change roles.
+    // A platform administrator's rail: everything a super administrator's offers
+    // (ADR 0018), People and roles included.
     await admin.goto('/moderation/events')
     await expect(pageHeading(admin, 'Review queue')).toBeVisible()
     await expect(rail(admin).getByRole('link')).toHaveText([...ADMIN_RAIL])
@@ -972,14 +985,33 @@ test.describe.serial('organisers join by invitation, and events go public after 
     browser,
     platform,
   }) => {
-    // People and roles is the super administrators' alone.
+    const { strangerEmail, strangerName } = names()
+
+    // People and roles opens to a platform administrator (ADR 0018), whose
+    // one missing power is changing a platform role: the page says so, and
+    // no account it finds offers the change.
     await admin.goto('/admin/users')
-    await expect(pageHeading(admin, 'Not for you')).toBeVisible()
-    await expect(admin.getByText(PEOPLE_AND_ROLES_REFUSAL, { exact: true })).toBeVisible()
+    await expect(pageHeading(admin, 'People and roles')).toBeVisible()
+    await expect(pageHeading(admin, 'Not for you')).toHaveCount(0)
+    await expect(
+      admin.getByText(/Changing a platform role is for super administrators\./u),
+    ).toBeVisible()
     await expect(
       admin
         .getByRole('navigation', { name: 'Platform administration', exact: true })
         .getByRole('link', { name: 'People and roles', exact: true }),
+    ).toBeVisible()
+
+    const search = admin.getByRole('form', { name: 'Find an account' })
+
+    await search.getByLabel(/^Email address, name or account id/u).fill(strangerEmail)
+    await search.getByRole('button', { name: 'Search', exact: true }).click()
+
+    const card = admin.getByRole('article', { name: strangerName })
+
+    await expect(card.getByText(PLATFORM_ROLE_REFUSAL, { exact: true })).toBeVisible()
+    await expect(
+      card.getByRole('button', { name: `Change ${strangerName}’s platform role` }),
     ).toHaveCount(0)
 
     // And the API agrees, for a client that asks anyway, with nothing changed.
